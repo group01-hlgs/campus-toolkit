@@ -301,6 +301,17 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const backHref = `/${role}`;
   const messageClass = (type: "success" | "error") =>
     type === "success" ? "text-green-600" : "text-red-500";
+  // 返回功能首頁／登出按鈕組：頁首與最後一張卡片下方各擺一組
+  const actionButtons = (
+    <>
+      <button onClick={() => router.push(backHref)} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+        返回功能首頁
+      </button>
+      <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+        登出
+      </button>
+    </>
+  );
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
@@ -315,14 +326,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         <p className="text-t3 text-sm mt-1">{roleLabel}</p>
       </div>
 
-      <div className="w-full max-w-2xl flex justify-end gap-2 mb-4">
-        <button onClick={() => router.push(backHref)} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
-          返回功能首頁
-        </button>
-        <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
-          登出
-        </button>
-      </div>
+      <div className="w-full max-w-2xl flex justify-end gap-2 mb-4">{actionButtons}</div>
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 
@@ -513,6 +517,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           {savingTwoFactor ? "儲存中..." : "儲存設定"}
         </button>
       </form>
+
+      <hr className="w-full max-w-2xl border-themed mb-4" />
+      <div className="w-full max-w-2xl flex justify-start gap-2 mb-4">{actionButtons}</div>
 
       {/* 廣告區域 */}
       {settings.sponsorAdEnabled && (
