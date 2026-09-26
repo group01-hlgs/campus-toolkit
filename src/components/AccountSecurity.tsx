@@ -315,9 +315,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         <p className="text-t3 text-sm mt-1">{roleLabel}</p>
       </div>
 
-      <div className="w-full max-w-2xl flex justify-between mb-4">
+      <div className="w-full max-w-2xl flex justify-end gap-2 mb-4">
         <button onClick={() => router.push(backHref)} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
-          返回首頁
+          返回功能首頁
         </button>
         <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
           登出
