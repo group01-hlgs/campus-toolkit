@@ -62,7 +62,7 @@ const COMMON_WEAK_PASSWORDS = new Set([
 ]);
 
 /**
- * 密碼強度：至少 8 碼、至少兩種字元類別（字母／數字／符號）、擋常見弱密碼。
+ * 密碼規則：至少 8 碼，且需同時包含大寫字母、小寫字母與數字（符號可有可無）、擋常見弱密碼。
  * 客戶端與伺服器共用此檢查，兩側訊息需一致。
  */
 export function isStrongPassword(value: unknown): value is string {
@@ -70,11 +70,10 @@ export function isStrongPassword(value: unknown): value is string {
   if (value.length < 8 || value.length > 128) return false;
   if (COMMON_WEAK_PASSWORDS.has(value.toLowerCase())) return false;
 
-  const hasLetter = /[a-zA-Z]/.test(value);
+  const hasUpper = /[A-Z]/.test(value);
+  const hasLower = /[a-z]/.test(value);
   const hasDigit = /[0-9]/.test(value);
-  const hasSymbol = /[^a-zA-Z0-9]/.test(value);
-  const classes = [hasLetter, hasDigit, hasSymbol].filter(Boolean).length;
-  return classes >= 2;
+  return hasUpper && hasLower && hasDigit;
 }
 
-export const PASSWORD_REQUIREMENT_MESSAGE = "密碼至少 8 碼，且需包含字母與數字";
+export const PASSWORD_REQUIREMENT_MESSAGE = "密碼至少 8 碼，且需包含大寫字母、小寫字母與數字";
