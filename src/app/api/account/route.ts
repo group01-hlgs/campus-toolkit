@@ -13,7 +13,11 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { getSiteName, isEmailChangeAllowed } from "@/lib/settings-server";
 import { buildOtpauthUrl } from "@/lib/totp";
 import { readTwoFactorProfile } from "@/lib/two-factor";
-import { normalizeAccount, normalizeEmail } from "@/lib/validation";
+import {
+  ACCOUNT_EMAIL_REQUIRED_MESSAGE,
+  normalizeAccount,
+  normalizeEmail,
+} from "@/lib/validation";
 import {
   ROLE_COLLECTIONS,
   ROLE_LABELS,
@@ -72,9 +76,10 @@ async function buildProfile(
         : typeof data.displayName === "string" && data.displayName
           ? data.displayName
           : sessionName,
-    email: typeof data.email === "string" && data.email ? data.email : sessionEmail,
-    account:
-      typeof data.account === "string" && data.account ? data.account : sessionAccount,
+    // 欄位存在即以檔案值為準（空字串＝使用者已清空，不可再回推成 session 舊值）；
+    // 欄位不存在（舊資料）才回退 session 帶來的值
+    email: typeof data.email === "string" ? data.email : sessionEmail,
+    account: typeof data.account === "string" ? data.account : sessionAccount,
     loginCount: typeof data.loginCount === "number" ? data.loginCount : 0,
     lastLogin: typeof data.lastLogin === "number" ? data.lastLogin : 0,
     lastLoginMethod: typeof data.lastLoginMethod === "string" ? data.lastLoginMethod : "",
@@ -141,7 +146,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** PUT：儲存自身電子郵件地址／帳號（同身分內查重，排除自己） */
+/**
+ * PUT：儲存自身電子郵件地址／帳號。
+ * - 兩欄可個別留空（空字串＝清除），但不可同時為空
+ * - 同身分內查重（排除自己），僅在值真的變更時查詢
+ */
 export async function PUT(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -183,20 +192,31 @@ export async function PUT(request: NextRequest) {
     const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
     const storedEmail =
       typeof userData.email === "string" ? userData.email.trim() : "";
-    // 與 buildProfile 同邏輯：檔案無 email 時以 session 帶的地址為準
-    const currentEmail = storedEmail || session.email;
+    // 與 buildProfile 同邏輯：檔案沒有 email 欄位（舊資料）才以 session 帶的地址為準，
+    // 欄位存在（含空字串＝使用者已清空）一律以檔案值為準
+    const currentEmail = typeof userData.email === "string" ? storedEmail : session.email || "";
+    const currentAccount =
+      typeof userData.account === "string"
+        ? userData.account.trim()
+        : session.account || "";
 
     const updateData: Record<string, unknown> = {};
 
     if (body.email !== undefined) {
-      const email = normalizeEmail(body.email);
-      if (!email) {
-        return NextResponse.json(
-          { success: false, message: "電子郵件格式無效" },
-          { status: 400 }
-        );
+      // 空字串＝清除電子郵件地址（是否可與另一欄同時為空，於下方統一把關）
+      const raw = typeof body.email === "string" ? body.email.trim() : "";
+      let email = "";
+      if (raw) {
+        const normalized = normalizeEmail(raw);
+        if (!normalized) {
+          return NextResponse.json(
+            { success: false, message: "電子郵件格式無效" },
+            { status: 400 }
+          );
+        }
+        email = normalized;
       }
-      // 已有地址＝變更，受「開放使用者更換電子郵件地址」設定限制；
+      // 已有地址＝變更（含清空），受「開放使用者更換電子郵件地址」設定限制；
       // 尚無地址＝新增，不受限制（前端已提示日後是否可再修改）
       if (currentEmail && email !== currentEmail && !(await isEmailChangeAllowed())) {
         return NextResponse.json(
@@ -204,32 +224,66 @@ export async function PUT(request: NextRequest) {
           { status: 403 }
         );
       }
-      const dup = await collection.where("email", "==", email).limit(1).get();
-      if (!dup.empty && dup.docs[0].id !== session.uid) {
+      // 清空電子郵件：已啟用「電子郵件驗證碼」時無從寄信，先擋下以免把自己鎖在門外
+      if (!email && currentEmail && readTwoFactorProfile(userData).method === "email_otp") {
         return NextResponse.json(
-          { success: false, message: "此電子郵件已被使用" },
-          { status: 409 }
-        );
-      }
-      updateData.email = email;
-    }
-
-    if (body.account !== undefined) {
-      const account = normalizeAccount(body.account);
-      if (!account) {
-        return NextResponse.json(
-          { success: false, message: "帳號格式無效（2-64 字元，限小寫英文、數字與 . _ @ -）" },
+          {
+            success: false,
+            message: "已啟用電子郵件驗證碼兩階段驗證，請先改為其他驗證方式再清除電子郵件地址",
+          },
           { status: 400 }
         );
       }
-      const dup = await collection.where("account", "==", account).limit(1).get();
-      if (!dup.empty && dup.docs[0].id !== session.uid) {
-        return NextResponse.json(
-          { success: false, message: "此帳號已被使用" },
-          { status: 409 }
-        );
+      // 僅在值真的變更時查重：值未變即為自己，避免同身分的既有重複資料擋住其他欄位儲存
+      if (email && email !== currentEmail) {
+        const dup = await collection.where("email", "==", email).limit(1).get();
+        if (!dup.empty && dup.docs[0].id !== session.uid) {
+          return NextResponse.json(
+            { success: false, message: "此電子郵件已被使用" },
+            { status: 409 }
+          );
+        }
       }
-      updateData.account = account;
+      if (email !== currentEmail) updateData.email = email;
+    }
+
+    if (body.account !== undefined) {
+      // 空字串＝清除帳號（是否可與另一欄同時為空，於下方統一把關）
+      const raw = typeof body.account === "string" ? body.account.trim() : "";
+      let account = "";
+      if (raw) {
+        const normalized = normalizeAccount(raw);
+        if (!normalized) {
+          return NextResponse.json(
+            { success: false, message: "帳號格式無效（2-64 字元，限小寫英文、數字與 . _ @ -）" },
+            { status: 400 }
+          );
+        }
+        account = normalized;
+      }
+      // 僅在值真的變更時查重（值未變即為自己）
+      if (account && account !== currentAccount) {
+        const dup = await collection.where("account", "==", account).limit(1).get();
+        if (!dup.empty && dup.docs[0].id !== session.uid) {
+          return NextResponse.json(
+            { success: false, message: "此帳號已被使用" },
+            { status: 409 }
+          );
+        }
+      }
+      if (account !== currentAccount) updateData.account = account;
+    }
+
+    // 兩欄可個別留空，但至少保留一項作為登入識別（帳密登入、密碼重設、Google 登入都仰賴它）
+    const finalEmail =
+      typeof updateData.email === "string" ? updateData.email : currentEmail;
+    const finalAccount =
+      typeof updateData.account === "string" ? updateData.account : currentAccount;
+    if (!finalEmail && !finalAccount) {
+      return NextResponse.json(
+        { success: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE },
+        { status: 400 }
+      );
     }
 
     if (Object.keys(updateData).length === 0) {

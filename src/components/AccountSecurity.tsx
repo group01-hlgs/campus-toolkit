@@ -10,7 +10,15 @@ import {
   UserRole,
 } from "@/types/users";
 import { fetchSession, logout } from "@/lib/session";
-import { isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
+import {
+  ACCOUNT_EMAIL_REQUIRED_MESSAGE,
+  ACCOUNT_FORMAT_MESSAGE,
+  EMAIL_FORMAT_MESSAGE,
+  isStrongPassword,
+  isValidAccount,
+  isValidEmail,
+  PASSWORD_REQUIREMENT_MESSAGE,
+} from "@/lib/validation";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
@@ -37,6 +45,12 @@ interface AccountProfile {
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
+/**
+ * 即時查重狀態：idle（值未變動／不需查）｜checking 查詢中
+ * ｜available 同身分無人使用｜taken 已被同身分其他使用者占用
+ */
+type DupState = "idle" | "checking" | "available" | "taken";
+
 function formatDateTime(value: number): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -60,6 +74,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [accountFlash, setAccountFlash] = useState<Flash>(null);
   const [savingAccount, setSavingAccount] = useState(false);
+  // 即時查重（電子郵件地址／帳號，同身分內比對）
+  const [emailDup, setEmailDup] = useState<DupState>("idle");
+  const [accountDup, setAccountDup] = useState<DupState>("idle");
   const [name, setName] = useState("");
 
   // 兩階段驗證
@@ -131,6 +148,93 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     setTotpSecret(next.totpSecret || "");
   }
 
+  // ── 帳密管理：欄位的即時驗證資料（四個身分共用同一份元件） ──
+  const emailValue = email.trim();
+  const accountValue = account.trim();
+  // 已存的值：用來判斷「是否已被修改」，未修改的值（＝自己的值）不查重
+  const storedEmail = profile ? profile.email.trim() : "";
+  const storedAccount = profile ? profile.account.trim() : "";
+  const loaded = Boolean(profile);
+  // 兩欄可個別留空，但不可同時為空（至少保留一項作為登入識別）
+  const bothEmpty = loaded && !emailValue && !accountValue;
+  // 格式錯誤：空白欄位交由「不可同時為空」規則判定，不重複報錯
+  const emailFormatInvalid = Boolean(emailValue) && !isValidEmail(emailValue);
+  const accountFormatInvalid = Boolean(accountValue) && !isValidAccount(accountValue);
+  // 是否與已存值不同
+  const emailChanged = loaded && emailValue !== storedEmail;
+  const accountChanged = loaded && accountValue !== storedAccount;
+  // 即時查重結果（僅在值真的變更時才算數）
+  const emailTaken = emailChanged && emailDup === "taken";
+  const accountTaken = accountChanged && accountDup === "taken";
+  // 清空電子郵件時，若兩階段驗證仍是「電子郵件驗證碼」，伺服器會擋下（無從寄信）
+  const emailCleared = loaded && !emailValue && Boolean(storedEmail);
+  const emailOtpBlocked = emailCleared && twoFactor === "email_otp";
+  // 有阻斷性問題時不可送出（說明文字即時顯示在各欄位下方）
+  const accountBlocked =
+    bothEmpty ||
+    emailFormatInvalid ||
+    accountFormatInvalid ||
+    emailTaken ||
+    accountTaken ||
+    emailOtpBlocked;
+  const emailInputInvalid =
+    bothEmpty || emailFormatInvalid || emailTaken || emailOtpBlocked;
+  const accountInputInvalid = bothEmpty || accountFormatInvalid || accountTaken;
+
+  // 即時查重：輸入停止 450ms 後，對「已修改且格式正確」的欄位
+  // 向 /api/account/check 查同身分（排除自己）是否重複
+  useEffect(() => {
+    if (!profile) return;
+    const checkEmail = emailChanged && Boolean(emailValue) && !emailFormatInvalid;
+    const checkAccount =
+      accountChanged && Boolean(accountValue) && !accountFormatInvalid;
+
+    if (!checkEmail && !checkAccount) {
+      setEmailDup("idle");
+      setAccountDup("idle");
+      return;
+    }
+    if (checkEmail) setEmailDup("checking");
+    if (checkAccount) setAccountDup("checking");
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const query = new URLSearchParams();
+      if (checkEmail) query.set("email", emailValue);
+      if (checkAccount) query.set("account", accountValue);
+      fetch(`/api/account/check?${query.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`check failed: ${res.status}`);
+          const data = await res.json();
+          if (checkEmail) setEmailDup(data.emailTaken ? "taken" : "available");
+          if (checkAccount) setAccountDup(data.accountTaken ? "taken" : "available");
+        })
+        .catch((error: unknown) => {
+          // 中途改輸入（AbortError）不處理；限流／系統錯誤回到 idle，
+          // 不顯示可能誤導的查重結果，交由儲存時的伺服器檢查把關
+          if ((error as Error)?.name === "AbortError") return;
+          if (checkEmail) setEmailDup("idle");
+          if (checkAccount) setAccountDup("idle");
+        });
+    }, 450);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    profile,
+    emailValue,
+    accountValue,
+    emailChanged,
+    accountChanged,
+    emailFormatInvalid,
+    accountFormatInvalid,
+  ]);
+
   /** TOTP QR Code：前端本地產生（不經外部 QR 服務） */
   useEffect(() => {
     if (twoFactor !== "totp" || !otpauthUrl) {
@@ -162,6 +266,41 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     e.preventDefault();
     setAccountFlash(null);
 
+    // 身分識別欄位：兩欄可個別留空，但不可同時為空；格式與同身分查重即時把關
+    if (bothEmpty) {
+      setAccountFlash({ type: "error", text: ACCOUNT_EMAIL_REQUIRED_MESSAGE });
+      return;
+    }
+    if (emailFormatInvalid) {
+      setAccountFlash({ type: "error", text: EMAIL_FORMAT_MESSAGE });
+      return;
+    }
+    if (accountFormatInvalid) {
+      setAccountFlash({ type: "error", text: ACCOUNT_FORMAT_MESSAGE });
+      return;
+    }
+    if (emailTaken) {
+      setAccountFlash({
+        type: "error",
+        text: "此電子郵件地址已被同身分的其他使用者使用",
+      });
+      return;
+    }
+    if (accountTaken) {
+      setAccountFlash({
+        type: "error",
+        text: "此帳號已被同身分的其他使用者使用",
+      });
+      return;
+    }
+    if (emailOtpBlocked) {
+      setAccountFlash({
+        type: "error",
+        text: "已啟用電子郵件驗證碼兩階段驗證，請先改為其他驗證方式再清除電子郵件地址",
+      });
+      return;
+    }
+
     const wantPassword = newPassword.length > 0 || confirmPassword.length > 0;
     if (wantPassword) {
       if (!oldPassword) {
@@ -181,9 +320,12 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     setSavingAccount(true);
     try {
       let saved: AccountProfile | null = null;
+      let putMessage = "";
 
       const unchanged =
-        profile && email === profile.email && account === profile.account;
+        Boolean(profile) &&
+        emailValue === storedEmail &&
+        accountValue === storedAccount;
       if (!unchanged) {
         const res = await fetch("/api/account", {
           method: "PUT",
@@ -195,6 +337,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           setAccountFlash({ type: "error", text: data.message || "儲存失敗" });
           return;
         }
+        putMessage = typeof data.message === "string" ? data.message : "";
         if (data.profile) {
           saved = data.profile;
           applyProfile(data.profile);
@@ -202,11 +345,15 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       }
 
       if (wantPassword) {
+        // 帳號可能已被清空：變更密碼 API 同時接受帳號或電子郵件地址作為自身識別
+        const identifier = saved
+          ? saved.account || saved.email
+          : accountValue || emailValue;
         const res = await fetch("/api/auth/change-password", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            account: saved ? saved.account : account,
+            account: identifier,
             oldPassword,
             newPassword,
             role,
@@ -225,12 +372,15 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         setShowConfirm(false);
         setAccountFlash({
           type: "success",
-          text: unchanged ? data.message || "密碼已更新" : "帳號資料與密碼已更新",
+          text: saved ? "帳號資料與密碼已更新" : data.message || "密碼已更新",
         });
         return;
       }
 
-      setAccountFlash({ type: "success", text: unchanged ? "沒有變更" : "儲存成功" });
+      setAccountFlash({
+        type: "success",
+        text: putMessage || (unchanged ? "沒有變更" : "儲存成功"),
+      });
     } catch {
       setAccountFlash({ type: "error", text: "系統錯誤，請稍後再試" });
     } finally {
@@ -304,9 +454,10 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     type === "success" ? "text-success" : "text-danger";
 
   // 電子郵件地址可編輯性（受系統設定「開放使用者更換電子郵件地址」控制）：
+  // 一律以「已存的值」判斷，避免輸入途中清空欄位就被誤判為尚未設定／解除鎖定
   // 已有地址 → 依設定開放／不開放；尚無地址 → 僅能新增一次，並提示日後是否可再修改
-  const hasEmail = Boolean(email.trim());
-  const emailLocked = Boolean(profile) && hasEmail && !settings.emailChangeAllowed;
+  const hasStoredEmail = Boolean(storedEmail);
+  const emailLocked = loaded && hasStoredEmail && !settings.emailChangeAllowed;
   const emailNotice: { className: string; text: string } | null = !profile
     ? null
     : emailLocked
@@ -315,7 +466,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           className: "text-danger font-medium",
           text: "系統設定不開放變更電子郵件地址，此欄位僅供檢視。",
         }
-      : hasEmail
+      : emailValue
         ? null
         : settings.emailChangeAllowed
           ? {
@@ -327,6 +478,42 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
               className: "text-danger font-medium",
               text: "尚未設定電子郵件地址：系統設定不開放變更，新增後將無法再修改，請謹慎填寫。",
             };
+
+  // 欄位下方的即時回饋：語意色一律走主題變數 --danger／--success／--t3，隨 CSS 主題切換
+  const emailFeedback: { className: string; text: string } | null =
+    emailFormatInvalid
+      ? { className: "text-danger", text: EMAIL_FORMAT_MESSAGE }
+      : emailTaken
+        ? {
+            className: "text-danger",
+            text: "此電子郵件地址已被同身分的其他使用者使用",
+          }
+        : emailOtpBlocked
+          ? {
+              // 語意色：跟隨主題變數 --danger（與全站警示文案一致）
+              className: "text-danger font-medium",
+              text: "已啟用「電子郵件驗證碼」兩階段驗證，請先在下方改為其他方式，才能清除電子郵件地址。",
+            }
+          : emailChanged && emailDup === "available"
+            ? { className: "text-success", text: "此電子郵件地址可以使用" }
+            : emailChanged && emailDup === "checking"
+              ? { className: "text-t3", text: "查重中..." }
+              : null;
+
+  const accountFeedback: { className: string; text: string } | null =
+    accountFormatInvalid
+      ? { className: "text-danger", text: ACCOUNT_FORMAT_MESSAGE }
+      : accountTaken
+        ? {
+            className: "text-danger",
+            text: "此帳號已被同身分的其他使用者使用",
+          }
+        : accountChanged && accountDup === "available"
+          ? { className: "text-success", text: "此帳號可以使用" }
+          : accountChanged && accountDup === "checking"
+            ? { className: "text-t3", text: "查重中..." }
+            : null;
+
   // 返回功能首頁／登出按鈕組：頁首與最後一張卡片下方各擺一組
   const actionButtons = (
     <>
@@ -388,7 +575,11 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       </div>
 
       {/* 帳密管理卡 */}
-      <form onSubmit={handleSaveAccount} className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4">
+      <form
+        onSubmit={handleSaveAccount}
+        noValidate
+        className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4"
+      >
         <h3 className="font-bold text-t1 mb-4">帳密管理</h3>
 
         {accountFlash && (
@@ -402,13 +593,15 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           onChange={(e) => setEmail(e.target.value)}
           readOnly={emailLocked}
           aria-readonly={emailLocked}
-          placeholder={hasEmail ? "" : "請輸入電子郵件地址"}
-          className={`w-full input-theme rounded px-4 py-2 mb-1${emailLocked ? " opacity-60 cursor-not-allowed" : ""}`}
+          aria-invalid={emailInputInvalid || undefined}
+          placeholder={emailValue ? "" : "請輸入電子郵件地址"}
+          className={`w-full input-theme rounded px-4 py-2 mb-1${emailLocked ? " opacity-60 cursor-not-allowed" : ""}${emailInputInvalid ? " is-invalid" : ""}`}
           autoComplete="email"
         />
         <div className="mb-4 space-y-1">
-          <p className="text-xs text-t3">電子郵件若為 Gmail，可以透過 Google 登入</p>
+          <p className="text-xs text-t3">可留空；電子郵件若為 Gmail，可以透過 Google 登入</p>
           {emailNotice && <p className={`text-xs ${emailNotice.className}`}>{emailNotice.text}</p>}
+          {emailFeedback && <p className={`text-xs ${emailFeedback.className}`}>{emailFeedback.text}</p>}
         </div>
 
         <label className="block text-sm text-t2 mb-1">帳號</label>
@@ -416,9 +609,17 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           type="text"
           value={account}
           onChange={(e) => setAccount(e.target.value)}
-          className="w-full input-theme rounded px-4 py-2 mb-4"
+          aria-invalid={accountInputInvalid || undefined}
+          className={`w-full input-theme rounded px-4 py-2 mb-1${accountInputInvalid ? " is-invalid" : ""}`}
           autoComplete="username"
         />
+        <div className="mb-4 space-y-1">
+          <p className="text-xs text-t3">可留空；限 2-64 字元的小寫英文、數字與 . _ @ -</p>
+          {accountFeedback && <p className={`text-xs ${accountFeedback.className}`}>{accountFeedback.text}</p>}
+          {bothEmpty && (
+            <p className="text-xs text-danger font-medium">{ACCOUNT_EMAIL_REQUIRED_MESSAGE}</p>
+          )}
+        </div>
 
         <h4 className="font-bold text-t1 mb-3">變更密碼</h4>
 
@@ -473,7 +674,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
 
         <button
           type="submit"
-          disabled={savingAccount}
+          disabled={savingAccount || accountBlocked}
           className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
         >
           {savingAccount ? "儲存中..." : "儲存帳密資料"}

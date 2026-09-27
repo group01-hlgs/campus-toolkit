@@ -4,6 +4,7 @@ import type { DocumentReference, DocumentData } from "firebase-admin/firestore";
 import { verifyTotpCode, generateTotpSecret } from "@/lib/totp";
 import { isMailConfigured, sendLoginOtpEmail, sendLoginNotificationEmail } from "@/lib/mailer";
 import { getSiteName } from "@/lib/settings-server";
+import { normalizeEmail } from "@/lib/validation";
 import { ROLE_LABELS, TwoFactorMethod, UserRole } from "@/types/users";
 
 /**
@@ -136,6 +137,9 @@ export async function sendEmailOtp(options: {
 
   // 寄信不可用時不寫入驗證碼：寫了也沒人收得到，只會把使用者卡死在驗證頁
   if (!isMailConfigured()) return "smtp";
+  // 電子郵件地址留空／格式無效（帳密管理頁允許清空）時沒有收件人：
+  // 同樣 fail-open 略過驗證，避免把自己鎖在門外
+  if (!normalizeEmail(options.email)) return "smtp";
 
   const code = await writeEmailOtp(options.ref);
 

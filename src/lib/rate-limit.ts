@@ -158,6 +158,8 @@ export const RATE = {
   TWO_FA_STATUS: { limit: 60, windowMs: 60_000 },
   /** 帳號與安全：讀取自身資料 */
   ACCOUNT_GET: { limit: 60, windowMs: 60_000 },
+  /** 帳號與安全：電子郵件／帳號即時查重（輸入時 debounce 呼叫，故額度較寬） */
+  ACCOUNT_CHECK: { limit: 60, windowMs: 60_000 },
   /** 帳號與安全：儲存信箱／帳號 */
   ACCOUNT_UPDATE: { limit: 10, windowMs: 60_000 },
   /** 帳號與安全：設定兩階段驗證方式／重新產生 TOTP 密鑰 */

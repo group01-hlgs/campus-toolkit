@@ -309,6 +309,14 @@ mark {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(124,140,240,.15);
 }
+/* 欄位驗證狀態：跟隨主題變數 --danger（各主題的警示色不同，不可寫死 Tailwind 色票） */
+.input-theme.is-invalid {
+  border-color: var(--danger);
+}
+.input-theme.is-invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent);
+}
 .btn-theme {
   background: var(--btn-secondary);
   color: var(--btn-secondary-text);
