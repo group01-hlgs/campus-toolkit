@@ -58,6 +58,30 @@ function formatDateTime(value: number): string {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/** 全螢幕遮罩（載入中／儲存中）：淡入過場並擋住下方所有操作 */
+function BlockingMask({ text }: { text: string }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 animate-fade-in"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+      role="status"
+      aria-live="polite"
+    >
+      <svg
+        className="w-10 h-10 animate-spin text-t2"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" d="M21 12a9 9 0 11-6.22-8.56" />
+      </svg>
+      <p className="text-sm text-t2">{text}</p>
+    </div>
+  );
+}
+
 export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
@@ -87,6 +111,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   // 儲存成功提示 modal：儲存完成時跳出，1 秒後自動消失
   const [successModal, setSuccessModal] = useState<string | null>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 進頁載入遮罩：帳號資料與系統設定都到齊前不讓使用者操作（避免搶快繞過尚未載入的限制）
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingSettings, setLoadingSettings] = useState(true);
 
   // 離開頁面時清掉成功訊息的自動關閉計時器
   useEffect(() => {
@@ -97,16 +124,22 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetchSession(true).then((session) => {
-      if (cancelled) return;
-      if (!session || session.role !== role) {
-        router.push("/");
-        return;
-      }
-      setEmail(session.email);
-      setAccount(session.account);
-      void loadProfile();
-    });
+    fetchSession(true)
+      .then((session) => {
+        if (cancelled) return;
+        if (!session || session.role !== role) {
+          router.push("/");
+          return;
+        }
+        setEmail(session.email);
+        setAccount(session.account);
+        void loadProfile();
+      })
+      .catch((error) => {
+        console.error("載入登入狀態失敗:", error);
+        // 失敗也要解除載入遮罩，否則畫面會一直被擋住
+        if (!cancelled) setLoadingProfile(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -125,6 +158,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         }
       } catch (error) {
         console.error("載入設定失敗:", error);
+      } finally {
+        setLoadingSettings(false);
       }
     }
     loadSettings();
@@ -143,6 +178,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       }
     } catch (error) {
       console.error("載入帳號資料失敗:", error);
+    } finally {
+      // 無論成功或失敗都解除載入遮罩（失敗時維持原狀，仍可看到錯誤後重試）
+      setLoadingProfile(false);
     }
   }
 
@@ -163,6 +201,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const storedEmail = profile ? profile.email.trim() : "";
   const storedAccount = profile ? profile.account.trim() : "";
   const loaded = Boolean(profile);
+  // 進頁載入期間：帳號資料或系統設定任一未到齊，畫面由遮罩擋住、送出鈕同步停用
+  const loading = loadingProfile || loadingSettings;
   // 兩欄可個別留空，但不可同時為空（至少保留一項作為登入識別）
   const bothEmpty = loaded && !emailValue && !accountValue;
   // 格式錯誤：空白欄位交由「不可同時為空」規則判定，不重複報錯
@@ -667,7 +707,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
 
         <button
           type="submit"
-          disabled={savingAccount || accountBlocked}
+          disabled={loading || savingAccount || accountBlocked}
           className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
         >
           {savingAccount ? "儲存中..." : "儲存帳密資料"}
@@ -727,7 +767,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
             <button
               type="button"
               onClick={handleRegenerateSecret}
-              disabled={savingTwoFactor || !totpSecret}
+              disabled={loading || savingTwoFactor || !totpSecret}
               className="btn-theme rounded px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
             >
               重新產生密鑰
@@ -737,7 +777,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
 
         <button
           type="submit"
-          disabled={savingTwoFactor}
+          disabled={loading || savingTwoFactor}
           className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
         >
           {savingTwoFactor ? "儲存中..." : "儲存設定"}
@@ -758,27 +798,11 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
 
-      {/* 儲存中的遮罩（淡入過場）：帳密管理與兩階段驗證儲存期間覆蓋畫面、阻擋重複操作 */}
-      {(savingAccount || savingTwoFactor) && (
-        <div
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 animate-fade-in"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
-          role="status"
-          aria-live="polite"
-        >
-          <svg
-            className="w-10 h-10 animate-spin text-t2"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" d="M21 12a9 9 0 11-6.22-8.56" />
-          </svg>
-          <p className="text-sm text-t2">儲存中，請稍候…</p>
-        </div>
-      )}
+      {/* 進頁載入遮罩：帳號資料與系統設定到齊前擋住操作，避免搶快使用功能而繞過尚未載入的限制 */}
+      {loading && <BlockingMask text="資料載入中，請稍候…" />}
+
+      {/* 儲存遮罩：帳密管理與兩階段驗證儲存期間覆蓋畫面、阻擋重複操作 */}
+      {(savingAccount || savingTwoFactor) && <BlockingMask text="儲存中，請稍候…" />}
 
       {/* 儲存成功 modal：完成時跳出，1 秒後自動消失 */}
       {successModal && (
