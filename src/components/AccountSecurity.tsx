@@ -66,10 +66,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   // 帳密管理
   const [email, setEmail] = useState("");
   const [account, setAccount] = useState("");
-  const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showOld, setShowOld] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [accountFlash, setAccountFlash] = useState<Flash>(null);
@@ -323,10 +321,6 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
 
     const wantPassword = newPassword.length > 0 || confirmPassword.length > 0;
     if (wantPassword) {
-      if (!oldPassword) {
-        setAccountFlash({ type: "error", text: "變更密碼需先輸入目前密碼" });
-        return;
-      }
       if (!isStrongPassword(newPassword)) {
         setAccountFlash({ type: "error", text: PASSWORD_REQUIREMENT_MESSAGE });
         return;
@@ -365,29 +359,19 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       }
 
       if (wantPassword) {
-        // 帳號可能已被清空：變更密碼 API 同時接受帳號或電子郵件地址作為自身識別
-        const identifier = saved
-          ? saved.account || saved.email
-          : accountValue || emailValue;
+        // 自身識別一律走 session（伺服器以 session.uid 直取文件），不再要求舊密碼
         const res = await fetch("/api/auth/change-password", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            account: identifier,
-            oldPassword,
-            newPassword,
-            role,
-          }),
+          body: JSON.stringify({ newPassword }),
         });
         const data = await res.json();
         if (!res.ok || !data.success) {
           setAccountFlash({ type: "error", text: data.message || "密碼更新失敗" });
           return;
         }
-        setOldPassword("");
         setNewPassword("");
         setConfirmPassword("");
-        setShowOld(false);
         setShowNew(false);
         setShowConfirm(false);
         const passwordDoneText = saved ? "帳號資料與密碼已更新" : data.message || "密碼已更新";
@@ -644,22 +628,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         </div>
 
         <h4 className="font-bold text-t1 mb-3">變更密碼</h4>
-
-        <label className="block text-sm text-t2 mb-1">目前密碼</label>
-        <div className="relative mb-3">
-          <input
-            type={showOld ? "text" : "password"}
-            value={oldPassword}
-            onChange={(e) => setOldPassword(e.target.value)}
-            className="w-full input-theme rounded px-4 py-2 pr-12"
-            autoComplete="current-password"
-          />
-          <PasswordToggleButton
-            visible={showOld}
-            onToggle={() => setShowOld(!showOld)}
-            label="顯示或隱藏目前密碼"
-          />
-        </div>
+        <p className="text-xs text-t3 mb-3">
+          已登入狀態下即可變更，不需輸入目前密碼；變更完成後其他裝置的登入狀態會自動失效。
+        </p>
 
         <label className="block text-sm text-t2 mb-1">新密碼（留空則不變更）</label>
         <div className="relative mb-3">

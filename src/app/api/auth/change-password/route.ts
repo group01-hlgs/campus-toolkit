@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { verifyPassword, hashPassword } from "@/lib/auth";
+import { hashPassword } from "@/lib/auth";
 import { verifySession } from "@/lib/dal";
-import { createSession, getSession, unauthorized, forbidden } from "@/lib/server-session";
+import { createSession, getSession, unauthorized } from "@/lib/server-session";
 import { revokeJti } from "@/lib/revocation";
 import { logActivity, getClientIp } from "@/lib/audit";
-import { enforceRateLimit, RATE, checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
-import { ROLE_COLLECTIONS, isUserRole } from "@/types/users";
+import { ROLE_COLLECTIONS } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 export async function POST(request: NextRequest) {
@@ -25,28 +25,18 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { account, oldPassword, newPassword, role } = await request.json();
+    // 不要求目前密碼：自身識別完全依賴 session（同源檢查＋閒置逾時＋改密後撤銷舊 session 把關）
+    const { newPassword } = await request.json();
 
-    if (!account || !oldPassword || !newPassword) {
+    if (!newPassword) {
       return NextResponse.json(
         { success: false, message: "請填寫完整資訊" },
         { status: 400 }
       );
     }
 
-    if (!isUserRole(role)) {
-      return NextResponse.json(
-        { success: false, message: "無效的角色" },
-        { status: 400 }
-      );
-    }
-
     const session = await verifySession();
     if (!session) return unauthorized();
-    if (session.role !== role) return forbidden("身分不符");
-    if (session.account !== account.toLowerCase().trim() && session.email !== account.toLowerCase().trim()) {
-      return forbidden("僅能變更自身密碼");
-    }
 
     if (!isStrongPassword(newPassword)) {
       return NextResponse.json(
@@ -55,7 +45,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 一律以 session.uid 直取自身文件，避免用 body account 查詢命中他人文件（IDOR）
+    // 一律以 session.uid 直取自身文件，避免用 body 查詢命中他人文件（IDOR）
     const collectionName = ROLE_COLLECTIONS[session.role];
     const userDoc = await getAdminDb().collection(collectionName).doc(session.uid).get();
     if (!userDoc.exists) {
@@ -63,23 +53,6 @@ export async function POST(request: NextRequest) {
     }
 
     const userData = userDoc.data()!;
-
-    const isValid = await verifyPassword(oldPassword, userData.passwordHash);
-    if (!isValid) {
-      // 舊密碼錯誤也計入失敗（enforceRateLimit 已先計成功次數，此處補記失敗軸；
-      // key 納入 uid，不依賴可能為空的 IP）
-      const failKey = `change-password-fail:${session.uid}`;
-      const fail = checkRateLimit(failKey, 5, RATE.CHANGE_PASSWORD.windowMs);
-      await logActivity({
-        userId: session.uid,
-        role,
-        action: "login_failed",
-        ip,
-        details: "變更密碼時舊密碼錯誤",
-      });
-      if (!fail.ok) return tooManyRequests(fail.retryAfterSec);
-      return NextResponse.json({ success: false, message: "目前密碼錯誤" }, { status: 401 });
-    }
 
     const passwordHash = await hashPassword(newPassword, 12);
     const newTokenVersion = (userData.tokenVersion || 1) + 1;
@@ -107,7 +80,7 @@ export async function POST(request: NextRequest) {
 
     await logActivity({
       userId: session.uid,
-      role,
+      role: session.role,
       action: "password_changed",
       ip,
       details: "密碼已更新，舊 token 已撤銷",
