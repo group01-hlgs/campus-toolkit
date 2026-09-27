@@ -9,6 +9,8 @@ export interface Settings {
   contactPerson: string;
   contactEmail: string;
   oauthEnabled: boolean;
+  /** 開放使用者自行變更電子郵件地址（已有地址者受此設定限制；尚無地址者僅能新增） */
+  emailChangeAllowed: boolean;
   sessionTimeout: number;
   cssThemeId: string; // Admin 強制主題
   copyrightNotice: boolean;
@@ -26,6 +28,7 @@ export const defaultSettings: Settings = {
   contactPerson: "",
   contactEmail: "",
   oauthEnabled: false,
+  emailChangeAllowed: true,
   sessionTimeout: 10,
   cssThemeId: "",
   copyrightNotice: true,

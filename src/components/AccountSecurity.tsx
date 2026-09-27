@@ -301,6 +301,29 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const backHref = `/${role}`;
   const messageClass = (type: "success" | "error") =>
     type === "success" ? "text-green-600" : "text-red-500";
+
+  // 電子郵件地址可編輯性（受系統設定「開放使用者更換電子郵件地址」控制）：
+  // 已有地址 → 依設定開放／不開放；尚無地址 → 僅能新增一次，並提示日後是否可再修改
+  const hasEmail = Boolean(email.trim());
+  const emailLocked = Boolean(profile) && hasEmail && !settings.emailChangeAllowed;
+  const emailNotice: { className: string; text: string } | null = !profile
+    ? null
+    : emailLocked
+      ? {
+          className: "text-amber-600 font-medium",
+          text: "系統設定不開放變更電子郵件地址，此欄位僅供檢視。",
+        }
+      : hasEmail
+        ? null
+        : settings.emailChangeAllowed
+          ? {
+              className: "text-t3",
+              text: "尚未設定電子郵件地址：新增後，日後仍可再修改。",
+            }
+          : {
+              className: "text-amber-600 font-medium",
+              text: "尚未設定電子郵件地址：系統設定不開放變更，新增後將無法再修改，請謹慎填寫。",
+            };
   // 返回功能首頁／登出按鈕組：頁首與最後一張卡片下方各擺一組
   const actionButtons = (
     <>
@@ -374,10 +397,16 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full input-theme rounded px-4 py-2 mb-1"
+          readOnly={emailLocked}
+          aria-readonly={emailLocked}
+          placeholder={hasEmail ? "" : "請輸入電子郵件地址"}
+          className={`w-full input-theme rounded px-4 py-2 mb-1${emailLocked ? " opacity-60 cursor-not-allowed" : ""}`}
           autoComplete="email"
         />
-        <p className="text-xs text-t3 mb-4">電子郵件若為 Gmail，可以透過 Google 登入</p>
+        <div className="mb-4 space-y-1">
+          <p className="text-xs text-t3">電子郵件若為 Gmail，可以透過 Google 登入</p>
+          {emailNotice && <p className={`text-xs ${emailNotice.className}`}>{emailNotice.text}</p>}
+        </div>
 
         <label className="block text-sm text-t2 mb-1">帳號</label>
         <input

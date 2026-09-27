@@ -91,6 +91,16 @@ const settingGroups: SettingGroup[] = [
         type: "number",
         help: "登入後閒置不用逾時將自動登出",
       },
+      {
+        id: "emailChangeAllowed",
+        label: "開放使用者更換電子郵件地址",
+        type: "select",
+        options: [
+          { value: "true", label: "開放" },
+          { value: "false", label: "不開放" },
+        ],
+        help: "適用所有身分：已有電子郵件地址者受此限制；尚無地址者僅能新增一次，新增時會提醒日後是否開放修改",
+      },
     ],
   },
   {
@@ -221,7 +231,7 @@ export default function SettingsPage() {
 
   function handleChange(id: keyof Settings, value: string) {
     const booleanFields: (keyof Settings)[] = [
-      "systemEnabled", "oauthEnabled",
+      "systemEnabled", "oauthEnabled", "emailChangeAllowed",
       "copyrightNotice", "sponsorAdEnabled",
     ];
     const numberFields: (keyof Settings)[] = [

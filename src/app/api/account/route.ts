@@ -10,7 +10,7 @@ import { revokeJti } from "@/lib/revocation";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { getSiteName } from "@/lib/settings-server";
+import { getSiteName, isEmailChangeAllowed } from "@/lib/settings-server";
 import { buildOtpauthUrl } from "@/lib/totp";
 import { readTwoFactorProfile } from "@/lib/two-factor";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
@@ -180,6 +180,11 @@ export async function PUT(request: NextRequest) {
     if (!userSnap.exists) {
       return NextResponse.json({ success: false, message: "帳號不存在" }, { status: 404 });
     }
+    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+    const storedEmail =
+      typeof userData.email === "string" ? userData.email.trim() : "";
+    // 與 buildProfile 同邏輯：檔案無 email 時以 session 帶的地址為準
+    const currentEmail = storedEmail || session.email;
 
     const updateData: Record<string, unknown> = {};
 
@@ -189,6 +194,14 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json(
           { success: false, message: "電子郵件格式無效" },
           { status: 400 }
+        );
+      }
+      // 已有地址＝變更，受「開放使用者更換電子郵件地址」設定限制；
+      // 尚無地址＝新增，不受限制（前端已提示日後是否可再修改）
+      if (currentEmail && email !== currentEmail && !(await isEmailChangeAllowed())) {
+        return NextResponse.json(
+          { success: false, message: "系統設定不開放變更電子郵件地址" },
+          { status: 403 }
         );
       }
       const dup = await collection.where("email", "==", email).limit(1).get();
