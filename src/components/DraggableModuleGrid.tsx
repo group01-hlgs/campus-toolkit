@@ -13,6 +13,15 @@ export interface ModuleCardItem {
 
 const DEFAULT_HINT = "拖曳卡片可調整顯示順序，此瀏覽器會自動記住";
 
+/** 標題可顯示的最大字數（以目前字級，一個中文字＝1em＝16px） */
+const LABEL_MAX_CHARS = 12;
+const LABEL_WIDTH = `${LABEL_MAX_CHARS}em`; // 192px
+
+/**
+ * 卡片固定寬度：左 padding 16 + 圖示 24 + 間距 12 + 標題 192 + 右側預留（拖曳握把 28 + 間距 12）40 = 284px
+ */
+const CARD_WIDTH = "284px";
+
 /** 六點握把圖示：提示此卡片可拖曳換位（滑鼠與觸控皆可） */
 function DragHandleIcon() {
   return (
@@ -41,7 +50,7 @@ export default function DraggableModuleGrid({
   items,
   storageKey,
   hint = DEFAULT_HINT,
-  gridClassName = "w-full max-w-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8",
+  gridClassName = "w-full max-w-2xl flex flex-wrap justify-center gap-4 mb-8",
 }: {
   items: ModuleCardItem[];
   storageKey: string;
@@ -212,17 +221,23 @@ export default function DraggableModuleGrid({
               onPointerDown={() => {
                 suppressClickRef.current = false;
               }}
-              className={`flex items-center gap-3 border border-themed rounded-lg p-4 bg-hover transition cursor-pointer text-left select-none${
+              style={{ width: CARD_WIDTH }}
+              className={`relative flex items-center gap-3 border border-themed rounded-lg p-4 pr-10 bg-hover transition cursor-pointer text-left select-none shrink-0${
                 isDragging ? " opacity-60" : ""
               }`}
             >
-              <span className="text-t3">{item.icon}</span>
-              <span className="font-medium text-t2">{item.label}</span>
+              <span className="text-t3 shrink-0">{item.icon}</span>
+              <span
+                className="font-medium text-t2 truncate shrink-0"
+                style={{ width: LABEL_WIDTH }}
+              >
+                {item.label}
+              </span>
               <span
                 onPointerDown={(event) => handlePointerDown(event, item.id)}
                 title="拖曳以調整順序"
                 aria-hidden="true"
-                className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded text-t3 cursor-grab active:cursor-grabbing touch-none"
+                className="absolute inset-y-0 right-0 flex w-7 items-center justify-center text-t3 cursor-grab active:cursor-grabbing touch-none"
               >
                 <DragHandleIcon />
               </span>
