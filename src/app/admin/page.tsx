@@ -8,9 +8,11 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import { fetchSession, logout, UserSession } from "@/lib/session";
 
 interface ModuleCard {
+  id: string;
   icon: React.ReactNode;
   label: string;
   href: string;
@@ -18,6 +20,7 @@ interface ModuleCard {
 
 const modules: ModuleCard[] = [
   {
+    id: "roster",
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -33,10 +36,12 @@ const modules: ModuleCard[] = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
+    id: "settings",
     label: "系統設定",
     href: "/admin/settings",
   },
   {
+    id: "account",
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
@@ -46,6 +51,7 @@ const modules: ModuleCard[] = [
     href: "/admin/admins",
   },
   {
+    id: "modules",
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959V6a.75.75 0 01-.75.75H3.75A2.25 2.25 0 011.5 4.5v-.75c0-1.036.84-1.875 1.875-1.875h1.328c.045-.355.186-.676.401-.959.221-.29.349-.634.349-1.003C5.4 0 4.393-.84 3.375-.84S1.5 0 1.5 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959V4.5a.75.75 0 01-.75.75h-.75A2.25 2.25 0 010 3.75v-.75C0 1.964.84 1.125 1.875 1.125h1.328c.045-.355.186-.676.401-.959A2.25 2.25 0 013.375 0c1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.401.604-.401.959V4.5h-.75z" />
@@ -142,24 +148,8 @@ export default function AdminPage() {
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 
-      {/* 提示文字 */}
-      <div className="w-full max-w-2xl mb-4">
-        <p className="text-sm text-t3">拖曳卡片可調整顯示順序，此瀏覽器會自動記住</p>
-      </div>
-
-      {/* 功能卡片 */}
-      <div className="w-full max-w-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        {modules.map((mod) => (
-          <button
-            key={mod.label}
-            onClick={() => router.push(mod.href)}
-            className="flex items-center gap-3 border border-themed rounded-lg p-4 bg-hover transition-colors cursor-pointer text-left"
-          >
-            <span className="text-t3">{mod.icon}</span>
-            <span className="font-medium text-t2">{mod.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
+      <DraggableModuleGrid items={modules} storageKey="campusCardOrder.admin" />
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 

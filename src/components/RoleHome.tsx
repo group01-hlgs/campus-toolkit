@@ -10,6 +10,7 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 
 const accountModule = {
   icon: (
@@ -81,8 +82,8 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const settingsHref = `${ROLE_HOME[role]}/settings`;
   // 功能入口卡片：順序比照主程式管理員首頁（系統設定 → 帳號與安全管理）
   const entryCards = [
-    { ...settingsModule, href: settingsHref },
-    { ...accountModule, href: accountHref },
+    { ...settingsModule, id: "settings", href: settingsHref },
+    { ...accountModule, id: "account", href: accountHref },
   ];
 
   return (
@@ -109,18 +110,11 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 
-      <div className="w-full max-w-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        {entryCards.map((card) => (
-          <button
-            key={card.label}
-            onClick={() => router.push(card.href)}
-            className="flex items-center gap-3 border border-themed rounded-lg p-4 bg-hover transition-colors cursor-pointer text-left"
-          >
-            <span className="text-t3">{card.icon}</span>
-            <span className="font-medium text-t2">{card.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
+      <DraggableModuleGrid
+        items={entryCards}
+        storageKey={`campusCardOrder.${role}`}
+      />
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 
