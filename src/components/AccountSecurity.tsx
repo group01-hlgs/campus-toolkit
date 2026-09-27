@@ -299,8 +299,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
 
   const roleLabel = ROLE_LABELS[role];
   const backHref = `/${role}`;
+  // 語意色：跟隨主題變數 --success／--danger
   const messageClass = (type: "success" | "error") =>
-    type === "success" ? "text-green-600" : "text-red-500";
+    type === "success" ? "text-success" : "text-danger";
 
   // 電子郵件地址可編輯性（受系統設定「開放使用者更換電子郵件地址」控制）：
   // 已有地址 → 依設定開放／不開放；尚無地址 → 僅能新增一次，並提示日後是否可再修改
