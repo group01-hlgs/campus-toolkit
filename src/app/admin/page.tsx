@@ -37,7 +37,7 @@ const modules: ModuleCard[] = [
       </svg>
     ),
     id: "settings",
-    label: "系統設定",
+    label: "系統設定系統設定系統設定",
     href: "/admin/settings",
   },
   {

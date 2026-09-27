@@ -13,9 +13,9 @@ export interface ModuleCardItem {
 
 const DEFAULT_HINT = "拖曳卡片可調整顯示順序，此瀏覽器會自動記住";
 
-/** 標題可顯示的最大字數（以目前字級，一個中文字＝1em＝16px） */
+/** 標題可顯示的最大字數（以目前字級，一個中文字＝1em＝16px）；＋2px 縫隙避免字型進位誤差讓剛好12字被截斷 */
 const LABEL_MAX_CHARS = 12;
-const LABEL_WIDTH = `${LABEL_MAX_CHARS}em`; // 192px
+const LABEL_WIDTH = `calc(${LABEL_MAX_CHARS}em + 2px)`; // 192px + 2px
 
 /**
  * 卡片最小寬度：左 padding 16 + 圖示 24 + 間距 12 + 標題 192 + 右側預留（拖曳握把 28 ＋間距 12）40 = 284px。

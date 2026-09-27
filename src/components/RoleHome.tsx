@@ -29,7 +29,7 @@ const settingsModule = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   ),
-  label: "系統設定",
+  label: "系統設定系統設定系統設定",
 };
 
 export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> }) {
