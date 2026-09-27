@@ -18,9 +18,13 @@ const LABEL_MAX_CHARS = 12;
 const LABEL_WIDTH = `${LABEL_MAX_CHARS}em`; // 192px
 
 /**
- * 卡片固定寬度：左 padding 16 + 圖示 24 + 間距 12 + 標題 192 + 右側預留（拖曳握把 28 + 間距 12）40 = 284px
+ * 卡片最小寬度：左 padding 16 + 圖示 24 + 間距 12 + 標題 192 + 右側預留（拖曳握把 28 ＋間距 12）40 = 284px。
+ * 卡片實際寬度由網格軌道（minmax(284px, 1fr)）均分，畫面越寬每行可放越多張。
  */
-const CARD_WIDTH = "284px";
+const MIN_CARD_WIDTH = "284px";
+
+/** 卡片區寬度：永遠佔瀏覽器視窗寬度的 80%（小螢幕則至少保住一張卡的最小寬度） */
+const AREA_WIDTH_CLASS = "w-[80vw] min-w-[284px]";
 
 /** 六點握把圖示：提示此卡片可拖曳換位（滑鼠與觸控皆可） */
 function DragHandleIcon() {
@@ -44,13 +48,16 @@ function DragHandleIcon() {
  * - 指標捕捉掛在「不會被搬動」的網格容器上，拖曳中 React 重排子節點也不會中斷事件。
  * - 拖曳開始時記下各格位座標，之後的 pointermove 只比對座標決定換位，
  *   不需重讀可能尚未重繪的 DOM，故不需 flushSync 強制同步繪製。
+ * - 卡片區固定佔瀏覽器寬度 80%（AREA_WIDTH_CLASS），以 auto-fit 網格均分軌道：
+ *   每行張數隨視窗寬度增減（非固定 2 張），同排卡片等寬、卡片少於可容納數量時會撐滿整個卡片區。
  * - 全部使用主題類別（border-themed／bg-hover／text-t1~t3／opacity），未寫死色票。
  */
 export default function DraggableModuleGrid({
   items,
   storageKey,
   hint = DEFAULT_HINT,
-  gridClassName = "w-full max-w-2xl flex flex-wrap justify-center gap-4 mb-8",
+  // 卡片區固定佔瀏覽器寬度 80%；auto-fit 讓每行張數隨可用寬度增減、卡片等寬撐滿整個卡片區
+  gridClassName = `${AREA_WIDTH_CLASS} grid grid-cols-[repeat(auto-fit,minmax(284px,1fr))] gap-4 mb-8`,
 }: {
   items: ModuleCardItem[];
   storageKey: string;
@@ -198,7 +205,7 @@ export default function DraggableModuleGrid({
   return (
     <>
       {/* 拖曳提示（GAS 原版文案） */}
-      <div className="w-full max-w-2xl mb-4">
+      <div className={`${AREA_WIDTH_CLASS} mb-4`}>
         <p className="text-sm text-t3">{hint}</p>
       </div>
 
@@ -221,7 +228,7 @@ export default function DraggableModuleGrid({
               onPointerDown={() => {
                 suppressClickRef.current = false;
               }}
-              style={{ width: CARD_WIDTH }}
+              style={{ minWidth: MIN_CARD_WIDTH }}
               className={`relative flex items-center gap-3 border border-themed rounded-lg p-4 pr-10 bg-hover transition cursor-pointer text-left select-none shrink-0${
                 isDragging ? " opacity-60" : ""
               }`}
