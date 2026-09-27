@@ -310,7 +310,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     ? null
     : emailLocked
       ? {
-          className: "text-amber-600 font-medium",
+          // 語意色：跟隨主題變數 --danger（與全站警示文案一致）
+          className: "text-danger font-medium",
           text: "系統設定不開放變更電子郵件地址，此欄位僅供檢視。",
         }
       : hasEmail
@@ -321,7 +322,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
               text: "尚未設定電子郵件地址：新增後，日後仍可再修改。",
             }
           : {
-              className: "text-amber-600 font-medium",
+              // 語意色：跟隨主題變數 --danger（與全站警示文案一致）
+              className: "text-danger font-medium",
               text: "尚未設定電子郵件地址：系統設定不開放變更，新增後將無法再修改，請謹慎填寫。",
             };
   // 返回功能首頁／登出按鈕組：頁首與最後一張卡片下方各擺一組
