@@ -49,15 +49,17 @@ function DragHandleIcon() {
  * - 拖曳開始時記下各格位座標，之後的 pointermove 只比對座標決定換位，
  *   不需重讀可能尚未重繪的 DOM，故不需 flushSync 強制同步繪製。
  * - 卡片區固定佔瀏覽器寬度 80%（AREA_WIDTH_CLASS），卡片本身寫死 286px 不隨視窗縮放；
- *   容器用 flex-wrap 自動換行，畫面越寬每行放得下越多張（響應式的是視窗與每行張數）。
+ *   容器用 flex-wrap 自動換行，畫面越寬每行放得下越多張（響應式的是視窗與每行張數）；
+ *   小螢幕每行只剩 1 張時（max-[734px]）改左右置中對齊。
  * - 全部使用主題類別（border-themed／bg-hover／text-t1~t3／opacity），未寫死色票。
  */
 export default function DraggableModuleGrid({
   items,
   storageKey,
   hint = DEFAULT_HINT,
-  // 卡片區固定佔瀏覽器寬度 80%；卡片固定 286px，flex-wrap 依可用寬度自動換行（每行張數隨視窗增減）
-  gridClassName = `${AREA_WIDTH_CLASS} flex flex-wrap gap-4 mb-8`,
+  // 卡片區固定佔瀏覽器寬度 80%；卡片固定 286px，flex-wrap 依可用寬度自動換行（每行張數隨視窗增減）；
+  // 每行只剩1張（容器寬度不足以並排2張＝80vw < 588px，即視窗小於735px）時改左右置中
+  gridClassName = `${AREA_WIDTH_CLASS} flex flex-wrap gap-4 mb-8 justify-start max-[734px]:justify-center`,
 }: {
   items: ModuleCardItem[];
   storageKey: string;
