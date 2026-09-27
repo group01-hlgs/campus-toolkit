@@ -385,16 +385,16 @@ export default function SettingsPage() {
           <div className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in">
             <div className="flex justify-center">
               {modalMessage.includes("失敗") ? (
-                <svg className="w-12 h-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <svg className="w-12 h-12 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                 </svg>
               ) : (
-                <svg className="w-12 h-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <svg className="w-12 h-12 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               )}
             </div>
-            <p className={`text-lg font-semibold ${modalMessage.includes("失敗") ? "text-red-600" : "text-t1"}`}>
+            <p className={`text-lg font-semibold ${modalMessage.includes("失敗") ? "text-danger" : "text-t1"}`}>
               {modalMessage}
             </p>
             <p className="text-xs text-t3">視窗將自動關閉</p>

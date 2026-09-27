@@ -218,7 +218,7 @@ export default function TwoFactorVerify({ mode }: { mode: Mode }) {
 
         {expired ? (
           <>
-            <p className="text-sm text-red-500 mb-4">驗證階段已過期，請重新登入</p>
+            <p className="text-sm text-danger mb-4">驗證階段已過期，請重新登入</p>
             <button
               onClick={() => router.push("/")}
               className="w-full btn-theme rounded py-2 font-medium cursor-pointer"
@@ -263,7 +263,7 @@ export default function TwoFactorVerify({ mode }: { mode: Mode }) {
               )}
             </div>
 
-            {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+            {error && <p className="text-sm text-danger mb-3">{error}</p>}
 
             <button
               onClick={() => void submit(code)}

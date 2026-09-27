@@ -144,8 +144,8 @@ export default function NewAdminPage() {
           />
         </div>
 
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-        {success && <p className="text-green-500 text-sm">{success}</p>}
+        {error && <p className="text-danger text-sm">{error}</p>}
+        {success && <p className="text-success text-sm">{success}</p>}
 
         <div className="flex gap-3">
           <button

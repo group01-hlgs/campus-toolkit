@@ -444,7 +444,7 @@ export default function Home() {
         </div>
 
         {error && (
-          <p className="text-red-500 text-sm text-center mb-4">{error}</p>
+          <p className="text-danger text-sm text-center mb-4">{error}</p>
         )}
 
         <button

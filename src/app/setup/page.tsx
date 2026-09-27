@@ -176,8 +176,8 @@ export default function SetupPage() {
             />
           </div>
 
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-          {success && <p className="text-green-500 text-sm text-center">{success}</p>}
+          {error && <p className="text-danger text-sm text-center">{error}</p>}
+          {success && <p className="text-success text-sm text-center">{success}</p>}
 
           <button
             onClick={handleSubmit}
