@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useRef, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
 import {
@@ -86,6 +86,16 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [twoFactorFlash, setTwoFactorFlash] = useState<Flash>(null);
   const [savingTwoFactor, setSavingTwoFactor] = useState(false);
+  // 儲存成功提示 modal：儲存完成時跳出，1 秒後自動消失
+  const [successModal, setSuccessModal] = useState<string | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 離開頁面時清掉成功訊息的自動關閉計時器
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +271,16 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     };
   }, [twoFactor, otpauthUrl]);
 
+  /** 儲存完成的成功訊息：跳出 modal，1 秒後自動消失（重複呼叫會重置計時） */
+  function showSuccessModal(text: string) {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    setSuccessModal(text);
+    successTimerRef.current = setTimeout(() => {
+      setSuccessModal(null);
+      successTimerRef.current = null;
+    }, 1000);
+  }
+
   /** 帳密管理：儲存電子郵件地址／帳號（可一併變更密碼） */
   async function handleSaveAccount(e: FormEvent) {
     e.preventDefault();
@@ -370,17 +390,15 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         setShowOld(false);
         setShowNew(false);
         setShowConfirm(false);
-        setAccountFlash({
-          type: "success",
-          text: saved ? "帳號資料與密碼已更新" : data.message || "密碼已更新",
-        });
+        const passwordDoneText = saved ? "帳號資料與密碼已更新" : data.message || "密碼已更新";
+        setAccountFlash({ type: "success", text: passwordDoneText });
+        showSuccessModal(passwordDoneText);
         return;
       }
 
-      setAccountFlash({
-        type: "success",
-        text: putMessage || (unchanged ? "沒有變更" : "儲存成功"),
-      });
+      const savedText = putMessage || (unchanged ? "沒有變更" : "儲存成功");
+      setAccountFlash({ type: "success", text: savedText });
+      showSuccessModal(savedText);
     } catch {
       setAccountFlash({ type: "error", text: "系統錯誤，請稍後再試" });
     } finally {
@@ -407,7 +425,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         if (profile) {
           setProfile({ ...profile, twoFactor: data.twoFactor || twoFactor });
         }
-        setTwoFactorFlash({ type: "success", text: data.message || "設定已儲存" });
+        const savedText = data.message || "設定已儲存";
+        setTwoFactorFlash({ type: "success", text: savedText });
+        showSuccessModal(savedText);
       } else {
         setTwoFactorFlash({ type: "error", text: data.message || "儲存失敗" });
       }
@@ -431,7 +451,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       if (res.ok && data.success) {
         setTotpSecret(data.totpSecret || "");
         setOtpauthUrl(data.otpauthUrl || "");
-        setTwoFactorFlash({ type: "success", text: data.message || "已產生新的 TOTP 密鑰" });
+        const regeneratedText = data.message || "已產生新的 TOTP 密鑰";
+        setTwoFactorFlash({ type: "success", text: regeneratedText });
+        showSuccessModal(regeneratedText);
       } else {
         setTwoFactorFlash({ type: "error", text: data.message || "產生失敗" });
       }
@@ -764,6 +786,57 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       <div className="w-full max-w-2xl mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
+
+      {/* 儲存中的遮罩（淡入過場）：帳密管理與兩階段驗證儲存期間覆蓋畫面、阻擋重複操作 */}
+      {(savingAccount || savingTwoFactor) && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 animate-fade-in"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          role="status"
+          aria-live="polite"
+        >
+          <svg
+            className="w-10 h-10 animate-spin text-t2"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" d="M21 12a9 9 0 11-6.22-8.56" />
+          </svg>
+          <p className="text-sm text-t2">儲存中，請稍候…</p>
+        </div>
+      )}
+
+      {/* 儲存成功 modal：完成時跳出，1 秒後自動消失 */}
+      {successModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+        >
+          <div className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in">
+            <div className="flex justify-center">
+              <svg
+                className="w-12 h-12 text-success"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <p className="text-lg font-semibold text-t1">{successModal}</p>
+            <p className="text-xs text-t3">視窗將自動關閉</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
