@@ -1,7 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { hashPassword } from "@/lib/auth";
-import { getCurrentPeriod } from "@/lib/settings-server";
 import {
   ACCOUNT_EMAIL_REQUIRED_MESSAGE,
   ACCOUNT_FORMAT_MESSAGE,
@@ -46,7 +45,7 @@ function text(value: unknown, max = MAX_SHORT): string {
 }
 
 /**
- * 驗證並正規化一列名冊資料。
+ * 驗證並正規化一列帳號資料。
  * 規則與帳號與安全管理一致：電子郵件與帳號至少保留一項；姓名必填；
  * 密碼在建立時必填、更新時留空代表不變更，兩者都要過強度規則。
  */
@@ -142,14 +141,13 @@ export function checkRosterConflict(
   return null;
 }
 
-/** 依身分組出完整使用者文件（預設值與種子帳號／既有建立流程一致），並標記建立時的學年度與學期 */
-export async function buildRosterRecord(
+/** 依身分組出完整使用者文件（預設值與種子帳號／既有建立流程一致） */
+export function buildRosterRecord(
   role: RosterRole,
   fields: RosterFields,
   passwordHash: string
-): Promise<Record<string, unknown>> {
+): Record<string, unknown> {
   const now = Date.now();
-  const { academicYear, semester } = await getCurrentPeriod();
 
   if (role === "admin") {
     const admin: AdminRecord = {
@@ -167,8 +165,6 @@ export async function buildRosterRecord(
       failedAttempts: 0,
       tokenVersion: 1,
       createdAt: now,
-      academicYear,
-      semester,
     };
     return { ...admin };
   }
@@ -186,8 +182,6 @@ export async function buildRosterRecord(
     lockedUntil: 0,
     failedAttempts: 0,
     createdAt: now,
-    academicYear,
-    semester,
   };
 
   if (role === "student") {

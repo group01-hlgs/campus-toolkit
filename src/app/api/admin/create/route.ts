@@ -7,7 +7,6 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { normalizeEmail, normalizeAccount, isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getCurrentPeriod } from "@/lib/settings-server";
 
 /** 供 /setup 判斷是否仍可建立首任管理員（不揭露環境變數名稱） */
 export async function GET(request: NextRequest) {
@@ -101,7 +100,6 @@ export async function POST(request: NextRequest) {
 
     // costFactor 不接受 request body 指定：固定使用預設 12，避免被降為弱成本雜湊
     const passwordHash = await hashPassword(password);
-    const period = await getCurrentPeriod();
 
     const newAdmin = {
       email: normEmail,
@@ -115,8 +113,6 @@ export async function POST(request: NextRequest) {
       lockedUntil: 0,
       tokenVersion: 1,
       createdAt: Date.now(),
-      academicYear: period.academicYear,
-      semester: period.semester,
     };
 
     let docRef;

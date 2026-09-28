@@ -1,14 +1,14 @@
 /**
- * 名冊管理（/admin/roster）共用定義：身分分頁、表單欄位、匯入檔案欄位。
- * 涵蓋學生／教職員／管理員三個身分；家長名冊不在此頁維護。
+ * 使用者帳號管理（/admin/roster）共用定義：身分分頁、表單欄位、匯入檔案欄位。
+ * 涵蓋學生／教職員／管理員三個身分；家長帳號不在此頁維護。
  */
 
 export type RosterRole = "student" | "staff" | "admin";
 
 export const ROSTER_ROLES: { value: RosterRole; label: string; tab: string }[] = [
-  { value: "student", label: "學生", tab: "學生名冊" },
-  { value: "staff", label: "教職員", tab: "教職員名冊" },
-  { value: "admin", label: "管理員", tab: "管理員名冊" },
+  { value: "student", label: "學生", tab: "學生帳號" },
+  { value: "staff", label: "教職員", tab: "教職員帳號" },
+  { value: "admin", label: "管理員", tab: "管理員帳號" },
 ];
 
 export function isRosterRole(value: unknown): value is RosterRole {
@@ -70,7 +70,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   ],
 };
 
-/** 名冊清單的表格欄位（不含密碼） */
+/** 帳號清單的表格欄位（不含密碼） */
 export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterFieldKey; label: string }[]> = {
   student: [
     { key: "name", label: "姓名" },
@@ -99,7 +99,7 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterFieldKey; label: st
 /** 匯入時每一列的原始輸入（欄位值一律是字串，空白代表未填） */
 export type RosterInput = Partial<Record<RosterFieldKey, string>>;
 
-/** 名冊清單一列（API 回傳格式，角色欄位平鋪、不含密碼） */
+/** 帳號清單一列（API 回傳格式，角色欄位平鋪、不含密碼） */
 export interface RosterMember {
   uid: string;
   email: string;

@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     const roleValue = formData.get("role");
     const role = isRosterRole(roleValue) ? roleValue : null;
     if (!role) {
-      return NextResponse.json({ success: false, message: "名冊身分無效" }, { status: 400 });
+      return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
     }
 
     const file = formData.get("file");
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const record = await buildRosterRecord(
+      const record = buildRosterRecord(
         role,
         result.fields,
         await hashRosterPassword(result.password as string)

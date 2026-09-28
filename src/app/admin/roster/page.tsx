@@ -130,12 +130,12 @@ export default function RosterPage() {
       const res = await fetch(`/api/admin/roster?role=${targetRole}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data?.message || "名冊載入失敗");
+        throw new Error(data?.message || "帳號清單載入失敗");
       }
       setMembers(Array.isArray(data.members) ? data.members : []);
     } catch (error) {
       setMembers([]);
-      setListError(error instanceof Error ? error.message : "名冊載入失敗");
+      setListError(error instanceof Error ? error.message : "帳號清單載入失敗");
     } finally {
       setLoading(false);
     }
@@ -374,8 +374,8 @@ export default function RosterPage() {
 
       {/* 功能標題 */}
       <div className="w-full max-w-5xl mt-4 mb-2 text-center">
-        <h2 className="text-2xl font-bold text-t1">名冊管理</h2>
-        <p className="text-t2 mt-1 text-sm">新增、編輯、刪除與匯入學生／教職員／管理員名冊</p>
+        <h2 className="text-2xl font-bold text-t1">使用者帳號管理</h2>
+        <p className="text-t2 mt-1 text-sm">新增、編輯、刪除與匯入學生、教職員與管理員帳號</p>
       </div>
 
       {/* 操作按鈕 */}
@@ -545,10 +545,10 @@ export default function RosterPage() {
         </form>
       )}
 
-      {/* 名冊清單 */}
+      {/* 帳號清單 */}
       <div className="w-full max-w-5xl border border-themed rounded-lg bg-card mb-4 overflow-x-auto">
         {loading ? (
-          <p className="p-6 text-center text-t3">名冊載入中...</p>
+          <p className="p-6 text-center text-t3">帳號清單載入中...</p>
         ) : listError ? (
           <p className="p-6 text-center text-t1">{listError}</p>
         ) : (

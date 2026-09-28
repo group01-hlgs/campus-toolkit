@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     const role = request.nextUrl.searchParams.get("role");
     if (!isRosterRole(role)) {
       return NextResponse.json(
-        { success: false, message: "名冊身分無效" },
+        { success: false, message: "帳號身分無效" },
         { status: 400 }
       );
     }
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const { role, input } = parseRosterBody(body);
     if (!role) {
-      return NextResponse.json({ success: false, message: "名冊身分無效" }, { status: 400 });
+      return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
     }
 
     const result = validateRosterInput(role, input, { requirePassword: true });
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    const record = await buildRosterRecord(
+    const record = buildRosterRecord(
       role,
       result.fields,
       await hashRosterPassword(result.password as string)

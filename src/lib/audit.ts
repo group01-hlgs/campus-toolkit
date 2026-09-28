@@ -1,6 +1,5 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { getCurrentPeriod } from "@/lib/settings-server";
 
 export type ActivityAction =
   | "login"
@@ -67,7 +66,6 @@ export function getClientIp(request: {
 
 export async function logActivity(entry: ActivityEntry): Promise<void> {
   try {
-    const period = await getCurrentPeriod();
     await getAdminDb().collection("activityLog").add({
       userId: entry.userId || "",
       role: entry.role || "",
@@ -75,9 +73,6 @@ export async function logActivity(entry: ActivityEntry): Promise<void> {
       timestamp: Date.now(),
       ip: entry.ip || "",
       details: entry.details || "",
-      // 執行時所屬學年度與學期，供日後依學年／學期彙整稽核紀錄
-      academicYear: period.academicYear,
-      semester: period.semester,
     });
   } catch (error) {
     console.error("Activity log error:", error);

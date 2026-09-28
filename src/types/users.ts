@@ -73,9 +73,6 @@ export interface BaseUserRecord {
   lockIp?: string;
   failedAttempts: number;
   createdAt: number;
-  /** 建立時所屬學年度（民國年）與學期，供日後依學年／學期彙整（舊資料可能缺漏） */
-  academicYear?: number;
-  semester?: number;
 }
 
 export interface StudentRecord extends BaseUserRecord {
@@ -129,9 +126,6 @@ export interface AdminRecord {
   failedAttempts: number;
   tokenVersion: number;
   createdAt: number;
-  /** 建立時所屬學年度（民國年）與學期，供日後依學年／學期彙整（舊資料可能缺漏） */
-  academicYear?: number;
-  semester?: number;
 }
 
 export const ROLE_SPECIFIC_FIELDS: Record<
