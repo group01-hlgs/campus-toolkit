@@ -43,6 +43,15 @@ const settingGroups: SettingGroup[] = [
       { id: "schoolShortName", label: "學校簡稱", type: "text", placeholder: "" },
       { id: "schoolOtherNames", label: "學校其他別名", type: "text", placeholder: "" },
       { id: "academicYear", label: "學年度", type: "number" },
+      {
+        id: "semester",
+        label: "學期",
+        type: "select",
+        options: [
+          { value: "1", label: "第1學期" },
+          { value: "2", label: "第2學期" },
+        ],
+      },
       { id: "schoolCode", label: "教育部學校代碼", type: "text", placeholder: "" },
     ],
   },
@@ -235,7 +244,7 @@ export default function SettingsPage() {
       "copyrightNotice", "sponsorAdEnabled",
     ];
     const numberFields: (keyof Settings)[] = [
-      "academicYear", "sessionTimeout",
+      "academicYear", "semester", "sessionTimeout",
     ];
 
     if (booleanFields.includes(id)) {
@@ -263,7 +272,7 @@ export default function SettingsPage() {
       <div className="text-center mb-2">
         <h1 className="text-4xl font-bold mb-2">{settings.systemName || "數位校園工具箱"}</h1>
         <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
-        <p className="text-lg text-t3">{settings.academicYear} 學年度</p>
+        <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
       </div>
 
       {/* 功能標題 */}

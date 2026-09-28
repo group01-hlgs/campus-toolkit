@@ -13,6 +13,7 @@ import {
   StaffRecord,
 } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
+import { getCurrentPeriod } from "@/lib/settings-server";
 
 function seedCredentials(): { email: string; account: string; password: string } | null {
   const email = process.env.SEED_EMAIL;
@@ -51,6 +52,7 @@ export async function seedRoles() {
     const { email: DEFAULT_EMAIL, account: DEFAULT_ACCOUNT, password: DEFAULT_PASSWORD } = creds;
     const passwordHash = await hashPassword(DEFAULT_PASSWORD, 12);
     const now = Date.now();
+    const period = await getCurrentPeriod();
 
     const base: BaseUserRecord = {
       email: DEFAULT_EMAIL,
@@ -65,6 +67,8 @@ export async function seedRoles() {
       lockedUntil: 0,
       failedAttempts: 0,
       createdAt: now,
+      academicYear: period.academicYear,
+      semester: period.semester,
     };
 
     const created: string[] = [];

@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const record = buildRosterRecord(
+      const record = await buildRosterRecord(
         role,
         result.fields,
         await hashRosterPassword(result.password as string)

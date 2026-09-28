@@ -503,7 +503,7 @@ function ResetPasswordForm() {
       <div className="text-center mb-6">
         <h1 className="text-4xl font-bold mb-2">數位校園工具箱</h1>
         <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
-        <p className="text-lg text-t3">{settings.academicYear} 學年度</p>
+        <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
       </div>
 
       <hr className="w-full max-w-md border-themed mb-6" />

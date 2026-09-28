@@ -20,6 +20,7 @@ const PUBLIC_SETTINGS_KEYS: (keyof Settings)[] = [
   "schoolShortName",
   "schoolOtherNames",
   "academicYear",
+  "semester",
   "cssThemeId",
   "copyrightNotice",
   "sponsorAdEnabled",

@@ -1,6 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { defaultSettings, DEFAULT_SYSTEM_NAME } from "@/types/settings";
+import { defaultSettings, DEFAULT_SYSTEM_NAME, detectPeriod, SchoolPeriod } from "@/types/settings";
 
 const SETTINGS_COLLECTION = "settings";
 const SETTINGS_DOC_ID = "system";
@@ -15,6 +15,7 @@ let identityCache: {
   at: number;
 } | null = null;
 let emailChangeCache: { allowed: boolean; at: number } | null = null;
+let periodCache: { value: SchoolPeriod; at: number } | null = null;
 
 /** 設定儲存後呼叫，讓閒置逾時與系統啟用狀態快取立即失效 */
 export function invalidateSettingsCache(): void {
@@ -22,6 +23,7 @@ export function invalidateSettingsCache(): void {
   enabledCache = null;
   identityCache = null;
   emailChangeCache = null;
+  periodCache = null;
 }
 
 /**
@@ -135,6 +137,40 @@ async function readIdentity(): Promise<{
   } catch (error) {
     console.error("Identity settings read error:", error);
     return identityCache ?? { systemName: "", schoolFullName: "", schoolShortName: "" };
+  }
+}
+
+/**
+ * 讀取目前學年度與學期（settings.system 的 academicYear／semester）。
+ * 供伺服端寫入資料時標記所屬學年／學期，與其他設定共用 30 秒快取；
+ * 欄位缺漏或讀失敗時回退依日期推算的值。
+ */
+export async function getCurrentPeriod(): Promise<SchoolPeriod> {
+  const now = Date.now();
+  if (periodCache && now - periodCache.at < CACHE_TTL_MS) return periodCache.value;
+
+  try {
+    const snap = await getAdminDb()
+      .collection(SETTINGS_COLLECTION)
+      .doc(SETTINGS_DOC_ID)
+      .get();
+    const raw = snap.exists
+      ? (snap.data() as Record<string, unknown> | undefined)
+      : undefined;
+    const fallback = detectPeriod();
+    const academicYear = Number(raw?.academicYear);
+    const semester = Number(raw?.semester);
+    const value: SchoolPeriod = {
+      academicYear:
+        Number.isFinite(academicYear) && academicYear > 0 ? academicYear : fallback.academicYear,
+      semester: semester === 1 || semester === 2 ? semester : fallback.semester,
+    };
+    periodCache = { value, at: now };
+    return value;
+  } catch (error) {
+    console.error("Current period settings read error:", error);
+    if (periodCache) return periodCache.value;
+    return detectPeriod();
   }
 }
 

@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    const record = buildRosterRecord(
+    const record = await buildRosterRecord(
       role,
       result.fields,
       await hashRosterPassword(result.password as string)

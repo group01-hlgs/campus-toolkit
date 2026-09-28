@@ -94,7 +94,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
       <div className="text-center mb-2">
         <h1 className="text-4xl font-bold mb-2">{settings.systemName || "數位校園工具箱"}</h1>
         <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
-        <p className="text-lg text-t3">{settings.academicYear} 學年度</p>
+        <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
       </div>
 
       <div className="content-width mt-4 mb-2 text-center">

@@ -87,7 +87,7 @@ export default function RoleSettings({
           {settings.systemName || "數位校園工具箱"}
         </h1>
         <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
-        <p className="text-lg text-t3">{settings.academicYear} 學年度</p>
+        <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
       </div>
 
       <div className="w-full max-w-2xl mt-4 mb-2 text-center">
