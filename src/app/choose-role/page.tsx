@@ -207,6 +207,10 @@ export default function ChooseRolePage() {
         返回登入頁
       </button>
 
+      <p className="w-full max-w-md text-center text-xs text-t3 mt-2">
+        提示：登入後可至「帳號與安全管理」設定慣用身分，之後登入將直接使用所選身分，不需再選擇。
+      </p>
+
       {/* 廣告區域 */}
       {settings.sponsorAdEnabled && (
         <div className="w-full max-w-2xl mt-8">
