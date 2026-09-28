@@ -65,6 +65,30 @@ function cellValue(member: RosterMember, key: RosterFieldKey): string {
   return record[key] || "—";
 }
 
+/** 全螢幕遮罩（儲存／刪除／匯入中）：淡入過場並擋住下方所有操作 */
+function BlockingMask({ text }: { text: string }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 animate-fade-in"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+      role="status"
+      aria-live="polite"
+    >
+      <svg
+        className="w-10 h-10 animate-spin text-t2"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" d="M21 12a9 9 0 11-6.22-8.56" />
+      </svg>
+      <p className="text-sm text-t2">{text}</p>
+    </div>
+  );
+}
+
 export default function RosterPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
@@ -81,7 +105,18 @@ export default function RosterPage() {
   const [form, setForm] = useState<Record<RosterFieldKey, string>>(EMPTY_FORM);
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // 儲存成功提示 modal：完成時跳出，1 秒後自動消失
+  const [successModal, setSuccessModal] = useState<string | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, []);
 
   // Excel 匯入
   const [importing, setImporting] = useState(false);
@@ -187,6 +222,16 @@ export default function RosterPage() {
     return null;
   }
 
+  /** 儲存完成的成功訊息：跳出 modal，1 秒後自動消失（重複呼叫會重置計時） */
+  function showSuccessModal(text: string) {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    setSuccessModal(text);
+    successTimerRef.current = setTimeout(() => {
+      setSuccessModal(null);
+      successTimerRef.current = null;
+    }, 1000);
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (saving) return;
@@ -212,6 +257,7 @@ export default function RosterPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "已儲存" });
+      showSuccessModal(data.message || "已儲存");
       closeForm();
       await loadMembers(role);
     } catch (error) {
@@ -224,6 +270,8 @@ export default function RosterPage() {
   async function handleDelete(member: RosterMember) {
     const label = `${member.name}（${member.account || member.email}）`;
     if (!window.confirm(`確定刪除 ${label}？刪除後無法復原。`)) return;
+    if (deleting) return;
+    setDeleting(true);
     try {
       const res = await fetch("/api/admin/roster", {
         method: "DELETE",
@@ -236,10 +284,13 @@ export default function RosterPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "已刪除" });
+      showSuccessModal(data.message || "已刪除");
       if (editingUid === member.uid) closeForm();
       await loadMembers(role);
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -263,6 +314,7 @@ export default function RosterPage() {
         skipped: Array.isArray(data.skipped) ? data.skipped : [],
       });
       setFlash({ type: "success", text: data.message || "匯入完成" });
+      showSuccessModal(data.message || "匯入完成");
       await loadMembers(role);
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "匯入失敗" });
@@ -568,6 +620,42 @@ export default function RosterPage() {
       <div className="w-full max-w-5xl mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
+
+      {/* 作業遮罩：儲存／刪除／匯入期間覆蓋畫面、阻擋重複操作 */}
+      {(saving || deleting || importing) && (
+        <BlockingMask
+          text={importing ? "匯入中，請稍候…" : deleting ? "刪除中，請稍候…" : "儲存中，請稍候…"}
+        />
+      )}
+
+      {/* 儲存成功 modal：完成時跳出，1 秒後自動消失 */}
+      {successModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+        >
+          <div className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in">
+            <div className="flex justify-center">
+              <svg
+                className="w-12 h-12 text-success"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <p className="text-lg font-semibold text-t1">{successModal}</p>
+            <p className="text-xs text-t3">視窗將自動關閉</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
