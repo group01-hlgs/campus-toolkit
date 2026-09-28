@@ -11,7 +11,7 @@ let enabledCache: { enabled: boolean; at: number } | null = null;
 let identityCache: { systemName: string; schoolFullName: string; at: number } | null = null;
 let emailChangeCache: { allowed: boolean; at: number } | null = null;
 
-/** 設�??��?後呼?��?讓�?置逾�??�系統�??��??�快?��??�失??*/
+/** 設定儲存後呼叫，讓閒置逾時與系統啟用狀態快取立即失效 */
 export function invalidateSettingsCache(): void {
   timeoutCache = null;
   enabledCache = null;
@@ -20,8 +20,8 @@ export function invalidateSettingsCache(): void {
 }
 
 /**
- * 讀??settings.systemEnabled（維護模式�?，�?伺�??�端強制?��???
- * ?��?置逾�??�用 30 �?in-process 快�?；�?失�??��??�上次?��??�設?�用??
+ * 讀取 settings.systemEnabled（維護模式），供伺服器端強制執行。
+ * 與閒置逾時共用 30 秒 in-process 快取；讀失敗時回退上次值或預設啟用。
  */
 export async function isSystemEnabled(): Promise<boolean> {
   const now = Date.now();
@@ -47,8 +47,8 @@ export async function isSystemEnabled(): Promise<boolean> {
 }
 
 /**
- * 讀??settings.sessionTimeout（�??��?，�?伺�??�端?�置?��?檢查使用??
- * �?30 �?in-process 快�??��?每個�?求都??Firestore；�?失�??��??�上次?��??�設?��?
+ * 讀取 settings.sessionTimeout（分鐘），供伺服器端閒置逾時檢查使用。
+ * 以 30 秒 in-process 快取避免每個請求都打 Firestore；讀失敗時回退上次值或預設值。
  */
 export async function getSessionTimeoutMinutes(): Promise<number> {
   const now = Date.now();
@@ -75,9 +75,9 @@ export async function getSessionTimeoutMinutes(): Promise<number> {
 }
 
 /**
- * 讀??settings.emailChangeAllowed（是?��??�使?�者自行�??�電子郵件地?�）�?
- * ?��?置逾�??�用 30 �?in-process 快�?，避?��??��?求都??Firestore�?
- * 讀失�??��??�上次?��??�設?��??�設?�放）�?
+ * 讀取 settings.emailChangeAllowed（是否開放使用者自行變更電子郵件地址）。
+ * 與閒置逾時共用 30 秒 in-process 快取，避免每個請求都打 Firestore；
+ * 讀失敗時回退上次值或預設值（預設開放）。
  */
 export async function isEmailChangeAllowed(): Promise<boolean> {
   const now = Date.now();
@@ -103,8 +103,8 @@ export async function isEmailChangeAllowed(): Promise<boolean> {
 }
 
 /**
- * 讀?�信件抬?�用?�兩?��?稱�?系統（�?式�??�命?��?學校?�稱??
- * ?�其他設定共??30 秒快?��?讀失�??�退上次?��?空�?串�?
+ * 讀取信件抬頭用的兩個名稱：系統（程式）自命名與學校全稱。
+ * 與其他設定共用 30 秒快取，讀失敗回退上次值或空字串。
  */
 async function readIdentity(): Promise<{ systemName: string; schoolFullName: string }> {
   const now = Date.now();
@@ -129,8 +129,8 @@ async function readIdentity(): Promise<{ systemName: string; schoolFullName: str
 }
 
 /**
- * ?��?信件／通知?�頭?��?站�?（優?�學?�全?��??�次系統?�稱）�?
- * ?�其他設定共??30 秒快?��?讀失�??�退?�設?�稱??
+ * 取得信件／通知抬頭用的站名（優先學校全名，其次系統名稱）。
+ * 與其他設定共用 30 秒快取，讀失敗回退預設名稱。
  */
 export async function getSiteName(): Promise<string> {
   const { systemName, schoolFullName } = await readIdentity();
@@ -138,9 +138,9 @@ export async function getSiteName(): Promise<string> {
 }
 
 /**
- * ?��?信件?�頭?��?識別?�稱�?
- * systemName 一律�??��??�自?��??�用?�設系統?�稱）�?schoolFullName ?�為空�?
- * 信件以「系統�?稱�?學校?�稱?�併?��?讓收件人?��?信件來自?��??��?式系統�?
+ * 取得信件抬頭用的識別名稱：
+ * systemName 一律有值（未自命名時用預設系統名稱），schoolFullName 可為空。
+ * 信件以「系統名稱｜學校名稱」併列，讓收件人知道信件來自哪一個程式系統。
  */
 export async function getMailIdentity(): Promise<{
   systemName: string;
