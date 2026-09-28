@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
 import { requireRole, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS } from "@/types/users";
+import {
+  ROLE_COLLECTIONS,
+  AccountStatus,
+  ACTIVE_STATUS,
+  isAccountActive,
+  isAccountStatus,
+} from "@/types/users";
 import { isRosterRole, rosterRoleLabel, ROSTER_ENTRY_FIELDS, RosterInput, RosterRole } from "@/types/roster";
 import {
   buildAccountRecord,
@@ -123,7 +129,6 @@ export async function POST(request: NextRequest) {
     }
 
     const accountRecord = buildAccountRecord(
-      role,
       result.account,
       await hashRosterPassword(result.password as string)
     );
@@ -261,12 +266,19 @@ export async function PATCH(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const role = isRosterRole(body.role) ? body.role : null;
     const uid = typeof body.uid === "string" ? body.uid : "";
-    const active = typeof body.active === "boolean" ? body.active : null;
-    if (!role || !uid || active === null) {
+    // 欄位為 status（有效／無效／停權）；相容舊的 active 布林（true→有效、false→無效）
+    const status: AccountStatus | null = isAccountStatus(body.status)
+      ? body.status
+      : typeof body.active === "boolean"
+        ? body.active
+          ? ACTIVE_STATUS
+          : "無效"
+        : null;
+    if (!role || !uid || !status) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
     }
 
-    if (!active) {
+    if (status !== ACTIVE_STATUS) {
       if (role === "admin" && uid === session.uid) {
         return NextResponse.json(
           { success: false, message: "無法停用自己使用的管理員帳號" },
@@ -278,7 +290,7 @@ export async function PATCH(request: NextRequest) {
         const admins = await getAdminDb().collection(ROLE_COLLECTIONS.admin).get();
         const activeAdmins = admins.docs.filter((doc) => {
           if (doc.id === uid) return false;
-          return (doc.data().active ?? true) !== false;
+          return isAccountActive(doc.data());
         });
         if (activeAdmins.length === 0) {
           return NextResponse.json(
@@ -294,17 +306,21 @@ export async function PATCH(request: NextRequest) {
     if (!snap.exists) {
       return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
     }
-    await ref.update({ active });
+    // 寫入 status 並清掉舊的 active 欄位（兩者不可並存）
+    await ref.update({ status, active: FieldValue.delete() });
 
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "account_updated",
       ip: getClientIp(request),
-      details: `${active ? "啟用" : "停用"}${rosterRoleLabel(role)}帳號 ${snap.data()?.account || uid}`,
+      details: `將${rosterRoleLabel(role)}帳號 ${snap.data()?.account || uid} 狀態設為「${status}」`,
     });
 
-    return NextResponse.json({ success: true, message: active ? "帳號已啟用" : "帳號已停用" });
+    return NextResponse.json({
+      success: true,
+      message: status === ACTIVE_STATUS ? "帳號已啟用" : `帳號狀態已設為「${status}」`,
+    });
   } catch (error) {
     console.error("Account status error:", error);
     return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });

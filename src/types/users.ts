@@ -58,37 +58,46 @@ export function requiresSecondFactor(value: unknown): value is "email_otp" | "to
   return value === "email_otp" || value === "totp";
 }
 
-export interface BaseUserRecord {
-  email: string;
-  account: string;
-  passwordHash: string;
-  name: string;
-  loginRecords: number[];
-  lastLoginMethod: string;
-  loginCount: number;
-  cssThemeId: string;
-  installedThemes: string;
-  lockedUntil: number;
-  /** 觸發鎖定時的來源 IP（綁定鎖定，防跨 IP 鎖號 DoS） */
-  lockIp?: string;
-  failedAttempts: number;
-  createdAt: number;
-  /**
-   * 帳號有效／無效（缺省視為有效）。無效者不得登入（含 2FA 完成後與密碼重設後建立 session）。
-   * 注意：帳號文件只存驗證與登入狀態，班級／學號等名冊資料存於 roster 集合（隨學年度、學期變動）。
-   */
-  active?: boolean;
+/**
+ * 帳號狀態（所有身分的使用者帳號共用同一組欄位）。
+ * 有效＝正常帳號；無效／停權＝停用帳號，一律無法登入，差別只在清單標示與操作用語。
+ */
+export type AccountStatus = "有效" | "無效" | "停權";
+
+export const ACCOUNT_STATUSES: AccountStatus[] = ["有效", "無效", "停權"];
+
+/** 可登入的狀態 */
+export const ACTIVE_STATUS: AccountStatus = "有效";
+
+export function isAccountStatus(value: unknown): value is AccountStatus {
+  return value === "有效" || value === "無效" || value === "停權";
 }
 
-/** 家長帳號文件（名冊欄位於 roster 集合） */
-export type ParentRecord = BaseUserRecord;
+/**
+ * 帳號是否有效（可登入）。
+ * 有 status 以 status 為準；沒有 status 的舊資料回頭看 active（active === false 視為停用）。
+ */
+export function isAccountActive(
+  data: Record<string, unknown> | null | undefined
+): boolean {
+  if (!data) return false;
+  if (typeof data.status === "string") return data.status === ACTIVE_STATUS;
+  return data.active !== false;
+}
 
-/** 管理員文件（admins collection）欄位總覽，帳號與安全管理頁對應讀取 */
-export interface AdminRecord {
+/**
+ * 使用者帳號文件（students／parents／staff／admins 四種身分共用同一組欄位）。
+ * 班級、學號等名冊資料不在此，存於 roster 集合（隨學年度、學期變動）。
+ */
+export interface AccountRecord {
   email: string;
   account: string;
+  /** 密碼雜湊（bcrypt） */
   passwordHash: string;
-  displayName: string;
+  /** 姓名 */
+  name: string;
+  /** 狀態：有效／無效／停權（缺省＝有效） */
+  status?: AccountStatus;
   /** 兩階段驗證方式，缺省視為 off */
   twoFactor?: TwoFactorMethod;
   /** TOTP Base32 密鑰（twoFactor=totp 時使用） */
@@ -100,20 +109,35 @@ export interface AdminRecord {
   /** TOTP 防重放：90 秒內同一組驗證碼不可重複使用 */
   totpLastCode?: string;
   totpLastUsedAt?: number;
+  /** 登入紀錄（epoch ms，新→舊，最多 50 筆） */
   loginRecords: number[];
+  /** 最後一次登入時間（epoch ms），0 表示無紀錄 */
   lastLogin: number;
+  /** 最後一次登入方式（登入方式） */
   lastLoginMethod: string;
+  /** 登入次數 */
   loginCount: number;
+  /** CSS 主題 ID */
   cssThemeId: string;
+  /** 已安裝主題清單（JSON 陣列字串） */
   installedThemes: string;
+  /** 鎖定至（epoch ms），0 表示未鎖定 */
   lockedUntil: number;
+  /** 觸發鎖定時的來源 IP（綁定鎖定，防跨 IP 鎖號 DoS） */
   lockIp?: string;
+  /** 連續登入失敗次數 */
   failedAttempts: number;
+  /** 每次重設密碼 +1，使舊 JWT 全數失效 */
   tokenVersion: number;
   createdAt: number;
-  /** 帳號有效／無效（缺省視為有效），無效者不得登入；管理員進身分名冊，條目只有學年度學期標記 */
-  active?: boolean;
 }
+
+/** 向後相容的舊名稱：帳號文件已全面統一為 AccountRecord */
+export type BaseUserRecord = AccountRecord;
+/** 向後相容的舊名稱：管理員與其他身分欄位一致（姓名用 name，不再有 displayName） */
+export type AdminRecord = AccountRecord;
+/** 家長帳號文件 */
+export type ParentRecord = AccountRecord;
 
 export const ROLE_SPECIFIC_FIELDS: Record<
   UserRole,

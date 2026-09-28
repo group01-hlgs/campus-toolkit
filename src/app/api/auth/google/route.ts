@@ -11,7 +11,7 @@ import {
   sendEmailOtp,
   sendLoginNotification,
 } from "@/lib/two-factor";
-import { ROLE_COLLECTIONS, isUserRole } from "@/types/users";
+import { ROLE_COLLECTIONS, isAccountActive, isUserRole } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 const GENERIC_LOGIN_ERROR = "登入失敗，請稍後再試";
@@ -108,8 +108,8 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    // 停用帳號不得以 Google 登入
-    if (userData.active === false) {
+    // 停用（無效／停權）帳號不得以 Google 登入
+    if (!isAccountActive(userData)) {
       await logActivity({
         userId: userDoc.id,
         role,

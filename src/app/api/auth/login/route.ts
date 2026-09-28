@@ -16,7 +16,7 @@ import {
   sendEmailOtp,
   sendLoginNotification,
 } from "@/lib/two-factor";
-import { ROLE_COLLECTIONS, isUserRole } from "@/types/users";
+import { ROLE_COLLECTIONS, isAccountActive, isUserRole } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 const LOCK_THRESHOLD = 5;
@@ -223,15 +223,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 停用帳號（active=false）不得登入。放在密碼驗證成功後才擋，
+    // 停用（無效／停權）帳號不得登入。放在密碼驗證成功後才擋，
     // 不會在帳號不存在／密碼錯誤時透露帳號狀態（防枚舉）
-    if (userData.active === false) {
+    if (!isAccountActive(userData)) {
       await logActivity({
         userId: userDoc.id,
         role,
         action: "login_failed",
         ip,
-        details: "停用帳號嘗試登入",
+        details: `停用帳號（${typeof userData.status === "string" ? userData.status : "無效"}）嘗試登入`,
       });
       return NextResponse.json(
         { success: false, message: GENERIC_LOGIN_ERROR },

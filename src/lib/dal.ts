@@ -6,7 +6,7 @@ import { getSession, SessionPayload } from "@/lib/server-session";
 import { isJtiRevoked } from "@/lib/revocation";
 import { getClientIp } from "@/lib/audit";
 import { getSessionTimeoutMinutes, isSystemEnabled } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS, UserRole } from "@/types/users";
+import { ROLE_COLLECTIONS, isAccountActive, UserRole } from "@/types/users";
 
 export async function verifySession(): Promise<SessionPayload | null> {
   const session = await getSession();
@@ -31,8 +31,8 @@ export async function verifySession(): Promise<SessionPayload | null> {
     if (!snap.exists) return null;
 
     const data = snap.data();
-    // 帳號被停用（active=false）後既有 session 全數失效
-    if (data?.active === false) return null;
+    // 停用（無效／停權）帳號的既有 session 全數失效
+    if (!isAccountActive(data)) return null;
 
     const tokenVersion = typeof data?.tokenVersion === "number" ? data.tokenVersion : 1;
     if (session.tokenVersion !== tokenVersion) return null;

@@ -9,7 +9,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { isSystemEnabled } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS, ROLE_LABELS } from "@/types/users";
+import { ROLE_COLLECTIONS, ROLE_LABELS, isAccountActive } from "@/types/users";
 import {
   EMAIL_OTP_COOLDOWN_MS,
   checkTwoFactorAttempt,
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 帳號在等待第二階段期間被停用：驗證碼通過也不建立 session
-    if (userData.active === false) {
+    if (!isAccountActive(userData)) {
       await clearPending2FACookie();
       await logActivity({
         userId: pending.uid,

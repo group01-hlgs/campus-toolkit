@@ -181,7 +181,6 @@ export async function POST(request: NextRequest) {
       }
 
       const record = buildAccountRecord(
-        role,
         result.account,
         await hashRosterPassword(result.password as string)
       );

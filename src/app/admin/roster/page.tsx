@@ -15,6 +15,7 @@ import {
   RosterRole,
   rosterImportHint,
 } from "@/types/roster";
+import type { AccountStatus } from "@/types/users";
 import {
   ACCOUNT_EMAIL_REQUIRED_MESSAGE,
   ACCOUNT_FORMAT_MESSAGE,
@@ -59,6 +60,13 @@ const EMPTY_FORM: Record<RosterFieldKey, string> = {
 function isAccountField(key: RosterFieldKey): boolean {
   return (ACCOUNT_FIELD_KEYS as readonly string[]).includes(key);
 }
+
+/** 狀態標籤配色：有效＝綠、無效＝黃、停權＝紅 */
+const STATUS_STYLE: Record<AccountStatus, string> = {
+  有效: "text-success",
+  無效: "text-warning",
+  停權: "text-danger",
+};
 
 function formatDateTime(value?: number): string {
   if (!value) return "—";
@@ -304,14 +312,16 @@ export default function RosterPage() {
     }
   }
 
-  /** 切換帳號有效／無效：無效後該帳號全面無法登入（含 Google 與兩階段驗證） */
-  async function handleToggleActive(member: RosterMember) {
-    if (toggling) return;
-    const nextActive = !member.active;
+  /** 設定帳號狀態（有效／無效／停權）：非「有效」一律無法登入（含 Google 與兩階段驗證） */
+  async function handleSetStatus(member: RosterMember, status: AccountStatus) {
+    if (toggling || status === member.status) return;
     const label = `${member.name}（${member.account || member.email}）`;
-    const question = nextActive
-      ? `確定啟用 ${label}？啟用後可正常登入。`
-      : `確定停用 ${label}？停用後將無法登入，原有資料不會刪除。`;
+    const question =
+      status === "有效"
+        ? `確定啟用 ${label}？啟用後可正常登入。`
+        : status === "無效"
+          ? `確定停用 ${label}？停用後將無法登入，原有資料不會刪除。`
+          : `確定將 ${label} 停權？停權後將無法登入，原有資料不會刪除。`;
     if (!window.confirm(question)) return;
 
     setToggling(true);
@@ -320,7 +330,7 @@ export default function RosterPage() {
       const res = await fetch("/api/admin/roster", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, uid: member.uid, active: nextActive }),
+        body: JSON.stringify({ role, uid: member.uid, status }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -461,7 +471,7 @@ export default function RosterPage() {
       <div className="w-full max-w-5xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">使用者帳號管理</h2>
         <p className="text-t2 mt-1 text-sm">
-          新增、編輯、刪除、匯入與啟用／停用學生、教職員與管理員帳號
+          新增、編輯、刪除、匯入學生、教職員與管理員帳號，並設定狀態（有效／無效／停權）
         </p>
       </div>
 
@@ -660,15 +670,11 @@ export default function RosterPage() {
                     {formatDateTime(member.lastLogin)}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    {member.active ? (
-                      <span className="inline-block rounded-full border border-themed px-2 py-0.5 text-xs text-success">
-                        有效
-                      </span>
-                    ) : (
-                      <span className="inline-block rounded-full border border-themed px-2 py-0.5 text-xs text-danger">
-                        無效
-                      </span>
-                    )}
+                    <span
+                      className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ${STATUS_STYLE[member.status]}`}
+                    >
+                      {member.status}
+                    </span>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
                     <button
@@ -677,13 +683,32 @@ export default function RosterPage() {
                     >
                       編輯
                     </button>
-                    <button
-                      onClick={() => void handleToggleActive(member)}
-                      disabled={toggling}
-                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
-                    >
-                      {member.active ? "停用" : "啟用"}
-                    </button>
+                    {member.status === "有效" ? (
+                      <>
+                        <button
+                          onClick={() => void handleSetStatus(member, "無效")}
+                          disabled={toggling}
+                          className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                        >
+                          停用
+                        </button>
+                        <button
+                          onClick={() => void handleSetStatus(member, "停權")}
+                          disabled={toggling}
+                          className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                        >
+                          停權
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => void handleSetStatus(member, "有效")}
+                        disabled={toggling}
+                        className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                      >
+                        啟用
+                      </button>
+                    )}
                     <button
                       onClick={() => void handleDelete(member)}
                       className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"

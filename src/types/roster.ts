@@ -3,6 +3,8 @@
  * 涵蓋學生／教職員／管理員三個身分；家長帳號不在此頁維護。
  */
 
+import type { AccountStatus } from "@/types/users";
+
 export type RosterRole = "student" | "staff" | "admin";
 
 /** 身分名冊（roster 集合）的身分：四種身分都進名冊；管理員條目只有學年度學期標記 */
@@ -144,8 +146,8 @@ export interface RosterMember {
   email: string;
   account: string;
   name: string;
-  /** 帳號狀態：有效 true／無效 false（舊資料缺欄位視為有效） */
-  active: boolean;
+  /** 帳號狀態：有效／無效／停權（無效、停權都無法登入） */
+  status: AccountStatus;
   lastLogin?: number;
   loginCount?: number;
   studentId?: string;

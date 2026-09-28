@@ -8,6 +8,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { normalizeEmail, normalizeAccount, isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { buildRosterEntry, ROSTER_COLLECTION, rosterEntryId } from "@/lib/roster";
+import { ACTIVE_STATUS, AccountRecord } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 /** 供 /setup 判斷是否仍可建立首任管理員（不揭露環境變數名稱） */
@@ -67,7 +68,10 @@ export async function POST(request: NextRequest) {
       session = s;
     }
 
-    const { email, account, password, displayName } = await request.json();
+    const { email, account, password, name, displayName } = await request.json();
+    // 統一用 name；相容舊欄位 displayName（舊介面仍可能傳）
+    const normName =
+      String(typeof name === "string" ? name : (displayName ?? "")).slice(0, 64);
 
     const normEmail = normalizeEmail(email);
     const normAccount = normalizeAccount(account);
@@ -103,18 +107,21 @@ export async function POST(request: NextRequest) {
     // costFactor 不接受 request body 指定：固定使用預設 12，避免被降為弱成本雜湊
     const passwordHash = await hashPassword(password);
 
-    const newAdmin = {
+    const newAdmin: AccountRecord = {
       email: normEmail,
       account: normAccount,
-      displayName: typeof displayName === "string" ? displayName.slice(0, 64) : "",
+      name: normName,
       passwordHash,
+      status: ACTIVE_STATUS,
+      loginRecords: [],
       lastLogin: 0,
       lastLoginMethod: "",
       loginCount: 0,
+      cssThemeId: "",
+      installedThemes: "[]",
       failedAttempts: 0,
       lockedUntil: 0,
       tokenVersion: 1,
-      active: true,
       createdAt: Date.now(),
     };
 

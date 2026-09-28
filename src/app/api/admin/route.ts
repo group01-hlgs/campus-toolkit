@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
 import { hashPassword } from "@/lib/auth";
 import { requireRole, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
@@ -35,7 +35,8 @@ export async function GET(request: NextRequest) {
         uid: doc.id,
         email: data.email,
         account: data.account,
-        displayName: data.displayName,
+        // 統一為 name；舊管理員文件用 displayName，遷移前先回退
+        name: data.name || data.displayName || "",
         lastLogin: data.lastLogin,
         loginCount: data.loginCount,
         createdAt: data.createdAt,
@@ -68,7 +69,7 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireRole("admin");
     if (denial) return toAuthResponse(denial);
 
-    const { uid, email, account, displayName, password } = await request.json();
+    const { uid, email, account, name, displayName, password } = await request.json();
 
     if (!uid || typeof uid !== "string") {
       return NextResponse.json(
@@ -122,8 +123,12 @@ export async function PUT(request: NextRequest) {
       }
       updateData.account = normAccount;
     }
-    if (displayName !== undefined) {
-      updateData.displayName = typeof displayName === "string" ? displayName.slice(0, 64) : "";
+    // 統一寫 name；相容舊欄位 displayName
+    if (name !== undefined || displayName !== undefined) {
+      const raw = name !== undefined ? name : displayName;
+      updateData.name = typeof raw === "string" ? raw.slice(0, 64) : "";
+      // 舊欄位一併清除，避免同一份文件同時存在兩種姓名
+      if (target && "displayName" in target) updateData.displayName = FieldValue.delete();
     }
     let passwordChanged = false;
     if (password) {

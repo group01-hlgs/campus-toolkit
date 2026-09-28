@@ -10,7 +10,14 @@ import {
   normalizeEmail,
   PASSWORD_REQUIREMENT_MESSAGE,
 } from "@/lib/validation";
-import { ROLE_COLLECTIONS, AdminRecord, UserRole } from "@/types/users";
+import {
+  ROLE_COLLECTIONS,
+  AccountRecord,
+  AccountStatus,
+  ACTIVE_STATUS,
+  isAccountStatus,
+  UserRole,
+} from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
 import {
   ROSTER_ENTRY_FIELDS,
@@ -170,39 +177,26 @@ export function checkRosterConflict(
   return null;
 }
 
-/** 依身分組出「使用者帳號」文件（只含驗證與登入狀態，不含名冊欄位） */
-export function buildAccountRecord(
-  role: RosterRole,
-  account: AccountFields,
-  passwordHash: string
-): Record<string, unknown> {
+/** 組出「使用者帳號」文件：四種身分共用同一組欄位（名冊欄位存於 roster 集合） */
+export function buildAccountRecord(account: AccountFields, passwordHash: string): AccountRecord {
   const now = Date.now();
-  const base = {
+  return {
     email: account.email,
     account: account.account,
     passwordHash,
-    loginRecords: [] as number[],
+    name: account.name,
+    status: ACTIVE_STATUS,
+    loginRecords: [],
+    lastLogin: 0,
     lastLoginMethod: "",
     loginCount: 0,
     cssThemeId: "",
     installedThemes: "[]",
     lockedUntil: 0,
     failedAttempts: 0,
-    active: true,
+    tokenVersion: 1,
     createdAt: now,
   };
-
-  if (role === "admin") {
-    const admin: AdminRecord = {
-      ...base,
-      displayName: account.name,
-      lastLogin: 0,
-      tokenVersion: 1,
-    };
-    return { ...admin };
-  }
-
-  return { ...base, name: account.name };
 }
 
 /** 身分名冊文件 id：每「帳號 × 學年度 × 學期」唯一，方便直接更新與讀取 */
@@ -272,6 +266,12 @@ export async function loadPeriodEntries(
   return map;
 }
 
+/** 帳號文件 → 狀態（有效／無效／停權）；還沒有 status 的舊資料以 active 過渡 */
+function accountStatus(account: Record<string, unknown>): AccountStatus {
+  if (isAccountStatus(account.status)) return account.status;
+  return account.active === false ? "無效" : "有效";
+}
+
 /** 帳號文件＋名冊條目 → 帳號清單一列（不含密碼；名冊欄位取自目前學年度學期） */
 export function toRosterMember(
   role: RosterRole,
@@ -286,8 +286,9 @@ export function toRosterMember(
     uid,
     email: str(account, "email"),
     account: str(account, "account"),
-    name: role === "admin" ? str(account, "displayName") : str(account, "name"),
-    active: account.active !== false,
+    // 舊管理員文件用 displayName，遷移後統一為 name
+    name: str(account, "name") || str(account, "displayName"),
+    status: accountStatus(account),
   };
   if (typeof account.lastLogin === "number") member.lastLogin = account.lastLogin;
   if (typeof account.loginCount === "number") member.loginCount = account.loginCount;

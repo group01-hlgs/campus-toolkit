@@ -17,7 +17,7 @@ import {
   inspectPasswordResetToken,
   PASSWORD_RESET_TTL_MINUTES,
 } from "@/lib/password-reset";
-import { ROLE_COLLECTIONS, isUserRole } from "@/types/users";
+import { ROLE_COLLECTIONS, isAccountActive, isUserRole } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 function maskEmail(email: string): string {
@@ -178,8 +178,8 @@ export async function POST(request: NextRequest) {
     }
 
     const userData = userDoc.data() || {};
-    // 停用帳號：完成重設也不建立 session，直接擋下避免繞道登入
-    if (userData.active === false) {
+    // 停用（無效／停權）帳號：完成重設也不建立 session，直接擋下避免繞道登入
+    if (!isAccountActive(userData)) {
       await logActivity({
         userId: record.uid,
         role: record.role,

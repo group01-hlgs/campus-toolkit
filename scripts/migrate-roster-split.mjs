@@ -1,14 +1,16 @@
 /**
- * 一次性遷移：把學生／家長／教職員帳號文件上的名冊欄位（學號、班級、年級、職稱…）
- * 搬進身分名冊集合 `roster`（文件 id：`${uid}_${學年度}_${學期}`，期間取自 settings/system，
- * 欄位缺漏時依日期推算），並從帳號文件移除這些欄位、補上 active: true。
- * 四種身分都進名冊：管理員條目只有學年度學期標記、不含名冊欄位。
+ * 一次性遷移（四種身分的使用者帳號欄位整併＋身分名冊拆分）：
+ * 1. 學生／家長／教職員帳號文件上的名冊欄位（學號、班級、年級、職稱…）搬進身分名冊集合
+ *    `roster`（文件 id：`${uid}_${學年度}_${學期}`，期間取自 settings/system，欄位缺漏時依日期推算），
+ *    並從帳號文件移除這些欄位。四種身分都進名冊：管理員條目只有學年度學期標記。
+ * 2. 帳號欄位整併：active → status（有效／無效／停權，缺省有效）、管理員 displayName → name、
+ *    補齊 tokenVersion／lastLogin／loginRecords。
  *
  * 用法：
  *   node --env-file=.env.local scripts/migrate-roster-split.mjs --dry-run   # 只列出將進行的變更
  *   node --env-file=.env.local scripts/migrate-roster-split.mjs             # 執行
  *
- * 可重複執行：已存在的名冊條目不會被覆寫；已存在的 active 欄位不動。
+ * 可重複執行：已存在的名冊條目不會被覆寫；已存在的 status／tokenVersion 不動。
  */
 
 import { initializeApp, cert } from "firebase-admin/app";
@@ -126,36 +128,66 @@ async function migrateRole(db, role, period, stats) {
         updatedAt: now,
       };
       for (const key of fields) entry[key] = typeof data[key] === "string" ? data[key] : "";
-      if (DRY_RUN) {
-        console.log(`[dry-run] 建立名冊條目 ${entryId}`);
-      } else {
-        ops.push({ type: "set", ref: entryRef, data: entry });
-      }
-      stats.entriesCreated += 1;
+        if (DRY_RUN) {
+          console.log(`[dry-run] 建立名冊條目 ${entryId}`);
+        } else {
+          ops.push({ type: "set", ref: entryRef, data: entry });
+        }
+        stats.entriesCreated += 1;
+        if (!DRY_RUN && ops.length >= 400) await flushBatch(db, ops);
     } else {
       stats.entriesSkipped += 1;
     }
 
     const patch = {};
     const notes = [];
+
+    // 名冊欄位搬進 roster 條目後，從帳號文件移除
     for (const key of fields) {
-      if (key in data) {
-        patch[key] = FieldValue.delete();
-      }
+      if (key in data) patch[key] = FieldValue.delete();
     }
     if (fields.some((key) => key in data)) notes.push("移除名冊欄位");
-    if (!("active" in data)) {
-      patch.active = true;
-      notes.push("補 active");
+
+    // 舊的 active 布林 → status（有效／無效／停權）
+    if (!["有效", "無效", "停權"].includes(data.status)) {
+      patch.status = data.active === false ? "無效" : "有效";
+      notes.push("寫入 status");
     }
-    const hasPatch = Object.keys(patch).length > 0;
-    if (hasPatch) {
+    if ("active" in data) {
+      patch.active = FieldValue.delete();
+      notes.push("移除 active");
+    }
+
+    // 管理員 displayName 統一為 name
+    if ("displayName" in data) {
+      if (!(typeof data.name === "string" && data.name)) patch.name = data.displayName || "";
+      patch.displayName = FieldValue.delete();
+      notes.push("displayName→name");
+    }
+
+    // 補齊統一欄位（tokenVersion、登入紀錄相關）
+    if (typeof data.tokenVersion !== "number") {
+      patch.tokenVersion = 1;
+      notes.push("補 tokenVersion");
+    }
+    if (typeof data.lastLogin !== "number") {
+      patch.lastLogin = 0;
+      notes.push("補 lastLogin");
+    }
+    if (!Array.isArray(data.loginRecords)) {
+      patch.loginRecords = [];
+      notes.push("補 loginRecords");
+    }
+
+    if (Object.keys(patch).length > 0) {
       if (DRY_RUN) {
         console.log(`[dry-run] 更新帳號 ${collectionName}/${uid}：${notes.join("、")}`);
       } else {
         ops.push({ type: "update", ref: doc.ref, data: patch });
       }
       stats.accountsUpdated += 1;
+      // Firestore 一批最多 500 個操作
+      if (!DRY_RUN && ops.length >= 400) await flushBatch(db, ops);
     }
   }
 

@@ -7,6 +7,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import {
   ROLE_COLLECTIONS,
+  ACTIVE_STATUS,
   BaseUserRecord,
   ParentRecord,
 } from "@/types/users";
@@ -57,14 +58,16 @@ export async function seedRoles() {
       account: DEFAULT_ACCOUNT,
       passwordHash,
       name: "",
+      status: ACTIVE_STATUS,
       loginRecords: [],
+      lastLogin: 0,
       lastLoginMethod: "",
       loginCount: 0,
       cssThemeId: "",
       installedThemes: "[]",
       lockedUntil: 0,
       failedAttempts: 0,
-      active: true,
+      tokenVersion: 1,
       createdAt: now,
     };
 
