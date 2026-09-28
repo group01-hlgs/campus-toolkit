@@ -8,7 +8,12 @@ const CACHE_TTL_MS = 30_000;
 
 let timeoutCache: { minutes: number; at: number } | null = null;
 let enabledCache: { enabled: boolean; at: number } | null = null;
-let identityCache: { systemName: string; schoolFullName: string; at: number } | null = null;
+let identityCache: {
+  systemName: string;
+  schoolFullName: string;
+  schoolShortName: string;
+  at: number;
+} | null = null;
 let emailChangeCache: { allowed: boolean; at: number } | null = null;
 
 /** 設定儲存後呼叫，讓閒置逾時與系統啟用狀態快取立即失效 */
@@ -103,10 +108,14 @@ export async function isEmailChangeAllowed(): Promise<boolean> {
 }
 
 /**
- * 讀取信件抬頭用的兩個名稱：系統（程式）自命名與學校全稱。
+ * 讀取識別名稱用的三個欄位：系統（程式）自命名、學校全稱、學校簡稱。
  * 與其他設定共用 30 秒快取，讀失敗回退上次值或空字串。
  */
-async function readIdentity(): Promise<{ systemName: string; schoolFullName: string }> {
+async function readIdentity(): Promise<{
+  systemName: string;
+  schoolFullName: string;
+  schoolShortName: string;
+}> {
   const now = Date.now();
   if (identityCache && now - identityCache.at < CACHE_TTL_MS) return identityCache;
 
@@ -119,22 +128,25 @@ async function readIdentity(): Promise<{ systemName: string; schoolFullName: str
       ? (snap.data() as Record<string, unknown> | undefined)
       : undefined;
     const schoolFullName = typeof raw?.schoolFullName === "string" ? raw.schoolFullName.trim() : "";
+    const schoolShortName = typeof raw?.schoolShortName === "string" ? raw.schoolShortName.trim() : "";
     const systemName = typeof raw?.systemName === "string" ? raw.systemName.trim() : "";
-    identityCache = { systemName, schoolFullName, at: now };
+    identityCache = { systemName, schoolFullName, schoolShortName, at: now };
     return identityCache;
   } catch (error) {
-    console.error("Site name settings read error:", error);
-    return identityCache ?? { systemName: "", schoolFullName: "" };
+    console.error("Identity settings read error:", error);
+    return identityCache ?? { systemName: "", schoolFullName: "", schoolShortName: "" };
   }
 }
 
 /**
- * 取得信件／通知抬頭用的站名（優先學校全名，其次系統名稱）。
- * 與其他設定共用 30 秒快取，讀失敗回退預設名稱。
+ * 驗證碼APP（TOTP）的發行者名稱，顯示為「系統名稱-學校簡稱：帳號」。
+ * 學校簡稱未填時退用學校全稱，兩者都沒填時只顯示系統名稱。
  */
-export async function getSiteName(): Promise<string> {
-  const { systemName, schoolFullName } = await readIdentity();
-  return schoolFullName || systemName || DEFAULT_SYSTEM_NAME;
+export async function getTotpIssuer(): Promise<string> {
+  const { systemName, schoolFullName, schoolShortName } = await readIdentity();
+  const system = systemName || DEFAULT_SYSTEM_NAME;
+  const school = schoolShortName || schoolFullName;
+  return school ? `${system}-${school}` : system;
 }
 
 /**

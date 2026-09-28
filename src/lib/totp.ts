@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { DEFAULT_SYSTEM_NAME } from "@/types/settings";
 
 /**
  * TOTP（RFC 6238）實作：HMAC-SHA1、30 秒間隔、T±1 容差。
@@ -115,7 +116,7 @@ export function buildOtpauthUrl(options: {
   account: string;
   issuer?: string;
 }): string {
-  const issuer = options.issuer || "數位校園工具箱";
+  const issuer = options.issuer || DEFAULT_SYSTEM_NAME;
   // 標籤格式為 issuer:account（colon 保留、兩段各自編碼，驗證器 App 皆可解析）
   const label = `${encodeURIComponent(issuer)}:${encodeURIComponent(options.account)}`;
   const params = new URLSearchParams({

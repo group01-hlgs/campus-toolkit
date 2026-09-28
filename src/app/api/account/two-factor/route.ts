@@ -5,7 +5,7 @@ import { unauthorized } from "@/lib/server-session";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { getSiteName } from "@/lib/settings-server";
+import { getTotpIssuer } from "@/lib/settings-server";
 import { isMailConfigured } from "@/lib/mailer";
 import { buildOtpauthUrl } from "@/lib/totp";
 import {
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "帳號不存在" }, { status: 404 });
     }
     const userData = snap.data()!;
-    const siteName = await getSiteName();
+    const issuer = await getTotpIssuer();
 
     // 重新產生 TOTP 密鑰：舊密鑰立即失效，驗證器 App 需重新掃描
     if (body.action === "regenerate") {
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
         success: true,
         message: "已產生新的 TOTP 密鑰，請重新掃描 QR Code",
         twoFactor: current.method,
-        ...twoFactorInfo(secret, session.account, siteName),
+        ...twoFactorInfo(secret, session.account, issuer),
       });
     }
 
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       success: true,
       message: "設定已儲存",
       twoFactor: method,
-      ...twoFactorInfo(secret, session.account, siteName),
+      ...twoFactorInfo(secret, session.account, issuer),
     });
   } catch (error) {
     console.error("Two-factor update error:", error);

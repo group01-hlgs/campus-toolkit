@@ -10,7 +10,7 @@ import { revokeJti } from "@/lib/revocation";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { getSiteName, isEmailChangeAllowed } from "@/lib/settings-server";
+import { getTotpIssuer, isEmailChangeAllowed } from "@/lib/settings-server";
 import { buildOtpauthUrl } from "@/lib/totp";
 import { readTwoFactorProfile } from "@/lib/two-factor";
 import {
@@ -90,7 +90,7 @@ async function buildProfile(
       ? buildOtpauthUrl({
           secret: totpSecret,
           account: sessionAccount,
-          issuer: await getSiteName(),
+          issuer: await getTotpIssuer(),
         })
       : "",
     lockedUntil: typeof data.lockedUntil === "number" ? data.lockedUntil : 0,
