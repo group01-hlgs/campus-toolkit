@@ -12,6 +12,8 @@ import {
   ACTIVE_STATUS,
   isAccountActive,
   isAccountStatus,
+  isUserRole,
+  UserRole,
 } from "@/types/users";
 import { isRosterRole, rosterRoleLabel, ROSTER_ENTRY_FIELDS, RosterInput, RosterRole } from "@/types/roster";
 import {
@@ -37,6 +39,7 @@ function parseRosterBody(body: Record<string, unknown>): {
   role: RosterRole | null;
   uid: string;
   input: RosterInput;
+  preferredRole: unknown;
 } {
   const role = isRosterRole(body.role) ? body.role : null;
   const uid = typeof body.uid === "string" ? body.uid : "";
@@ -45,7 +48,16 @@ function parseRosterBody(body: Record<string, unknown>): {
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as RosterInput)
       : {};
-  return { role, uid, input };
+  return { role, uid, input, preferredRole: body.preferredRole };
+}
+
+/** 慣用身分：undefined＝不更動、空字串＝清除、其餘須為合法身分 */
+function isValidPreferredRole(value: unknown): boolean {
+  return value === undefined || value === "" || isUserRole(value);
+}
+
+function preferredRoleOf(value: unknown): UserRole | "" {
+  return isUserRole(value) ? value : "";
 }
 
 export async function GET(request: NextRequest) {
@@ -111,9 +123,12 @@ export async function POST(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { role, input } = parseRosterBody(body);
+    const { role, input, preferredRole } = parseRosterBody(body);
     if (!role) {
       return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
+    }
+    if (!isValidPreferredRole(preferredRole)) {
+      return NextResponse.json({ success: false, message: "慣用身分無效" }, { status: 400 });
     }
 
     const result = validateRosterInput(role, input, { requirePassword: true });
@@ -130,7 +145,8 @@ export async function POST(request: NextRequest) {
 
     const accountRecord = buildAccountRecord(
       result.account,
-      await hashRosterPassword(result.password as string)
+      await hashRosterPassword(result.password as string),
+      preferredRoleOf(preferredRole)
     );
     const docRef = await getAdminDb().collection(ROLE_COLLECTIONS[role]).add(accountRecord);
 
@@ -177,9 +193,12 @@ export async function PUT(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { role, uid, input } = parseRosterBody(body);
+    const { role, uid, input, preferredRole } = parseRosterBody(body);
     if (!role || !uid) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
+    }
+    if (!isValidPreferredRole(preferredRole)) {
+      return NextResponse.json({ success: false, message: "慣用身分無效" }, { status: 400 });
     }
 
     const result = validateRosterInput(role, input, { requirePassword: false });
@@ -216,6 +235,12 @@ export async function PUT(request: NextRequest) {
       updateData.lockedUntil = 0;
       updateData.lockIp = "";
     }
+    // 慣用身分：空字串＝清除（多身分登入時改回每次詢問）
+    if (preferredRole !== undefined) {
+      updateData.preferredRole = isUserRole(preferredRole)
+        ? preferredRole
+        : FieldValue.delete();
+    }
 
     await ref.update(updateData);
 
@@ -236,7 +261,9 @@ export async function PUT(request: NextRequest) {
       role: "admin",
       action: "roster_updated",
       ip: getClientIp(request),
-      details: `更新${rosterRoleLabel(role)} ${account.account || account.email}${password ? "（密碼已重設）" : ""}`,
+      details: `更新${rosterRoleLabel(role)} ${account.account || account.email}${
+        password ? "（密碼已重設）" : ""
+      }${preferredRole !== undefined ? "（慣用身分已更新）" : ""}`,
     });
 
     return NextResponse.json({ success: true, message: "資料已更新" });

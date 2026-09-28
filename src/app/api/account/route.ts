@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
 import { verifySession } from "@/lib/dal";
 import {
   createSession,
@@ -20,10 +20,12 @@ import {
   normalizeEmail,
 } from "@/lib/validation";
 import {
+  ALL_ROLES,
   ROLE_COLLECTIONS,
   ROLE_LABELS,
   ROLE_SPECIFIC_FIELDS,
   UserRole,
+  isUserRole,
 } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
@@ -47,6 +49,42 @@ export interface AccountProfile {
   lockedUntil: number;
   failedAttempts: number;
   fields: Record<string, string>;
+  /** 慣用身分：多個身分共用同一組帳號／信箱時，登入預設進入的身分（空字串＝未設定） */
+  preferredRole: string;
+  /** 慣用身分可選範圍：同一組帳號／信箱同時存在的身分（僅一個時介面不顯示設定） */
+  roleOptions: UserRole[];
+}
+
+/**
+ * 同一組帳號／信箱同時存在的身分（慣用身分的可選範圍）。
+ * 登入依 email 或 account 查找，兩欄都要比對；自身身分一定包含。
+ */
+async function findRoleOptions(
+  selfRole: UserRole,
+  email: string,
+  account: string
+): Promise<UserRole[]> {
+  const db = getAdminDb();
+  const found = new Set<UserRole>([selfRole]);
+  const checks: { role: UserRole; field: "email" | "account"; value: string }[] = [];
+  for (const role of ALL_ROLES) {
+    if (role === selfRole) continue;
+    if (email) checks.push({ role, field: "email", value: email });
+    if (account) checks.push({ role, field: "account", value: account });
+  }
+  const results = await Promise.all(
+    checks.map((check) =>
+      db
+        .collection(ROLE_COLLECTIONS[check.role])
+        .where(check.field, "==", check.value)
+        .limit(1)
+        .get()
+    )
+  );
+  results.forEach((snapshot, index) => {
+    if (!snapshot.empty) found.add(checks[index].role);
+  });
+  return ALL_ROLES.filter((role) => found.has(role));
 }
 
 async function buildProfile(
@@ -75,6 +113,11 @@ async function buildProfile(
     ? data.loginRecords.filter((value): value is number => typeof value === "number")
     : [];
 
+  // 欄位存在即以檔案值為準（空字串＝使用者已清空），欄位不存在（舊資料）才回退 session 帶來的值
+  const effectiveEmail = typeof data.email === "string" ? data.email : sessionEmail;
+  const effectiveAccount = typeof data.account === "string" ? data.account : sessionAccount;
+  const roleOptions = await findRoleOptions(role, effectiveEmail, effectiveAccount);
+
   return {
     uid,
     role,
@@ -85,10 +128,8 @@ async function buildProfile(
         : typeof data.displayName === "string" && data.displayName
           ? data.displayName
           : sessionName,
-    // 欄位存在即以檔案值為準（空字串＝使用者已清空，不可再回推成 session 舊值）；
-    // 欄位不存在（舊資料）才回退 session 帶來的值
-    email: typeof data.email === "string" ? data.email : sessionEmail,
-    account: typeof data.account === "string" ? data.account : sessionAccount,
+    email: effectiveEmail,
+    account: effectiveAccount,
     loginCount: typeof data.loginCount === "number" ? data.loginCount : 0,
     lastLogin: typeof data.lastLogin === "number" ? data.lastLogin : 0,
     lastLoginMethod: typeof data.lastLoginMethod === "string" ? data.lastLoginMethod : "",
@@ -105,6 +146,8 @@ async function buildProfile(
     lockedUntil: typeof data.lockedUntil === "number" ? data.lockedUntil : 0,
     failedAttempts: typeof data.failedAttempts === "number" ? data.failedAttempts : 0,
     fields,
+    preferredRole: isUserRole(data.preferredRole) ? data.preferredRole : "",
+    roleOptions,
   };
 }
 
@@ -176,7 +219,7 @@ export async function PUT(request: NextRequest) {
     const session = await verifySession();
     if (!session) return unauthorized();
 
-    let body: { email?: unknown; account?: unknown };
+    let body: { email?: unknown; account?: unknown; preferredRole?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -185,7 +228,11 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (body.email === undefined && body.account === undefined) {
+    if (
+      body.email === undefined &&
+      body.account === undefined &&
+      body.preferredRole === undefined
+    ) {
       return NextResponse.json(
         { success: false, message: "沒有可儲存的變更" },
         { status: 400 }
@@ -283,6 +330,20 @@ export async function PUT(request: NextRequest) {
       if (account !== currentAccount) updateData.account = account;
     }
 
+    // 慣用身分：空字串＝清除（多身分登入時改回每次詢問）
+    if (body.preferredRole !== undefined) {
+      if (body.preferredRole === "") {
+        updateData.preferredRole = FieldValue.delete();
+      } else if (isUserRole(body.preferredRole)) {
+        updateData.preferredRole = body.preferredRole;
+      } else {
+        return NextResponse.json(
+          { success: false, message: "慣用身分無效" },
+          { status: 400 }
+        );
+      }
+    }
+
     // 兩欄可個別留空，但至少保留一項作為登入識別（帳密登入、密碼重設、Google 登入都仰賴它）
     const finalEmail =
       typeof updateData.email === "string" ? updateData.email : currentEmail;
@@ -301,25 +362,31 @@ export async function PUT(request: NextRequest) {
 
     await userRef.update(updateData);
 
-    // session 內的 email／account 已過期：撤銷舊 session 並以新值重建
-    const priorSession = await getSession();
-    if (priorSession?.jti) await revokeJti(priorSession.jti);
-    await createSession({
-      uid: session.uid,
-      email: typeof updateData.email === "string" ? updateData.email : session.email,
-      account:
-        typeof updateData.account === "string" ? updateData.account : session.account,
-      displayName: session.displayName,
-      role: session.role,
-      tokenVersion: session.tokenVersion,
-    });
+    // session 內的 email／account 已過期：撤銷舊 session 並以新值重建（僅識別欄位變更時）
+    const identityChanged =
+      typeof updateData.email === "string" || typeof updateData.account === "string";
+    if (identityChanged) {
+      const priorSession = await getSession();
+      if (priorSession?.jti) await revokeJti(priorSession.jti);
+      await createSession({
+        uid: session.uid,
+        email: typeof updateData.email === "string" ? updateData.email : session.email,
+        account:
+          typeof updateData.account === "string" ? updateData.account : session.account,
+        displayName: session.displayName,
+        role: session.role,
+        tokenVersion: session.tokenVersion,
+      });
+    }
 
     await logActivity({
       userId: session.uid,
       role: session.role,
       action: "account_updated",
       ip: getClientIp(request),
-      details: `更新自身帳號資料：${Object.keys(updateData).join("、")}`,
+      details: `更新自身帳號資料：${Object.keys(updateData)
+        .map((key) => (key === "preferredRole" ? "慣用身分" : key))
+        .join("、")}`,
     });
 
     const profile = await buildProfile(

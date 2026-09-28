@@ -1,5 +1,8 @@
 export type UserRole = "student" | "parent" | "staff" | "admin";
 
+/** 四種身分的固定順序（查找、顯示、選擇清單共用） */
+export const ALL_ROLES: UserRole[] = ["student", "parent", "staff", "admin"];
+
 export const ROLE_COLLECTIONS: Record<UserRole, string> = {
   student: "students",
   parent: "parents",
@@ -98,6 +101,11 @@ export interface AccountRecord {
   name: string;
   /** 狀態：有效／無效／停權（缺省＝有效） */
   status?: AccountStatus;
+  /**
+   * 慣用身分：同一組帳號／信箱同時存在於多個身分時，登入預設進入的身分。
+   * 可填其他身分（跨文件生效）；未設定或無效值＝登入時詢問。
+   */
+  preferredRole?: UserRole;
   /** 兩階段驗證方式，缺省視為 off */
   twoFactor?: TwoFactorMethod;
   /** TOTP Base32 密鑰（twoFactor=totp 時使用） */

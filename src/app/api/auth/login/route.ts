@@ -17,6 +17,13 @@ import {
   sendLoginNotification,
 } from "@/lib/two-factor";
 import { ROLE_COLLECTIONS, isAccountActive, isUserRole } from "@/types/users";
+import {
+  AccountCandidate,
+  filterByPassword,
+  findAccountsBy,
+  orderRoles,
+  preferredRoleAmong,
+} from "@/lib/login-candidate";
 import { serverErrorMessage } from "@/lib/api-error";
 
 const LOCK_THRESHOLD = 5;
@@ -58,7 +65,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const { account, password, role } = body;
+    const { account, password } = body;
+    // 身分可省略：登入頁不再選身分，由伺服器查找帳號所在的身分；
+    // 多身分選擇步驟再次送出時會帶 role，此時只查該身分
+    const requestedRole = isUserRole(body.role) ? body.role : undefined;
     const ip = getClientIp(request);
 
     if (
@@ -73,12 +83,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!isUserRole(role)) {
-      return NextResponse.json({ success: false, message: "請選擇身分" }, { status: 400 });
-    }
-
-    // 系統停用時僅允許管理員登入（以便重新啟用）
-    if (role !== "admin" && !(await isSystemEnabled())) {
+    const systemEnabled = await isSystemEnabled();
+    // 系統停用時僅允許管理員登入（以便重新啟用）；身分未知者待查找後於下方判定
+    if (requestedRole && requestedRole !== "admin" && !systemEnabled) {
       return NextResponse.json(
         { success: false, message: SYSTEM_DISABLED_MESSAGE },
         { status: 503 }
@@ -88,9 +95,10 @@ export async function POST(request: NextRequest) {
     const input = String(account).toLowerCase().trim();
 
     // 帳號維度限流：不依賴 IP，擋針對單一帳號的爆破
+    // 未指定身分時以共用鍵計算，避免靠省略 role 拆成四份額度
     const accountLimited = enforceAccountRateLimit(
       "login",
-      role,
+      requestedRole ?? "any",
       input,
       RATE.LOGIN_ACCOUNT.limit,
       RATE.LOGIN_ACCOUNT.windowMs
@@ -98,19 +106,45 @@ export async function POST(request: NextRequest) {
     if (accountLimited) return accountLimited;
 
     const isEmail = input.includes("@");
-    const collectionName = ROLE_COLLECTIONS[role];
-    const usersRef = getAdminDb().collection(collectionName);
+    const field = isEmail ? "email" : "account";
 
-    const snapshot = await usersRef
-      .where(isEmail ? "email" : "account", "==", input)
-      .limit(1)
-      .get();
+    // 查找候選：指定身分只查該身分；未指定時四種身分一起查
+    let candidates: AccountCandidate[];
+    if (requestedRole) {
+      const snapshot = await getAdminDb()
+        .collection(ROLE_COLLECTIONS[requestedRole])
+        .where(field, "==", input)
+        .limit(1)
+        .get();
+      candidates = snapshot.empty
+        ? []
+        : [
+            {
+              role: requestedRole,
+              id: snapshot.docs[0].id,
+              ref: snapshot.docs[0].ref,
+              data: snapshot.docs[0].data(),
+            },
+          ];
+    } else {
+      candidates = await findAccountsBy(field, input);
+    }
 
-    if (snapshot.empty) {
+    // 解析出唯一要登入的身分；passwordVerified＝多身分流程已先驗過密碼
+    let resolved: AccountCandidate;
+    let passwordVerified = false;
+
+    if (candidates.length === 0) {
+      // 系統停用時一律回 503（與非管理員身分相同），不因回覆差異洩漏帳號是否存在
+      if (!systemEnabled) {
+        return NextResponse.json(
+          { success: false, message: SYSTEM_DISABLED_MESSAGE },
+          { status: 503 }
+        );
+      }
       await verifyPassword(password, await getDummyHash());
       await logActivity({
         action: "login_failed",
-        role,
         ip,
         details: `帳號不存在或錯誤：${input}`,
       });
@@ -121,8 +155,59 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userDoc = snapshot.docs[0];
-    const userData = userDoc.data();
+    if (candidates.length === 1) {
+      resolved = candidates[0];
+    } else {
+      // 同一組帳號／信箱存在於多個身分：先以密碼篩出有效的身分
+      const valid = await filterByPassword(password, candidates);
+      if (valid.length === 0) {
+        await logActivity({
+          action: "login_failed",
+          ip,
+          details: `帳號不存在或錯誤：${input}`,
+        });
+        return NextResponse.json(
+          { success: false, message: GENERIC_LOGIN_ERROR },
+          { status: 401 }
+        );
+      }
+
+      // 停用（無效／停權）者不列入選擇；全部停用時維持下方「帳號已停用」回覆
+      const activePool = valid.filter((candidate) => isAccountActive(candidate.data));
+      const selectable = activePool.length > 0 ? activePool : valid;
+
+      const preferred = preferredRoleAmong(selectable);
+      const match =
+        selectable.length === 1
+          ? selectable[0]
+          : preferred
+            ? selectable.find((candidate) => candidate.role === preferred)
+            : undefined;
+
+      if (match) {
+        resolved = match;
+        passwordVerified = true;
+      } else {
+        // 密碼驗證通過後才回身分清單，不構成帳號枚舉
+        return NextResponse.json({
+          success: false,
+          requiresRoleChoice: orderRoles(selectable.map((candidate) => candidate.role)),
+          message: "此帳號具備多個身分，請選擇要登入的身分",
+        });
+      }
+    }
+
+    const role = resolved.role;
+    // 系統停用時僅管理員可登入（未指定身分者於此判定）
+    if (!systemEnabled && role !== "admin") {
+      return NextResponse.json(
+        { success: false, message: SYSTEM_DISABLED_MESSAGE },
+        { status: 503 }
+      );
+    }
+
+    const userDoc = resolved;
+    const userData = resolved.data;
 
     const lockedUntil = typeof userData.lockedUntil === "number" ? userData.lockedUntil : 0;
     const lockIp = typeof userData.lockIp === "string" ? userData.lockIp : "";
@@ -157,10 +242,13 @@ export async function POST(request: NextRequest) {
     const lockExpired = lockedUntil > 0 && lockedUntil <= Date.now();
     const baseFailures = lockExpired ? 0 : failedAttempts;
 
-    const isValid = await verifyPassword(
-      password,
-      typeof userData.passwordHash === "string" ? userData.passwordHash : ""
-    );
+    // 多身分流程已驗過密碼時不再重驗（passwordVerified）
+    const isValid =
+      passwordVerified ||
+      (await verifyPassword(
+        password,
+        typeof userData.passwordHash === "string" ? userData.passwordHash : ""
+      ));
 
     if (!isValid) {
       const newFailCount = baseFailures + 1;

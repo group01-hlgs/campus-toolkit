@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 import { Settings, defaultSettings } from "@/types/settings";
 import { normalizeEmail } from "@/lib/validation";
-import { isUserRole, ROLE_LABELS, UserRole } from "@/types/users";
-import { readSelectedRole, saveSelectedRole } from "@/lib/selected-role";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
@@ -18,12 +16,8 @@ type ApiResponse = {
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-/** 與登入頁相同的四種身分（順序一致） */
-const ROLE_OPTIONS: UserRole[] = ["student", "parent", "staff", "admin"];
-
 export default function ForgotPasswordPage() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [role, setRole] = useState<UserRole>("student");
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -43,16 +37,6 @@ export default function ForgotPasswordPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  // 身分：優先採用登入頁帶入的 ?role=，否則沿用上次選擇（預設與登入頁相同為學生）
-  useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get("role");
-    const next = isUserRole(fromUrl) ? fromUrl : readSelectedRole();
-    if (next) {
-      setRole(next);
-      saveSelectedRole(next);
-    }
   }, []);
 
   useEffect(() => {
@@ -78,7 +62,7 @@ export default function ForgotPasswordPage() {
       const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, role }),
+        body: JSON.stringify({ email }),
       });
 
       let data: ApiResponse | null = null;
@@ -117,11 +101,6 @@ export default function ForgotPasswordPage() {
     }
   }
 
-  function selectRole(next: UserRole) {
-    setRole(next);
-    saveSelectedRole(next);
-  }
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-page px-4 pt-[20px]">
       <HomepageCornerWrench />
@@ -145,34 +124,7 @@ export default function ForgotPasswordPage() {
               請輸入您的電子郵件地址，我們將寄送密碼重設信件
             </p>
 
-            {/* 身分選擇（與登入頁一致，可在此切換） */}
-            <label className="block text-sm font-medium text-t2 mb-2">
-              目前身分
-            </label>
-            <div className="flex justify-center gap-4 mb-2 flex-wrap">
-              {ROLE_OPTIONS.map((option) => (
-                <label
-                  key={option}
-                  className="flex items-center gap-1 cursor-pointer"
-                >
-                  <input
-                    type="radio"
-                    name="role"
-                    value={option}
-                    checked={role === option}
-                    onChange={() => selectRole(option)}
-                    className="accent-black"
-                  />
-                  <span>{ROLE_LABELS[option]}</span>
-                </label>
-              ))}
-            </div>
-            <p className="text-xs text-t3 mb-4">
-              請選擇與登入頁相同的身分
-            </p>
-
-            <hr className="border-themed mb-4" />
-
+            {/* 身分不在此選擇：同一信箱具備多個身分時由伺服器依慣用身分決定 */}
             <label className="block text-sm font-medium text-t2 mb-2">
               電子郵件地址
             </label>
@@ -239,9 +191,6 @@ export default function ForgotPasswordPage() {
             </p>
             <p className="text-center text-sm font-medium text-t1 break-all mb-1">
               {email}
-            </p>
-            <p className="text-center text-xs text-t3 mb-4">
-              目前身分：{ROLE_LABELS[role]}
             </p>
             <p className="text-center text-xs text-t3 mb-6">
               請於 10 分鐘內依信件指示重設密碼。沒收到嗎？請檢查垃圾郵件匣，

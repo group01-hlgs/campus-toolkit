@@ -14,10 +14,9 @@ import {
 } from "@/lib/password-reset";
 import { isMailConfigured, sendPasswordResetEmail } from "@/lib/mailer";
 import { getMailIdentity } from "@/lib/settings-server";
-import { isUserRole, ROLE_COLLECTIONS, ROLE_LABELS, UserRole } from "@/types/users";
+import { ALL_ROLES, ROLE_COLLECTIONS, ROLE_LABELS, UserRole } from "@/types/users";
+import { preferredRoleAmong } from "@/lib/login-candidate";
 import { serverErrorMessage } from "@/lib/api-error";
-
-const ROLES: UserRole[] = ["student", "parent", "staff", "admin"];
 
 /**
  * 統一回覆：不論信箱是否存在、寄信成功與否都回同一段文字，
@@ -49,43 +48,46 @@ function buildResetUrl(token: string, request: NextRequest): string {
 }
 
 async function findUserByEmail(
-  email: string,
-  preferredRole?: UserRole
+  email: string
 ): Promise<{
   uid: string;
   role: UserRole;
   displayName: string;
 } | null> {
   const db = getAdminDb();
-  // 優先查使用者在忘記密碼頁選擇的身分，其餘身分作為後備：
-  // 同一信箱可能同時存在於多個身分（種子帳號三種身分共用一個信箱），
-  // 若不看選擇，永遠依 student → parent → staff 順序命中第一個，
-  // 導致問候語稱謂錯誤、且 token 記錯 role（重設會改到別的帳號）。
-  const order: UserRole[] = preferredRole
-    ? [preferredRole, ...ROLES.filter((r) => r !== preferredRole)]
-    : ROLES;
+  const snapshots = await Promise.all(
+    ALL_ROLES.map((role) =>
+      db.collection(ROLE_COLLECTIONS[role]).where("email", "==", email).limit(1).get()
+    )
+  );
 
-  for (const role of order) {
-    const snap = await db
-      .collection(ROLE_COLLECTIONS[role])
-      .where("email", "==", email)
-      .limit(1)
-      .get();
-    if (snap.empty) continue;
-    const doc = snap.docs[0];
-    const data = doc.data();
-    return {
-      uid: doc.id,
-      role,
-      displayName:
-        typeof data.name === "string" && data.name
-          ? data.name
-          : typeof data.displayName === "string"
-            ? data.displayName
-            : "",
-    };
-  }
-  return null;
+  const matches: { role: UserRole; id: string; data: Record<string, unknown> }[] = [];
+  snapshots.forEach((snapshot, index) => {
+    if (snapshot.empty) return;
+    const doc = snapshot.docs[0];
+    matches.push({ role: ALL_ROLES[index], id: doc.id, data: doc.data() });
+  });
+  if (matches.length === 0) return null;
+
+  // 同一信箱可能同時存在於多個身分（種子帳號等），優先採用帳號文件設定的慣用身分，
+  // 否則固定依 ALL_ROLES 順序；token 記錄實際命中的 role，重設才不會改到別的帳號
+  const preferred = preferredRoleAmong(matches);
+  const order = preferred
+    ? [preferred, ...ALL_ROLES.filter((role) => role !== preferred)]
+    : ALL_ROLES;
+  const hit = matches.find((match) => match.role === order[0]) ?? matches[0];
+
+  const data = hit.data;
+  return {
+    uid: hit.id,
+    role: hit.role,
+    displayName:
+      typeof data.name === "string" && data.name
+        ? data.name
+        : typeof data.displayName === "string"
+          ? data.displayName
+          : "",
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -102,7 +104,7 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    let body: { email?: unknown; role?: unknown };
+    let body: { email?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -141,10 +143,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { systemName, schoolFullName } = await getMailIdentity();
-    // 使用者選擇的身分僅用來決定「先查哪個 collection」；
-    // 未提供或非法值時維持原本的查找順序，對外回覆一律相同（不構成枚舉管道）
-    const requestedRole = isUserRole(body.role) ? body.role : undefined;
-    const user = await findUserByEmail(email, requestedRole);
+    // 身分不再由使用者選擇：同一信箱存在於多個身分時，依帳號設定的慣用身分、
+    // 否則固定順序命中（對外回覆一律相同，不構成枚舉管道）
+    const user = await findUserByEmail(email);
 
     if (user) {
       const { token, expiresAt } = await createPasswordResetToken(

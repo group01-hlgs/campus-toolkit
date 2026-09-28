@@ -3,7 +3,7 @@
  * 涵蓋學生／教職員／管理員三個身分；家長帳號不在此頁維護。
  */
 
-import type { AccountStatus } from "@/types/users";
+import type { AccountStatus, UserRole } from "@/types/users";
 
 export type RosterRole = "student" | "staff" | "admin";
 
@@ -111,8 +111,11 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   ],
 };
 
+/** 帳號清單的表格欄位鍵（帳號／名冊欄位＋慣用身分） */
+export type RosterColumnKey = RosterFieldKey | "preferredRole";
+
 /** 帳號清單的表格欄位（不含密碼） */
-export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterFieldKey; label: string }[]> = {
+export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: string }[]> = {
   student: [
     { key: "name", label: "姓名" },
     { key: "email", label: "電子郵件地址" },
@@ -121,6 +124,7 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterFieldKey; label: st
     { key: "grade", label: "年級" },
     { key: "className", label: "班級" },
     { key: "classNumber", label: "班號" },
+    { key: "preferredRole", label: "慣用身分" },
   ],
   staff: [
     { key: "name", label: "姓名" },
@@ -129,11 +133,13 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterFieldKey; label: st
     { key: "className", label: "班級" },
     { key: "title", label: "職稱" },
     { key: "attribute", label: "屬性" },
+    { key: "preferredRole", label: "慣用身分" },
   ],
   admin: [
     { key: "name", label: "姓名" },
     { key: "email", label: "電子郵件地址" },
     { key: "account", label: "帳號" },
+    { key: "preferredRole", label: "慣用身分" },
   ],
 };
 
@@ -148,6 +154,8 @@ export interface RosterMember {
   name: string;
   /** 帳號狀態：有效／無效／停權（無效、停權都無法登入） */
   status: AccountStatus;
+  /** 慣用身分：多身分共用帳號時登入預設進入的身分（未設定則登入時詢問） */
+  preferredRole?: UserRole;
   lastLogin?: number;
   loginCount?: number;
   studentId?: string;

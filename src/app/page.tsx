@@ -7,7 +7,6 @@ import { auth, googleProvider, ensureSignedOut } from "@/lib/firebase";
 import { Settings, defaultSettings } from "@/types/settings";
 import { UserRole, ROLE_HOME, ROLE_LABELS, isUserRole } from "@/types/users";
 import { fetchSession, setCachedSession, UserSession } from "@/lib/session";
-import { readSelectedRole, saveSelectedRole } from "@/lib/selected-role";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
@@ -19,6 +18,8 @@ type ApiResponse = {
   message?: string;
   /** 帳密驗證通過但需完成第二階段驗證（email_otp / totp） */
   requires2FA?: string;
+  /** 帳號同時存在於多個身分且未設定慣用身分：需先選擇要登入的身分（密碼已驗證） */
+  requiresRoleChoice?: string[];
   maskedEmail?: string;
   user?: {
     uid?: string;
@@ -52,6 +53,12 @@ function getErrorMessage(data: ApiResponse | null, fallback: string): string {
   return typeof data?.message === "string" && data.message ? data.message : fallback;
 }
 
+/** 多身分回應：取出可顯示的身分清單（非空才進入選擇步驟） */
+function readRoleChoices(data: ApiResponse | null): UserRole[] {
+  if (!Array.isArray(data?.requiresRoleChoice)) return [];
+  return data.requiresRoleChoice.filter(isUserRole);
+}
+
 const LAST_GOOGLE_EMAIL_STORAGE_KEY = "lastGoogleLoginEmail";
 
 function getLastGoogleLoginEmail(): string {
@@ -67,7 +74,6 @@ function setLastGoogleLoginEmail(email: string): void {
 export default function Home() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [role, setRole] = useState<UserRole>("student");
   const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -75,6 +81,10 @@ export default function Home() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkingSession, setCheckingSession] = useState(true);
+  // 多身分選擇步驟：帳號同時存在於多個身分且未設定慣用身分時顯示
+  const [roleChoices, setRoleChoices] = useState<UserRole[]>([]);
+  // Google 選擇步驟：保留驗證過的 token，選完身分直接重送、不再開登入視窗
+  const [googleToken, setGoogleToken] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -90,12 +100,6 @@ export default function Home() {
       cancelled = true;
     };
   }, [router]);
-
-  // 還原上次選擇的身分（忘記密碼頁的身分選擇會寫入，兩頁往返不被重置）
-  useEffect(() => {
-    const saved = readSelectedRole();
-    if (saved) setRole(saved);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,12 +121,11 @@ export default function Home() {
     };
   }, []);
 
-  function selectRole(next: UserRole) {
-    setRole(next);
-    saveSelectedRole(next);
-  }
-
-  async function handleLogin() {
+  /**
+   * 帳密登入。身分由伺服器查找；chosen＝多身分選擇步驟帶回的身分
+   * （伺服器只會在密碼驗證通過後要求選擇，選完直接重送同一組帳密）。
+   */
+  async function handleLogin(chosen?: UserRole) {
     if (!account || !password) {
       setError("請輸入帳號與密碼");
       return;
@@ -130,14 +133,30 @@ export default function Home() {
 
     setLoading(true);
     setError("");
+    setRoleChoices([]);
+    setGoogleToken("");
 
     try {
+      const body: { account: string; password: string; role?: UserRole } = {
+        account,
+        password,
+      };
+      if (chosen) body.role = chosen;
+
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account, password, role }),
+        body: JSON.stringify(body),
       });
       const data = await parseApiResponse(res);
+
+      // 同一帳號具備多個身分：顯示選擇步驟，選完再帶 role 重送
+      const choices = readRoleChoices(data);
+      if (choices.length > 0) {
+        setRoleChoices(choices);
+        setLoading(false);
+        return;
+      }
 
       // 需要第二階段驗證：驗證頁接手，此處不建立前端 session 快取
       const verifyPage = twoFactorPage(data?.requires2FA);
@@ -158,12 +177,18 @@ export default function Home() {
         return;
       }
 
+      if (!isUserRole(data.user.role)) {
+        setError("登入回應格式錯誤，請稍後再試");
+        setLoading(false);
+        return;
+      }
+
       const user: UserSession = {
         uid: data.user.uid,
         email: data.user.email || "",
         account: data.user.account || "",
         displayName: data.user.displayName || "",
-        role: (data.user.role || role) as UserRole,
+        role: data.user.role,
       };
       setCachedSession(user);
 
@@ -181,14 +206,11 @@ export default function Home() {
     }
   }
 
-  async function handleGoogleLogin() {
-    setGoogleLoading(true);
-    setError("");
-
+  /** 開啟 Google 登入視窗取得 ID token；失敗時自行處理錯誤並回 null */
+  async function acquireGoogleToken(): Promise<{ idToken: string; email: string } | null> {
     if (!auth) {
       setError("Firebase API Key 未設定或無效，無法使用 Google 登入");
-      setGoogleLoading(false);
-      return;
+      return null;
     }
 
     const originalOpen = window.open;
@@ -243,17 +265,56 @@ export default function Home() {
       if (!email) {
         await ensureSignedOut();
         setError("無法取得 Google 帳號資訊");
-        setGoogleLoading(false);
-        return;
+        return null;
       }
 
       const idToken = await result.user.getIdToken();
+      return { idToken, email };
+    } catch (err: unknown) {
+      // 細節只留在 console；對外一律一般化訊息，避免揭露 Firebase 錯誤碼／設定
+      console.error("Google login error:", err);
+      const e = err as { code?: string };
+      const code = e?.code || "";
+
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        setError("");
+      } else if (code === "auth/popup-blocked") {
+        setError("彈出視窗被瀏覽器封鎖，請允許後重試");
+      } else if (code === "auth/network-request-failed") {
+        setError("網路錯誤，無法連線，請稍後再試");
+      } else if (code === "auth/invalid-credential") {
+        setError("Google 登入失敗，請改用 Chrome / Safari 內建瀏覽器後重試");
+      } else {
+        setError("Google 登入失敗，請稍後再試");
+      }
+      return null;
+    } finally {
+      closeOpenedWindows();
+      window.open = originalOpen;
+    }
+  }
+
+  /** 以 ID token 向伺服器換取 session；chosen＝多身分選擇步驟帶回的身分 */
+  async function postGoogleLogin(idToken: string, email: string, chosen?: UserRole) {
+    try {
+      const body: { idToken: string; role?: UserRole } = { idToken };
+      if (chosen) body.role = chosen;
+
       const res = await fetch("/api/auth/google", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken, role }),
+        body: JSON.stringify(body),
       });
       const data = await parseApiResponse(res);
+
+      // 同一帳號具備多個身分：顯示選擇步驟，選完沿用 token 重送
+      const choices = readRoleChoices(data);
+      if (choices.length > 0) {
+        setRoleChoices(choices);
+        setGoogleToken(idToken);
+        setGoogleLoading(false);
+        return;
+      }
 
       // 需要第二階段驗證：驗證頁接手，此處不建立前端 session 快取
       const verifyPage = twoFactorPage(data?.requires2FA);
@@ -276,39 +337,48 @@ export default function Home() {
         return;
       }
 
+      if (!isUserRole(data.user.role)) {
+        await ensureSignedOut();
+        setError("Google 登入回應格式錯誤，請稍後再試");
+        setGoogleLoading(false);
+        return;
+      }
+
       const user: UserSession = {
         uid: data.user.uid,
         email: data.user.email || "",
         account: data.user.account || "",
         displayName: data.user.displayName || "",
-        role: (data.user.role || role) as UserRole,
+        role: data.user.role,
       };
       setCachedSession(user);
-      setLastGoogleLoginEmail(email);
+      if (email) setLastGoogleLoginEmail(email);
 
       router.push(ROLE_HOME[user.role]);
-    } catch (err: unknown) {
-      // 細節只留在 console；對外一律一般化訊息，避免揭露 Firebase 錯誤碼／設定
-      console.error("Google login error:", err);
-      const e = err as { code?: string };
-      const code = e?.code || "";
-
-      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
-        setError("");
-      } else if (code === "auth/popup-blocked") {
-        setError("彈出視窗被瀏覽器封鎖，請允許後重試");
-      } else if (code === "auth/network-request-failed") {
-        setError("網路錯誤，無法連線，請稍後再試");
-      } else if (code === "auth/invalid-credential") {
-        setError("Google 登入失敗，請改用 Chrome / Safari 內建瀏覽器後重試");
-      } else {
-        setError("Google 登入失敗，請稍後再試");
-      }
+    } catch {
+      setError("系統錯誤，請稍後再試");
       setGoogleLoading(false);
-    } finally {
-      closeOpenedWindows();
-      window.open = originalOpen;
     }
+  }
+
+  async function handleGoogleLogin(chosen?: UserRole) {
+    setGoogleLoading(true);
+    setError("");
+    setRoleChoices([]);
+
+    // 選擇步驟重送：沿用已驗證的 token，不再開啟登入視窗
+    if (chosen && googleToken) {
+      await postGoogleLogin(googleToken, "", chosen);
+      return;
+    }
+
+    const acquired = await acquireGoogleToken();
+    if (!acquired) {
+      setGoogleLoading(false);
+      return;
+    }
+
+    await postGoogleLogin(acquired.idToken, acquired.email, chosen);
   }
 
   if (checkingSession) {
@@ -353,57 +423,37 @@ export default function Home() {
 
       {/* 登入表單 */}
       <div className="w-full max-w-md border border-themed rounded-lg p-8">
-        <p className="text-center text-t2 mb-4">
-          歡迎使用，請先選擇身分後登入
-        </p>
+        <p className="text-center text-t2 mb-4">歡迎使用，請輸入帳號與密碼登入</p>
 
-        {/* 身分選擇 */}
-        <div className="flex justify-center gap-4 mb-6 flex-wrap">
-          <label className="flex items-center gap-1 cursor-pointer">
-            <input
-              type="radio"
-              name="role"
-              value="student"
-              checked={role === "student"}
-              onChange={() => selectRole("student")}
-              className="accent-black"
-            />
-            <span>{ROLE_LABELS.student}</span>
-          </label>
-          <label className="flex items-center gap-1 cursor-pointer">
-            <input
-              type="radio"
-              name="role"
-              value="parent"
-              checked={role === "parent"}
-              onChange={() => selectRole("parent")}
-              className="accent-black"
-            />
-            <span>{ROLE_LABELS.parent}</span>
-          </label>
-          <label className="flex items-center gap-1 cursor-pointer">
-            <input
-              type="radio"
-              name="role"
-              value="staff"
-              checked={role === "staff"}
-              onChange={() => selectRole("staff")}
-              className="accent-black"
-            />
-            <span>{ROLE_LABELS.staff}</span>
-          </label>
-          <label className="flex items-center gap-1 cursor-pointer">
-            <input
-              type="radio"
-              name="role"
-              value="admin"
-              checked={role === "admin"}
-              onChange={() => selectRole("admin")}
-              className="accent-black"
-            />
-            <span>{ROLE_LABELS.admin}</span>
-          </label>
-        </div>
+        {/* 多身分選擇：帳號同時存在於多個身分且未設定慣用身分時才出現（密碼已驗證） */}
+        {roleChoices.length > 0 && (
+          <div className="mb-4 border border-themed rounded-lg p-4">
+            <p className="text-center text-sm font-medium text-t1 mb-1">
+              此帳號同時具備多個身分
+            </p>
+            <p className="text-center text-xs text-t3 mb-3">
+              請選擇要登入的身分；日後可在「帳號與安全」設定慣用身分直接登入
+            </p>
+            <div className="flex justify-center gap-4 flex-wrap">
+              {roleChoices.map((option) => (
+                <label key={option} className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="role"
+                    value={option}
+                    onChange={() =>
+                      googleToken
+                        ? void handleGoogleLogin(option)
+                        : void handleLogin(option)
+                    }
+                    className="accent-black"
+                  />
+                  <span>{ROLE_LABELS[option]}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         <hr className="border-themed mb-6" />
 
@@ -448,7 +498,7 @@ export default function Home() {
         )}
 
         <button
-          onClick={handleLogin}
+          onClick={() => void handleLogin()}
           disabled={loading}
           className="w-full btn-primary rounded py-3 font-medium transition-colors disabled:opacity-50 cursor-pointer"
         >
@@ -456,7 +506,7 @@ export default function Home() {
         </button>
 
         <a
-          href={`/forgot-password?role=${role}`}
+          href="/forgot-password"
           className="block text-center text-sm text-t3 mt-3 cursor-pointer hover:underline"
         >
           忘記密碼（同時重設驗證碼）
@@ -471,7 +521,7 @@ export default function Home() {
 
         {/* Google 登入 */}
         <button
-          onClick={handleGoogleLogin}
+          onClick={() => void handleGoogleLogin()}
           disabled={googleLoading || loading}
           className="w-full btn-theme rounded py-3 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >

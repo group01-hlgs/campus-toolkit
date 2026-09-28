@@ -12,6 +12,12 @@ import {
   sendLoginNotification,
 } from "@/lib/two-factor";
 import { ROLE_COLLECTIONS, isAccountActive, isUserRole } from "@/types/users";
+import {
+  AccountCandidate,
+  findAccountsBy,
+  orderRoles,
+  preferredRoleAmong,
+} from "@/lib/login-candidate";
 import { serverErrorMessage } from "@/lib/api-error";
 
 const GENERIC_LOGIN_ERROR = "登入失敗，請稍後再試";
@@ -24,15 +30,19 @@ export async function POST(request: NextRequest) {
     const limited = enforceRateLimit(request, "google", RATE.GOOGLE.limit, RATE.GOOGLE.windowMs);
     if (limited) return limited;
 
-    const { idToken, role } = await request.json();
+    const { idToken, role: requestedRoleRaw } = await request.json();
     const ip = getClientIp(request);
 
-    if (!idToken || !isUserRole(role)) {
+    if (!idToken) {
       return NextResponse.json({ success: false, message: "參數錯誤" }, { status: 400 });
     }
+    // 身分可省略：登入頁不再選身分，由伺服器查找信箱所在的身分；
+    // 多身分選擇步驟再次送出時會帶 role，此時只查該身分
+    const requestedRole = isUserRole(requestedRoleRaw) ? requestedRoleRaw : undefined;
 
-    // 系統停用時僅允許管理員登入（以便重新啟用）
-    if (role !== "admin" && !(await isSystemEnabled())) {
+    const systemEnabled = await isSystemEnabled();
+    // 系統停用時僅允許管理員登入（以便重新啟用）；身分未知者待查找後於下方判定
+    if (requestedRole && requestedRole !== "admin" && !systemEnabled) {
       return NextResponse.json(
         { success: false, message: "系統目前暫停服務，請稍後再試" },
         { status: 503 }
@@ -68,19 +78,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "無法取得 Google 帳號資訊" }, { status: 401 });
     }
 
-    const collectionName = ROLE_COLLECTIONS[role];
-    const snapshot = await getAdminDb()
-      .collection(collectionName)
-      .where("email", "==", email)
-      .limit(1)
-      .get();
+    // 查找候選：指定身分只查該身分；未指定時四種身分一起查
+    let candidates: AccountCandidate[];
+    if (requestedRole) {
+      const snapshot = await getAdminDb()
+        .collection(ROLE_COLLECTIONS[requestedRole])
+        .where("email", "==", email)
+        .limit(1)
+        .get();
+      candidates = snapshot.empty
+        ? []
+        : [
+            {
+              role: requestedRole,
+              id: snapshot.docs[0].id,
+              ref: snapshot.docs[0].ref,
+              data: snapshot.docs[0].data(),
+            },
+          ];
+    } else {
+      candidates = await findAccountsBy("email", email);
+    }
 
-    if (snapshot.empty) {
+    if (candidates.length === 0) {
       await logActivity({
         action: "login_failed",
-        role,
         ip,
-        details: `Google 帳號未註冊於所選身分：${email}`,
+        details: `Google 帳號未註冊：${email}`,
       });
       // 通用訊息：與密碼登入一致，避免帳號枚舉
       return NextResponse.json({
@@ -89,8 +113,50 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    const userDoc = snapshot.docs[0];
-    const userData = userDoc.data();
+    // 多個身分命中時只在「有效」帳號間解析（停用者不列入選擇）
+    const pool = candidates.filter((candidate) => isAccountActive(candidate.data));
+    if (pool.length === 0) {
+      await logActivity({
+        userId: candidates[0].id,
+        role: candidates.length === 1 ? candidates[0].role : undefined,
+        action: "login_failed",
+        ip,
+        details: `停用帳號嘗試 Google 登入：${email}`,
+      });
+      return NextResponse.json(
+        { success: false, message: "帳號已停用，無法登入" },
+        { status: 401 }
+      );
+    }
+
+    const preferred = preferredRoleAmong(pool);
+    const resolved =
+      pool.length === 1
+        ? pool[0]
+        : preferred
+          ? pool.find((candidate) => candidate.role === preferred)
+          : undefined;
+
+    if (!resolved) {
+      // 多個有效身分且未設定慣用身分：回身分清單讓前端顯示選擇步驟
+      return NextResponse.json({
+        success: false,
+        requiresRoleChoice: orderRoles(pool.map((candidate) => candidate.role)),
+        message: "此帳號具備多個身分，請選擇要登入的身分",
+      });
+    }
+
+    const role = resolved.role;
+    // 系統停用時僅管理員可登入（未指定身分者於此判定）
+    if (!systemEnabled && role !== "admin") {
+      return NextResponse.json(
+        { success: false, message: "系統目前暫停服務，請稍後再試" },
+        { status: 503 }
+      );
+    }
+
+    const userDoc = resolved;
+    const userData = resolved.data;
 
     // 鎖定：全域（lockIp 為空）或綁定來源 IP（與密碼登入一致）
     const lockedUntil = typeof userData.lockedUntil === "number" ? userData.lockedUntil : 0;

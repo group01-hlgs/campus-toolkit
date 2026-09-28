@@ -8,6 +8,7 @@ import {
   ROSTER_FIELDS,
   ROSTER_ROLES,
   ACCOUNT_FIELD_KEYS,
+  RosterColumnKey,
   RosterFieldDef,
   RosterFieldKey,
   RosterInput,
@@ -15,7 +16,7 @@ import {
   RosterRole,
   rosterImportHint,
 } from "@/types/roster";
-import type { AccountStatus } from "@/types/users";
+import { ALL_ROLES, ROLE_LABELS, type AccountStatus, type UserRole } from "@/types/users";
 import {
   ACCOUNT_EMAIL_REQUIRED_MESSAGE,
   ACCOUNT_FORMAT_MESSAGE,
@@ -76,7 +77,11 @@ function formatDateTime(value?: number): string {
 }
 
 /** 清單儲格值：該身分沒有這個欄位時顯示破折號 */
-function cellValue(member: RosterMember, key: RosterFieldKey): string {
+function cellValue(member: RosterMember, key: RosterColumnKey): string {
+  if (key === "preferredRole") {
+    if (!member.preferredRole) return "—";
+    return ROLE_LABELS[member.preferredRole] || member.preferredRole;
+  }
   const record = member as unknown as Record<string, string | undefined>;
   return record[key] || "—";
 }
@@ -119,6 +124,8 @@ export default function RosterPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingUid, setEditingUid] = useState("");
   const [form, setForm] = useState<Record<RosterFieldKey, string>>(EMPTY_FORM);
+  // 慣用身分（帳號欄位，無學年度學期）：空字串＝未設定，登入時詢問
+  const [formPreferredRole, setFormPreferredRole] = useState<UserRole | "">("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -185,12 +192,14 @@ export default function RosterPage() {
     setFormOpen(false);
     setEditingUid("");
     setForm(EMPTY_FORM);
+    setFormPreferredRole("");
     setFormError("");
     setShowPassword(false);
   }
 
   function openCreate() {
     setForm(EMPTY_FORM);
+    setFormPreferredRole("");
     setEditingUid("");
     setFormError("");
     setShowPassword(false);
@@ -211,6 +220,7 @@ export default function RosterPage() {
       title: member.title || "",
       attribute: member.attribute || "",
     });
+    setFormPreferredRole(member.preferredRole || "");
     setEditingUid(member.uid);
     setFormError("");
     setShowPassword(false);
@@ -267,7 +277,7 @@ export default function RosterPage() {
       const res = await fetch("/api/admin/roster", {
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, uid: editingUid, input }),
+        body: JSON.stringify({ role, uid: editingUid, input, preferredRole: formPreferredRole }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -590,6 +600,26 @@ export default function RosterPage() {
             {ROSTER_FIELDS[role]
               .filter((field) => isAccountField(field.key))
               .map(renderField)}
+
+            {/* 慣用身分（帳號欄位）：多個身分共用同一組帳號／信箱時，登入預設進入的身分 */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <label className="text-t2 sm:w-40 shrink-0">慣用身分</label>
+              <select
+                value={formPreferredRole}
+                onChange={(e) => setFormPreferredRole(e.target.value as UserRole | "")}
+                className="flex-1 input-theme rounded px-3 py-2"
+              >
+                <option value="">未設定（登入時詢問）</option>
+                {ALL_ROLES.map((option) => (
+                  <option key={option} value={option}>
+                    {ROLE_LABELS[option]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-t3">
+              同一組帳號／信箱同時存在於多個身分時，登入依此欄位決定身分；未設定則登入時詢問。
+            </p>
           </div>
 
           {ROSTER_FIELDS[role].some((field) => !isAccountField(field.key)) && (

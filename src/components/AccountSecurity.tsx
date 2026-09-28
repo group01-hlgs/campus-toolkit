@@ -41,6 +41,10 @@ interface AccountProfile {
   lockedUntil: number;
   failedAttempts: number;
   fields: Record<string, string>;
+  /** 慣用身分：多身分共用帳號時登入預設進入的身分（空字串＝未設定） */
+  preferredRole: string;
+  /** 同一帳號／信箱同時存在的身分（僅一個時不顯示慣用身分設定） */
+  roleOptions: UserRole[];
 }
 
 type Flash = { type: "success" | "error"; text: string } | null;
@@ -100,6 +104,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const [emailDup, setEmailDup] = useState<DupState>("idle");
   const [accountDup, setAccountDup] = useState<DupState>("idle");
   const [name, setName] = useState("");
+  // 慣用身分：同一組帳號／信箱具備多個身分時，登入預設進入的身分
+  const [preferredRole, setPreferredRole] = useState("");
 
   // 兩階段驗證
   const [twoFactor, setTwoFactor] = useState<string>("off");
@@ -189,6 +195,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     if (next.name) setName(next.name);
     setEmail(next.email);
     setAccount(next.account);
+    setPreferredRole(next.preferredRole || "");
     setTwoFactor(next.twoFactor || "off");
     setOtpauthUrl(next.otpauthUrl || "");
     setTotpSecret(next.totpSecret || "");
@@ -211,6 +218,10 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   // 是否與已存值不同
   const emailChanged = loaded && emailValue !== storedEmail;
   const accountChanged = loaded && accountValue !== storedAccount;
+  const storedPreferredRole = profile ? profile.preferredRole || "" : "";
+  const preferredChanged = loaded && preferredRole !== storedPreferredRole;
+  // 慣用身分僅在同一組帳號／信箱具備多個身分時才需要設定
+  const roleOptions = profile ? profile.roleOptions : [];
   // 即時查重結果（僅在值真的變更時才算數）
   const emailTaken = emailChanged && emailDup === "taken";
   const accountTaken = accountChanged && accountDup === "taken";
@@ -379,12 +390,18 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       const unchanged =
         Boolean(profile) &&
         emailValue === storedEmail &&
-        accountValue === storedAccount;
+        accountValue === storedAccount &&
+        !preferredChanged;
       if (!unchanged) {
+        const payload: { email: string; account: string; preferredRole?: string } = {
+          email,
+          account,
+        };
+        if (preferredChanged) payload.preferredRole = preferredRole;
         const res = await fetch("/api/account", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, account }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -666,6 +683,30 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
             <p className="text-xs text-danger font-medium">{ACCOUNT_EMAIL_REQUIRED_MESSAGE}</p>
           )}
         </div>
+
+        {/* 慣用身分：同一組帳號／信箱具備多個身分時才顯示 */}
+        {roleOptions.length > 1 && (
+          <>
+            <label className="block text-sm text-t2 mb-1">慣用身分</label>
+            <select
+              value={preferredRole}
+              onChange={(e) => setPreferredRole(e.target.value)}
+              className="w-full input-theme rounded px-4 py-2 mb-1"
+            >
+              <option value="">未設定（登入時詢問）</option>
+              {roleOptions.map((option) => (
+                <option key={option} value={option}>
+                  {ROLE_LABELS[option]}
+                </option>
+              ))}
+            </select>
+            <div className="mb-4 space-y-1">
+              <p className="text-xs text-t3">
+                您的帳號／電子郵件同時具備多個身分：設定後登入會直接以此身分進入，不再詢問。
+              </p>
+            </div>
+          </>
+        )}
 
         <h4 className="font-bold text-t1 mb-3">變更密碼</h4>
         <p className="text-xs text-t3 mb-3">

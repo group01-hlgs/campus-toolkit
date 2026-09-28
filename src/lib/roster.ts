@@ -16,6 +16,7 @@ import {
   AccountStatus,
   ACTIVE_STATUS,
   isAccountStatus,
+  isUserRole,
   UserRole,
 } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
@@ -178,9 +179,13 @@ export function checkRosterConflict(
 }
 
 /** 組出「使用者帳號」文件：四種身分共用同一組欄位（名冊欄位存於 roster 集合） */
-export function buildAccountRecord(account: AccountFields, passwordHash: string): AccountRecord {
+export function buildAccountRecord(
+  account: AccountFields,
+  passwordHash: string,
+  preferredRole?: UserRole | ""
+): AccountRecord {
   const now = Date.now();
-  return {
+  const record: AccountRecord = {
     email: account.email,
     account: account.account,
     passwordHash,
@@ -197,6 +202,8 @@ export function buildAccountRecord(account: AccountFields, passwordHash: string)
     tokenVersion: 1,
     createdAt: now,
   };
+  if (isUserRole(preferredRole)) record.preferredRole = preferredRole;
+  return record;
 }
 
 /** 身分名冊文件 id：每「帳號 × 學年度 × 學期」唯一，方便直接更新與讀取 */
@@ -292,6 +299,7 @@ export function toRosterMember(
   };
   if (typeof account.lastLogin === "number") member.lastLogin = account.lastLogin;
   if (typeof account.loginCount === "number") member.loginCount = account.loginCount;
+  if (isUserRole(account.preferredRole)) member.preferredRole = account.preferredRole;
 
   const entryRole = entryRoleOf(role);
   const target = member as unknown as Record<string, string | boolean | undefined>;
