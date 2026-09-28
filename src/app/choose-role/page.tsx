@@ -165,35 +165,20 @@ export default function ChooseRolePage() {
         <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
       </div>
 
+      <div className="text-center mt-4">
+        <h2 className="text-2xl font-bold text-t1">使用身分</h2>
+        <p className="text-t2 mt-1">{identity ? `${identity}，你好` : "你好"}</p>
+      </div>
+
       <div className="w-full max-w-md mt-6 border border-themed rounded-lg p-6">
-        <h2 className="text-xl font-bold text-t1 mb-1">選擇要進入的身分</h2>
-        <p className="text-sm text-t3 mb-4">
-          {identity ? `${identity}・` : ""}
-          此帳號同時具備多個身分，請選擇本次要使用的身分
-        </p>
+        <h2 className="text-xl font-bold text-t1 mb-4">選擇要進入的身分</h2>
 
         {loading ? (
           <p className="text-center text-t3 py-6">載入中...</p>
         ) : paused ? (
-          <>
-            <p className="text-sm text-danger mb-4">系統目前暫停服務，請稍後再試</p>
-            <button
-              onClick={() => router.push("/")}
-              className="w-full btn-theme rounded py-2 font-medium cursor-pointer"
-            >
-              返回登入頁
-            </button>
-          </>
+          <p className="text-sm text-danger">系統目前暫停服務，請稍後再試</p>
         ) : expired ? (
-          <>
-            <p className="text-sm text-danger mb-4">{EXPIRED_MESSAGE}</p>
-            <button
-              onClick={() => router.push("/")}
-              className="w-full btn-theme rounded py-2 font-medium cursor-pointer"
-            >
-              返回登入頁
-            </button>
-          </>
+          <p className="text-sm text-danger">{EXPIRED_MESSAGE}</p>
         ) : (
           <>
             <div className="flex flex-col gap-3">
@@ -211,16 +196,16 @@ export default function ChooseRolePage() {
             </div>
 
             {error && <p className="text-sm text-danger text-center mt-3">{error}</p>}
-
-            <button
-              onClick={() => router.push("/")}
-              className="w-full btn-theme rounded py-2 text-sm cursor-pointer mt-4"
-            >
-              返回登入頁
-            </button>
           </>
         )}
       </div>
+
+      <button
+        onClick={() => router.push("/")}
+        className="w-full max-w-md mt-3 btn-theme rounded py-2 font-medium cursor-pointer"
+      >
+        返回登入頁
+      </button>
 
       {/* 廣告區域 */}
       {settings.sponsorAdEnabled && (
