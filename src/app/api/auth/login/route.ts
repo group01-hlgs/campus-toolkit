@@ -223,6 +223,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 停用帳號（active=false）不得登入。放在密碼驗證成功後才擋，
+    // 不會在帳號不存在／密碼錯誤時透露帳號狀態（防枚舉）
+    if (userData.active === false) {
+      await logActivity({
+        userId: userDoc.id,
+        role,
+        action: "login_failed",
+        ip,
+        details: "停用帳號嘗試登入",
+      });
+      return NextResponse.json(
+        { success: false, message: GENERIC_LOGIN_ERROR },
+        { status: 401 }
+      );
+    }
+
     // 兩階段驗證：帳密通過後先不建立 session，交由 /api/auth/2fa 完成第二階段
     const { method: twoFactorMethod } = readTwoFactorProfile(userData);
     const displayName = userData.name || userData.displayName || "";

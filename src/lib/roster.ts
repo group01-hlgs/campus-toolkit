@@ -10,9 +10,13 @@ import {
   normalizeEmail,
   PASSWORD_REQUIREMENT_MESSAGE,
 } from "@/lib/validation";
-import { ROLE_COLLECTIONS, AdminRecord, StaffRecord, StudentRecord } from "@/types/users";
+import { ROLE_COLLECTIONS, AdminRecord, UserRole } from "@/types/users";
+import { SchoolPeriod } from "@/types/settings";
 import {
-  ROSTER_FIELDS,
+  ROSTER_ENTRY_FIELDS,
+  RosterEntry,
+  RosterEntryRole,
+  RosterFieldKey,
   RosterInput,
   RosterMember,
   RosterRole,
@@ -20,21 +24,21 @@ import {
 
 export type { RosterMember };
 
-/** 通過驗證、可直接寫入 Firestore 的欄位（password 另行雜湊） */
-export interface RosterFields {
+/** 身分名冊存放的集合：每「身分 × 學年度 × 學期」一條，與使用者帳號分開放 */
+export const ROSTER_COLLECTION = "roster";
+
+/** 使用者帳號的欄位（無學年度學期） */
+export interface AccountFields {
   email: string;
   account: string;
   name: string;
-  studentId?: string;
-  grade?: string;
-  className?: string;
-  classNumber?: string;
-  title?: string;
-  attribute?: string;
 }
 
+/** 身分名冊的欄位（隨學年度、學期變動），鍵見 ROSTER_ENTRY_FIELDS */
+export type RosterData = Partial<Record<RosterFieldKey, string>>;
+
 export type RosterValidation =
-  | { ok: true; fields: RosterFields; password: string | null }
+  | { ok: true; account: AccountFields; roster: RosterData; password: string | null }
   | { ok: false; message: string };
 
 const MAX_TEXT = 64;
@@ -44,10 +48,20 @@ function text(value: unknown, max = MAX_SHORT): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
+/** 該身分是否會寫入身分名冊（管理員不進名冊） */
+export function entryRoleOf(role: UserRole): RosterEntryRole | null {
+  if (role === "student" || role === "staff" || role === "parent") return role;
+  return null;
+}
+
+export function isEntryRole(value: unknown): value is RosterEntryRole {
+  return value === "student" || value === "staff" || value === "parent";
+}
+
 /**
- * 驗證並正規化一列帳號資料。
- * 規則與帳號與安全管理一致：電子郵件與帳號至少保留一項；姓名必填；
- * 密碼在建立時必填、更新時留空代表不變更，兩者都要過強度規則。
+ * 驗證並正規化一列資料，拆成「使用者帳號」與「身分名冊」兩段。
+ * 帳號規則與帳號與安全管理一致：電子郵件與帳號至少一項、姓名必填；
+ * 密碼建立時必填、更新時留空代表不變更，兩者都要過強度規則。
  */
 export function validateRosterInput(
   role: RosterRole,
@@ -80,27 +94,23 @@ export function validateRosterInput(
     return { ok: false, message: `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}` };
   }
 
-  const fields: RosterFields = { email, account, name };
+  const accountFields: AccountFields = { email, account, name };
+  const roster: RosterData = {};
 
-  if (role === "student") {
-    const studentId = text(input.studentId);
-    if (!studentId) return { ok: false, message: "請填寫學號" };
-    fields.studentId = studentId;
-    fields.grade = text(input.grade);
-    fields.className = text(input.className);
-    fields.classNumber = text(input.classNumber);
+  const entryRole = entryRoleOf(role);
+  if (entryRole) {
+    for (const key of ROSTER_ENTRY_FIELDS[entryRole]) {
+      roster[key] = text(input[key], MAX_TEXT);
+    }
+    if (role === "student" && !roster.studentId) {
+      return { ok: false, message: "請填寫學號" };
+    }
   }
 
-  if (role === "staff") {
-    fields.className = text(input.className);
-    fields.title = text(input.title);
-    fields.attribute = text(input.attribute);
-  }
-
-  return { ok: true, fields, password };
+  return { ok: true, account: accountFields, roster, password };
 }
 
-/** 同身分內的查重索引（建立／更新／匯入共用，避免每列都打一次 Firestore） */
+/** 查重索引：email/account 依帳號集合，學號依「目前學年度學期」的身分名冊 */
 export interface RosterIndex {
   emails: Map<string, string>;
   accounts: Map<string, string>;
@@ -109,71 +119,68 @@ export interface RosterIndex {
 
 export async function loadRosterIndex(
   role: RosterRole,
+  period: SchoolPeriod,
   excludeUid = ""
 ): Promise<RosterIndex> {
-  const snapshot = await getAdminDb().collection(ROLE_COLLECTIONS[role]).get();
   const index: RosterIndex = {
     emails: new Map(),
     accounts: new Map(),
     studentIds: new Map(),
   };
+
+  const snapshot = await getAdminDb().collection(ROLE_COLLECTIONS[role]).get();
   for (const doc of snapshot.docs) {
     if (doc.id === excludeUid) continue;
     const data = doc.data();
     const email = typeof data.email === "string" ? data.email : "";
     const account = typeof data.account === "string" ? data.account : "";
-    const studentId = typeof data.studentId === "string" ? data.studentId : "";
     if (email) index.emails.set(email, doc.id);
     if (account) index.accounts.set(account, doc.id);
-    if (studentId) index.studentIds.set(studentId, doc.id);
   }
+
+  const entryRole = entryRoleOf(role);
+  if (entryRole && ROSTER_ENTRY_FIELDS[entryRole].includes("studentId")) {
+    const entries = await getAdminDb()
+      .collection(ROSTER_COLLECTION)
+      .where("role", "==", entryRole)
+      .where("academicYear", "==", period.academicYear)
+      .where("semester", "==", period.semester)
+      .get();
+    for (const doc of entries.docs) {
+      const data = doc.data();
+      const uid = typeof data.uid === "string" ? data.uid : "";
+      if (uid === excludeUid) continue;
+      const studentId = typeof data.studentId === "string" ? data.studentId : "";
+      if (studentId) index.studentIds.set(studentId, uid);
+    }
+  }
+
   return index;
 }
 
 /** 回傳衝突訊息（無衝突回 null） */
 export function checkRosterConflict(
-  fields: RosterFields,
+  account: AccountFields,
+  roster: RosterData,
   index: RosterIndex
 ): string | null {
-  if (fields.email && index.emails.has(fields.email)) return "此電子郵件已被使用";
-  if (fields.account && index.accounts.has(fields.account)) return "此帳號已被使用";
-  if (fields.studentId && index.studentIds.has(fields.studentId)) return "此學號已被使用";
+  if (account.email && index.emails.has(account.email)) return "此電子郵件已被使用";
+  if (account.account && index.accounts.has(account.account)) return "此帳號已被使用";
+  if (roster.studentId && index.studentIds.has(roster.studentId)) return "此學號已被使用";
   return null;
 }
 
-/** 依身分組出完整使用者文件（預設值與種子帳號／既有建立流程一致） */
-export function buildRosterRecord(
+/** 依身分組出「使用者帳號」文件（只含驗證與登入狀態，不含名冊欄位） */
+export function buildAccountRecord(
   role: RosterRole,
-  fields: RosterFields,
+  account: AccountFields,
   passwordHash: string
 ): Record<string, unknown> {
   const now = Date.now();
-
-  if (role === "admin") {
-    const admin: AdminRecord = {
-      email: fields.email,
-      account: fields.account,
-      passwordHash,
-      displayName: fields.name,
-      loginRecords: [],
-      lastLogin: 0,
-      lastLoginMethod: "",
-      loginCount: 0,
-      cssThemeId: "",
-      installedThemes: "[]",
-      lockedUntil: 0,
-      failedAttempts: 0,
-      tokenVersion: 1,
-      createdAt: now,
-    };
-    return { ...admin };
-  }
-
   const base = {
-    email: fields.email,
-    account: fields.account,
+    email: account.email,
+    account: account.account,
     passwordHash,
-    name: fields.name,
     loginRecords: [] as number[],
     lastLoginMethod: "",
     loginCount: 0,
@@ -181,58 +188,119 @@ export function buildRosterRecord(
     installedThemes: "[]",
     lockedUntil: 0,
     failedAttempts: 0,
+    active: true,
     createdAt: now,
   };
 
-  if (role === "student") {
-    const student: StudentRecord = {
+  if (role === "admin") {
+    const admin: AdminRecord = {
       ...base,
-      studentId: fields.studentId || "",
-      grade: fields.grade || "",
-      className: fields.className || "",
-      classNumber: fields.classNumber || "",
+      displayName: account.name,
+      lastLogin: 0,
+      tokenVersion: 1,
     };
-    return { ...student };
+    return { ...admin };
   }
 
-  const staff: StaffRecord = {
-    ...base,
-    className: fields.className || "",
-    title: fields.title || "",
-    attribute: fields.attribute || "",
-  };
-  return { ...staff };
+  return { ...base, name: account.name };
 }
 
-/** 清單列轉成 API 回傳格式（不含密碼與稽核欄位） */
-export function toRosterMember(role: RosterRole, uid: string, data: Record<string, unknown>): RosterMember {
-  const str = (key: string) => (typeof data[key] === "string" ? (data[key] as string) : "");
+/** 身分名冊文件 id：每「帳號 × 學年度 × 學期」唯一，方便直接更新與讀取 */
+export function rosterEntryId(uid: string, period: SchoolPeriod): string {
+  return `${uid}_${period.academicYear}_${period.semester}`;
+}
+
+/** 組出一條身分名冊資料（寫入前呼叫；缺欄位補空字串，避免讀取端缺 key） */
+export function buildRosterEntry(
+  uid: string,
+  role: RosterEntryRole,
+  period: SchoolPeriod,
+  roster: RosterData
+): RosterEntry {
+  const now = Date.now();
+  const data: Record<string, unknown> = {
+    uid,
+    role,
+    academicYear: period.academicYear,
+    semester: period.semester,
+    createdAt: now,
+    updatedAt: now,
+  };
+  for (const key of ROSTER_ENTRY_FIELDS[role]) {
+    data[key] = typeof roster[key] === "string" ? (roster[key] as string) : "";
+  }
+  return data as unknown as RosterEntry;
+}
+
+/** 讀取某帳號在指定學年度學期的身分名冊條目（無則回 null） */
+export async function getRosterEntry(
+  uid: string,
+  role: RosterEntryRole,
+  period: SchoolPeriod
+): Promise<Record<string, unknown> | null> {
+  const snap = await getAdminDb()
+    .collection(ROSTER_COLLECTION)
+    .doc(rosterEntryId(uid, period))
+    .get();
+  if (!snap.exists) return null;
+  const data = snap.data() ?? {};
+  return data.role === role ? data : null;
+}
+
+/** 讀取指定學年度學期的全部身分名冊，以 uid 為鍵 */
+export async function loadPeriodEntries(
+  period: SchoolPeriod,
+  role?: RosterEntryRole
+): Promise<Map<string, Record<string, unknown>>> {
+  const collection = getAdminDb().collection(ROSTER_COLLECTION);
+  const query = role
+    ? collection
+        .where("academicYear", "==", period.academicYear)
+        .where("semester", "==", period.semester)
+        .where("role", "==", role)
+    : collection
+        .where("academicYear", "==", period.academicYear)
+        .where("semester", "==", period.semester);
+
+  const snapshot = await query.get();
+  const map = new Map<string, Record<string, unknown>>();
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const uid = typeof data.uid === "string" ? data.uid : "";
+    if (uid) map.set(uid, data);
+  }
+  return map;
+}
+
+/** 帳號文件＋名冊條目 → 帳號清單一列（不含密碼；名冊欄位取自目前學年度學期） */
+export function toRosterMember(
+  role: RosterRole,
+  uid: string,
+  account: Record<string, unknown>,
+  entry: Record<string, unknown> | null
+): RosterMember {
+  const str = (source: Record<string, unknown> | null, key: string) =>
+    source && typeof source[key] === "string" ? (source[key] as string) : "";
+
   const member: RosterMember = {
     uid,
-    email: str("email"),
-    account: str("account"),
-    name: role === "admin" ? str("displayName") : str("name"),
+    email: str(account, "email"),
+    account: str(account, "account"),
+    name: role === "admin" ? str(account, "displayName") : str(account, "name"),
+    active: account.active !== false,
   };
-  if (typeof data.lastLogin === "number") member.lastLogin = data.lastLogin;
-  if (typeof data.loginCount === "number") member.loginCount = data.loginCount;
+  if (typeof account.lastLogin === "number") member.lastLogin = account.lastLogin;
+  if (typeof account.loginCount === "number") member.loginCount = account.loginCount;
 
-  for (const key of ["studentId", "grade", "className", "classNumber", "title", "attribute"] as const) {
-    const value = str(key);
-    if (value) member[key] = value;
+  const entryRole = entryRoleOf(role);
+  if (entryRole) {
+    const target = member as unknown as Record<string, string | boolean | undefined>;
+    for (const key of ROSTER_ENTRY_FIELDS[entryRole]) {
+      const value = str(entry, key);
+      if (value) target[key] = value;
+    }
   }
   return member;
-}
-
-/** 轉成匯入／表單使用的輸入物件（欄位值一律為字串） */
-export function toRosterInput(role: RosterRole, member: Record<string, unknown>): RosterInput {
-  const input: RosterInput = {};
-  for (const field of ROSTER_FIELDS[role]) {
-    if (field.key === "password") continue;
-    const key = field.key === "name" && role === "admin" ? "displayName" : field.key;
-    const value = member[key];
-    if (typeof value === "string") input[field.key] = value;
-  }
-  return input;
 }
 
 /** 密碼雜湊（匯入批次共用；costFactor 固定 12，不接受外部指定） */

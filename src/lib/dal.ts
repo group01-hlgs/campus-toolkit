@@ -31,6 +31,9 @@ export async function verifySession(): Promise<SessionPayload | null> {
     if (!snap.exists) return null;
 
     const data = snap.data();
+    // 帳號被停用（active=false）後既有 session 全數失效
+    if (data?.active === false) return null;
+
     const tokenVersion = typeof data?.tokenVersion === "number" ? data.tokenVersion : 1;
     if (session.tokenVersion !== tokenVersion) return null;
 

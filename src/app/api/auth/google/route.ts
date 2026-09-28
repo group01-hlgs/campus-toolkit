@@ -108,6 +108,21 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
+    // 停用帳號不得以 Google 登入
+    if (userData.active === false) {
+      await logActivity({
+        userId: userDoc.id,
+        role,
+        action: "login_failed",
+        ip,
+        details: "停用帳號嘗試 Google 登入",
+      });
+      return NextResponse.json(
+        { success: false, message: "帳號已停用，無法登入" },
+        { status: 401 }
+      );
+    }
+
     // 兩階段驗證：Google 登入同樣要完成第二階段才建立 session
     const { method: twoFactorMethod } = readTwoFactorProfile(userData);
     const displayName = userData.name || userData.displayName || "";

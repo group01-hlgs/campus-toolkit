@@ -178,6 +178,21 @@ export async function POST(request: NextRequest) {
     }
 
     const userData = userDoc.data() || {};
+    // 停用帳號：完成重設也不建立 session，直接擋下避免繞道登入
+    if (userData.active === false) {
+      await logActivity({
+        userId: record.uid,
+        role: record.role,
+        action: "login_failed",
+        ip,
+        details: "停用帳號嘗試密碼重設並登入",
+      });
+      return NextResponse.json(
+        { success: false, message: "帳號已停用，無法登入" },
+        { status: 403 }
+      );
+    }
+
     const passwordHash = await hashPassword(body.newPassword, 12);
     const newTokenVersion =
       (typeof userData.tokenVersion === "number" ? userData.tokenVersion : 1) + 1;

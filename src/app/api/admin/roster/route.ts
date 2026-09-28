@@ -5,13 +5,19 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
+import { getCurrentPeriod } from "@/lib/settings-server";
 import { ROLE_COLLECTIONS } from "@/types/users";
 import { isRosterRole, rosterRoleLabel, RosterInput, RosterRole } from "@/types/roster";
 import {
-  buildRosterRecord,
+  buildAccountRecord,
+  buildRosterEntry,
   checkRosterConflict,
+  entryRoleOf,
   hashRosterPassword,
+  loadPeriodEntries,
   loadRosterIndex,
+  ROSTER_COLLECTION,
+  rosterEntryId,
   toRosterMember,
   validateRosterInput,
 } from "@/lib/roster";
@@ -57,15 +63,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const period = await getCurrentPeriod();
     const snapshot = await getAdminDb().collection(ROLE_COLLECTIONS[role]).get();
+    const entryRole = entryRoleOf(role);
+    const entries = entryRole
+      ? await loadPeriodEntries(period, entryRole)
+      : new Map<string, Record<string, unknown>>();
+
     const members = snapshot.docs
-      .map((doc) => toRosterMember(role, doc.id, doc.data()))
+      .map((doc) => toRosterMember(role, doc.id, doc.data(), entries.get(doc.id) ?? null))
       .sort((a, b) =>
         a.name.localeCompare(b.name, "zh-Hant") || a.account.localeCompare(b.account)
       );
 
     return NextResponse.json(
-      { success: true, members },
+      { success: true, members, period },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
@@ -101,25 +113,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }
 
-    const index = await loadRosterIndex(role);
-    const conflict = checkRosterConflict(result.fields, index);
+    const period = await getCurrentPeriod();
+    const index = await loadRosterIndex(role, period);
+    const conflict = checkRosterConflict(result.account, result.roster, index);
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    const record = buildRosterRecord(
+    const accountRecord = buildAccountRecord(
       role,
-      result.fields,
+      result.account,
       await hashRosterPassword(result.password as string)
     );
-    const docRef = await getAdminDb().collection(ROLE_COLLECTIONS[role]).add(record);
+    const docRef = await getAdminDb().collection(ROLE_COLLECTIONS[role]).add(accountRecord);
+
+    const entryRole = entryRoleOf(role);
+    if (entryRole) {
+      await getAdminDb()
+        .collection(ROSTER_COLLECTION)
+        .doc(rosterEntryId(docRef.id, period))
+        .set(buildRosterEntry(docRef.id, entryRole, period, result.roster));
+    }
 
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "roster_created",
       ip: getClientIp(request),
-      details: `建立${rosterRoleLabel(role)} ${result.fields.account || result.fields.email}（${result.fields.name}）`,
+      details: `建立${rosterRoleLabel(role)} ${result.account.account || result.account.email}（${result.account.name}）`,
     });
 
     return NextResponse.json({
@@ -166,31 +187,19 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
     }
 
-    const index = await loadRosterIndex(role, uid);
-    const conflict = checkRosterConflict(result.fields, index);
+    const period = await getCurrentPeriod();
+    const index = await loadRosterIndex(role, period, uid);
+    const conflict = checkRosterConflict(result.account, result.roster, index);
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    const { fields, password } = result;
+    const { account, password } = result;
     const updateData: Record<string, unknown> = {
-      email: fields.email,
-      account: fields.account,
-      [nameKey(role)]: fields.name,
+      email: account.email,
+      account: account.account,
+      [nameKey(role)]: account.name,
     };
-    if (role === "student") {
-      updateData.studentId = fields.studentId || "";
-      updateData.grade = fields.grade || "";
-      updateData.className = fields.className || "";
-      updateData.classNumber = fields.classNumber || "";
-    }
-    if (role === "staff") {
-      updateData.className = fields.className || "";
-      updateData.title = fields.title || "";
-      updateData.attribute = fields.attribute || "";
-    }
-
-    let passwordChanged = false;
     if (password) {
       const current = snap.data() || {};
       updateData.passwordHash = await hashRosterPassword(password);
@@ -200,22 +209,105 @@ export async function PUT(request: NextRequest) {
       updateData.failedAttempts = 0;
       updateData.lockedUntil = 0;
       updateData.lockIp = "";
-      passwordChanged = true;
     }
 
     await ref.update(updateData);
+
+    // 名冊欄位寫入「目前學年度學期」的條目，歷史學期不受影響
+    const entryRole = entryRoleOf(role);
+    if (entryRole) {
+      const entryId = rosterEntryId(uid, period);
+      const entryRef = getAdminDb().collection(ROSTER_COLLECTION).doc(entryId);
+      const entrySnap = await entryRef.get();
+      if (entrySnap.exists) {
+        const patch: Record<string, unknown> = { ...result.roster, updatedAt: Date.now() };
+        await entryRef.update(patch);
+      } else {
+        await entryRef.set(buildRosterEntry(uid, entryRole, period, result.roster));
+      }
+    }
 
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "roster_updated",
       ip: getClientIp(request),
-      details: `更新${rosterRoleLabel(role)} ${fields.account || fields.email}${passwordChanged ? "（密碼已重設）" : ""}`,
+      details: `更新${rosterRoleLabel(role)} ${account.account || account.email}${password ? "（密碼已重設）" : ""}`,
     });
 
     return NextResponse.json({ success: true, message: "資料已更新" });
   } catch (error) {
     console.error("Roster update error:", error);
+    return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });
+  }
+}
+
+/** PATCH：切換帳號有效／無效 */
+export async function PATCH(request: NextRequest) {
+  try {
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
+
+    const limited = enforceRateLimit(
+      request,
+      "roster-mutate",
+      RATE.ROSTER_MUTATE.limit,
+      RATE.ROSTER_MUTATE.windowMs
+    );
+    if (limited) return limited;
+
+    const { session, denial } = await requireRole("admin");
+    if (denial) return toAuthResponse(denial);
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const role = isRosterRole(body.role) ? body.role : null;
+    const uid = typeof body.uid === "string" ? body.uid : "";
+    const active = typeof body.active === "boolean" ? body.active : null;
+    if (!role || !uid || active === null) {
+      return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
+    }
+
+    if (!active) {
+      if (role === "admin" && uid === session.uid) {
+        return NextResponse.json(
+          { success: false, message: "無法停用自己使用的管理員帳號" },
+          { status: 400 }
+        );
+      }
+      if (role === "admin") {
+        // 停用管理員前先確認還有其他有效管理員，避免把自己鎖在門外
+        const admins = await getAdminDb().collection(ROLE_COLLECTIONS.admin).get();
+        const activeAdmins = admins.docs.filter((doc) => {
+          if (doc.id === uid) return false;
+          return (doc.data().active ?? true) !== false;
+        });
+        if (activeAdmins.length === 0) {
+          return NextResponse.json(
+            { success: false, message: "無法停用最後一位有效管理員" },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    const ref = getAdminDb().collection(ROLE_COLLECTIONS[role]).doc(uid);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
+    }
+    await ref.update({ active });
+
+    await logActivity({
+      userId: session.uid,
+      role: "admin",
+      action: "account_updated",
+      ip: getClientIp(request),
+      details: `${active ? "啟用" : "停用"}${rosterRoleLabel(role)}帳號 ${snap.data()?.account || uid}`,
+    });
+
+    return NextResponse.json({ success: true, message: active ? "帳號已啟用" : "帳號已停用" });
+  } catch (error) {
+    console.error("Account status error:", error);
     return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });
   }
 }
@@ -267,6 +359,17 @@ export async function DELETE(request: NextRequest) {
     }
 
     await ref.delete();
+
+    // 帳號刪除時一併清掉各學年度學期的身分名冊條目
+    const entrySnap = await getAdminDb()
+      .collection(ROSTER_COLLECTION)
+      .where("uid", "==", uid)
+      .get();
+    if (!entrySnap.empty) {
+      const batch = getAdminDb().batch();
+      for (const doc of entrySnap.docs) batch.delete(doc.ref);
+      await batch.commit();
+    }
 
     await logActivity({
       userId: session.uid,

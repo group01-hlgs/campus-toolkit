@@ -10,7 +10,8 @@ import { revokeJti } from "@/lib/revocation";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { getTotpIssuer, isEmailChangeAllowed } from "@/lib/settings-server";
+import { getTotpIssuer, isEmailChangeAllowed, getCurrentPeriod } from "@/lib/settings-server";
+import { entryRoleOf, getRosterEntry } from "@/lib/roster";
 import { buildOtpauthUrl } from "@/lib/totp";
 import { readTwoFactorProfile } from "@/lib/two-factor";
 import {
@@ -56,9 +57,18 @@ async function buildProfile(
   sessionName: string,
   data: Record<string, unknown>
 ): Promise<AccountProfile> {
+  // 角色專屬欄位（學號、班級、職稱等）存於身分名冊，取目前學年度學期的條目；
+  // 管理員沒有角色專屬欄位，不需讀名冊
   const fields: Record<string, string> = {};
-  for (const field of ROLE_SPECIFIC_FIELDS[role]) {
-    fields[field.key] = String(data[field.key] ?? "");
+  const specific = ROLE_SPECIFIC_FIELDS[role];
+  if (specific.length > 0) {
+    const period = await getCurrentPeriod();
+    const entryRole = entryRoleOf(role);
+    const entry = entryRole ? await getRosterEntry(uid, entryRole, period) : null;
+    for (const field of specific) {
+      const value = entry ? entry[field.key] : "";
+      fields[field.key] = typeof value === "string" ? value : "";
+    }
   }
 
   const { method, totpSecret } = readTwoFactorProfile(data);

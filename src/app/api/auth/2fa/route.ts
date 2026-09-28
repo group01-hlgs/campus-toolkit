@@ -153,6 +153,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 帳號在等待第二階段期間被停用：驗證碼通過也不建立 session
+    if (userData.active === false) {
+      await clearPending2FACookie();
+      await logActivity({
+        userId: pending.uid,
+        role: pending.role,
+        action: "login_failed",
+        ip,
+        details: "停用帳號完成第二階段驗證，拒絕登入",
+      });
+      return NextResponse.json(
+        { success: false, message: "帳號已停用，無法登入" },
+        { status: 401 }
+      );
+    }
+
     // 通過：清除中途憑證、OTP 暫存與失敗計數
     await clearOtpState(userRef);
     await clearPending2FACookie();

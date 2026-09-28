@@ -6,6 +6,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
+import { getCurrentPeriod } from "@/lib/settings-server";
 import { ROLE_COLLECTIONS } from "@/types/users";
 import {
   isEmptyRosterInput,
@@ -18,10 +19,14 @@ import {
   RosterRole,
 } from "@/types/roster";
 import {
-  buildRosterRecord,
+  buildAccountRecord,
+  buildRosterEntry,
   checkRosterConflict,
+  entryRoleOf,
   hashRosterPassword,
   loadRosterIndex,
+  ROSTER_COLLECTION,
+  rosterEntryId,
   validateRosterInput,
 } from "@/lib/roster";
 
@@ -156,7 +161,9 @@ export async function POST(request: NextRequest) {
     }
 
     const collection = getAdminDb().collection(ROLE_COLLECTIONS[role]);
-    const index = await loadRosterIndex(role);
+    const period = await getCurrentPeriod();
+    const entryRole = entryRoleOf(role);
+    const index = await loadRosterIndex(role, period);
     const skipped: SkippedRow[] = [];
     let created = 0;
 
@@ -167,22 +174,29 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const conflict = checkRosterConflict(result.fields, index);
+      const conflict = checkRosterConflict(result.account, result.roster, index);
       if (conflict) {
         skipped.push({ row, reason: conflict });
         continue;
       }
 
-      const record = buildRosterRecord(
+      const record = buildAccountRecord(
         role,
-        result.fields,
+        result.account,
         await hashRosterPassword(result.password as string)
       );
-      await collection.add(record);
+      const docRef = await collection.add(record);
+      // 名冊欄位寫入目前學年度學期的身分名冊條目
+      if (entryRole) {
+        await getAdminDb()
+          .collection(ROSTER_COLLECTION)
+          .doc(rosterEntryId(docRef.id, period))
+          .set(buildRosterEntry(docRef.id, entryRole, period, result.roster));
+      }
       // 寫入後立刻併入索引，擋掉同一份檔案內重複的信箱／帳號／學號
-      if (result.fields.email) index.emails.set(result.fields.email, String(created));
-      if (result.fields.account) index.accounts.set(result.fields.account, String(created));
-      if (result.fields.studentId) index.studentIds.set(result.fields.studentId, String(created));
+      if (result.account.email) index.emails.set(result.account.email, String(created));
+      if (result.account.account) index.accounts.set(result.account.account, String(created));
+      if (result.roster.studentId) index.studentIds.set(result.roster.studentId, String(created));
       created += 1;
     }
 

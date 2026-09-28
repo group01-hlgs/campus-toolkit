@@ -8,10 +8,10 @@ import { assertSameOrigin } from "@/lib/csrf";
 import {
   ROLE_COLLECTIONS,
   BaseUserRecord,
-  StudentRecord,
   ParentRecord,
-  StaffRecord,
 } from "@/types/users";
+import { getCurrentPeriod } from "@/lib/settings-server";
+import { buildRosterEntry, ROSTER_COLLECTION, rosterEntryId } from "@/lib/roster";
 import { serverErrorMessage } from "@/lib/api-error";
 
 function seedCredentials(): { email: string; account: string; password: string } | null {
@@ -64,24 +64,38 @@ export async function seedRoles() {
       installedThemes: "[]",
       lockedUntil: 0,
       failedAttempts: 0,
+      active: true,
       createdAt: now,
     };
 
     const created: string[] = [];
     const skipped: string[] = [];
+    const period = await getCurrentPeriod();
+
+    /** 帳號建立成功後，把名冊欄位寫入目前學年度學期的身分名冊 */
+    async function writeEntry(
+      uid: string,
+      role: "student" | "staff" | "parent",
+      fields: Record<string, string>
+    ): Promise<void> {
+      await getAdminDb()
+        .collection(ROSTER_COLLECTION)
+        .doc(rosterEntryId(uid, period))
+        .set(buildRosterEntry(uid, role, period, fields));
+    }
 
     const studentCol = ROLE_COLLECTIONS.student;
     if (await existsIn(studentCol, DEFAULT_ACCOUNT, DEFAULT_EMAIL)) {
       skipped.push("student");
     } else {
-      const student: StudentRecord = {
-        ...base,
-        name: "張同學",
+      const student: BaseUserRecord = { ...base, name: "張同學" };
+      const ref = await getAdminDb().collection(studentCol).add(student);
+      await writeEntry(ref.id, "student", {
         studentId: "910999",
+        grade: "10",
         className: "101",
         classNumber: "10101",
-      };
-      await getAdminDb().collection(studentCol).add(student);
+      });
       created.push("student");
     }
 
@@ -89,15 +103,14 @@ export async function seedRoles() {
     if (await existsIn(parentCol, DEFAULT_ACCOUNT, DEFAULT_EMAIL)) {
       skipped.push("parent");
     } else {
-      const parent: ParentRecord = {
-        ...base,
-        name: "張爸爸",
+      const parent: ParentRecord = { ...base, name: "張爸爸" };
+      const ref = await getAdminDb().collection(parentCol).add(parent);
+      await writeEntry(ref.id, "parent", {
         studentName: "張同學",
         studentId: "910999",
         className: "101",
         classNumber: "10101",
-      };
-      await getAdminDb().collection(parentCol).add(parent);
+      });
       created.push("parent");
     }
 
@@ -105,14 +118,13 @@ export async function seedRoles() {
     if (await existsIn(staffCol, DEFAULT_ACCOUNT, DEFAULT_EMAIL)) {
       skipped.push("staff");
     } else {
-      const staff: StaffRecord = {
-        ...base,
-        name: "張老師",
+      const staff: BaseUserRecord = { ...base, name: "張老師" };
+      const ref = await getAdminDb().collection(staffCol).add(staff);
+      await writeEntry(ref.id, "staff", {
         className: "101",
         title: "導師",
         attribute: "教師",
-      };
-      await getAdminDb().collection(staffCol).add(staff);
+      });
       created.push("staff");
     }
 

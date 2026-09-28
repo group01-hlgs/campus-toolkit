@@ -73,30 +73,15 @@ export interface BaseUserRecord {
   lockIp?: string;
   failedAttempts: number;
   createdAt: number;
+  /**
+   * 帳號有效／無效（缺省視為有效）。無效者不得登入（含 2FA 完成後與密碼重設後建立 session）。
+   * 注意：帳號文件只存驗證與登入狀態，班級／學號等名冊資料存於 roster 集合（隨學年度、學期變動）。
+   */
+  active?: boolean;
 }
 
-export interface StudentRecord extends BaseUserRecord {
-  studentId: string;
-  /** 年級（舊資料可能沒有此欄位，缺省視為未填） */
-  grade?: string;
-  className: string;
-  classNumber: string;
-}
-
-export interface ParentRecord extends BaseUserRecord {
-  studentName: string;
-  studentId: string;
-  className: string;
-  classNumber: string;
-}
-
-export interface StaffRecord extends BaseUserRecord {
-  className: string;
-  title: string;
-  attribute: string;
-}
-
-export type RoleRecord = StudentRecord | ParentRecord | StaffRecord;
+/** 家長帳號文件（名冊欄位於 roster 集合） */
+export type ParentRecord = BaseUserRecord;
 
 /** 管理員文件（admins collection）欄位總覽，帳號與安全管理頁對應讀取 */
 export interface AdminRecord {
@@ -126,12 +111,15 @@ export interface AdminRecord {
   failedAttempts: number;
   tokenVersion: number;
   createdAt: number;
+  /** 帳號有效／無效（缺省視為有效），無效者不得登入；管理員不進身分名冊 */
+  active?: boolean;
 }
 
 export const ROLE_SPECIFIC_FIELDS: Record<
   UserRole,
   { key: string; label: string }[]
 > = {
+  // 學生／家長／教職員的這些欄位存於 roster 集合（身分名冊，隨學年度、學期變動）
   student: [
     { key: "studentId", label: "學號" },
     { key: "grade", label: "年級" },

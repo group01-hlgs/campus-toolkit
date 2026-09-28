@@ -7,6 +7,8 @@ import {
   ROSTER_COLUMNS,
   ROSTER_FIELDS,
   ROSTER_ROLES,
+  ACCOUNT_FIELD_KEYS,
+  RosterFieldDef,
   RosterFieldKey,
   RosterInput,
   RosterMember,
@@ -44,6 +46,7 @@ const EMPTY_FORM: Record<RosterFieldKey, string> = {
   account: "",
   password: "",
   name: "",
+  studentName: "",
   studentId: "",
   grade: "",
   className: "",
@@ -51,6 +54,11 @@ const EMPTY_FORM: Record<RosterFieldKey, string> = {
   title: "",
   attribute: "",
 };
+
+/** 屬於「使用者帳號」（無學年度學期）的表單欄位 */
+function isAccountField(key: RosterFieldKey): boolean {
+  return (ACCOUNT_FIELD_KEYS as readonly string[]).includes(key);
+}
 
 function formatDateTime(value?: number): string {
   if (!value) return "—";
@@ -106,6 +114,7 @@ export default function RosterPage() {
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   // 儲存成功提示 modal：完成時跳出，1 秒後自動消失
@@ -186,6 +195,7 @@ export default function RosterPage() {
       email: member.email,
       account: member.account,
       name: member.name,
+      studentName: member.studentName || "",
       studentId: member.studentId || "",
       grade: member.grade || "",
       className: member.className || "",
@@ -294,6 +304,43 @@ export default function RosterPage() {
     }
   }
 
+  /** 切換帳號有效／無效：無效後該帳號全面無法登入（含 Google 與兩階段驗證） */
+  async function handleToggleActive(member: RosterMember) {
+    if (toggling) return;
+    const nextActive = !member.active;
+    const label = `${member.name}（${member.account || member.email}）`;
+    const question = nextActive
+      ? `確定啟用 ${label}？啟用後可正常登入。`
+      : `確定停用 ${label}？停用後將無法登入，原有資料不會刪除。`;
+    if (!window.confirm(question)) return;
+
+    setToggling(true);
+    setFlash(null);
+    try {
+      const res = await fetch("/api/admin/roster", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role, uid: member.uid, active: nextActive }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setFlash({ type: "error", text: data?.message || "狀態更新失敗" });
+        return;
+      }
+      setFlash({ type: "success", text: data.message || "狀態已更新" });
+      showSuccessModal(data.message || "狀態已更新");
+      if (editingUid === member.uid) closeForm();
+      await loadMembers(role);
+    } catch (error) {
+      setFlash({
+        type: "error",
+        text: error instanceof Error ? error.message : "狀態更新失敗",
+      });
+    } finally {
+      setToggling(false);
+    }
+  }
+
   async function handleImport(file: File) {
     if (importing) return;
     setImporting(true);
@@ -324,6 +371,43 @@ export default function RosterPage() {
     }
   }
 
+  /** 單一表單欄位：密碼欄附顯示切換，其餘為文字／電子郵件輸入 */
+  function renderField(field: RosterFieldDef) {
+    return (
+      <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
+          {field.label}
+          {field.required && <span className="text-t1">*</span>}
+        </label>
+        {field.key === "password" ? (
+          <div className="relative flex-1">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={form.password}
+              onChange={(e) => handleField("password", e.target.value)}
+              autoComplete="new-password"
+              placeholder={editingUid ? "留空表示不變更密碼" : `至少 8 碼，需含大寫、小寫與數字`}
+              className="w-full input-theme rounded px-3 py-2 pr-10"
+            />
+            <PasswordToggleButton
+              visible={showPassword}
+              onToggle={() => setShowPassword((prev) => !prev)}
+              label="顯示密碼"
+            />
+          </div>
+        ) : (
+          <input
+            type={field.key === "email" ? "email" : "text"}
+            value={form[field.key] ?? ""}
+            onChange={(e) => handleField(field.key, e.target.value)}
+            autoComplete="off"
+            className="flex-1 input-theme rounded px-3 py-2"
+          />
+        )}
+      </div>
+    );
+  }
+
   function handleBack() {
     router.push("/admin");
   }
@@ -336,6 +420,7 @@ export default function RosterPage() {
         member.name,
         member.email,
         member.account,
+        member.studentName,
         member.studentId,
         member.grade,
         member.className,
@@ -375,7 +460,9 @@ export default function RosterPage() {
       {/* 功能標題 */}
       <div className="w-full max-w-5xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">使用者帳號管理</h2>
-        <p className="text-t2 mt-1 text-sm">新增、編輯、刪除與匯入學生、教職員與管理員帳號</p>
+        <p className="text-t2 mt-1 text-sm">
+          新增、編輯、刪除、匯入與啟用／停用學生、教職員與管理員帳號
+        </p>
       </div>
 
       {/* 操作按鈕 */}
@@ -436,7 +523,8 @@ export default function RosterPage() {
 
       {/* 匯入格式說明 */}
       <div className="w-full max-w-5xl mb-4 text-sm text-t3">
-        匯入欄位：{rosterImportHint(role)}；電子郵件地址與帳號至少填一項，單次最多 900 列。
+        匯入欄位：{rosterImportHint(role)}；電子郵件地址與帳號至少填一項，單次最多 900
+        列；名冊欄位寫入 {settings.academicYear} 學年度第{settings.semester}學期。
       </div>
 
       {/* 提示訊息 */}
@@ -488,44 +576,26 @@ export default function RosterPage() {
           </div>
 
           <div className="space-y-4">
-            {ROSTER_FIELDS[role].map((field) => (
-              <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
-                  {field.label}
-                  {field.required && <span className="text-t1">*</span>}
-                </label>
-                {field.key === "password" ? (
-                  <div className="relative flex-1">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={form.password}
-                      onChange={(e) => handleField("password", e.target.value)}
-                      autoComplete="new-password"
-                      placeholder={
-                        editingUid ? "留空表示不變更密碼" : `至少 8 碼，需含大寫、小寫與數字`
-                      }
-                      className="w-full input-theme rounded px-3 py-2 pr-10"
-                    />
-                    <PasswordToggleButton
-                      visible={showPassword}
-                      onToggle={() => setShowPassword((prev) => !prev)}
-                      label="顯示密碼"
-                    />
-                  </div>
-                ) : (
-                  <input
-                    type={field.key === "email" ? "email" : "text"}
-                    value={form[field.key] ?? ""}
-                    onChange={(e) => handleField(field.key, e.target.value)}
-                    autoComplete="off"
-                    className="flex-1 input-theme rounded px-3 py-2"
-                  />
-                )}
-              </div>
-            ))}
+            <p className="text-sm font-bold text-t2 border-b border-themed pb-1">帳號資料</p>
+            {ROSTER_FIELDS[role]
+              .filter((field) => isAccountField(field.key))
+              .map(renderField)}
           </div>
 
-          <p className="text-sm text-t3 mt-3">{ACCOUNT_EMAIL_REQUIRED_MESSAGE}</p>
+          {ROSTER_FIELDS[role].some((field) => !isAccountField(field.key)) && (
+            <div className="space-y-4 mt-5">
+              <p className="text-sm font-bold text-t2 border-b border-themed pb-1">
+                {settings.academicYear} 學年度 第{settings.semester}學期 名冊
+              </p>
+              {ROSTER_FIELDS[role]
+                .filter((field) => !isAccountField(field.key))
+                .map(renderField)}
+            </div>
+          )}
+
+          <p className="text-sm text-t3 mt-3">
+            {ACCOUNT_EMAIL_REQUIRED_MESSAGE}；名冊欄位屬於本學年度學期，切換學期後需重新維護。
+          </p>
 
           {formError && (
             <p className="text-sm text-t1 mt-3 border border-themed rounded px-3 py-2" role="alert">
@@ -561,6 +631,7 @@ export default function RosterPage() {
                   </th>
                 ))}
                 <th className="px-3 py-2 font-medium whitespace-nowrap">最後登入</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
               </tr>
             </thead>
@@ -568,7 +639,7 @@ export default function RosterPage() {
               {filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={columns.length + 2}
+                    colSpan={columns.length + 3}
                     className="px-3 py-6 text-center text-t3"
                   >
                     {members.length === 0 ? "目前沒有資料" : "沒有符合的資料"}
@@ -585,12 +656,30 @@ export default function RosterPage() {
                   <td className="px-3 py-2 whitespace-nowrap text-t2">
                     {formatDateTime(member.lastLogin)}
                   </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {member.active ? (
+                      <span className="inline-block rounded-full border border-themed px-2 py-0.5 text-xs text-success">
+                        有效
+                      </span>
+                    ) : (
+                      <span className="inline-block rounded-full border border-themed px-2 py-0.5 text-xs text-danger">
+                        無效
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
                     <button
                       onClick={() => openEdit(member)}
                       className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2"
                     >
                       編輯
+                    </button>
+                    <button
+                      onClick={() => void handleToggleActive(member)}
+                      disabled={toggling}
+                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                    >
+                      {member.active ? "停用" : "啟用"}
                     </button>
                     <button
                       onClick={() => void handleDelete(member)}
@@ -621,10 +710,18 @@ export default function RosterPage() {
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
 
-      {/* 作業遮罩：儲存／刪除／匯入期間覆蓋畫面、阻擋重複操作 */}
-      {(saving || deleting || importing) && (
+      {/* 作業遮罩：儲存／刪除／匯入／狀態切換期間覆蓋畫面、阻擋重複操作 */}
+      {(saving || deleting || importing || toggling) && (
         <BlockingMask
-          text={importing ? "匯入中，請稍候…" : deleting ? "刪除中，請稍候…" : "儲存中，請稍候…"}
+          text={
+            toggling
+              ? "更新狀態中，請稍候…"
+              : importing
+                ? "匯入中，請稍候…"
+                : deleting
+                  ? "刪除中，請稍候…"
+                  : "儲存中，請稍候…"
+          }
         />
       )}
 

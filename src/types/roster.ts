@@ -5,6 +5,9 @@
 
 export type RosterRole = "student" | "staff" | "admin";
 
+/** 身分名冊（roster 集合）的身分：管理員不進名冊，只存在於使用者帳號 */
+export type RosterEntryRole = "student" | "staff" | "parent";
+
 export const ROSTER_ROLES: { value: RosterRole; label: string; tab: string }[] = [
   { value: "student", label: "學生", tab: "學生帳號" },
   { value: "staff", label: "教職員", tab: "教職員帳號" },
@@ -15,8 +18,42 @@ export function isRosterRole(value: unknown): value is RosterRole {
   return value === "student" || value === "staff" || value === "admin";
 }
 
+export function isRosterEntryRole(value: unknown): value is RosterEntryRole {
+  return value === "student" || value === "staff" || value === "parent";
+}
+
 export function rosterRoleLabel(value: unknown): string {
   return ROSTER_ROLES.find((role) => role.value === value)?.label || "";
+}
+
+/** 屬於「使用者帳號」的欄位（無學年度學期） */
+export const ACCOUNT_FIELD_KEYS = ["email", "account", "password", "name"] as const;
+
+/** 屬於「身分名冊」的欄位（隨學年度、學期變動），與 ROLE_SPECIFIC_FIELDS 對應 */
+export const ROSTER_ENTRY_FIELDS: Record<RosterEntryRole, RosterFieldKey[]> = {
+  student: ["studentId", "grade", "className", "classNumber"],
+  staff: ["className", "title", "attribute"],
+  parent: ["studentName", "studentId", "className", "classNumber"],
+};
+
+/** 身分名冊一條（roster 集合文件），每「身分 × 學年度 × 學期」一條 */
+export interface RosterEntry {
+  /** 連回使用者帳號文件（students/parents/staff 的 doc id） */
+  uid: string;
+  role: RosterEntryRole;
+  /** 學年度（民國年） */
+  academicYear: number;
+  /** 學期：1=第1學期、2=第2學期 */
+  semester: number;
+  studentName?: string;
+  studentId?: string;
+  grade?: string;
+  className?: string;
+  classNumber?: string;
+  title?: string;
+  attribute?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 /** 表單／匯入共用的欄位鍵（password 只在表單與匯入出現，不會出現在清單） */
@@ -25,6 +62,7 @@ export type RosterFieldKey =
   | "account"
   | "password"
   | "name"
+  | "studentName"
   | "studentId"
   | "grade"
   | "className"
@@ -99,12 +137,14 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterFieldKey; label: st
 /** 匯入時每一列的原始輸入（欄位值一律是字串，空白代表未填） */
 export type RosterInput = Partial<Record<RosterFieldKey, string>>;
 
-/** 帳號清單一列（API 回傳格式，角色欄位平鋪、不含密碼） */
+/** 帳號清單一列（API 回傳格式，角色欄位平鋪、不含密碼；名冊欄位為目前學年度學期） */
 export interface RosterMember {
   uid: string;
   email: string;
   account: string;
   name: string;
+  /** 帳號狀態：有效 true／無效 false（舊資料缺欄位視為有效） */
+  active: boolean;
   lastLogin?: number;
   loginCount?: number;
   studentId?: string;
@@ -113,6 +153,7 @@ export interface RosterMember {
   classNumber?: string;
   title?: string;
   attribute?: string;
+  studentName?: string;
 }
 
 /** 匯入檔案的格式說明（頁面上直接顯示，讓使用者對得上範例檔） */

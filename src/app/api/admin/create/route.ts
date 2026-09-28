@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
       failedAttempts: 0,
       lockedUntil: 0,
       tokenVersion: 1,
+      active: true,
       createdAt: Date.now(),
     };
 
