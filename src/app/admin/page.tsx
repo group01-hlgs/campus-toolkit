@@ -129,7 +129,7 @@ export default function AdminPage() {
       </div>
 
       {/* 功能標題 */}
-      <div className="w-full max-w-2xl mt-4 mb-2 text-center">
+      <div className="content-width mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">管理員功能首頁</h2>
         {(user.displayName || user.account) && (
           <p className="text-t2 mt-1">{user.displayName || user.account}，您好</p>
@@ -137,7 +137,7 @@ export default function AdminPage() {
       </div>
 
       {/* 登出按鈕 */}
-      <div className="w-full max-w-2xl flex justify-end mb-4">
+      <div className="content-width flex justify-end mb-4">
         <button
           onClick={handleLogout}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -146,15 +146,15 @@ export default function AdminPage() {
         </button>
       </div>
 
-      <hr className="w-full max-w-2xl border-themed mb-4" />
+      <hr className="content-width border-themed mb-4" />
 
       {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
       <DraggableModuleGrid items={modules} storageKey="campusCardOrder.admin" />
 
-      <hr className="w-full max-w-2xl border-themed mb-4" />
+      <hr className="content-width border-themed mb-4" />
 
       {/* 底部登出 */}
-      <div className="w-full max-w-2xl mb-8">
+      <div className="content-width mb-8">
         <button
           onClick={handleLogout}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -165,13 +165,13 @@ export default function AdminPage() {
 
       {/* 廣告區域 */}
       {settings.sponsorAdEnabled && (
-        <div className="w-full max-w-2xl">
+        <div className="content-width">
           <AdSense />
         </div>
       )}
 
       {/* 版權宣告 */}
-      <div className="w-full max-w-2xl mt-auto">
+      <div className="content-width mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
     </div>

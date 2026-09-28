@@ -31,8 +31,8 @@ const LABEL_WIDTH = `calc(${LABEL_MAX_CHARS}em + 2px)`; // 192px + 2px
  */
 const CARD_WIDTH = "286px";
 
-/** 卡片區寬度：永遠佔瀏覽器視窗寬度的 80%，卡片固定 286px，超出一條橫列就自動往下折 */
-const AREA_WIDTH_CLASS = "w-[80vw] min-w-[286px]";
+/** 卡片區寬度（.content-width，定義在 globals.css）：與首頁其他區塊共用同一個寬度 */
+const AREA_WIDTH_CLASS = "content-width";
 
 /** 行與行的距離（px）：比卡片間距 16px 大，用來區隔「行」，同時也是拖到行間隙的判定範圍 */
 const ROW_GAP_PX = 24;
@@ -118,7 +118,7 @@ function sameHint(a: DropHint, b: DropHint): boolean {
  * - 指標捕捉掛在「不會被搬動」的網格容器上，拖曳中 React 重排子節點也不會中斷事件。
  * - 每次 pointermove 都重新量測：跨行搬移與另起一行都會改變列高，
  *   所以結構真的改變時用 flushSync 同步重繪，確保下一次 pointermove 量到的是最新版面。
- * - 卡片區固定佔瀏覽器寬度 80%（AREA_WIDTH_CLASS），卡片本身寫死 286px 不隨視窗縮放；
+ * - 卡片區寬度固定用 .content-width（80vw，與首頁其他區塊同寬），卡片本身寫死 286px 不隨視窗縮放；
  *   行內用 flex-wrap 自動折行，畫面越寬每條橫列放得下越多張；小螢幕每行只剩 1 張時左右置中。
  * - 全部使用主題類別（border-themed／bg-hover／text-t1~t3／opacity），未寫死色票。
  */

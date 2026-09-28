@@ -282,6 +282,13 @@ mark {
 }
 
 /* 主題化工具類別 */
+/* 功能首頁共用的內容寬度：卡片區、提示文字與分隔線／按鈕／廣告／版權全部同寬，
+   同一個 items-center 欄位內才會左右對齊，不會有某一塊往左凸出的歪斜感。
+   80vw＝視窗寬度的 80%（含垂直捲軸），下限 286px＝一張卡片的寬度 */
+.content-width {
+  width: 80vw;
+  min-width: 286px;
+}
 .bg-page { background-color: var(--bg); }
 .bg-card { background-color: var(--card); }
 .bg-surface { background-color: var(--bg2); }
