@@ -594,7 +594,10 @@ export default function RosterPage() {
           )}
 
           <p className="text-sm text-t3 mt-3">
-            {ACCOUNT_EMAIL_REQUIRED_MESSAGE}；名冊欄位屬於本學年度學期，切換學期後需重新維護。
+            {ACCOUNT_EMAIL_REQUIRED_MESSAGE}；
+            {role === "admin"
+              ? "管理員的名冊條目只有學年度學期標記，建立帳號時自動寫入。"
+              : "名冊欄位屬於本學年度學期，切換學期後需重新維護。"}
           </p>
 
           {formError && (

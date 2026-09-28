@@ -48,10 +48,12 @@ function text(value: unknown, max = MAX_SHORT): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
-/** 該身分是否會寫入身分名冊（管理員不進名冊） */
-export function entryRoleOf(role: UserRole): RosterEntryRole | null {
-  if (role === "student" || role === "staff" || role === "parent") return role;
-  return null;
+/** 該身分在身分名冊的條目身分（四種身分都進名冊；管理員條目只有學年度學期標記） */
+export function entryRoleOf(role: UserRole): RosterEntryRole {
+  if (role === "student" || role === "staff" || role === "parent" || role === "admin") {
+    return role;
+  }
+  return "admin";
 }
 
 export function isEntryRole(value: unknown): value is RosterEntryRole {
@@ -98,13 +100,11 @@ export function validateRosterInput(
   const roster: RosterData = {};
 
   const entryRole = entryRoleOf(role);
-  if (entryRole) {
-    for (const key of ROSTER_ENTRY_FIELDS[entryRole]) {
-      roster[key] = text(input[key], MAX_TEXT);
-    }
-    if (role === "student" && !roster.studentId) {
-      return { ok: false, message: "請填寫學號" };
-    }
+  for (const key of ROSTER_ENTRY_FIELDS[entryRole]) {
+    roster[key] = text(input[key], MAX_TEXT);
+  }
+  if (role === "student" && !roster.studentId) {
+    return { ok: false, message: "請填寫學號" };
   }
 
   return { ok: true, account: accountFields, roster, password };
@@ -139,7 +139,7 @@ export async function loadRosterIndex(
   }
 
   const entryRole = entryRoleOf(role);
-  if (entryRole && ROSTER_ENTRY_FIELDS[entryRole].includes("studentId")) {
+  if (ROSTER_ENTRY_FIELDS[entryRole].includes("studentId")) {
     const entries = await getAdminDb()
       .collection(ROSTER_COLLECTION)
       .where("role", "==", entryRole)
@@ -293,12 +293,10 @@ export function toRosterMember(
   if (typeof account.loginCount === "number") member.loginCount = account.loginCount;
 
   const entryRole = entryRoleOf(role);
-  if (entryRole) {
-    const target = member as unknown as Record<string, string | boolean | undefined>;
-    for (const key of ROSTER_ENTRY_FIELDS[entryRole]) {
-      const value = str(entry, key);
-      if (value) target[key] = value;
-    }
+  const target = member as unknown as Record<string, string | boolean | undefined>;
+  for (const key of ROSTER_ENTRY_FIELDS[entryRole]) {
+    const value = str(entry, key);
+    if (value) target[key] = value;
   }
   return member;
 }

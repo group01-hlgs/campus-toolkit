@@ -63,8 +63,7 @@ async function buildProfile(
   const specific = ROLE_SPECIFIC_FIELDS[role];
   if (specific.length > 0) {
     const period = await getCurrentPeriod();
-    const entryRole = entryRoleOf(role);
-    const entry = entryRole ? await getRosterEntry(uid, entryRole, period) : null;
+    const entry = await getRosterEntry(uid, entryRoleOf(role), period);
     for (const field of specific) {
       const value = entry ? entry[field.key] : "";
       fields[field.key] = typeof value === "string" ? value : "";

@@ -2,6 +2,7 @@
  * 一次性遷移：把學生／家長／教職員帳號文件上的名冊欄位（學號、班級、年級、職稱…）
  * 搬進身分名冊集合 `roster`（文件 id：`${uid}_${學年度}_${學期}`，期間取自 settings/system，
  * 欄位缺漏時依日期推算），並從帳號文件移除這些欄位、補上 active: true。
+ * 四種身分都進名冊：管理員條目只有學年度學期標記、不含名冊欄位。
  *
  * 用法：
  *   node --env-file=.env.local scripts/migrate-roster-split.mjs --dry-run   # 只列出將進行的變更
@@ -114,44 +115,43 @@ async function migrateRole(db, role, period, stats) {
     const entryId = `${uid}_${period.academicYear}_${period.semester}`;
     const entryRef = db.collection(ROSTER_COLLECTION).doc(entryId);
 
-    if (fields.length > 0) {
-      const entryExists = (await entryRef.get()).exists;
-      if (!entryExists) {
-        const entry = {
-          uid,
-          role,
-          academicYear: period.academicYear,
-          semester: period.semester,
-          createdAt: typeof data.createdAt === "number" ? data.createdAt : now,
-          updatedAt: now,
-        };
-        for (const key of fields) entry[key] = typeof data[key] === "string" ? data[key] : "";
-        if (DRY_RUN) {
-          console.log(`[dry-run] 建立名冊條目 ${entryId}`);
-        } else {
-          ops.push({ type: "set", ref: entryRef, data: entry });
-        }
-        stats.entriesCreated += 1;
+    const entryExists = (await entryRef.get()).exists;
+    if (!entryExists) {
+      const entry = {
+        uid,
+        role,
+        academicYear: period.academicYear,
+        semester: period.semester,
+        createdAt: typeof data.createdAt === "number" ? data.createdAt : now,
+        updatedAt: now,
+      };
+      for (const key of fields) entry[key] = typeof data[key] === "string" ? data[key] : "";
+      if (DRY_RUN) {
+        console.log(`[dry-run] 建立名冊條目 ${entryId}`);
       } else {
-        stats.entriesSkipped += 1;
+        ops.push({ type: "set", ref: entryRef, data: entry });
       }
+      stats.entriesCreated += 1;
+    } else {
+      stats.entriesSkipped += 1;
     }
 
     const patch = {};
-    let hasPatch = false;
+    const notes = [];
     for (const key of fields) {
       if (key in data) {
         patch[key] = FieldValue.delete();
-        hasPatch = true;
       }
     }
+    if (fields.some((key) => key in data)) notes.push("移除名冊欄位");
     if (!("active" in data)) {
       patch.active = true;
-      hasPatch = true;
+      notes.push("補 active");
     }
+    const hasPatch = Object.keys(patch).length > 0;
     if (hasPatch) {
       if (DRY_RUN) {
-        console.log(`[dry-run] 更新帳號 ${collectionName}/${uid}：移除名冊欄位${!("active" in data) ? "、補 active" : ""}`);
+        console.log(`[dry-run] 更新帳號 ${collectionName}/${uid}：${notes.join("、")}`);
       } else {
         ops.push({ type: "update", ref: doc.ref, data: patch });
       }

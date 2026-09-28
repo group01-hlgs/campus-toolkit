@@ -7,7 +7,7 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { ROLE_COLLECTIONS } from "@/types/users";
-import { isRosterRole, rosterRoleLabel, RosterInput, RosterRole } from "@/types/roster";
+import { isRosterRole, rosterRoleLabel, ROSTER_ENTRY_FIELDS, RosterInput, RosterRole } from "@/types/roster";
 import {
   buildAccountRecord,
   buildRosterEntry,
@@ -66,9 +66,11 @@ export async function GET(request: NextRequest) {
     const period = await getCurrentPeriod();
     const snapshot = await getAdminDb().collection(ROLE_COLLECTIONS[role]).get();
     const entryRole = entryRoleOf(role);
-    const entries = entryRole
-      ? await loadPeriodEntries(period, entryRole)
-      : new Map<string, Record<string, unknown>>();
+    // 管理員名冊條目只有學年度學期標記、沒有欄位，清單不需讀取
+    const entries =
+      ROSTER_ENTRY_FIELDS[entryRole].length > 0
+        ? await loadPeriodEntries(period, entryRole)
+        : new Map<string, Record<string, unknown>>();
 
     const members = snapshot.docs
       .map((doc) => toRosterMember(role, doc.id, doc.data(), entries.get(doc.id) ?? null))
@@ -127,13 +129,12 @@ export async function POST(request: NextRequest) {
     );
     const docRef = await getAdminDb().collection(ROLE_COLLECTIONS[role]).add(accountRecord);
 
+    // 四種身分都寫入當期名冊條目（管理員條目只有學年度學期標記）
     const entryRole = entryRoleOf(role);
-    if (entryRole) {
-      await getAdminDb()
-        .collection(ROSTER_COLLECTION)
-        .doc(rosterEntryId(docRef.id, period))
-        .set(buildRosterEntry(docRef.id, entryRole, period, result.roster));
-    }
+    await getAdminDb()
+      .collection(ROSTER_COLLECTION)
+      .doc(rosterEntryId(docRef.id, period))
+      .set(buildRosterEntry(docRef.id, entryRole, period, result.roster));
 
     await logActivity({
       userId: session.uid,
@@ -215,16 +216,14 @@ export async function PUT(request: NextRequest) {
 
     // 名冊欄位寫入「目前學年度學期」的條目，歷史學期不受影響
     const entryRole = entryRoleOf(role);
-    if (entryRole) {
-      const entryId = rosterEntryId(uid, period);
-      const entryRef = getAdminDb().collection(ROSTER_COLLECTION).doc(entryId);
-      const entrySnap = await entryRef.get();
-      if (entrySnap.exists) {
-        const patch: Record<string, unknown> = { ...result.roster, updatedAt: Date.now() };
-        await entryRef.update(patch);
-      } else {
-        await entryRef.set(buildRosterEntry(uid, entryRole, period, result.roster));
-      }
+    const entryId = rosterEntryId(uid, period);
+    const entryRef = getAdminDb().collection(ROSTER_COLLECTION).doc(entryId);
+    const entrySnap = await entryRef.get();
+    if (entrySnap.exists) {
+      const patch: Record<string, unknown> = { ...result.roster, updatedAt: Date.now() };
+      await entryRef.update(patch);
+    } else {
+      await entryRef.set(buildRosterEntry(uid, entryRole, period, result.roster));
     }
 
     await logActivity({

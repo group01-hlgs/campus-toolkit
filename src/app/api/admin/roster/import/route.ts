@@ -186,13 +186,11 @@ export async function POST(request: NextRequest) {
         await hashRosterPassword(result.password as string)
       );
       const docRef = await collection.add(record);
-      // 名冊欄位寫入目前學年度學期的身分名冊條目
-      if (entryRole) {
-        await getAdminDb()
-          .collection(ROSTER_COLLECTION)
-          .doc(rosterEntryId(docRef.id, period))
-          .set(buildRosterEntry(docRef.id, entryRole, period, result.roster));
-      }
+      // 寫入目前學年度學期的身分名冊條目（管理員條目只有學年度學期標記）
+      await getAdminDb()
+        .collection(ROSTER_COLLECTION)
+        .doc(rosterEntryId(docRef.id, period))
+        .set(buildRosterEntry(docRef.id, entryRole, period, result.roster));
       // 寫入後立刻併入索引，擋掉同一份檔案內重複的信箱／帳號／學號
       if (result.account.email) index.emails.set(result.account.email, String(created));
       if (result.account.account) index.accounts.set(result.account.account, String(created));

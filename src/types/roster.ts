@@ -5,8 +5,8 @@
 
 export type RosterRole = "student" | "staff" | "admin";
 
-/** 身分名冊（roster 集合）的身分：管理員不進名冊，只存在於使用者帳號 */
-export type RosterEntryRole = "student" | "staff" | "parent";
+/** 身分名冊（roster 集合）的身分：四種身分都進名冊；管理員條目只有學年度學期標記 */
+export type RosterEntryRole = "student" | "staff" | "parent" | "admin";
 
 export const ROSTER_ROLES: { value: RosterRole; label: string; tab: string }[] = [
   { value: "student", label: "學生", tab: "學生帳號" },
@@ -19,7 +19,7 @@ export function isRosterRole(value: unknown): value is RosterRole {
 }
 
 export function isRosterEntryRole(value: unknown): value is RosterEntryRole {
-  return value === "student" || value === "staff" || value === "parent";
+  return value === "student" || value === "staff" || value === "parent" || value === "admin";
 }
 
 export function rosterRoleLabel(value: unknown): string {
@@ -29,16 +29,17 @@ export function rosterRoleLabel(value: unknown): string {
 /** 屬於「使用者帳號」的欄位（無學年度學期） */
 export const ACCOUNT_FIELD_KEYS = ["email", "account", "password", "name"] as const;
 
-/** 屬於「身分名冊」的欄位（隨學年度、學期變動），與 ROLE_SPECIFIC_FIELDS 對應 */
+/** 屬於「身分名冊」的欄位（隨學年度、學期變動），與 ROLE_SPECIFIC_FIELDS 對應；管理員只有標記、無欄位 */
 export const ROSTER_ENTRY_FIELDS: Record<RosterEntryRole, RosterFieldKey[]> = {
   student: ["studentId", "grade", "className", "classNumber"],
   staff: ["className", "title", "attribute"],
   parent: ["studentName", "studentId", "className", "classNumber"],
+  admin: [],
 };
 
-/** 身分名冊一條（roster 集合文件），每「身分 × 學年度 × 學期」一條 */
+/** 身分名冊一條（roster 集合文件），每「身分 × 學年度 × 學期」一條；管理員條目只含下列標記欄位 */
 export interface RosterEntry {
-  /** 連回使用者帳號文件（students/parents/staff 的 doc id） */
+  /** 連回使用者帳號文件（students/parents/staff/admins 的 doc id） */
   uid: string;
   role: RosterEntryRole;
   /** 學年度（民國年） */

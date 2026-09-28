@@ -111,7 +111,7 @@ export interface AdminRecord {
   failedAttempts: number;
   tokenVersion: number;
   createdAt: number;
-  /** 帳號有效／無效（缺省視為有效），無效者不得登入；管理員不進身分名冊 */
+  /** 帳號有效／無效（缺省視為有效），無效者不得登入；管理員進身分名冊，條目只有學年度學期標記 */
   active?: boolean;
 }
 

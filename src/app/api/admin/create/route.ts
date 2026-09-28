@@ -6,6 +6,8 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { normalizeEmail, normalizeAccount, isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
+import { getCurrentPeriod } from "@/lib/settings-server";
+import { buildRosterEntry, ROSTER_COLLECTION, rosterEntryId } from "@/lib/roster";
 import { serverErrorMessage } from "@/lib/api-error";
 
 /** 供 /setup 判斷是否仍可建立首任管理員（不揭露環境變數名稱） */
@@ -141,6 +143,13 @@ export async function POST(request: NextRequest) {
     } else {
       docRef = await adminsRef.add(newAdmin);
     }
+
+    // 四種身分都進身分名冊：管理員條目只有學年度學期標記（無名冊欄位）
+    const period = await getCurrentPeriod();
+    await getAdminDb()
+      .collection(ROSTER_COLLECTION)
+      .doc(rosterEntryId(docRef.id, period))
+      .set(buildRosterEntry(docRef.id, "admin", period, {}));
 
     await logActivity({
       userId: session?.uid,
