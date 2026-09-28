@@ -16,12 +16,43 @@ export const PENDING_2FA_COOKIE =
 /** 第二階段驗證時限：逾時必須重新輸入帳密 */
 export const PENDING_2FA_MAX_AGE_SECONDS = 10 * 60;
 
+/** 選擇身分中途憑證 cookie：登入（含兩階段驗證）完成、尚未選擇要進入的身分時使用 */
+export const PENDING_ROLE_COOKIE =
+  process.env.NODE_ENV === "production" ? "__Host-pendingRole" : "pendingRole";
+/** 選擇身分時限：逾時必須重新登入 */
+export const PENDING_ROLE_MAX_AGE_SECONDS = 10 * 60;
+
+/** 多身分候選：身分＋該身分的使用者帳號文件 id（登入時一併帶入 session，供切換身分使用） */
+export interface RoleCandidate {
+  role: UserRole;
+  id: string;
+}
+
+/** 驗證並整理候選清單：非法項目剔除、同身分去重、上限四筆 */
+function readCandidates(value: unknown, fallback: RoleCandidate[]): RoleCandidate[] {
+  if (!Array.isArray(value)) return fallback;
+  const seen = new Set<UserRole>();
+  const list: RoleCandidate[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const role = (item as { role?: unknown }).role;
+    const id = (item as { id?: unknown }).id;
+    if (!isUserRole(role) || typeof id !== "string" || !id) continue;
+    if (seen.has(role)) continue;
+    seen.add(role);
+    list.push({ role, id });
+  }
+  return list.length > 0 ? list.slice(0, 4) : fallback;
+}
+
 export interface SessionPayload {
   uid: string;
   email: string;
   account: string;
   displayName: string;
   role: UserRole;
+  /** 本次登入可進入的身分（多身分共用帳號時用於選擇與切換） */
+  candidates?: RoleCandidate[];
   tokenVersion: number;
   jti: string;
   /** 最後一次使用者活動（epoch ms），用於伺服器端閒置逾時檢查 */
@@ -45,6 +76,7 @@ export async function signSessionToken(payload: SessionPayload): Promise<string>
     account: payload.account,
     displayName: payload.displayName,
     role: payload.role,
+    candidates: readCandidates(payload.candidates, [{ role: payload.role, id: payload.uid }]),
     tokenVersion: payload.tokenVersion,
     lastActivityAt: payload.lastActivityAt,
     absoluteExpiresAt: payload.absoluteExpiresAt,
@@ -92,6 +124,7 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       account: typeof payload.account === "string" ? payload.account : "",
       displayName: typeof payload.displayName === "string" ? payload.displayName : "",
       role: payload.role,
+      candidates: readCandidates(payload.candidates, [{ role: payload.role, id: payload.uid }]),
       tokenVersion: typeof payload.tokenVersion === "number" ? payload.tokenVersion : 1,
       jti: typeof payload.jti === "string" ? payload.jti : "",
       lastActivityAt:
@@ -115,6 +148,10 @@ export interface Pending2FAInput {
   account: string;
   displayName: string;
   role: UserRole;
+  /** 本次登入的多身分候選：第二階段完成後用來決定要進入的身分 */
+  candidates?: RoleCandidate[];
+  /** 登入時已判定的慣用身分（候選唯一命中時才存在；候選文件不在手邊，故先算好帶入） */
+  preferred?: UserRole | null;
   /** 需要完成的第二階段方式 */
   method: Exclude<TwoFactorMethod, "off" | "email_notify">;
   /** 是從密碼登入還是 Google 登入進入第二階段（用來記 lastLoginMethod） */
@@ -134,6 +171,8 @@ export async function signPending2FAToken(payload: Pending2FAInput): Promise<str
     account: payload.account,
     displayName: payload.displayName,
     role: payload.role,
+    candidates: readCandidates(payload.candidates, [{ role: payload.role, id: payload.uid }]),
+    preferred: payload.preferred,
     method: payload.method,
     via: payload.via,
   })
@@ -166,7 +205,9 @@ export async function verifyPending2FAToken(token: string): Promise<Pending2FAPa
       account: typeof payload.account === "string" ? payload.account : "",
       displayName: typeof payload.displayName === "string" ? payload.displayName : "",
       role: payload.role,
-      method: payload.method,
+      candidates: readCandidates(payload.candidates, [{ role: payload.role, id: payload.uid }]),
+      preferred: isUserRole(payload.preferred) ? payload.preferred : null,
+      method: payload.method === "email_otp" ? payload.method : "totp",
       via: payload.via === "google" ? "google" : "password",
       expiresAt: typeof payload.exp === "number" ? payload.exp * 1000 : 0,
     };
@@ -174,3 +215,69 @@ export async function verifyPending2FAToken(token: string): Promise<Pending2FAPa
     return null;
   }
 }
+
+/**
+ * 選擇身分中途憑證：登入（含兩階段驗證）已驗證通過、尚未決定要進入的身分。
+ * 與 session 共用金鑰但帶 purpose claim，兩者不可互換（見 verifySessionToken）。
+ */
+export interface PendingRoleInput {
+  /** 登入用的電子郵件／帳號：選擇時用來確認候選文件仍是同一組帳號 */
+  email: string;
+  account: string;
+  /** 顯示用稱謂（取自通過驗證的帳號文件） */
+  displayName: string;
+  /** 寫入 lastLoginMethod 的來源（password／google，兩階段驗證以 +方式 併接） */
+  via: string;
+  /** 可選擇的身分候選 */
+  candidates: RoleCandidate[];
+}
+
+export interface PendingRolePayload extends PendingRoleInput {
+  /** 中途憑證過期時間（epoch ms） */
+  expiresAt: number;
+}
+
+export async function signPendingRoleToken(payload: PendingRoleInput): Promise<string> {
+  return new SignJWT({
+    purpose: "role",
+    email: payload.email,
+    account: payload.account,
+    displayName: payload.displayName,
+    via: payload.via,
+    candidates: readCandidates(payload.candidates, []),
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(`${PENDING_ROLE_MAX_AGE_SECONDS}s`)
+    .setJti(crypto.randomUUID())
+    .sign(getSecretKey());
+}
+
+export async function verifyPendingRoleToken(token: string): Promise<PendingRolePayload | null> {
+  try {
+    const { payload } = await jwtVerify(token, getSecretKey(), {
+      algorithms: ["HS256"],
+    });
+    if (!payload || payload.purpose !== "role") return null;
+    const candidates = readCandidates(payload.candidates, []);
+    if (candidates.length === 0) return null;
+    if (
+      typeof payload.iat === "number" &&
+      Date.now() / 1000 - payload.iat > PENDING_ROLE_MAX_AGE_SECONDS
+    ) {
+      return null;
+    }
+
+    return {
+      email: typeof payload.email === "string" ? payload.email : "",
+      account: typeof payload.account === "string" ? payload.account : "",
+      displayName: typeof payload.displayName === "string" ? payload.displayName : "",
+      via: typeof payload.via === "string" && payload.via ? payload.via : "password",
+      candidates,
+      expiresAt: typeof payload.exp === "number" ? payload.exp * 1000 : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+

@@ -7,6 +7,8 @@ export interface UserSession {
   account: string;
   displayName: string;
   role: UserRole;
+  /** 本次登入可用的身分（多身分切換選單用；單一時僅含目前身分） */
+  roles?: UserRole[];
 }
 
 let cached: UserSession | null = null;
@@ -17,12 +19,16 @@ function toUserSession(user: unknown): UserSession | null {
   if (!user || typeof user !== "object") return null;
   const u = user as Record<string, unknown>;
   if (!isUserRole(u.role) || typeof u.uid !== "string" || !u.uid) return null;
+  const roles = Array.isArray(u.roles)
+    ? u.roles.filter(isUserRole).slice(0, 4)
+    : [];
   return {
     uid: u.uid,
     email: typeof u.email === "string" ? u.email : "",
     account: typeof u.account === "string" ? u.account : "",
     displayName: typeof u.displayName === "string" ? u.displayName : "",
     role: u.role,
+    roles: roles.length > 0 ? roles : [u.role],
   };
 }
 

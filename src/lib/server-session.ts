@@ -7,18 +7,30 @@ import {
   SESSION_ABSOLUTE_MAX_AGE_SECONDS,
   PENDING_2FA_COOKIE,
   PENDING_2FA_MAX_AGE_SECONDS,
+  PENDING_ROLE_COOKIE,
+  PENDING_ROLE_MAX_AGE_SECONDS,
   Pending2FAInput,
   Pending2FAPayload,
+  PendingRoleInput,
+  PendingRolePayload,
   SessionPayload,
   signSessionToken,
   verifySessionToken,
   signPending2FAToken,
   verifyPending2FAToken,
+  signPendingRoleToken,
+  verifyPendingRoleToken,
 } from "@/lib/session-token";
 import { revokeJti } from "@/lib/revocation";
 
-export { SESSION_COOKIE, PENDING_2FA_COOKIE };
-export type { SessionPayload, Pending2FAInput, Pending2FAPayload };
+export { SESSION_COOKIE, PENDING_2FA_COOKIE, PENDING_ROLE_COOKIE };
+export type {
+  SessionPayload,
+  Pending2FAInput,
+  Pending2FAPayload,
+  PendingRoleInput,
+  PendingRolePayload,
+};
 
 function sessionCookieOptions(absoluteExpiresAt?: number) {
   let maxAge = SESSION_MAX_AGE_SECONDS;
@@ -124,6 +136,37 @@ export async function getPending2FAPayload(): Promise<Pending2FAPayload | null> 
 export async function clearPending2FACookie(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(PENDING_2FA_COOKIE);
+}
+
+function pendingRoleCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: PENDING_ROLE_MAX_AGE_SECONDS,
+  };
+}
+
+/** 登入（含兩階段驗證）通過、多身分且未設定慣用身分：寫入選擇身分中途憑證 */
+export async function setPendingRoleCookie(payload: PendingRoleInput): Promise<void> {
+  const token = await signPendingRoleToken(payload);
+  const cookieStore = await cookies();
+  cookieStore.set(PENDING_ROLE_COOKIE, token, pendingRoleCookieOptions());
+}
+
+/** 讀取並驗證選擇身分中途憑證；無效／過期回 null（前端應導回登入頁） */
+export async function getPendingRolePayload(): Promise<PendingRolePayload | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(PENDING_ROLE_COOKIE)?.value;
+  if (!token) return null;
+  return verifyPendingRoleToken(token);
+}
+
+/** 已選擇身分或要回到登入頁時清除，避免殘留可用憑證 */
+export async function clearPendingRoleCookie(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(PENDING_ROLE_COOKIE);
 }
 
 export function unauthorized(message = "未登入或登入已失效"): NextResponse {

@@ -70,7 +70,7 @@ export function isEntryRole(value: unknown): value is RosterEntryRole {
 
 /**
  * 驗證並正規化一列資料，拆成「使用者帳號」與「身分名冊」兩段。
- * 帳號規則與帳號與安全管理一致：電子郵件與帳號至少一項、姓名必填；
+ * 帳號規則：電子郵件必填（多身分以電子郵件偵測）、帳號可留空、姓名必填；
  * 密碼建立時必填、更新時留空代表不變更，兩者都要過強度規則。
  */
 export function validateRosterInput(
@@ -83,12 +83,10 @@ export function validateRosterInput(
 
   const rawEmail = text(input.email, MAX_TEXT);
   const rawAccount = text(input.account, MAX_TEXT);
-  if (!rawEmail && !rawAccount) {
-    return { ok: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE };
-  }
+  if (!rawEmail) return { ok: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE };
 
-  const email = rawEmail ? normalizeEmail(rawEmail) || "" : "";
-  if (rawEmail && !email) return { ok: false, message: EMAIL_FORMAT_MESSAGE };
+  const email = normalizeEmail(rawEmail) || "";
+  if (!email) return { ok: false, message: EMAIL_FORMAT_MESSAGE };
 
   const account = rawAccount ? normalizeAccount(rawAccount) || "" : "";
   if (rawAccount && !account) return { ok: false, message: ACCOUNT_FORMAT_MESSAGE };

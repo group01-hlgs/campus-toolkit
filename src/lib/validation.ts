@@ -38,9 +38,8 @@ export function isValidAccount(value: unknown): boolean {
 export const EMAIL_FORMAT_MESSAGE = "電子郵件格式無效，例如 name@example.com";
 export const ACCOUNT_FORMAT_MESSAGE =
   "帳號格式無效：2-64 字元，限小寫英文、數字與 . _ @ -";
-/** 電子郵件地址與帳號可個別留空，但不可同時為空（至少保留一項作為登入識別） */
-export const ACCOUNT_EMAIL_REQUIRED_MESSAGE =
-  "電子郵件地址與帳號至少需保留一項，不可同時為空";
+/** 電子郵件地址必填（多身分以電子郵件偵測），帳號可留空 */
+export const ACCOUNT_EMAIL_REQUIRED_MESSAGE = "電子郵件地址為必填";
 
 const COMMON_WEAK_PASSWORDS = new Set([
   "12345678",

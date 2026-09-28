@@ -156,6 +156,10 @@ export const RATE = {
   /** 兩階段驗證：驗證碼提交（同用戶失敗次數另計於 lib/two-factor.ts） */
   TWO_FA_VERIFY: { limit: 20, windowMs: 15 * 60_000 },
   TWO_FA_STATUS: { limit: 60, windowMs: 60_000 },
+  /** 選擇登入身分（帳密／兩階段驗證已通過，非暴力猜測目標） */
+  ROLE_CHOICE: { limit: 30, windowMs: 60_000 },
+  /** 已登入後切換身分（沿用既有 session，無需重新驗證） */
+  SWITCH_ROLE: { limit: 30, windowMs: 60_000 },
   /** 帳號與安全：讀取自身資料 */
   ACCOUNT_GET: { limit: 60, windowMs: 60_000 },
   /** 帳號與安全：電子郵件／帳號即時查重（輸入時 debounce 呼叫，故額度較寬） */

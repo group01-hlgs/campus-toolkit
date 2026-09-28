@@ -4,12 +4,13 @@ import {
   clearPending2FACookie,
   createSession,
   getPending2FAPayload,
+  setPendingRoleCookie,
 } from "@/lib/server-session";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { isSystemEnabled } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS, ROLE_LABELS, isAccountActive } from "@/types/users";
+import { ROLE_COLLECTIONS, ROLE_LABELS, isAccountActive, UserRole } from "@/types/users";
 import {
   EMAIL_OTP_COOLDOWN_MS,
   checkTwoFactorAttempt,
@@ -19,6 +20,7 @@ import {
   verifyEmailOtp,
   verifyTotpWithReplay,
 } from "@/lib/two-factor";
+import { orderRoles } from "@/lib/login-candidate";
 import { serverErrorMessage } from "@/lib/api-error";
 
 const EXPIRED_MESSAGE = "驗證階段已過期，請重新登入";
@@ -169,41 +171,112 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 通過：清除中途憑證、OTP 暫存與失敗計數
+    // 通過：清除 OTP 暫存與失敗計數（中途憑證依下方結果清除）
     await clearOtpState(userRef);
-    await clearPending2FACookie();
     resetTwoFactorAttempts(attemptKey);
+
+    // 多身分偵測結果與帳密／Google 登入一致：登入時存於中途憑證
+    const candidates = pending.candidates?.length
+      ? pending.candidates
+      : [{ role: pending.role, id: pending.uid }];
+    const preferred =
+      pending.preferred &&
+      candidates.some((candidate) => candidate.role === pending.preferred)
+        ? pending.preferred
+        : null;
+
+    // 多身分且未設定慣用身分：兩階段驗證已完成，登入視為成功，
+    // 改以選擇身分專頁決定要進入的身分（切換身分不再驗證第二階段）
+    if (!preferred && candidates.length > 1) {
+      await clearPending2FACookie();
+      await setPendingRoleCookie({
+        email: pending.email,
+        account: pending.account,
+        displayName: pending.displayName,
+        via: `${pending.via}+${pending.method}`,
+        candidates,
+      });
+      await logActivity({
+        userId: pending.uid,
+        role: pending.role,
+        action: "two_factor_verified",
+        ip,
+        details:
+          pending.method === "email_otp"
+            ? "Email OTP 驗證成功，等待選擇登入身分"
+            : "TOTP 驗證成功，等待選擇登入身分",
+      });
+      return NextResponse.json({
+        success: false,
+        requiresRoleChoice: orderRoles(candidates.map((candidate) => candidate.role)),
+        message: "此帳號具備多個身分，請選擇要登入的身分",
+      });
+    }
+
+    const role: UserRole = preferred ?? pending.role;
+    const target = candidates.find((candidate) => candidate.role === role);
+
+    // 慣用身分未必是完成第二階段驗證的那個帳號：載入目標文件確認仍存在且有效
+    let targetRef = userRef;
+    let targetData = userData;
+    if (target && (target.role !== pending.role || target.id !== pending.uid)) {
+      const targetSnap = await getAdminDb()
+        .collection(ROLE_COLLECTIONS[target.role])
+        .doc(target.id)
+        .get();
+      if (!targetSnap.exists) return expired();
+      targetRef = targetSnap.ref;
+      targetData = targetSnap.data()!;
+      if (!isAccountActive(targetData)) {
+        await clearPending2FACookie();
+        await logActivity({
+          userId: target.id,
+          role: target.role,
+          action: "login_failed",
+          ip,
+          details: "完成第二階段驗證後目標身分帳號已停用，拒絕登入",
+        });
+        return NextResponse.json(
+          { success: false, message: "帳號已停用，無法登入" },
+          { status: 401 }
+        );
+      }
+    }
+
+    // 通過：清除中途憑證
+    await clearPending2FACookie();
 
     const now = Date.now();
     const loginRecords = [
-      ...((Array.isArray(userData.loginRecords) ? userData.loginRecords : []) as number[]),
+      ...((Array.isArray(targetData.loginRecords) ? targetData.loginRecords : []) as number[]),
       now,
     ].slice(-50);
 
-    await userRef.update({
+    await targetRef.update({
       failedAttempts: 0,
       lockedUntil: 0,
       lockIp: "",
       lastLogin: now,
       lastLoginMethod: `${pending.via}+${pending.method}`,
-      loginCount: (userData.loginCount || 0) + 1,
+      loginCount: (targetData.loginCount || 0) + 1,
       loginRecords,
     });
 
     const user = {
-      uid: pending.uid,
-      email: userData.email,
-      account: userData.account,
-      displayName: userData.name || userData.displayName || "",
-      role: pending.role,
-      tokenVersion: typeof userData.tokenVersion === "number" ? userData.tokenVersion : 1,
+      uid: targetRef.id,
+      email: targetData.email,
+      account: targetData.account,
+      displayName: targetData.name || targetData.displayName || "",
+      role,
+      roles: candidates.map((candidate) => candidate.role),
+      tokenVersion: typeof targetData.tokenVersion === "number" ? targetData.tokenVersion : 1,
     };
 
-    await createSession(user);
+    await createSession({ ...user, candidates });
 
     await logActivity({
-      userId: pending.uid,
-      role: pending.role,
+      userId: targetRef.id,
+      role,
       action: "two_factor_verified",
       ip,
       details:
@@ -212,11 +285,11 @@ export async function POST(request: NextRequest) {
           : "TOTP 驗證成功，登入完成",
     });
     await logActivity({
-      userId: pending.uid,
-      role: pending.role,
+      userId: targetRef.id,
+      role,
       action: "login",
       ip,
-      details: `兩階段驗證登入成功（${ROLE_LABELS[pending.role]}）`,
+      details: `兩階段驗證登入成功（${ROLE_LABELS[role]}）`,
     });
 
     return NextResponse.json({ success: true, user });

@@ -76,7 +76,7 @@ export type RosterFieldKey =
 export interface RosterFieldDef {
   key: RosterFieldKey;
   label: string;
-  /** 表單必填（電子郵件與帳號屬「至少一項」規則，不標 required） */
+  /** 表單必填（電子郵件必填、帳號可留空） */
   required?: boolean;
   /** 匯入檔案（.xlsx）標題列的別名，比對時忽略大小寫與前後空白 */
   aliases: string[];
@@ -85,7 +85,7 @@ export interface RosterFieldDef {
 /** 各身分的表單欄位，順序即表單與匯入比對的順序 */
 export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   student: [
-    { key: "email", label: "電子郵件地址", aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
+    { key: "email", label: "電子郵件地址", required: true, aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
     { key: "account", label: "帳號", aliases: ["帳號", "account"] },
     { key: "password", label: "密碼", aliases: ["密碼", "password"] },
     { key: "name", label: "姓名", required: true, aliases: ["姓名", "name"] },
@@ -95,7 +95,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "classNumber", label: "班號", aliases: ["班號", "座號", "number"] },
   ],
   staff: [
-    { key: "email", label: "電子郵件地址", aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
+    { key: "email", label: "電子郵件地址", required: true, aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
     { key: "account", label: "帳號", aliases: ["帳號", "account"] },
     { key: "password", label: "密碼", aliases: ["密碼", "password"] },
     { key: "name", label: "姓名", required: true, aliases: ["姓名", "name"] },
@@ -104,7 +104,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
   ],
   admin: [
-    { key: "email", label: "電子郵件地址", aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
+    { key: "email", label: "電子郵件地址", required: true, aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
     { key: "account", label: "帳號", aliases: ["帳號", "account"] },
     { key: "password", label: "密碼", aliases: ["密碼", "password"] },
     { key: "name", label: "姓名", required: true, aliases: ["姓名", "name"] },

@@ -210,9 +210,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const loaded = Boolean(profile);
   // 進頁載入期間：帳號資料或系統設定任一未到齊，畫面由遮罩擋住、送出鈕同步停用
   const loading = loadingProfile || loadingSettings;
-  // 兩欄可個別留空，但不可同時為空（至少保留一項作為登入識別）
-  const bothEmpty = loaded && !emailValue && !accountValue;
-  // 格式錯誤：空白欄位交由「不可同時為空」規則判定，不重複報錯
+  // 電子郵件必填（多身分以電子郵件偵測），帳號可留空
+  const emailEmpty = loaded && !emailValue;
+  // 格式錯誤：電子郵件空白交由「必填」規則判定，不重複報錯
   const emailFormatInvalid = Boolean(emailValue) && !isValidEmail(emailValue);
   const accountFormatInvalid = Boolean(accountValue) && !isValidAccount(accountValue);
   // 是否與已存值不同
@@ -225,20 +225,15 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   // 即時查重結果（僅在值真的變更時才算數）
   const emailTaken = emailChanged && emailDup === "taken";
   const accountTaken = accountChanged && accountDup === "taken";
-  // 清空電子郵件時，若兩階段驗證仍是「電子郵件驗證碼」，伺服器會擋下（無從寄信）
-  const emailCleared = loaded && !emailValue && Boolean(storedEmail);
-  const emailOtpBlocked = emailCleared && twoFactor === "email_otp";
   // 有阻斷性問題時不可送出（說明文字即時顯示在各欄位下方）
   const accountBlocked =
-    bothEmpty ||
+    emailEmpty ||
     emailFormatInvalid ||
     accountFormatInvalid ||
     emailTaken ||
-    accountTaken ||
-    emailOtpBlocked;
-  const emailInputInvalid =
-    bothEmpty || emailFormatInvalid || emailTaken || emailOtpBlocked;
-  const accountInputInvalid = bothEmpty || accountFormatInvalid || accountTaken;
+    accountTaken;
+  const emailInputInvalid = emailEmpty || emailFormatInvalid || emailTaken;
+  const accountInputInvalid = accountFormatInvalid || accountTaken;
 
   // 即時查重：輸入停止 450ms 後，對「已修改且格式正確」的欄位
   // 向 /api/account/check 查同身分（排除自己）是否重複
@@ -335,8 +330,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     e.preventDefault();
     setAccountFlash(null);
 
-    // 身分識別欄位：兩欄可個別留空，但不可同時為空；格式與同身分查重即時把關
-    if (bothEmpty) {
+    // 身分識別欄位：電子郵件必填；格式與同身分查重即時把關
+    if (emailEmpty) {
       setAccountFlash({ type: "error", text: ACCOUNT_EMAIL_REQUIRED_MESSAGE });
       return;
     }
@@ -359,13 +354,6 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       setAccountFlash({
         type: "error",
         text: "此帳號已被同身分的其他使用者使用",
-      });
-      return;
-    }
-    if (emailOtpBlocked) {
-      setAccountFlash({
-        type: "error",
-        text: "已啟用電子郵件驗證碼兩階段驗證，請先改為其他驗證方式再清除電子郵件地址",
       });
       return;
     }
@@ -551,13 +539,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
             className: "text-danger",
             text: "此電子郵件地址已被同身分的其他使用者使用",
           }
-        : emailOtpBlocked
-          ? {
-              // 語意色：跟隨主題變數 --danger（與全站警示文案一致）
-              className: "text-danger font-medium",
-              text: "已啟用「電子郵件驗證碼」兩階段驗證，請先在下方改為其他方式，才能清除電子郵件地址。",
-            }
-          : emailChanged && emailDup === "available"
+        : emailChanged && emailDup === "available"
             ? { className: "text-success", text: "此電子郵件地址可以使用" }
             : emailChanged && emailDup === "checking"
               ? { className: "text-t3", text: "查重中..." }
@@ -662,7 +644,10 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           autoComplete="email"
         />
         <div className="mb-4 space-y-1">
-          <p className="text-xs text-t3">可留空；電子郵件若為 Gmail，可以透過 Google 登入</p>
+          <p className="text-xs text-t3">必填；電子郵件若為 Gmail，可以透過 Google 登入</p>
+          {emailEmpty && (
+            <p className="text-xs text-danger font-medium">{ACCOUNT_EMAIL_REQUIRED_MESSAGE}</p>
+          )}
           {emailNotice && <p className={`text-xs ${emailNotice.className}`}>{emailNotice.text}</p>}
           {emailFeedback && <p className={`text-xs ${emailFeedback.className}`}>{emailFeedback.text}</p>}
         </div>
@@ -679,9 +664,6 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         <div className="mb-4 space-y-1">
           <p className="text-xs text-t3">可留空；限 2-64 字元的小寫英文、數字與 . _ @ -</p>
           {accountFeedback && <p className={`text-xs ${accountFeedback.className}`}>{accountFeedback.text}</p>}
-          {bothEmpty && (
-            <p className="text-xs text-danger font-medium">{ACCOUNT_EMAIL_REQUIRED_MESSAGE}</p>
-          )}
         </div>
 
         {/* 慣用身分：同一組帳號／信箱具備多個身分時才顯示 */}

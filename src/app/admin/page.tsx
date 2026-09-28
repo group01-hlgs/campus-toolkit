@@ -9,6 +9,7 @@ import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
+import RoleSwitcher from "@/components/RoleSwitcher";
 import { fetchSession, logout, UserSession } from "@/lib/session";
 
 interface ModuleCard {
@@ -134,6 +135,7 @@ export default function AdminPage() {
         {(user.displayName || user.account) && (
           <p className="text-t2 mt-1">{user.displayName || user.account}，您好</p>
         )}
+        <RoleSwitcher role="admin" />
       </div>
 
       {/* 登出按鈕 */}

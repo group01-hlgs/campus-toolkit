@@ -18,6 +18,7 @@ export type ActivityAction =
   | "two_factor_changed"
   | "two_factor_verified"
   | "two_factor_failed"
+  | "role_switched"
   | "email_otp_sent"
   | "roster_created"
   | "roster_updated"

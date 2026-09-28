@@ -116,12 +116,16 @@ export default function TwoFactorVerify({ mode }: { mode: Mode }) {
         const data = await res.json().catch(() => null);
 
         if (res.ok && data?.success && data.user?.uid) {
+          const roles = Array.isArray(data.user.roles)
+            ? data.user.roles.filter(isUserRole)
+            : [];
           const user = {
             uid: data.user.uid,
             email: data.user.email || "",
             account: data.user.account || "",
             displayName: data.user.displayName || "",
             role: (isUserRole(data.user.role) ? data.user.role : "") as UserRole,
+            roles: roles.length > 0 ? roles : undefined,
           };
           if (!user.role) {
             setError("登入回應格式錯誤，請稍後再試");
@@ -129,6 +133,16 @@ export default function TwoFactorVerify({ mode }: { mode: Mode }) {
           }
           setCachedSession(user);
           router.push(ROLE_HOME[user.role] || "/");
+          return;
+        }
+
+        // 兩階段驗證已通過、但同一帳號有多個身分：導向選擇身分頁
+        if (
+          res.ok &&
+          Array.isArray(data?.requiresRoleChoice) &&
+          data.requiresRoleChoice.length > 0
+        ) {
+          router.push("/choose-role");
           return;
         }
 

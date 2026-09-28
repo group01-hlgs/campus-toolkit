@@ -236,8 +236,8 @@ export default function RosterPage() {
     if (!form.name.trim()) return "請填寫姓名";
     const hasEmail = Boolean(form.email.trim());
     const hasAccount = Boolean(form.account.trim());
-    if (!hasEmail && !hasAccount) return ACCOUNT_EMAIL_REQUIRED_MESSAGE;
-    if (hasEmail && !isValidEmail(form.email.trim())) return EMAIL_FORMAT_MESSAGE;
+    if (!hasEmail) return ACCOUNT_EMAIL_REQUIRED_MESSAGE;
+    if (!isValidEmail(form.email.trim())) return EMAIL_FORMAT_MESSAGE;
     if (hasAccount && !isValidAccount(form.account.trim())) return ACCOUNT_FORMAT_MESSAGE;
     if (role === "student" && !form.studentId.trim()) return "請填寫學號";
 
@@ -634,7 +634,7 @@ export default function RosterPage() {
           )}
 
           <p className="text-sm text-t3 mt-3">
-            {ACCOUNT_EMAIL_REQUIRED_MESSAGE}；
+            {ACCOUNT_EMAIL_REQUIRED_MESSAGE}（多身分以電子郵件偵測）；
             {role === "admin"
               ? "管理員的名冊條目只有學年度學期標記，建立帳號時自動寫入。"
               : "名冊欄位屬於本學年度學期，切換學期後需重新維護。"}

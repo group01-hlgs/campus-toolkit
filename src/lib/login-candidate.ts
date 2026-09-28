@@ -2,7 +2,9 @@ import "server-only";
 import type { DocumentReference, DocumentData } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { verifyPassword } from "@/lib/auth";
-import { ALL_ROLES, isUserRole, ROLE_COLLECTIONS, UserRole } from "@/types/users";
+import { getCurrentPeriod } from "@/lib/settings-server";
+import { entryRoleOf, getRosterEntry } from "@/lib/roster";
+import { ALL_ROLES, isAccountActive, isUserRole, ROLE_COLLECTIONS, UserRole } from "@/types/users";
 
 /** 使用者帳號的一筆候選（身分 × 帳號文件） */
 export interface AccountCandidate {
@@ -81,4 +83,35 @@ export async function filterByPassword(
 /** 多身分選擇回應的身分清單（固定 ALL_ROLES 順序） */
 export function orderRoles(roles: UserRole[]): UserRole[] {
   return ALL_ROLES.filter((role) => roles.includes(role));
+}
+
+/**
+ * 多身分偵測：以 primary 的電子郵件地址去找其他身分，符合以下條件才算數——
+ * ①同一組電子郵件地址 ②帳號狀態有效 ③具備當期（同學年度學期）的身分名冊條目。
+ * primary（已通過帳密／Google 驗證的帳號）恆列為候選之首，不受名冊條目影響。
+ * scoped＝以登入識別（email 或 account）查出的候選，順序固定 ALL_ROLES。
+ */
+export async function detectRoleCandidates(
+  primary: AccountCandidate,
+  scoped: AccountCandidate[]
+): Promise<AccountCandidate[]> {
+  const email = typeof primary.data.email === "string" ? primary.data.email : "";
+  const others = email
+    ? scoped.filter(
+        (candidate) =>
+          candidate.role !== primary.role && candidate.data.email === email
+      )
+    : [];
+  if (others.length === 0) return [primary];
+
+  const period = await getCurrentPeriod();
+  const checked = await Promise.all(
+    others.map(async (candidate) => ({
+      candidate,
+      ok:
+        isAccountActive(candidate.data) &&
+        (await getRosterEntry(candidate.id, entryRoleOf(candidate.role), period)) !== null,
+    }))
+  );
+  return [primary, ...checked.filter((item) => item.ok).map((item) => item.candidate)];
 }

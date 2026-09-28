@@ -259,7 +259,7 @@ export async function PUT(request: NextRequest) {
     const updateData: Record<string, unknown> = {};
 
     if (body.email !== undefined) {
-      // 空字串＝清除電子郵件地址（是否可與另一欄同時為空，於下方統一把關）
+      // 空字串＝清除電子郵件地址；電子郵件為必填，會於下方統一擋下
       const raw = typeof body.email === "string" ? body.email.trim() : "";
       let email = "";
       if (raw) {
@@ -304,7 +304,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (body.account !== undefined) {
-      // 空字串＝清除帳號（是否可與另一欄同時為空，於下方統一把關）
+      // 空字串＝清除帳號（帳號可留空；電子郵件仍必填）
       const raw = typeof body.account === "string" ? body.account.trim() : "";
       let account = "";
       if (raw) {
@@ -344,12 +344,10 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // 兩欄可個別留空，但至少保留一項作為登入識別（帳密登入、密碼重設、Google 登入都仰賴它）
+    // 電子郵件必填（帳密登入、密碼重設、Google 登入與多身分偵測都仰賴它），帳號可留空
     const finalEmail =
       typeof updateData.email === "string" ? updateData.email : currentEmail;
-    const finalAccount =
-      typeof updateData.account === "string" ? updateData.account : currentAccount;
-    if (!finalEmail && !finalAccount) {
+    if (!finalEmail) {
       return NextResponse.json(
         { success: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE },
         { status: 400 }

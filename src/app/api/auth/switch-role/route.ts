@@ -1,0 +1,153 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getAdminDb } from "@/lib/firebase-admin";
+import { createSession, getSession } from "@/lib/server-session";
+import { revokeJti } from "@/lib/revocation";
+import { logActivity, getClientIp } from "@/lib/audit";
+import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { assertSameOrigin } from "@/lib/csrf";
+import { isSystemEnabled } from "@/lib/settings-server";
+import { ROLE_COLLECTIONS, ROLE_LABELS, isAccountActive, isUserRole } from "@/types/users";
+import { serverErrorMessage } from "@/lib/api-error";
+
+/**
+ * 已登入後切換身分。
+ * 兩階段驗證屬「使用者帳號」層級、於登入時驗證過一次，故切換身分不重驗。
+ * 只能在登入時偵測到的候選身分間切換，並撤銷舊 session（舊 jti 記入黑名單）。
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
+
+    const limited = enforceRateLimit(
+      request,
+      "switch-role",
+      RATE.SWITCH_ROLE.limit,
+      RATE.SWITCH_ROLE.windowMs
+    );
+    if (limited) return limited;
+
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json(
+        { success: false, message: "未登入或登入已失效" },
+        { status: 401 }
+      );
+    }
+
+    let body: { role?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "請求內容無效" },
+        { status: 400 }
+      );
+    }
+
+    if (!isUserRole(body.role)) {
+      return NextResponse.json(
+        { success: false, message: "參數錯誤" },
+        { status: 400 }
+      );
+    }
+    const role = body.role;
+
+    // 只能在登入時偵測到的候選身分間切換
+    const candidates = session.candidates?.length
+      ? session.candidates
+      : [{ role: session.role, id: session.uid }];
+    const target = candidates.find((candidate) => candidate.role === role);
+    if (!target) {
+      return NextResponse.json(
+        { success: false, message: "不具備該身分，無法切換" },
+        { status: 403 }
+      );
+    }
+
+    // 系統停用（維護）時僅允許切換至管理員
+    if (role !== "admin" && !(await isSystemEnabled())) {
+      return NextResponse.json(
+        { success: false, message: "系統目前暫停服務，請稍後再試" },
+        { status: 503 }
+      );
+    }
+
+    const snap = await getAdminDb()
+      .collection(ROLE_COLLECTIONS[role])
+      .doc(target.id)
+      .get();
+    if (!snap.exists) {
+      return NextResponse.json(
+        { success: false, message: "身分資料已不存在，請重新登入" },
+        { status: 401 }
+      );
+    }
+    const data = snap.data()!;
+
+    if (!isAccountActive(data)) {
+      await logActivity({
+        userId: target.id,
+        role,
+        action: "role_switched",
+        ip: getClientIp(request),
+        details: `切換至 ${ROLE_LABELS[role]} 失敗：帳號已停用`,
+      });
+      return NextResponse.json(
+        { success: false, message: "帳號已停用，無法切換" },
+        { status: 401 }
+      );
+    }
+
+    const displayName = data.name || data.displayName || "";
+    const user = {
+      uid: target.id,
+      email: data.email,
+      account: data.account,
+      displayName,
+      role,
+      roles: candidates.map((candidate) => candidate.role),
+      tokenVersion: typeof data.tokenVersion === "number" ? data.tokenVersion : 1,
+    };
+
+    // 目前身分：不重簽 token，避免無謂撤銷
+    if (role === session.role) {
+      return NextResponse.json({ success: true, user });
+    }
+
+    // 撤銷舊 session 後以同一組到期時間重簽
+    try {
+      await revokeJti(session.jti);
+    } catch (error) {
+      console.error("Revoke old jti error:", error);
+    }
+
+    await createSession({
+      uid: user.uid,
+      email: user.email,
+      account: user.account,
+      displayName: user.displayName,
+      role,
+      candidates,
+      tokenVersion: user.tokenVersion,
+      lastActivityAt: session.lastActivityAt,
+      absoluteExpiresAt: session.absoluteExpiresAt,
+    });
+
+    await logActivity({
+      userId: user.uid,
+      role,
+      action: "role_switched",
+      ip: getClientIp(request),
+      details: `由 ${ROLE_LABELS[session.role]} 切換至 ${ROLE_LABELS[role]}`,
+    });
+
+    return NextResponse.json({ success: true, user });
+  } catch (error) {
+    console.error("Switch role error:", error);
+    return NextResponse.json(
+      { success: false, message: serverErrorMessage(error, "系統錯誤，請稍後再試") },
+      { status: 500 }
+    );
+  }
+}

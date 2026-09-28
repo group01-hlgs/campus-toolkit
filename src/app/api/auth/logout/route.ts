@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteSession, getSession } from "@/lib/server-session";
+import {
+  clearPendingRoleCookie,
+  deleteSession,
+  getSession,
+} from "@/lib/server-session";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
@@ -20,6 +24,8 @@ export async function POST(request: NextRequest) {
 
     const session = await getSession();
     await deleteSession();
+    // 殘留的中途憑證一併清除，避免登入途中回到登入頁後被沿用
+    await clearPendingRoleCookie();
     if (session) {
       await logActivity({
         userId: session.uid,

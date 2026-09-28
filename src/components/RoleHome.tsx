@@ -11,6 +11,7 @@ import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
+import RoleSwitcher from "@/components/RoleSwitcher";
 
 const accountModule = {
   icon: (
@@ -100,6 +101,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
       <div className="content-width mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">{roleLabel}功能首頁</h2>
         {displayName && <p className="text-t2 mt-1">{displayName}，您好</p>}
+        <RoleSwitcher role={role} />
       </div>
 
       <div className="content-width flex justify-end mb-4">
