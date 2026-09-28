@@ -1,5 +1,6 @@
 import "server-only";
 import nodemailer, { Transporter } from "nodemailer";
+import { DEFAULT_SYSTEM_NAME } from "@/types/settings";
 
 /**
  * SMTP 寄信模組（Gmail 應用程式密碼 / 任何 SMTP 服務皆可）。
@@ -63,6 +64,17 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * 信件抬頭識別：系統（程式）名稱與學校名稱併列，
+ * 例如「數位校園工具箱｜臺一國小」，讓收件人一眼看出信件來自哪個系統。
+ * 學校名稱未填時只顯示系統名稱。
+ */
+function brandLabel(systemName?: string, schoolName?: string): string {
+  const system = systemName?.trim() || DEFAULT_SYSTEM_NAME;
+  const school = schoolName?.trim() || "";
+  return school && school !== system ? `${system}｜${school}` : system;
+}
+
 export interface PasswordResetMailOptions {
   /** 收件人（已正規化的電子郵件） */
   to: string;
@@ -78,19 +90,22 @@ export interface PasswordResetMailOptions {
   resetUrl: string;
   /** 有效期限（分鐘） */
   expiresMinutes: number;
-  /** 信件抬頭用的系統／學校名稱 */
-  siteName?: string;
+  /** 系統（程式）名稱，未提供時用預設系統名稱 */
+  systemName?: string;
+  /** 學校名稱，與系統名稱併列於信件抬頭（可為空） */
+  schoolName?: string;
 }
 
 export async function sendPasswordResetEmail(
   options: PasswordResetMailOptions
 ): Promise<void> {
   const transport = await getTransport();
+  const brand = brandLabel(options.systemName, options.schoolName);
+  const brandHtml = escapeHtml(brand);
   const from =
     process.env.SMTP_FROM?.trim() ||
-    `${options.siteName || "數位校園工具箱"} <${process.env.SMTP_USER}>`;
+    `${brand} <${process.env.SMTP_USER}>`;
 
-  const siteName = options.siteName || "數位校園工具箱";
   const greeting = options.displayName ? `${options.displayName} 您好` : "您好";
   const resetUrl = escapeHtml(options.resetUrl);
   const expiresMinutes = escapeHtml(String(options.expiresMinutes));
@@ -110,7 +125,7 @@ export async function sendPasswordResetEmail(
     `${greeting}：`,
     "",
     ...roleText,
-    `我們收到 ${siteName} 的密碼重設請求。`,
+    `我們收到 ${brand} 的密碼重設請求。`,
     `請在 ${options.expiresMinutes} 分鐘內點擊以下連結設定新密碼：`,
     options.resetUrl,
     "",
@@ -123,11 +138,11 @@ export async function sendPasswordResetEmail(
 <html lang="zh-TW">
 <body style="margin:0;padding:24px;background:#f5f6f8;font-family:-apple-system,'Segoe UI','Noto Sans TC',Arial,sans-serif;color:#1f2328;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:32px;">
-    <h1 style="margin:0 0 4px;font-size:20px;">${escapeHtml(siteName)}</h1>
+    <h1 style="margin:0 0 4px;font-size:20px;">${brandHtml}</h1>
     <p style="margin:0 0 20px;font-size:14px;color:#6b7280;">密碼重設信件</p>
     <p style="margin:0 0 16px;font-size:15px;">${escapeHtml(greeting)}：</p>
 ${roleBox}    <p style="margin:0 0 24px;font-size:15px;line-height:1.7;">
-      我們收到您的密碼重設請求。請在 <strong>${expiresMinutes} 分鐘</strong>內點擊下方按鈕設定新密碼。
+      我們收到您在 ${brandHtml} 的密碼重設請求。請在 <strong>${expiresMinutes} 分鐘</strong>內點擊下方按鈕設定新密碼。
     </p>
     <p style="margin:0 0 24px;">
       <a href="${resetUrl}"
@@ -150,7 +165,7 @@ ${roleBox}    <p style="margin:0 0 24px;font-size:15px;line-height:1.7;">
   await transport.sendMail({
     from,
     to: options.to,
-    subject: `【${siteName}】密碼重設（${options.expiresMinutes} 分鐘內有效）`,
+    subject: `【${brand}】密碼重設（${options.expiresMinutes} 分鐘內有效）`,
     text,
     html,
   });
@@ -161,7 +176,10 @@ export interface LoginOtpMailOptions {
   displayName?: string;
   /** 6 位數登入驗證碼 */
   code: string;
-  siteName?: string;
+  /** 系統（程式）名稱，未提供時用預設系統名稱 */
+  systemName?: string;
+  /** 學校名稱，與系統名稱併列於信件抬頭（可為空） */
+  schoolName?: string;
   roleLabel?: string;
   expiresInMinutes: number;
 }
@@ -169,17 +187,18 @@ export interface LoginOtpMailOptions {
 /** 兩階段驗證：電子郵件驗證碼信 */
 export async function sendLoginOtpEmail(options: LoginOtpMailOptions): Promise<void> {
   const transport = await getTransport();
-  const siteName = options.siteName || "數位校園工具箱";
+  const brand = brandLabel(options.systemName, options.schoolName);
+  const brandHtml = escapeHtml(brand);
   const from =
     process.env.SMTP_FROM?.trim() ||
-    `${siteName} <${process.env.SMTP_USER}>`;
+    `${brand} <${process.env.SMTP_USER}>`;
   const greeting = options.displayName ? `${options.displayName} 您好` : "您好";
   const roleText = options.roleLabel ? `身分：${options.roleLabel}` : "";
 
   const text = [
     `${greeting}：`,
     "",
-    `您的 ${siteName} 登入驗證碼為：${options.code}`,
+    `您的 ${brand} 登入驗證碼為：${options.code}`,
     ...(roleText ? [roleText] : []),
     `驗證碼 ${options.expiresInMinutes} 分鐘內有效。`,
     "",
@@ -191,7 +210,7 @@ export async function sendLoginOtpEmail(options: LoginOtpMailOptions): Promise<v
 <html lang="zh-TW">
 <body style="margin:0;padding:24px;background:#f5f6f8;font-family:-apple-system,'Segoe UI','Noto Sans TC',Arial,sans-serif;color:#1f2328;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:32px;">
-    <h1 style="margin:0 0 4px;font-size:20px;">${escapeHtml(siteName)}</h1>
+    <h1 style="margin:0 0 4px;font-size:20px;">${brandHtml}</h1>
     <p style="margin:0 0 20px;font-size:14px;color:#6b7280;">登入驗證碼</p>
     <p style="margin:0 0 16px;font-size:15px;">${escapeHtml(greeting)}：</p>
     <p style="margin:0 0 24px;font-size:15px;line-height:1.7;">
@@ -211,7 +230,7 @@ export async function sendLoginOtpEmail(options: LoginOtpMailOptions): Promise<v
   await transport.sendMail({
     from,
     to: options.to,
-    subject: `【${siteName}】登入驗證碼 ${options.code}（${options.expiresInMinutes} 分鐘內有效）`,
+    subject: `【${brand}】登入驗證碼 ${options.code}（${options.expiresInMinutes} 分鐘內有效）`,
     text,
     html,
   });
@@ -220,7 +239,10 @@ export async function sendLoginOtpEmail(options: LoginOtpMailOptions): Promise<v
 export interface LoginNotificationMailOptions {
   to: string;
   displayName?: string;
-  siteName?: string;
+  /** 系統（程式）名稱，未提供時用預設系統名稱 */
+  systemName?: string;
+  /** 學校名稱，與系統名稱併列於信件抬頭（可為空） */
+  schoolName?: string;
   roleLabel?: string;
   /** 登入時間（本機時間） */
   time: Date;
@@ -231,10 +253,11 @@ export async function sendLoginNotificationEmail(
   options: LoginNotificationMailOptions
 ): Promise<void> {
   const transport = await getTransport();
-  const siteName = options.siteName || "數位校園工具箱";
+  const brand = brandLabel(options.systemName, options.schoolName);
+  const brandHtml = escapeHtml(brand);
   const from =
     process.env.SMTP_FROM?.trim() ||
-    `${siteName} <${process.env.SMTP_USER}>`;
+    `${brand} <${process.env.SMTP_USER}>`;
   const greeting = options.displayName ? `${options.displayName} 您好` : "您好";
   const roleText = options.roleLabel ? `（身分：${options.roleLabel}）` : "";
   const timeText = options.time.toLocaleString("zh-TW", { hour12: false });
@@ -242,9 +265,9 @@ export async function sendLoginNotificationEmail(
   const text = [
     `${greeting}：`,
     "",
-    `您的 ${siteName} 帳號${roleText}於 ${timeText} 登入。`,
+    `您的帳號${roleText}於 ${timeText} 登入 ${brand}。`,
     "",
-    "若非本人操作，請立即變更密碼。",
+    "若您本人並未進行此次登入，請立即變更密碼並檢查帳號的登入紀錄與安全性設定。",
   ].join("\n");
 
   const html = `
@@ -252,16 +275,16 @@ export async function sendLoginNotificationEmail(
 <html lang="zh-TW">
 <body style="margin:0;padding:24px;background:#f5f6f8;font-family:-apple-system,'Segoe UI','Noto Sans TC',Arial,sans-serif;color:#1f2328;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:32px;">
-    <h1 style="margin:0 0 4px;font-size:20px;">${escapeHtml(siteName)}</h1>
+    <h1 style="margin:0 0 4px;font-size:20px;">${brandHtml}</h1>
     <p style="margin:0 0 20px;font-size:14px;color:#6b7280;">登入通知</p>
     <p style="margin:0 0 16px;font-size:15px;">${escapeHtml(greeting)}：</p>
     <p style="margin:0 0 24px;font-size:15px;line-height:1.7;">
       您的帳號${escapeHtml(roleText)}於
       <strong style="color:#111827;">${escapeHtml(timeText)}</strong>
-      登入 ${escapeHtml(siteName)}。
+      登入 ${brandHtml}。
     </p>
     <p style="margin:0 0 8px;font-size:13px;color:#6b7280;line-height:1.7;">
-      若非本人操作，請立即變更密碼。
+      若您本人並未進行此次登入，請立即變更密碼並檢查帳號的登入紀錄與安全性設定。
     </p>
   </div>
 </body>
@@ -270,7 +293,7 @@ export async function sendLoginNotificationEmail(
   await transport.sendMail({
     from,
     to: options.to,
-    subject: `【${siteName}】登入通知（${timeText}）`,
+    subject: `【${brand}】登入通知（${timeText}）`,
     text,
     html,
   });

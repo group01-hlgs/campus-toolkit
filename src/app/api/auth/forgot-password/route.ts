@@ -13,7 +13,7 @@ import {
   PASSWORD_RESET_TTL_MINUTES,
 } from "@/lib/password-reset";
 import { isMailConfigured, sendPasswordResetEmail } from "@/lib/mailer";
-import { getSiteName } from "@/lib/settings-server";
+import { getMailIdentity } from "@/lib/settings-server";
 import { isUserRole, ROLE_COLLECTIONS, ROLE_LABELS, UserRole } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const siteName = await getSiteName();
+    const { systemName, schoolFullName } = await getMailIdentity();
     // 使用者選擇的身分僅用來決定「先查哪個 collection」；
     // 未提供或非法值時維持原本的查找順序，對外回覆一律相同（不構成枚舉管道）
     const requestedRole = isUserRole(body.role) ? body.role : undefined;
@@ -164,7 +164,8 @@ export async function POST(request: NextRequest) {
           roleLabel: ROLE_LABELS[user.role],
           resetUrl: buildResetUrl(token, request),
           expiresMinutes: PASSWORD_RESET_TTL_MINUTES,
-          siteName,
+          systemName,
+          schoolName: schoolFullName,
         });
         await logActivity({
           userId: user.uid,

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "crypto";
 import type { DocumentReference, DocumentData } from "firebase-admin/firestore";
 import { verifyTotpCode, generateTotpSecret } from "@/lib/totp";
 import { isMailConfigured, sendLoginOtpEmail, sendLoginNotificationEmail } from "@/lib/mailer";
-import { getSiteName } from "@/lib/settings-server";
+import { getMailIdentity } from "@/lib/settings-server";
 import { normalizeEmail } from "@/lib/validation";
 import { ROLE_LABELS, TwoFactorMethod, UserRole } from "@/types/users";
 
@@ -144,11 +144,13 @@ export async function sendEmailOtp(options: {
   const code = await writeEmailOtp(options.ref);
 
   try {
+    const { systemName, schoolFullName } = await getMailIdentity();
     await sendLoginOtpEmail({
       to: options.email,
       displayName: options.displayName || options.account,
       code,
-      siteName: await getSiteName(),
+      systemName,
+      schoolName: schoolFullName,
       roleLabel: ROLE_LABELS[options.role],
       expiresInMinutes: EMAIL_OTP_TTL_MINUTES,
     });
@@ -218,10 +220,12 @@ export async function sendLoginNotification(options: {
 }): Promise<void> {
   if (!isMailConfigured()) return;
   try {
+    const { systemName, schoolFullName } = await getMailIdentity();
     await sendLoginNotificationEmail({
       to: options.email,
       displayName: options.displayName || options.account,
-      siteName: await getSiteName(),
+      systemName,
+      schoolName: schoolFullName,
       roleLabel: ROLE_LABELS[options.role],
       time: new Date(),
     });

@@ -1,6 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { defaultSettings } from "@/types/settings";
+import { defaultSettings, DEFAULT_SYSTEM_NAME } from "@/types/settings";
 
 const SETTINGS_COLLECTION = "settings";
 const SETTINGS_DOC_ID = "system";
@@ -8,20 +8,20 @@ const CACHE_TTL_MS = 30_000;
 
 let timeoutCache: { minutes: number; at: number } | null = null;
 let enabledCache: { enabled: boolean; at: number } | null = null;
-let siteNameCache: { name: string; at: number } | null = null;
+let identityCache: { systemName: string; schoolFullName: string; at: number } | null = null;
 let emailChangeCache: { allowed: boolean; at: number } | null = null;
 
-/** 設定儲存後呼叫，讓閒置逾時與系統啟用狀態快取立即失效 */
+/** 設�??��?後呼?��?讓�?置逾�??�系統�??��??�快?��??�失??*/
 export function invalidateSettingsCache(): void {
   timeoutCache = null;
   enabledCache = null;
-  siteNameCache = null;
+  identityCache = null;
   emailChangeCache = null;
 }
 
 /**
- * 讀取 settings.systemEnabled（維護模式），供伺服器端強制執行。
- * 與閒置逾時共用 30 秒 in-process 快取；讀失敗時回退上次值或預設啟用。
+ * 讀??settings.systemEnabled（維護模式�?，�?伺�??�端強制?��???
+ * ?��?置逾�??�用 30 �?in-process 快�?；�?失�??��??�上次?��??�設?�用??
  */
 export async function isSystemEnabled(): Promise<boolean> {
   const now = Date.now();
@@ -47,8 +47,8 @@ export async function isSystemEnabled(): Promise<boolean> {
 }
 
 /**
- * 讀取 settings.sessionTimeout（分鐘），供伺服器端閒置逾時檢查使用。
- * 以 30 秒 in-process 快取避免每個請求都打 Firestore；讀失敗時回退上次值或預設值。
+ * 讀??settings.sessionTimeout（�??��?，�?伺�??�端?�置?��?檢查使用??
+ * �?30 �?in-process 快�??��?每個�?求都??Firestore；�?失�??��??�上次?��??�設?��?
  */
 export async function getSessionTimeoutMinutes(): Promise<number> {
   const now = Date.now();
@@ -75,9 +75,9 @@ export async function getSessionTimeoutMinutes(): Promise<number> {
 }
 
 /**
- * 讀取 settings.emailChangeAllowed（是否開放使用者自行變更電子郵件地址）。
- * 與閒置逾時共用 30 秒 in-process 快取，避免每個請求都打 Firestore；
- * 讀失敗時回退上次值或預設值（預設開放）。
+ * 讀??settings.emailChangeAllowed（是?��??�使?�者自行�??�電子郵件地?�）�?
+ * ?��?置逾�??�用 30 �?in-process 快�?，避?��??��?求都??Firestore�?
+ * 讀失�??��??�上次?��??�設?��??�設?�放）�?
  */
 export async function isEmailChangeAllowed(): Promise<boolean> {
   const now = Date.now();
@@ -103,12 +103,12 @@ export async function isEmailChangeAllowed(): Promise<boolean> {
 }
 
 /**
- * 取得信件／通知抬頭用的站名（優先學校全名，其次系統名稱）。
- * 與其他設定共用 30 秒快取，讀失敗回退預設名稱。
+ * 讀?�信件抬?�用?�兩?��?稱�?系統（�?式�??�命?��?學校?�稱??
+ * ?�其他設定共??30 秒快?��?讀失�??�退上次?��?空�?串�?
  */
-export async function getSiteName(): Promise<string> {
+async function readIdentity(): Promise<{ systemName: string; schoolFullName: string }> {
   const now = Date.now();
-  if (siteNameCache && now - siteNameCache.at < CACHE_TTL_MS) return siteNameCache.name;
+  if (identityCache && now - identityCache.at < CACHE_TTL_MS) return identityCache;
 
   try {
     const snap = await getAdminDb()
@@ -120,12 +120,32 @@ export async function getSiteName(): Promise<string> {
       : undefined;
     const schoolFullName = typeof raw?.schoolFullName === "string" ? raw.schoolFullName.trim() : "";
     const systemName = typeof raw?.systemName === "string" ? raw.systemName.trim() : "";
-    const name = schoolFullName || systemName || "數位校園工具箱";
-    siteNameCache = { name, at: now };
-    return name;
+    identityCache = { systemName, schoolFullName, at: now };
+    return identityCache;
   } catch (error) {
     console.error("Site name settings read error:", error);
-    if (siteNameCache) return siteNameCache.name;
-    return "數位校園工具箱";
+    return identityCache ?? { systemName: "", schoolFullName: "" };
   }
+}
+
+/**
+ * ?��?信件／通知?�頭?��?站�?（優?�學?�全?��??�次系統?�稱）�?
+ * ?�其他設定共??30 秒快?��?讀失�??�退?�設?�稱??
+ */
+export async function getSiteName(): Promise<string> {
+  const { systemName, schoolFullName } = await readIdentity();
+  return schoolFullName || systemName || DEFAULT_SYSTEM_NAME;
+}
+
+/**
+ * ?��?信件?�頭?��?識別?�稱�?
+ * systemName 一律�??��??�自?��??�用?�設系統?�稱）�?schoolFullName ?�為空�?
+ * 信件以「系統�?稱�?學校?�稱?�併?��?讓收件人?��?信件來自?��??��?式系統�?
+ */
+export async function getMailIdentity(): Promise<{
+  systemName: string;
+  schoolFullName: string;
+}> {
+  const { systemName, schoolFullName } = await readIdentity();
+  return { systemName: systemName || DEFAULT_SYSTEM_NAME, schoolFullName };
 }

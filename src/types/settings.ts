@@ -17,6 +17,9 @@ export interface Settings {
   sponsorAdEnabled: boolean;
 }
 
+/** 系統（程式）名稱未自命名時的預設值，信件抬頭與頁首共用 */
+export const DEFAULT_SYSTEM_NAME = "數位校園工具箱";
+
 export const defaultSettings: Settings = {
   systemEnabled: true,
   systemName: "",
