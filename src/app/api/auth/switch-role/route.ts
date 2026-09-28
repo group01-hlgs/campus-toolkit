@@ -6,6 +6,7 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import { isRoleEnabled } from "@/lib/role-settings";
 import { ROLE_LABELS, isAccountActive, USER_COLLECTION, isUserRole } from "@/types/users";
 import { getRosterEntry, isActiveEntry, resolveDisplayName } from "@/lib/roster";
 import { serverErrorMessage } from "@/lib/api-error";
@@ -101,7 +102,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const entry = await getRosterEntry(session.uid, role, await getCurrentPeriod());
+    const period = await getCurrentPeriod();
+    const entry = await getRosterEntry(session.uid, role, period);
     if (!isActiveEntry(entry)) {
       await logActivity({
         userId: session.uid,
@@ -113,6 +115,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, message: "身分資料已不存在，請重新登入" },
         { status: 401 }
+      );
+    }
+
+    // 身分管理停用該學期的身分：不得切換過去
+    if (!(await isRoleEnabled(role, period))) {
+      await logActivity({
+        userId: session.uid,
+        role,
+        action: "role_switched",
+        ip: getClientIp(request),
+        details: `切換至 ${ROLE_LABELS[role]} 失敗：該學期身分已停用`,
+      });
+      return NextResponse.json(
+        { success: false, message: "該身分於本學期已停用，無法切換" },
+        { status: 403 }
       );
     }
 

@@ -9,6 +9,7 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import { isRoleEnabled } from "@/lib/role-settings";
 import { ROLE_LABELS, isAccountActive, USER_COLLECTION, isUserRole } from "@/types/users";
 import { orderRoles } from "@/lib/login-candidate";
 import { getRosterEntry, isActiveEntry, resolveDisplayName } from "@/lib/roster";
@@ -123,8 +124,15 @@ export async function POST(request: NextRequest) {
     }
 
     // 當期名冊中該身分已不存在或無效：中途憑證作廢
-    const entry = await getRosterEntry(target.id, role, await getCurrentPeriod());
+    const period = await getCurrentPeriod();
+    const entry = await getRosterEntry(target.id, role, period);
     if (!isActiveEntry(entry)) {
+      await clearPendingRoleCookie();
+      return expired();
+    }
+
+    // 選擇期間該身分被身分管理停用：中途憑證作廢
+    if (!(await isRoleEnabled(role, period))) {
       await clearPendingRoleCookie();
       return expired();
     }

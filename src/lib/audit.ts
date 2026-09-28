@@ -23,7 +23,8 @@ export type ActivityAction =
   | "roster_created"
   | "roster_updated"
   | "roster_deleted"
-  | "roster_imported";
+  | "roster_imported"
+  | "role_settings_updated";
 
 export interface ActivityEntry {
   userId?: string;

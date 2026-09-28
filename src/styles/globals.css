@@ -351,6 +351,22 @@ mark {
   color: var(--btn-secondary-text-hover);
 }
 
+/* 警示訊息框：危險色邊框＋以主題危險色淡化的底色（各主題 --danger 不同，不可寫死色票） */
+.alert-danger {
+  border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg));
+  color: var(--t1);
+  border-radius: var(--radius);
+}
+
+/* 一般提示訊息框：沿用主題表面色與邊框色 */
+.alert-info {
+  border: 1px solid var(--bd);
+  background: var(--bg2);
+  color: var(--t2);
+  border-radius: var(--radius);
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

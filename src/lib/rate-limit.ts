@@ -173,4 +173,8 @@ export const RATE = {
   ROSTER_MUTATE: { limit: 20, windowMs: 60_000 },
   /** 使用者帳號管理：Excel 匯入（一次最多 900 列，每列都要 bcrypt） */
   ROSTER_IMPORT: { limit: 5, windowMs: 60 * 60_000 },
+  /** 身分管理：讀取該期四種身分的啟用狀態 */
+  ROLE_SETTINGS_GET: { limit: 60, windowMs: 60_000 },
+  /** 身分管理：啟用／停用身分、對齊學期 */
+  ROLE_SETTINGS_MUTATE: { limit: 30, windowMs: 60_000 },
 } as const;

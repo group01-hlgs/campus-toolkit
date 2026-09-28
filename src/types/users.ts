@@ -102,6 +102,7 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
  */
 export const ADMIN_MODULES = [
   { value: "roster", label: "使用者帳號管理" },
+  { value: "roles", label: "身分管理" },
   { value: "settings", label: "系統設定" },
   { value: "account", label: "帳號與安全管理" },
   { value: "activity", label: "稽核紀錄" },

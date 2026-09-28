@@ -3,6 +3,7 @@ import type { DocumentReference, DocumentData } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { getRosterEntry, isActiveEntry } from "@/lib/roster";
+import { getRoleSettings, isRoleEnabled } from "@/lib/role-settings";
 import { ALL_ROLES, isAccountActive, isUserRole, USER_COLLECTION, UserRole } from "@/types/users";
 
 /** 使用者帳號的查詢結果（身分尚未決定；身分來自當期身分名冊） */
@@ -42,8 +43,10 @@ export async function findAccountBy(
 
 /**
  * 身分候選：同一份使用者帳號在「當期」名冊中有效的身分，順序固定 ALL_ROLES。
- * ①帳號狀態有效 ②具備當期（同學年度學期）且狀態有效的身分名冊條目。
- * adminsOnly（系統維護）時只保留管理員，與非管理員一律 503 的行為一致。
+ * ①帳號狀態有效 ②具備當期（同學年度學期）且狀態有效的身分名冊條目
+ * ③該身分於身分管理（roleSettings）中為啟用。
+ * adminsOnly（系統維護）時只保留管理員且不套身分停用，與非管理員一律 503 的行為一致，
+ * 避免身分設定異常時連管理員都進不去、無從修正。
  */
 export async function detectRoleCandidates(
   hit: AccountHit,
@@ -51,7 +54,10 @@ export async function detectRoleCandidates(
 ): Promise<AccountCandidate[]> {
   if (!isAccountActive(hit.data)) return [];
   const period = await getCurrentPeriod();
-  const roles = ALL_ROLES.filter((role) => !options.adminsOnly || role === "admin");
+  const enabled = await getRoleSettings(period);
+  const roles = ALL_ROLES.filter(
+    (role) => (!options.adminsOnly || role === "admin") && enabled[role]
+  );
   const entries = await Promise.all(
     roles.map((role) => getRosterEntry(hit.id, role, period))
   );
@@ -99,6 +105,8 @@ export async function loadRoleContext(
   const data = snap.data()!;
   if (!isAccountActive(data)) return null;
   const period = await getCurrentPeriod();
+  // 該學期身分被停用：session 不得成立
+  if (!(await isRoleEnabled(role, period))) return null;
   const entry = await getRosterEntry(uid, role, period);
   if (!entry || !isActiveEntry(entry)) return null;
   return { account: { id: snap.id, ref: snap.ref, data }, entry };

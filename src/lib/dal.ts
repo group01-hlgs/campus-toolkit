@@ -7,6 +7,7 @@ import { isJtiRevoked } from "@/lib/revocation";
 import { getClientIp } from "@/lib/audit";
 import { getSessionTimeoutMinutes, getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
 import { adminModulesOf, getRosterEntry, isActiveEntry } from "@/lib/roster";
+import { isRoleEnabled } from "@/lib/role-settings";
 import { AdminModule, isAccountActive, USER_COLLECTION, UserRole } from "@/types/users";
 
 export async function verifySession(): Promise<SessionPayload | null> {
@@ -39,8 +40,12 @@ export async function verifySession(): Promise<SessionPayload | null> {
     if (session.tokenVersion !== tokenVersion) return null;
 
     // 當期身分名冊：該身分不存在、無效或已被移除時，session 失效
-    const entry = await getRosterEntry(session.uid, session.role, await getCurrentPeriod());
+    const period = await getCurrentPeriod();
+    const entry = await getRosterEntry(session.uid, session.role, period);
     if (!isActiveEntry(entry)) return null;
+
+    // 身分管理停用該學期的身分時，既有 session 同步失效
+    if (!(await isRoleEnabled(session.role, period))) return null;
 
     // 鎖定與登入路由一致：僅當鎖定綁定的來源 IP（或未綁定）命中目前請求才失效
     const lockedUntil = typeof data?.lockedUntil === "number" ? data.lockedUntil : 0;
