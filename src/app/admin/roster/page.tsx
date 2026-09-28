@@ -436,7 +436,7 @@ export default function RosterPage() {
 
       {/* 匯入格式說明 */}
       <div className="w-full max-w-5xl mb-4 text-sm text-t3">
-        匯入欄位：{rosterImportHint(role)}；電子郵件地址與帳號至少填一項，單次最多 100 列。
+        匯入欄位：{rosterImportHint(role)}；電子郵件地址與帳號至少填一項，單次最多 900 列。
       </div>
 
       {/* 提示訊息 */}

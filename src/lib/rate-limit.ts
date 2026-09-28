@@ -168,6 +168,6 @@ export const RATE = {
   ROSTER_LIST: { limit: 60, windowMs: 60_000 },
   /** 名冊管理：單筆新增／更新／刪除（每筆都要 bcrypt，額度從嚴） */
   ROSTER_MUTATE: { limit: 20, windowMs: 60_000 },
-  /** 名冊管理：Excel 匯入（一次最多 100 列，每列都要 bcrypt） */
+  /** 名冊管理：Excel 匯入（一次最多 900 列，每列都要 bcrypt） */
   ROSTER_IMPORT: { limit: 5, windowMs: 60 * 60_000 },
 } as const;

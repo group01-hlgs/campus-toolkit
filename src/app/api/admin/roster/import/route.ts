@@ -25,10 +25,10 @@ import {
   validateRosterInput,
 } from "@/lib/roster";
 
-/** 每列都要跑一次 bcrypt（成本 12 約 0.2 秒），上限與函式執行時間一起控管 */
-export const maxDuration = 60;
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const MAX_ROWS = 100;
+/** 每列都要跑一次 bcrypt（成本 12 約 0.23 秒）＋ Firestore 寫入，900 列約 250 秒，與函式執行上限一起控管 */
+export const maxDuration = 300;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_ROWS = 900;
 
 interface SkippedRow {
   row: number;
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     }
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { success: false, message: "檔案超過 2MB，請拆成多個檔案分批匯入" },
+        { success: false, message: "檔案超過 5MB，請拆成多個檔案分批匯入" },
         { status: 400 }
       );
     }
