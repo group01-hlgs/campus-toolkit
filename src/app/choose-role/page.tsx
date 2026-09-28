@@ -203,7 +203,7 @@ export default function ChooseRolePage() {
                   type="button"
                   onClick={() => void choose(role)}
                   disabled={submitting}
-                  className="w-full btn-primary rounded py-3 font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                  className="w-full btn-soft rounded py-3 font-medium transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? "進入中..." : `以「${ROLE_LABELS[role]}」身分進入`}
                 </button>

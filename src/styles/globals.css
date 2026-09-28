@@ -119,6 +119,20 @@ button:disabled, [type="submit"]:disabled, [type="button"]:disabled {
   opacity: 1;
 }
 
+/* 淡色按鈕：以主題色淡化的底色取代深色實心，適合大量並排的主要行動按鈕 */
+.btn-soft {
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg));
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--bg));
+  opacity: 1;
+}
+
+.btn-soft:hover {
+  background: color-mix(in srgb, var(--primary) 18%, var(--bg));
+  color: var(--primary-hover);
+  opacity: 1;
+}
+
 .btn-danger {
   background: var(--btn-danger);
   color: var(--btn-danger-text);
