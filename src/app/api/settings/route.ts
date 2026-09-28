@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { requireRole, toAuthResponse, verifySession } from "@/lib/dal";
+import { hasAdminModule, requireAdminModule, toAuthResponse, verifySession } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
@@ -68,7 +68,8 @@ export async function GET(request: NextRequest) {
 
     const noStore = { "Cache-Control": "no-store" };
     const session = await verifySession();
-    const isAdmin = session?.role === "admin";
+    // 完整設定（含聯絡人等僅管理可見欄位）需具備「系統設定」功能模組
+    const fullAccess = session ? await hasAdminModule(session, "settings") : false;
 
     const snap = await getAdminDb()
       .collection(SETTINGS_DOC.collection)
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        settings: isAdmin ? settings : pickPublicSettings(settings),
+        settings: fullAccess ? settings : pickPublicSettings(settings),
       },
       { headers: noStore }
     );
@@ -107,7 +108,7 @@ export async function PUT(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireRole("admin");
+    const { session, denial } = await requireAdminModule("settings");
     if (denial) return toAuthResponse(denial);
 
     const raw = await request.json().catch(() => null);

@@ -17,7 +17,10 @@ import {
   inspectPasswordResetToken,
   PASSWORD_RESET_TTL_MINUTES,
 } from "@/lib/password-reset";
-import { ROLE_COLLECTIONS, isAccountActive, isUserRole } from "@/types/users";
+import { USER_COLLECTION, isAccountActive, isUserRole, UserRole } from "@/types/users";
+import { detectRoleCandidates } from "@/lib/login-candidate";
+import { getRosterEntry, resolveDisplayName } from "@/lib/roster";
+import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
 
 function maskEmail(email: string): string {
@@ -149,7 +152,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { status, record } = await consumePasswordResetToken(body.token);
-    if (status !== "ok" || !record || !isUserRole(record.role)) {
+    if (status !== "ok" || !record) {
       const tooMany = countVerifyFailure(request, body.token);
       if (tooMany) return tooMany;
       await logActivity({
@@ -168,7 +171,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getAdminDb();
-    const userRef = db.collection(ROLE_COLLECTIONS[record.role]).doc(record.uid);
+    const userRef = db.collection(USER_COLLECTION).doc(record.uid);
     const userDoc = await userRef.get();
     if (!userDoc.exists) {
       return NextResponse.json(
@@ -207,21 +210,54 @@ export async function POST(request: NextRequest) {
       lockIp: "",
     });
 
+    // 自動登入：以「當期名冊有效身分」決定要進入的身分（token 記錄的 role 只是提示）
+    const candidates = await detectRoleCandidates({
+      id: userDoc.id,
+      ref: userDoc.ref,
+      data: userData,
+    });
+    const role: UserRole | null =
+      isUserRole(record.role) && candidates.some((candidate) => candidate.role === record.role)
+        ? record.role
+        : candidates.length > 0
+          ? candidates[0].role
+          : null;
+
+    // 重設成功但當期沒有可用身分（名冊尚未建立）：不建立 session，請使用者登入時再處理
+    if (!role) {
+      await logActivity({
+        userId: record.uid,
+        action: "password_reset_completed",
+        ip,
+        details: "透過一次性連結重設密碼（當期無可用身分，未自動登入）",
+      });
+      return NextResponse.json({
+        success: true,
+        message: "密碼已重設，請重新登入",
+        requiresLogin: true,
+      });
+    }
+
+    const entry = await getRosterEntry(record.uid, role, await getCurrentPeriod());
     const user = {
       uid: record.uid,
       email: typeof userData.email === "string" ? userData.email : record.email,
       account: typeof userData.account === "string" ? userData.account : "",
-      displayName:
-        typeof userData.name === "string" && userData.name
-          ? userData.name
-          : typeof userData.displayName === "string"
-            ? userData.displayName
-            : "",
-      role: record.role,
+      displayName: resolveDisplayName(userData, entry),
+      role,
+      roles: candidates.map((candidate) => candidate.role),
       tokenVersion: newTokenVersion,
     };
 
-    await createSession(user);
+    await createSession({
+      uid: user.uid,
+      email: user.email,
+      account: user.account,
+      displayName: user.displayName,
+      role,
+      candidates,
+      tokenVersion: newTokenVersion,
+    });
 
     await logActivity({
       userId: record.uid,

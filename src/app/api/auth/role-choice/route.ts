@@ -8,9 +8,10 @@ import {
 import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { isSystemEnabled } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS, ROLE_LABELS, isAccountActive, isUserRole } from "@/types/users";
+import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import { ROLE_LABELS, isAccountActive, USER_COLLECTION, isUserRole } from "@/types/users";
 import { orderRoles } from "@/lib/login-candidate";
+import { getRosterEntry, isActiveEntry, resolveDisplayName } from "@/lib/roster";
 import { sendLoginNotification } from "@/lib/two-factor";
 import { serverErrorMessage } from "@/lib/api-error";
 
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
     }
 
     const snap = await getAdminDb()
-      .collection(ROLE_COLLECTIONS[role])
+      .collection(USER_COLLECTION)
       .doc(target.id)
       .get();
     if (!snap.exists) return expired();
@@ -121,6 +122,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 當期名冊中該身分已不存在或無效：中途憑證作廢
+    const entry = await getRosterEntry(target.id, role, await getCurrentPeriod());
+    if (!isActiveEntry(entry)) {
+      await clearPendingRoleCookie();
+      return expired();
+    }
+
     await clearPendingRoleCookie();
 
     const ip = getClientIp(request);
@@ -134,17 +142,16 @@ export async function POST(request: NextRequest) {
       failedAttempts: 0,
       lockedUntil: 0,
       lockIp: "",
-      lastLogin: now,
       lastLoginMethod: pending.via,
       loginCount: (data.loginCount || 0) + 1,
       loginRecords,
     });
 
-    const displayName = data.name || data.displayName || "";
+    const displayName = resolveDisplayName(data, entry);
     const user = {
       uid: target.id,
-      email: data.email,
-      account: data.account,
+      email: typeof data.email === "string" ? data.email : "",
+      account: typeof data.account === "string" ? data.account : "",
       displayName,
       role,
       roles: pending.candidates.map((candidate) => candidate.role),

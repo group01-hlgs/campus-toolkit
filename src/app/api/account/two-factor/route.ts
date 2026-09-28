@@ -13,7 +13,7 @@ import {
   readTwoFactorProfile,
   rotateTotpSecret,
 } from "@/lib/two-factor";
-import { ROLE_COLLECTIONS, TWO_FACTOR_METHODS, isTwoFactorMethod } from "@/types/users";
+import { TWO_FACTOR_METHODS, isTwoFactorMethod, USER_COLLECTION } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 function twoFactorInfo(secret: string, account: string, issuer: string) {
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userRef = getAdminDb()
-      .collection(ROLE_COLLECTIONS[session.role])
+      .collection(USER_COLLECTION)
       .doc(session.uid);
     const snap = await userRef.get();
     if (!snap.exists) {

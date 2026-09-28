@@ -51,17 +51,6 @@ const modules: ModuleCard[] = [
     label: "帳號與安全管理",
     href: "/admin/admins",
   },
-  {
-    id: "modules",
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959V6a.75.75 0 01-.75.75H3.75A2.25 2.25 0 011.5 4.5v-.75c0-1.036.84-1.875 1.875-1.875h1.328c.045-.355.186-.676.401-.959.221-.29.349-.634.349-1.003C5.4 0 4.393-.84 3.375-.84S1.5 0 1.5 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959V4.5a.75.75 0 01-.75.75h-.75A2.25 2.25 0 010 3.75v-.75C0 1.964.84 1.125 1.875 1.125h1.328c.045-.355.186-.676.401-.959A2.25 2.25 0 013.375 0c1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.401.604-.401.959V4.5h-.75z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12.75v5.25a2.25 2.25 0 002.25 2.25h13.5a2.25 2.25 0 002.25-2.25v-5.25m-18-2.25h18M6 15.75h.008v.008H6v-.008zm3 0h.008v.008H9v-.008zm3 0h.008v.008H12v-.008zm3 0h.008v.008H15v-.008z" />
-      </svg>
-    ),
-    label: "模組管理",
-    href: "/admin/modules",
-  },
 ];
 
 export default function AdminPage() {
@@ -117,6 +106,12 @@ export default function AdminPage() {
     );
   }
 
+  // 功能模組權限：僅顯示被指派的模組卡片（超級管理員＝全部；讀不到權限時全部隱藏）
+  const visibleModules =
+    user.adminModules == null
+      ? []
+      : modules.filter((item) => user.adminModules!.includes(item.id));
+
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
       <HomepageCornerWrench />
@@ -151,7 +146,7 @@ export default function AdminPage() {
       <hr className="content-width border-themed mb-4" />
 
       {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
-      <DraggableModuleGrid items={modules} storageKey="campusCardOrder.admin" />
+      <DraggableModuleGrid items={visibleModules} storageKey="campusCardOrder.admin" />
 
       <hr className="content-width border-themed mb-4" />
 

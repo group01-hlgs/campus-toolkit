@@ -227,7 +227,7 @@ function ResetPasswordForm() {
         }
       }
 
-      if (!res.ok || !data?.success || !data.user) {
+      if (!res.ok || !data?.success) {
         if (data?.status === "invalid" || data?.status === "expired" || data?.status === "used") {
           setStatus(toResetStatus(data.status));
           setStatusMessage(data.message || "重設連結已失效，請重新申請");
@@ -238,19 +238,21 @@ function ResetPasswordForm() {
         return;
       }
 
-      const user: UserSession = {
-        uid: data.user.uid || "",
-        email: data.user.email || "",
-        account: data.user.account || "",
-        displayName: data.user.displayName || "",
-        role: isUserRole(data.user.role) ? data.user.role : "student",
-      };
-      setCachedSession(user);
+      const user: UserSession | null = data.user
+        ? {
+            uid: data.user.uid || "",
+            email: data.user.email || "",
+            account: data.user.account || "",
+            displayName: data.user.displayName || "",
+            role: isUserRole(data.user.role) ? data.user.role : "student",
+          }
+        : null;
+      if (user) setCachedSession(user);
       setDone(true);
       setLoading(false);
 
       setTimeout(() => {
-        router.push(ROLE_HOME[user.role] || "/");
+        router.push(user ? ROLE_HOME[user.role] || "/" : "/login");
       }, 2000);
     } catch {
       setError("系統錯誤，請稍後再試");

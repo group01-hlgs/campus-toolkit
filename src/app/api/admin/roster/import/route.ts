@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { requireRole, toAuthResponse } from "@/lib/dal";
+import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS } from "@/types/users";
+import { USER_COLLECTION } from "@/types/users";
 import {
   isEmptyRosterInput,
+  isImportableRole,
   isRosterRole,
   ROSTER_FIELDS,
+  rosterCollection,
   rosterImportHint,
   rosterRoleLabel,
   RosterFieldKey,
@@ -22,10 +24,8 @@ import {
   buildAccountRecord,
   buildRosterEntry,
   checkRosterConflict,
-  entryRoleOf,
   hashRosterPassword,
   loadRosterIndex,
-  ROSTER_COLLECTION,
   rosterEntryId,
   validateRosterInput,
 } from "@/lib/roster";
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireRole("admin");
+    const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
     const formData = await request.formData().catch(() => null);
@@ -122,6 +122,12 @@ export async function POST(request: NextRequest) {
     const role = isRosterRole(roleValue) ? roleValue : null;
     if (!role) {
       return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
+    }
+    if (!isImportableRole(role)) {
+      return NextResponse.json(
+        { success: false, message: `${rosterRoleLabel(role)}不提供檔案匯入，請使用表單建立` },
+        { status: 400 }
+      );
     }
 
     const file = formData.get("file");
@@ -160,9 +166,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const collection = getAdminDb().collection(ROLE_COLLECTIONS[role]);
+    const collection = getAdminDb().collection(USER_COLLECTION);
     const period = await getCurrentPeriod();
-    const entryRole = entryRoleOf(role);
     const index = await loadRosterIndex(role, period);
     const skipped: SkippedRow[] = [];
     let created = 0;
@@ -185,15 +190,23 @@ export async function POST(request: NextRequest) {
         await hashRosterPassword(result.password as string)
       );
       const docRef = await collection.add(record);
-      // 寫入目前學年度學期的身分名冊條目（管理員條目只有學年度學期標記）
+      // 寫入目前學年度學期的該身分名冊條目
       await getAdminDb()
-        .collection(ROSTER_COLLECTION)
+        .collection(rosterCollection(role))
         .doc(rosterEntryId(docRef.id, period))
-        .set(buildRosterEntry(docRef.id, entryRole, period, result.roster));
+        .set(
+          buildRosterEntry(docRef.id, role, period, result.roster, {
+            email: result.account.email,
+            name: result.account.name,
+          })
+        );
       // 寫入後立刻併入索引，擋掉同一份檔案內重複的信箱／帳號／學號
       if (result.account.email) index.emails.set(result.account.email, String(created));
       if (result.account.account) index.accounts.set(result.account.account, String(created));
-      if (result.roster.studentId) index.studentIds.set(result.roster.studentId, String(created));
+      const studentId = result.roster.studentId;
+      if (typeof studentId === "string" && studentId) {
+        index.studentIds.set(studentId, String(created));
+      }
       created += 1;
     }
 

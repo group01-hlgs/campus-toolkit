@@ -3,12 +3,8 @@ export type UserRole = "student" | "parent" | "staff" | "admin";
 /** 四種身分的固定順序（查找、顯示、選擇清單共用） */
 export const ALL_ROLES: UserRole[] = ["student", "parent", "staff", "admin"];
 
-export const ROLE_COLLECTIONS: Record<UserRole, string> = {
-  student: "students",
-  parent: "parents",
-  staff: "staff",
-  admin: "admins",
-};
+/** 使用者帳號唯一集合（1 張表、無週期、永久） */
+export const USER_COLLECTION = "users";
 
 export const ROLE_HOME: Record<UserRole, string> = {
   student: "/student",
@@ -29,7 +25,7 @@ export function isUserRole(value: unknown): value is UserRole {
 }
 
 /**
- * 兩階段驗證方式（存於使用者文件 `twoFactor` 欄位）。
+ * 兩階段驗證方式（存於使用者帳號 `twoFactor` 欄位）。
  * 選項文字與舊 GAS 站 account.html 一致：關閉 / 登入通知 / 電子郵件驗證碼 / 驗證碼APP。
  */
 export const TWO_FACTOR_METHODS = [
@@ -62,65 +58,110 @@ export function requiresSecondFactor(value: unknown): value is "email_otp" | "to
 }
 
 /**
- * 帳號狀態（所有身分的使用者帳號共用同一組欄位）。
- * 有效＝正常帳號；無效／停權＝停用帳號，一律無法登入，差別只在清單標示與操作用語。
+ * 狀態（帳號層＝是否可登入；名冊層＝該期該身分是否可用），兩層共用同一組值。
+ * 有效＝正常；無效／停權＝不可用，差別只在清單標示與操作用語。
  */
 export type AccountStatus = "有效" | "無效" | "停權";
 
 export const ACCOUNT_STATUSES: AccountStatus[] = ["有效", "無效", "停權"];
 
-/** 可登入的狀態 */
+/** 可用的狀態 */
 export const ACTIVE_STATUS: AccountStatus = "有效";
 
 export function isAccountStatus(value: unknown): value is AccountStatus {
   return value === "有效" || value === "無效" || value === "停權";
 }
 
+/** 是否為「有效」狀態（名冊條目、帳號文件共用） */
+export function isActiveStatus(value: unknown): boolean {
+  return value === ACTIVE_STATUS;
+}
+
 /**
- * 帳號是否有效（可登入）。
- * 有 status 以 status 為準；沒有 status 的舊資料回頭看 active（active === false 視為停用）。
+ * 使用者帳號是否有效（可登入）。
+ * 有 status 以 status 為準；無 status 的文件視為有效（僅剛建立尚未寫入的瞬間）。
  */
 export function isAccountActive(
   data: Record<string, unknown> | null | undefined
 ): boolean {
   if (!data) return false;
   if (typeof data.status === "string") return data.status === ACTIVE_STATUS;
-  return data.active !== false;
+  return true;
+}
+
+/** 最後登入時間：由登入紀錄推導（登入紀錄依序累加，最後一筆即最新） */
+export function lastLoginOf(data: Record<string, unknown> | null | undefined): number {
+  const records = data && Array.isArray(data.loginRecords) ? data.loginRecords : [];
+  const last = records[records.length - 1];
+  return typeof last === "number" ? last : 0;
 }
 
 /**
- * 使用者帳號文件（students／parents／staff／admins 四種身分共用同一組欄位）。
- * 班級、學號等名冊資料不在此，存於 roster 集合（隨學年度、學期變動）。
+ * 管理員可指定的功能模組（超級＝全開；一般＝僅被指定的模組）。
+ * 模組決定：首頁卡片是否顯示、對應 API 是否放行（requireAdminModule）。
+ */
+export const ADMIN_MODULES = [
+  { value: "roster", label: "使用者帳號管理" },
+  { value: "settings", label: "系統設定" },
+  { value: "account", label: "帳號與安全管理" },
+  { value: "activity", label: "稽核紀錄" },
+] as const;
+
+export type AdminModule = (typeof ADMIN_MODULES)[number]["value"];
+
+export const ADMIN_MODULE_VALUES: AdminModule[] = ADMIN_MODULES.map((item) => item.value);
+
+export function isAdminModule(value: unknown): value is AdminModule {
+  return typeof value === "string" && ADMIN_MODULE_VALUES.includes(value as AdminModule);
+}
+
+/** 管理員屬性：超級＝全開；一般＝僅指定功能模組 */
+export type AdminAttribute = "超級" | "一般";
+export const ADMIN_ATTRIBUTES: AdminAttribute[] = ["超級", "一般"];
+
+export function isAdminAttribute(value: unknown): value is AdminAttribute {
+  return value === "超級" || value === "一般";
+}
+
+/** 教職員屬性 */
+export type StaffAttribute = "行政" | "教師";
+export const STAFF_ATTRIBUTES: StaffAttribute[] = ["行政", "教師"];
+
+export function isStaffAttribute(value: unknown): value is StaffAttribute {
+  return value === "行政" || value === "教師";
+}
+
+/**
+ * 使用者帳號（`users` 集合文件）：1 張表、無週期、永久。
+ * 回答「這個人能否登入、怎麼登入」；兩階段驗證設置於此層。
+ * 班級、學號等名冊資料不在此，存於四張身分名冊（隨學年度、學期變動）。
  */
 export interface AccountRecord {
+  /** 電子郵件地址：必填、全站唯一（登入識別＋2FA 收信） */
   email: string;
+  /** 帳號：選填、全站唯一（登入識別） */
   account: string;
-  /** 密碼雜湊（bcrypt） */
+  /** 密碼雜湊（bcrypt）：密碼只在這一層，名冊不存密碼 */
   passwordHash: string;
-  /** 姓名 */
+  /** 姓名（帳號層預設值；顯示以當期名冊姓名為準） */
   name: string;
-  /** 狀態：有效／無效／停權（缺省＝有效） */
+  /** 狀態：有效／無效／停權（決定能否登入，缺省＝有效） */
   status?: AccountStatus;
-  /**
-   * 慣用身分：同一組帳號／信箱同時存在於多個身分時，登入預設進入的身分。
-   * 可填其他身分（跨文件生效）；未設定或無效值＝登入時詢問。
-   */
+  /** 慣用身分：多身分時登入預設進入的身分；未設定＝登入時詢問 */
   preferredRole?: UserRole;
   /** 兩階段驗證方式，缺省視為 off */
   twoFactor?: TwoFactorMethod;
   /** TOTP Base32 密鑰（twoFactor=totp 時使用） */
   totpSecret?: string;
-  /** Email OTP：只存 sha256(code + uid)，有效期限與寄送節流 */
+  /** Email OTP：只存 sha256(uid:code)，有效期限與寄送節流 */
   otpHash?: string;
   otpExpiresAt?: number;
   otpSentAt?: number;
   /** TOTP 防重放：90 秒內同一組驗證碼不可重複使用 */
   totpLastCode?: string;
   totpLastUsedAt?: number;
-  /** 登入紀錄（epoch ms，新→舊，最多 50 筆） */
+  /** 登入紀錄（epoch ms，依序累加，最多 50 筆；最後登入＝最後一筆） */
   loginRecords: number[];
-  /** 最後一次登入時間（epoch ms），0 表示無紀錄 */
-  lastLogin: number;
   /** 最後一次登入方式（登入方式） */
   lastLoginMethod: string;
   /** 登入次數 */
@@ -131,7 +172,7 @@ export interface AccountRecord {
   installedThemes: string;
   /** 鎖定至（epoch ms），0 表示未鎖定 */
   lockedUntil: number;
-  /** 觸發鎖定時的來源 IP（綁定鎖定，防跨 IP 鎖號 DoS） */
+  /** 觸發鎖定時的來源 IP（綁定鎖定，防跨 IP 鎖號 DoS；空字串＝全域鎖定） */
   lockIp?: string;
   /** 連續登入失敗次數 */
   failedAttempts: number;
@@ -139,36 +180,3 @@ export interface AccountRecord {
   tokenVersion: number;
   createdAt: number;
 }
-
-/** 向後相容的舊名稱：帳號文件已全面統一為 AccountRecord */
-export type BaseUserRecord = AccountRecord;
-/** 向後相容的舊名稱：管理員與其他身分欄位一致（姓名用 name，不再有 displayName） */
-export type AdminRecord = AccountRecord;
-/** 家長帳號文件 */
-export type ParentRecord = AccountRecord;
-
-export const ROLE_SPECIFIC_FIELDS: Record<
-  UserRole,
-  { key: string; label: string }[]
-> = {
-  // 學生／家長／教職員的這些欄位存於 roster 集合（身分名冊，隨學年度、學期變動）
-  student: [
-    { key: "studentId", label: "學號" },
-    { key: "grade", label: "年級" },
-    { key: "className", label: "班級" },
-    { key: "classNumber", label: "班號" },
-  ],
-  parent: [
-    { key: "studentName", label: "學生姓名" },
-    { key: "studentId", label: "學號" },
-    { key: "className", label: "班級" },
-    { key: "classNumber", label: "班號" },
-  ],
-  staff: [
-    { key: "className", label: "班級" },
-    { key: "title", label: "職稱" },
-    { key: "attribute", label: "屬性" },
-  ],
-  // 管理員無角色專屬欄位（僅顯示姓名、電子郵件、帳號）
-  admin: [],
-};

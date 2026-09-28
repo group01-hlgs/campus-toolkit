@@ -7,9 +7,16 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { normalizeEmail, normalizeAccount, isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { buildRosterEntry, ROSTER_COLLECTION, rosterEntryId } from "@/lib/roster";
-import { ACTIVE_STATUS, AccountRecord } from "@/types/users";
+import { buildAccountRecord, buildRosterEntry, rosterEntryId } from "@/lib/roster";
+import { ADMIN_MODULE_VALUES, USER_COLLECTION } from "@/types/users";
+import { rosterCollection } from "@/types/roster";
 import { serverErrorMessage } from "@/lib/api-error";
+
+/** 管理員名冊總筆數（不分學期）：>0 即代表已建立過管理員，不可再走初始建立 */
+async function adminCount(): Promise<number> {
+  const snap = await getAdminDb().collection(rosterCollection("admin")).count().get();
+  return snap.data().count;
+}
 
 /** 供 /setup 判斷是否仍可建立首任管理員（不揭露環境變數名稱） */
 export async function GET(request: NextRequest) {
@@ -22,7 +29,7 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const existingCount = (await getAdminDb().collection("admins").count().get()).data().count;
+    const existingCount = await adminCount();
     const available = existingCount === 0 && process.env.ALLOW_BOOTSTRAP_ADMIN === "true";
     return NextResponse.json(
       { success: true, available },
@@ -48,8 +55,8 @@ export async function POST(request: NextRequest) {
     if (limited) return limited;
 
     const ip = getClientIp(request);
-    const adminsRef = getAdminDb().collection("admins");
-    const existingCount = (await adminsRef.count().get()).data().count;
+    const usersRef = getAdminDb().collection(USER_COLLECTION);
+    const existingCount = await adminCount();
     const isBootstrap = existingCount === 0;
     const bootstrapEnabled = process.env.ALLOW_BOOTSTRAP_ADMIN === "true";
 
@@ -75,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     const normEmail = normalizeEmail(email);
     const normAccount = normalizeAccount(account);
-    if (!normEmail || !normAccount || !password) {
+    if (!normEmail || !normAccount || !password || !normName) {
       return NextResponse.json(
         { success: false, message: "請填寫完整資訊" },
         { status: 400 }
@@ -88,7 +95,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const emailSnapshot = await adminsRef.where("email", "==", normEmail).limit(1).get();
+    const emailSnapshot = await usersRef.where("email", "==", normEmail).limit(1).get();
     if (!emailSnapshot.empty) {
       return NextResponse.json(
         { success: false, message: "此電子郵件已被使用" },
@@ -96,7 +103,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const accountSnapshot = await adminsRef.where("account", "==", normAccount).limit(1).get();
+    const accountSnapshot = await usersRef.where("account", "==", normAccount).limit(1).get();
     if (!accountSnapshot.empty) {
       return NextResponse.json(
         { success: false, message: "此帳號已被使用" },
@@ -106,35 +113,22 @@ export async function POST(request: NextRequest) {
 
     // costFactor 不接受 request body 指定：固定使用預設 12，避免被降為弱成本雜湊
     const passwordHash = await hashPassword(password);
-
-    const newAdmin: AccountRecord = {
-      email: normEmail,
-      account: normAccount,
-      name: normName,
-      passwordHash,
-      status: ACTIVE_STATUS,
-      loginRecords: [],
-      lastLogin: 0,
-      lastLoginMethod: "",
-      loginCount: 0,
-      cssThemeId: "",
-      installedThemes: "[]",
-      failedAttempts: 0,
-      lockedUntil: 0,
-      tokenVersion: 1,
-      createdAt: Date.now(),
-    };
+    const newAdmin = buildAccountRecord(
+      { email: normEmail, account: normAccount, name: normName },
+      passwordHash
+    );
 
     let docRef;
     if (isBootstrap) {
       // Transaction：再次確認仍無管理員才寫入，避免並發重複建管
       try {
         docRef = await getAdminDb().runTransaction(async (tx) => {
-          const snap = await tx.get(adminsRef.limit(1));
+          const adminCol = getAdminDb().collection(rosterCollection("admin"));
+          const snap = await tx.get(adminCol.limit(1));
           if (!snap.empty) {
             throw new Error("BOOTSTRAP_ALREADY_DONE");
           }
-          const ref = adminsRef.doc();
+          const ref = usersRef.doc();
           tx.set(ref, newAdmin);
           return ref;
         });
@@ -148,15 +142,23 @@ export async function POST(request: NextRequest) {
         throw txError;
       }
     } else {
-      docRef = await adminsRef.add(newAdmin);
+      docRef = await usersRef.add(newAdmin);
     }
 
-    // 四種身分都進身分名冊：管理員條目只有學年度學期標記（無名冊欄位）
+    // 管理員身分名冊（當期）：預設超級管理員＝功能模組全開
     const period = await getCurrentPeriod();
     await getAdminDb()
-      .collection(ROSTER_COLLECTION)
+      .collection(rosterCollection("admin"))
       .doc(rosterEntryId(docRef.id, period))
-      .set(buildRosterEntry(docRef.id, "admin", period, {}));
+      .set(
+        buildRosterEntry(
+          docRef.id,
+          "admin",
+          period,
+          { attribute: "超級", modules: ADMIN_MODULE_VALUES.slice() },
+          { email: normEmail, name: normName }
+        )
+      );
 
     await logActivity({
       userId: session?.uid,
@@ -178,6 +180,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: false,
       message: serverErrorMessage(error, "系統錯誤，請稍後再試"),
-    });
+    }, { status: 500 });
   }
 }

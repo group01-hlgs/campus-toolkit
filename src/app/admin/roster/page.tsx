@@ -14,9 +14,16 @@ import {
   RosterInput,
   RosterMember,
   RosterRole,
+  isImportableRole,
   rosterImportHint,
 } from "@/types/roster";
-import { ALL_ROLES, ROLE_LABELS, type AccountStatus, type UserRole } from "@/types/users";
+import {
+  ADMIN_MODULES,
+  ALL_ROLES,
+  ROLE_LABELS,
+  type AccountStatus,
+  type UserRole,
+} from "@/types/users";
 import {
   ACCOUNT_EMAIL_REQUIRED_MESSAGE,
   ACCOUNT_FORMAT_MESSAGE,
@@ -43,19 +50,15 @@ interface ImportResult {
   skipped: ImportSkipped[];
 }
 
-const EMPTY_FORM: Record<RosterFieldKey, string> = {
-  email: "",
-  account: "",
-  password: "",
-  name: "",
-  studentName: "",
-  studentId: "",
-  grade: "",
-  className: "",
-  classNumber: "",
-  title: "",
-  attribute: "",
-};
+/** 全部身分欄位的空白表單（帳號欄位＋各名冊專屬欄位） */
+function buildEmptyForm(): Record<RosterFieldKey, string> {
+  const out = {} as Record<RosterFieldKey, string>;
+  for (const fields of Object.values(ROSTER_FIELDS)) {
+    for (const field of fields) out[field.key] = "";
+  }
+  return out;
+}
+const EMPTY_FORM = buildEmptyForm();
 
 /** 屬於「使用者帳號」（無學年度學期）的表單欄位 */
 function isAccountField(key: RosterFieldKey): boolean {
@@ -81,6 +84,15 @@ function cellValue(member: RosterMember, key: RosterColumnKey): string {
   if (key === "preferredRole") {
     if (!member.preferredRole) return "—";
     return ROLE_LABELS[member.preferredRole] || member.preferredRole;
+  }
+  if (key === "modules") {
+    const modules = member.modules ?? [];
+    if (modules.length === 0) return "—";
+    const attribute = member.attribute === "超級" ? "超級" : "";
+    const labels = ADMIN_MODULES.filter((item) => modules.includes(item.value)).map(
+      (item) => item.label
+    );
+    return attribute ? `${attribute}（全部）` : labels.join("、") || "—";
   }
   const record = member as unknown as Record<string, string | undefined>;
   return record[key] || "—";
@@ -207,19 +219,18 @@ export default function RosterPage() {
   }
 
   function openEdit(member: RosterMember) {
-    setForm({
-      ...EMPTY_FORM,
-      email: member.email,
-      account: member.account,
-      name: member.name,
-      studentName: member.studentName || "",
-      studentId: member.studentId || "",
-      grade: member.grade || "",
-      className: member.className || "",
-      classNumber: member.classNumber || "",
-      title: member.title || "",
-      attribute: member.attribute || "",
-    });
+    const next = { ...EMPTY_FORM };
+    const record = member as unknown as Record<string, unknown>;
+    for (const field of ROSTER_FIELDS[role]) {
+      if (field.key === "password") continue;
+      if (field.key === "modules") {
+        next.modules = (member.modules ?? []).join(",");
+        continue;
+      }
+      const value = record[field.key];
+      next[field.key] = typeof value === "string" ? value : "";
+    }
+    setForm(next);
     setFormPreferredRole(member.preferredRole || "");
     setEditingUid(member.uid);
     setFormError("");
@@ -231,6 +242,19 @@ export default function RosterPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function toggleModule(value: string) {
+    setForm((prev) => {
+      const list = prev.modules
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const next = list.includes(value)
+        ? list.filter((item) => item !== value)
+        : [...list, value];
+      return { ...prev, modules: next.join(",") };
+    });
+  }
+
   /** 客戶端先擋一次，與伺服器 /api/admin/roster 的規則一致 */
   function validateForm(): string | null {
     if (!form.name.trim()) return "請填寫姓名";
@@ -240,6 +264,14 @@ export default function RosterPage() {
     if (!isValidEmail(form.email.trim())) return EMAIL_FORMAT_MESSAGE;
     if (hasAccount && !isValidAccount(form.account.trim())) return ACCOUNT_FORMAT_MESSAGE;
     if (role === "student" && !form.studentId.trim()) return "請填寫學號";
+    if (role === "admin") {
+      if (form.attribute !== "一般" && form.attribute !== "超級") {
+        return "請選擇管理員屬性（一般／超級）";
+      }
+      if (form.attribute === "一般" && !form.modules.trim()) {
+        return "一般管理員請至少指定一個功能模組";
+      }
+    }
 
     const password = form.password;
     if (password) {
@@ -297,7 +329,7 @@ export default function RosterPage() {
 
   async function handleDelete(member: RosterMember) {
     const label = `${member.name}（${member.account || member.email}）`;
-    if (!window.confirm(`確定刪除 ${label}？刪除後無法復原。`)) return;
+    if (!window.confirm(`確定刪除 ${label}？將刪除帳號與所有學期的身分資料，刪除後無法復原。`)) return;
     if (deleting) return;
     setDeleting(true);
     try {
@@ -322,16 +354,26 @@ export default function RosterPage() {
     }
   }
 
-  /** 設定帳號狀態（有效／無效／停權）：非「有效」一律無法登入（含 Google 與兩階段驗證） */
-  async function handleSetStatus(member: RosterMember, status: AccountStatus) {
-    if (toggling || status === member.status) return;
+  /**
+   * 設定狀態。
+   * scope="roster"＝本期該身分（名冊層）；scope="account"＝整個帳號（帳號層，擋全部登入）。
+   */
+  async function handleSetStatus(
+    member: RosterMember,
+    status: AccountStatus,
+    scope: "roster" | "account"
+  ) {
+    if (toggling) return;
+    const current = scope === "account" ? member.status : member.rosterStatus;
+    if (status === current) return;
     const label = `${member.name}（${member.account || member.email}）`;
+    const subject = scope === "account" ? "帳號" : `本期${ROSTER_ROLES.find((r) => r.value === role)?.label ?? "身分"}`;
     const question =
       status === "有效"
-        ? `確定啟用 ${label}？啟用後可正常登入。`
+        ? `確定恢復 ${label} 的${subject}狀態為「有效」？`
         : status === "無效"
-          ? `確定停用 ${label}？停用後將無法登入，原有資料不會刪除。`
-          : `確定將 ${label} 停權？停權後將無法登入，原有資料不會刪除。`;
+          ? `確定停用 ${label} 的${subject}？${scope === "account" ? "停用後無法登入（含所有身分）。" : "僅停用本期該身分，其他身分不受影響。"}`
+          : `確定將 ${label} 的${subject}停權？原有資料不會刪除。`;
     if (!window.confirm(question)) return;
 
     setToggling(true);
@@ -340,7 +382,7 @@ export default function RosterPage() {
       const res = await fetch("/api/admin/roster", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, uid: member.uid, status }),
+        body: JSON.stringify({ role, uid: member.uid, status, scope }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -391,8 +433,73 @@ export default function RosterPage() {
     }
   }
 
-  /** 單一表單欄位：密碼欄附顯示切換，其餘為文字／電子郵件輸入 */
+  /** 屬性欄位：教職員＝行政／教師；管理員＝一般／超級 */
+  function renderAttributeSelect(field: RosterFieldDef) {
+    const options =
+      role === "admin"
+        ? [
+            { value: "", label: "請選擇屬性" },
+            { value: "一般", label: "一般（指定功能模組）" },
+            { value: "超級", label: "超級（全開）" },
+          ]
+        : [
+            { value: "", label: "請選擇屬性" },
+            { value: "行政", label: "行政" },
+            { value: "教師", label: "教師" },
+          ];
+    return (
+      <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
+          {field.label}
+          {role === "admin" && <span className="text-t1">*</span>}
+        </label>
+        <select
+          value={form.attribute}
+          onChange={(e) => handleField("attribute", e.target.value)}
+          className="flex-1 input-theme rounded px-3 py-2"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  /** 指定功能模組：一般管理員勾選可使用的功能；超級管理員全開、不需勾選 */
+  function renderModules() {
+    const isSuper = form.attribute === "超級";
+    const selected = form.modules
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+        <label className="text-t2 sm:w-40 shrink-0">指定功能模組</label>
+        <div className="flex-1 flex flex-wrap gap-x-4 gap-y-2">
+          {ADMIN_MODULES.map((module) => (
+            <label key={module.value} className="flex items-center gap-1.5 text-sm text-t1">
+              <input
+                type="checkbox"
+                checked={isSuper || selected.includes(module.value)}
+                disabled={isSuper}
+                onChange={() => toggleModule(module.value)}
+                className="accent-current"
+              />
+              {module.label}
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /** 單一表單欄位：密碼欄附顯示切換，屬性／模組為特殊控制項，其餘為文字／電子郵件輸入 */
   function renderField(field: RosterFieldDef) {
+    if (field.key === "attribute") return renderAttributeSelect(field);
+    if (field.key === "modules") return renderModules();
     return (
       <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
         <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
@@ -417,7 +524,7 @@ export default function RosterPage() {
           </div>
         ) : (
           <input
-            type={field.key === "email" ? "email" : "text"}
+            type={field.key === "email" || field.key === "studentEmail" ? "email" : "text"}
             value={form[field.key] ?? ""}
             onChange={(e) => handleField(field.key, e.target.value)}
             autoComplete="off"
@@ -435,25 +542,19 @@ export default function RosterPage() {
   const filtered = useMemo(() => {
     const key = keyword.trim().toLowerCase();
     if (!key) return members;
-    return members.filter((member) =>
-      [
-        member.name,
-        member.email,
-        member.account,
-        member.studentName,
-        member.studentId,
-        member.grade,
-        member.className,
-        member.classNumber,
-        member.title,
-        member.attribute,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(key))
-    );
+    return members.filter((member) => {
+      const record = member as unknown as Record<string, unknown>;
+      return Object.entries(record)
+        .filter(([field]) => field !== "uid" && field !== "lastLogin")
+        .map(([, value]) =>
+          Array.isArray(value) ? value.join(" ") : String(value ?? "")
+        )
+        .some((value) => value.toLowerCase().includes(key));
+    });
   }, [members, keyword]);
 
   const columns = ROSTER_COLUMNS[role];
+  const importable = isImportableRole(role);
   const actionButtons = (
     <>
       <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
@@ -481,7 +582,7 @@ export default function RosterPage() {
       <div className="w-full max-w-5xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">使用者帳號管理</h2>
         <p className="text-t2 mt-1 text-sm">
-          新增、編輯、刪除、匯入學生、教職員與管理員帳號，並設定狀態（有效／無效／停權）
+          一組帳號對應四種身分名冊（學生、家長、教職員、管理員）；帳號狀態決定能否登入，本期身分狀態決定該身分是否可用
         </p>
       </div>
 
@@ -522,13 +623,15 @@ export default function RosterPage() {
         >
           新增{ROSTER_ROLES.find((item) => item.value === role)?.label}
         </button>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={importing}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-        >
-          {importing ? "匯入中..." : "Excel 匯入"}
-        </button>
+        {importable && (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            {importing ? "匯入中..." : "Excel 匯入"}
+          </button>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -543,8 +646,17 @@ export default function RosterPage() {
 
       {/* 匯入格式說明 */}
       <div className="w-full max-w-5xl mb-4 text-sm text-t3">
-        匯入欄位：{rosterImportHint(role)}；電子郵件地址與帳號至少填一項，單次最多 900
-        列；名冊欄位寫入 {settings.academicYear} 學年度第{settings.semester}學期。
+        {importable ? (
+          <>
+            匯入欄位：{rosterImportHint(role)}；電子郵件地址必填，單次最多 900
+            列；名冊欄位寫入 {settings.academicYear} 學年度第{settings.semester}學期。
+          </>
+        ) : (
+          <>
+            家長身分不提供檔案匯入，請以「新增家長」表單建立；名冊欄位寫入 {settings.academicYear}{" "}
+            學年度第{settings.semester}學期。
+          </>
+        )}
       </div>
 
       {/* 提示訊息 */}
@@ -618,7 +730,7 @@ export default function RosterPage() {
               </select>
             </div>
             <p className="text-xs text-t3">
-              同一組帳號／信箱同時存在於多個身分時，登入依此欄位決定身分；未設定則登入時詢問。
+              同一組帳號具備多個身分時，登入依此欄位決定身分；未設定則登入時詢問。
             </p>
           </div>
 
@@ -634,9 +746,9 @@ export default function RosterPage() {
           )}
 
           <p className="text-sm text-t3 mt-3">
-            {ACCOUNT_EMAIL_REQUIRED_MESSAGE}（多身分以電子郵件偵測）；
+            {ACCOUNT_EMAIL_REQUIRED_MESSAGE}（登入識別與多身分偵測都仰賴它）；
             {role === "admin"
-              ? "管理員的名冊條目只有學年度學期標記，建立帳號時自動寫入。"
+              ? "管理員另可指定屬性與功能模組（超級＝全開）。"
               : "名冊欄位屬於本學年度學期，切換學期後需重新維護。"}
           </p>
 
@@ -703,7 +815,12 @@ export default function RosterPage() {
                     <span
                       className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ${STATUS_STYLE[member.status]}`}
                     >
-                      {member.status}
+                      帳號：{member.status}
+                    </span>
+                    <span
+                      className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ml-1 ${STATUS_STYLE[member.rosterStatus]}`}
+                    >
+                      本期：{member.rosterStatus}
                     </span>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
@@ -716,14 +833,14 @@ export default function RosterPage() {
                     {member.status === "有效" ? (
                       <>
                         <button
-                          onClick={() => void handleSetStatus(member, "無效")}
+                          onClick={() => void handleSetStatus(member, "無效", "account")}
                           disabled={toggling}
                           className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
                         >
-                          停用
+                          停用帳號
                         </button>
                         <button
-                          onClick={() => void handleSetStatus(member, "停權")}
+                          onClick={() => void handleSetStatus(member, "停權", "account")}
                           disabled={toggling}
                           className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
                         >
@@ -732,11 +849,28 @@ export default function RosterPage() {
                       </>
                     ) : (
                       <button
-                        onClick={() => void handleSetStatus(member, "有效")}
+                        onClick={() => void handleSetStatus(member, "有效", "account")}
                         disabled={toggling}
                         className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
                       >
-                        啟用
+                        啟用帳號
+                      </button>
+                    )}
+                    {member.rosterStatus === "有效" ? (
+                      <button
+                        onClick={() => void handleSetStatus(member, "無效", "roster")}
+                        disabled={toggling}
+                        className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                      >
+                        停用本期
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void handleSetStatus(member, "有效", "roster")}
+                        disabled={toggling}
+                        className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                      >
+                        啟用本期
                       </button>
                     )}
                     <button

@@ -9,6 +9,8 @@ export interface UserSession {
   role: UserRole;
   /** 本次登入可用的身分（多身分切換選單用；單一時僅含目前身分） */
   roles?: UserRole[];
+  /** 管理員被指派的功能模組（首頁卡片顯示用；超級管理員＝全部） */
+  adminModules?: string[];
 }
 
 let cached: UserSession | null = null;
@@ -29,6 +31,9 @@ function toUserSession(user: unknown): UserSession | null {
     displayName: typeof u.displayName === "string" ? u.displayName : "",
     role: u.role,
     roles: roles.length > 0 ? roles : [u.role],
+    adminModules: Array.isArray(u.adminModules)
+      ? u.adminModules.filter((item): item is string => typeof item === "string")
+      : undefined,
   };
 }
 

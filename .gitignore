@@ -18,6 +18,9 @@ dist/
 .DS_Store
 *.pem
 
+# 備份（scripts/reset-users-roster.mjs 匯出的 Firestore 資料）
+backups/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

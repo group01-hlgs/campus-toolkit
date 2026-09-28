@@ -148,7 +148,6 @@ export const RATE = {
   ADMIN_LIST: { limit: 60, windowMs: 60_000 },
   ADMIN_MUTATE: { limit: 10, windowMs: 60 * 60_000 },
   ADMIN_ACTIVITY: { limit: 120, windowMs: 60_000 },
-  SEED_ROLES: { limit: 5, windowMs: 60 * 60_000 },
   LEADERBOARD_GET: { limit: 60, windowMs: 60_000 },
   LEADERBOARD_POST: { limit: 20, windowMs: 60_000 },
   /** 兩階段驗證：重發 Email OTP（本身另有同用戶 120 秒節流） */

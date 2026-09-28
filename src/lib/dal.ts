@@ -5,8 +5,9 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { getSession, SessionPayload } from "@/lib/server-session";
 import { isJtiRevoked } from "@/lib/revocation";
 import { getClientIp } from "@/lib/audit";
-import { getSessionTimeoutMinutes, isSystemEnabled } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS, isAccountActive, UserRole } from "@/types/users";
+import { getSessionTimeoutMinutes, getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import { adminModulesOf, getRosterEntry, isActiveEntry } from "@/lib/roster";
+import { AdminModule, isAccountActive, USER_COLLECTION, UserRole } from "@/types/users";
 
 export async function verifySession(): Promise<SessionPayload | null> {
   const session = await getSession();
@@ -25,7 +26,7 @@ export async function verifySession(): Promise<SessionPayload | null> {
 
   try {
     const snap = await getAdminDb()
-      .collection(ROLE_COLLECTIONS[session.role])
+      .collection(USER_COLLECTION)
       .doc(session.uid)
       .get();
     if (!snap.exists) return null;
@@ -36,6 +37,10 @@ export async function verifySession(): Promise<SessionPayload | null> {
 
     const tokenVersion = typeof data?.tokenVersion === "number" ? data.tokenVersion : 1;
     if (session.tokenVersion !== tokenVersion) return null;
+
+    // 當期身分名冊：該身分不存在、無效或已被移除時，session 失效
+    const entry = await getRosterEntry(session.uid, session.role, await getCurrentPeriod());
+    if (!isActiveEntry(entry)) return null;
 
     // 鎖定與登入路由一致：僅當鎖定綁定的來源 IP（或未綁定）命中目前請求才失效
     const lockedUntil = typeof data?.lockedUntil === "number" ? data.lockedUntil : 0;
@@ -79,4 +84,33 @@ export async function requireRole(role: UserRole): Promise<
     return { session: null, denial: { status: 403, message: "權限不足" } };
   }
   return { session, denial: null };
+}
+
+/**
+ * 管理功能模組權限：超級管理員全開；一般管理員須被指派該模組。
+ * 模組指派存於「當期管理員身分名冊」（attribute、modules）。
+ */
+export async function hasAdminModule(
+  session: SessionPayload,
+  module: AdminModule
+): Promise<boolean> {
+  if (session.role !== "admin") return false;
+  try {
+    const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
+    return adminModulesOf(entry).includes(module);
+  } catch {
+    // fail-closed：讀不到權限資訊一律視為無權限
+    return false;
+  }
+}
+
+export async function requireAdminModule(module: AdminModule): Promise<
+  { session: SessionPayload; denial: null } | { session: null; denial: AuthDenial }
+> {
+  const result = await requireRole("admin");
+  if (result.denial) return result;
+  if (!(await hasAdminModule(result.session, module))) {
+    return { session: null, denial: { status: 403, message: "此帳號未被指派該功能模組" } };
+  }
+  return result;
 }

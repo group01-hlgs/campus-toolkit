@@ -1,77 +1,127 @@
 /**
- * 使用者帳號管理（/admin/roster）共用定義：身分分頁、表單欄位、匯入檔案欄位。
- * 涵蓋學生／教職員／管理員三個身分；家長帳號不在此頁維護。
+ * 身分名冊（四張表：學生、家長、教職員、管理員）共用定義：
+ * 分頁、表單欄位、匯入檔案欄位、清單欄位。
+ *
+ * 名冊以學年度、學期為小週期；共同欄位（狀態、電子郵件、姓名、學年度、學期）
+ * 定義於 RosterEntry，各表專屬欄位定義於 ROSTER_ENTRY_FIELDS。
  */
 
-import type { AccountStatus, UserRole } from "@/types/users";
+import {
+  ACTIVE_STATUS,
+  ADMIN_MODULES,
+  AdminModule,
+  AccountStatus,
+  ROLE_LABELS,
+  UserRole,
+} from "@/types/users";
 
-export type RosterRole = "student" | "staff" | "admin";
-
-/** 身分名冊（roster 集合）的身分：四種身分都進名冊；管理員條目只有學年度學期標記 */
-export type RosterEntryRole = "student" | "staff" | "parent" | "admin";
+/** 名冊分頁＝四種身分（與帳號身分一致） */
+export type RosterRole = UserRole;
 
 export const ROSTER_ROLES: { value: RosterRole; label: string; tab: string }[] = [
-  { value: "student", label: "學生", tab: "學生帳號" },
-  { value: "staff", label: "教職員", tab: "教職員帳號" },
-  { value: "admin", label: "管理員", tab: "管理員帳號" },
+  { value: "student", label: "學生", tab: "學生名冊" },
+  { value: "parent", label: "家長", tab: "家長名冊" },
+  { value: "staff", label: "教職員", tab: "教職員名冊" },
+  { value: "admin", label: "管理員", tab: "管理員名冊" },
 ];
 
 export function isRosterRole(value: unknown): value is RosterRole {
-  return value === "student" || value === "staff" || value === "admin";
-}
-
-export function isRosterEntryRole(value: unknown): value is RosterEntryRole {
-  return value === "student" || value === "staff" || value === "parent" || value === "admin";
+  return value === "student" || value === "parent" || value === "staff" || value === "admin";
 }
 
 export function rosterRoleLabel(value: unknown): string {
-  return ROSTER_ROLES.find((role) => role.value === value)?.label || "";
+  return isRosterRole(value) ? ROLE_LABELS[value] : "";
 }
 
-/** 屬於「使用者帳號」的欄位（無學年度學期） */
-export const ACCOUNT_FIELD_KEYS = ["email", "account", "password", "name"] as const;
-
-/** 屬於「身分名冊」的欄位（隨學年度、學期變動），與 ROLE_SPECIFIC_FIELDS 對應；管理員只有標記、無欄位 */
-export const ROSTER_ENTRY_FIELDS: Record<RosterEntryRole, RosterFieldKey[]> = {
-  student: ["studentId", "grade", "className", "classNumber"],
-  staff: ["className", "title", "attribute"],
-  parent: ["studentName", "studentId", "className", "classNumber"],
-  admin: [],
+/** 四張身分名冊的集合（每張＝一種身分，每「帳號 × 學年度 × 學期」最多一筆） */
+export const ROSTER_COLLECTIONS: Record<UserRole, string> = {
+  student: "rosterStudents",
+  parent: "rosterParents",
+  staff: "rosterStaff",
+  admin: "rosterAdmins",
 };
 
-/** 身分名冊一條（roster 集合文件），每「身分 × 學年度 × 學期」一條；管理員條目只含下列標記欄位 */
+export function rosterCollection(role: UserRole): string {
+  return ROSTER_COLLECTIONS[role];
+}
+
+/** 屬於「使用者帳號」的表單欄位（無學年度學期，寫入 users） */
+export type AccountFieldKey = "email" | "account" | "password" | "name";
+
+export const ACCOUNT_FIELD_KEYS: readonly AccountFieldKey[] = [
+  "email",
+  "account",
+  "password",
+  "name",
+];
+
+/** 各表專屬的名冊欄位鍵 */
+export type EntryFieldKey =
+  | "studentId"
+  | "grade"
+  | "classCode"
+  | "className"
+  | "seatNo"
+  | "rollNo"
+  | "studentEmail"
+  | "relation"
+  | "attribute"
+  | "unit"
+  | "title"
+  | "modules";
+
+/** 表單／匯入／清單共用的欄位鍵（password 只在表單與匯入出現，不會出現在清單） */
+export type RosterFieldKey = AccountFieldKey | EntryFieldKey;
+
+/** 各身分在名冊的專屬欄位（順序即表單與清單顯示順序） */
+export const ROSTER_ENTRY_FIELDS: Record<UserRole, EntryFieldKey[]> = {
+  student: ["studentId", "grade", "classCode", "className", "seatNo", "rollNo"],
+  parent: [
+    "studentEmail",
+    "studentId",
+    "grade",
+    "classCode",
+    "className",
+    "seatNo",
+    "rollNo",
+    "relation",
+  ],
+  staff: ["attribute", "unit", "title", "classCode", "className"],
+  admin: ["attribute", "modules"],
+};
+
+/**
+ * 身分名冊一條（四張表共用的文件形狀）。
+ * doc id = `${uid}_${學年度}_${學期}`，關聯欄位 uid 連回使用者帳號。
+ */
 export interface RosterEntry {
-  /** 連回使用者帳號文件（students/parents/staff/admins 的 doc id） */
+  /** 連回使用者帳號文件（users 的 doc id） */
   uid: string;
-  role: RosterEntryRole;
+  /** 狀態：有效／無效／停權（擋該身分能否使用） */
+  status: AccountStatus;
+  /** 電子郵件地址（該期該身分的信箱，展示／搜尋） */
+  email: string;
+  /** 姓名（該期該身分的姓名，顯示以此為準） */
+  name: string;
   /** 學年度（民國年） */
   academicYear: number;
   /** 學期：1=第1學期、2=第2學期 */
   semester: number;
-  studentName?: string;
+  studentEmail?: string;
   studentId?: string;
   grade?: string;
+  classCode?: string;
   className?: string;
-  classNumber?: string;
-  title?: string;
+  seatNo?: string;
+  rollNo?: string;
+  relation?: string;
   attribute?: string;
+  unit?: string;
+  title?: string;
+  modules?: string[];
   createdAt?: number;
   updatedAt?: number;
 }
-
-/** 表單／匯入共用的欄位鍵（password 只在表單與匯入出現，不會出現在清單） */
-export type RosterFieldKey =
-  | "email"
-  | "account"
-  | "password"
-  | "name"
-  | "studentName"
-  | "studentId"
-  | "grade"
-  | "className"
-  | "classNumber"
-  | "title"
-  | "attribute";
 
 export interface RosterFieldDef {
   key: RosterFieldKey;
@@ -82,34 +132,80 @@ export interface RosterFieldDef {
   aliases: string[];
 }
 
-/** 各身分的表單欄位，順序即表單與匯入比對的順序 */
+const EMAIL_ALIASES = ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"];
+const ACCOUNT_ALIASES = ["帳號", "account"];
+const PASSWORD_ALIASES = ["密碼", "password"];
+const NAME_ALIASES = ["姓名", "name"];
+
+/** 各身分的表單欄位，順序即表單與匯入比對的順序（前四項為帳號欄位） */
 export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   student: [
-    { key: "email", label: "電子郵件地址", required: true, aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
-    { key: "account", label: "帳號", aliases: ["帳號", "account"] },
-    { key: "password", label: "密碼", aliases: ["密碼", "password"] },
-    { key: "name", label: "姓名", required: true, aliases: ["姓名", "name"] },
+    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
+    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
+    { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "studentId", label: "學號", required: true, aliases: ["學號", "studentid", "student id"] },
     { key: "grade", label: "年級", aliases: ["年級", "grade", "年"] },
-    { key: "className", label: "班級", aliases: ["班級", "class"] },
-    { key: "classNumber", label: "班號", aliases: ["班號", "座號", "number"] },
+    { key: "classCode", label: "班級代號", aliases: ["班級代號", "班級代碼", "classcode", "class code"] },
+    { key: "className", label: "班級名稱", aliases: ["班級名稱", "班級", "class", "classname"] },
+    { key: "seatNo", label: "座號", aliases: ["座號", "seatno", "seat no"] },
+    { key: "rollNo", label: "班號", aliases: ["班號", "rollno", "roll no", "number"] },
+  ],
+  parent: [
+    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
+    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
+    { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
+    {
+      key: "studentEmail",
+      label: "學生電子郵件地址",
+      aliases: ["學生電子郵件地址", "學生信箱", "學生email"],
+    },
+    { key: "studentId", label: "學號", aliases: ["學號", "studentid", "student id"] },
+    { key: "grade", label: "年級", aliases: ["年級", "grade", "年"] },
+    { key: "classCode", label: "班級代號", aliases: ["班級代號", "班級代碼", "classcode"] },
+    { key: "className", label: "班級名稱", aliases: ["班級名稱", "班級", "class"] },
+    { key: "seatNo", label: "座號", aliases: ["座號", "seatno"] },
+    { key: "rollNo", label: "班號", aliases: ["班號", "rollno", "number"] },
+    { key: "relation", label: "關係", aliases: ["關係", "relation", "親屬關係"] },
   ],
   staff: [
-    { key: "email", label: "電子郵件地址", required: true, aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
-    { key: "account", label: "帳號", aliases: ["帳號", "account"] },
-    { key: "password", label: "密碼", aliases: ["密碼", "password"] },
-    { key: "name", label: "姓名", required: true, aliases: ["姓名", "name"] },
-    { key: "className", label: "班級", aliases: ["班級", "class"] },
-    { key: "title", label: "職稱", aliases: ["職稱", "title"] },
+    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
+    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
+    { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
+    { key: "unit", label: "單位", aliases: ["單位", "部門", "unit", "department"] },
+    { key: "title", label: "職稱", aliases: ["職稱", "title"] },
+    { key: "classCode", label: "班級代號", aliases: ["班級代號", "班級代碼", "classcode"] },
+    { key: "className", label: "班級名稱", aliases: ["班級名稱", "班級", "class"] },
   ],
   admin: [
-    { key: "email", label: "電子郵件地址", required: true, aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"] },
-    { key: "account", label: "帳號", aliases: ["帳號", "account"] },
-    { key: "password", label: "密碼", aliases: ["密碼", "password"] },
-    { key: "name", label: "姓名", required: true, aliases: ["姓名", "name"] },
+    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
+    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
+    { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
+    { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
+    {
+      key: "modules",
+      label: "指定功能模組",
+      aliases: ["指定功能模組", "功能模組", "模組", "modules"],
+    },
   ],
 };
+
+/** 資訊卡（帳號與安全頁）顯示的名冊欄位＝該身分的名冊專屬欄位 */
+export const ROLE_INFO_FIELDS: Record<UserRole, { key: RosterFieldKey; label: string }[]> =
+  Object.fromEntries(
+    Object.entries(ROSTER_ENTRY_FIELDS).map(([role, keys]) => [
+      role,
+      keys.map((key) => ({
+        key,
+        label:
+          ROSTER_FIELDS[role as RosterRole].find((field) => field.key === key)?.label || key,
+      })),
+    ])
+  ) as Record<UserRole, { key: RosterFieldKey; label: string }[]>;
 
 /** 帳號清單的表格欄位鍵（帳號／名冊欄位＋慣用身分） */
 export type RosterColumnKey = RosterFieldKey | "preferredRole";
@@ -122,23 +218,43 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "account", label: "帳號" },
     { key: "studentId", label: "學號" },
     { key: "grade", label: "年級" },
-    { key: "className", label: "班級" },
-    { key: "classNumber", label: "班號" },
+    { key: "classCode", label: "班級代號" },
+    { key: "className", label: "班級名稱" },
+    { key: "seatNo", label: "座號" },
+    { key: "rollNo", label: "班號" },
+    { key: "preferredRole", label: "慣用身分" },
+  ],
+  parent: [
+    { key: "name", label: "姓名" },
+    { key: "email", label: "電子郵件地址" },
+    { key: "account", label: "帳號" },
+    { key: "studentEmail", label: "學生電子郵件地址" },
+    { key: "studentId", label: "學號" },
+    { key: "grade", label: "年級" },
+    { key: "classCode", label: "班級代號" },
+    { key: "className", label: "班級名稱" },
+    { key: "seatNo", label: "座號" },
+    { key: "rollNo", label: "班號" },
+    { key: "relation", label: "關係" },
     { key: "preferredRole", label: "慣用身分" },
   ],
   staff: [
     { key: "name", label: "姓名" },
     { key: "email", label: "電子郵件地址" },
     { key: "account", label: "帳號" },
-    { key: "className", label: "班級" },
-    { key: "title", label: "職稱" },
     { key: "attribute", label: "屬性" },
+    { key: "unit", label: "單位" },
+    { key: "title", label: "職稱" },
+    { key: "classCode", label: "班級代號" },
+    { key: "className", label: "班級名稱" },
     { key: "preferredRole", label: "慣用身分" },
   ],
   admin: [
     { key: "name", label: "姓名" },
     { key: "email", label: "電子郵件地址" },
     { key: "account", label: "帳號" },
+    { key: "attribute", label: "屬性" },
+    { key: "modules", label: "指定功能模組" },
     { key: "preferredRole", label: "慣用身分" },
   ],
 };
@@ -146,30 +262,55 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
 /** 匯入時每一列的原始輸入（欄位值一律是字串，空白代表未填） */
 export type RosterInput = Partial<Record<RosterFieldKey, string>>;
 
-/** 帳號清單一列（API 回傳格式，角色欄位平鋪、不含密碼；名冊欄位為目前學年度學期） */
+/** 帳號清單一列（API 回傳格式，帳號欄位平鋪、不含密碼；名冊欄位為目前學年度學期） */
 export interface RosterMember {
   uid: string;
   email: string;
   account: string;
   name: string;
-  /** 帳號狀態：有效／無效／停權（無效、停權都無法登入） */
+  /** 帳號狀態：有效／無效／停權（擋整個帳號能否登入） */
   status: AccountStatus;
+  /** 名冊狀態：有效／無效／停權（擋本期該身分能否使用） */
+  rosterStatus: AccountStatus;
   /** 慣用身分：多身分共用帳號時登入預設進入的身分（未設定則登入時詢問） */
   preferredRole?: UserRole;
+  /** 最後登入（由登入紀錄推導） */
   lastLogin?: number;
   loginCount?: number;
+  studentEmail?: string;
   studentId?: string;
   grade?: string;
+  classCode?: string;
   className?: string;
-  classNumber?: string;
-  title?: string;
+  seatNo?: string;
+  rollNo?: string;
+  relation?: string;
   attribute?: string;
-  studentName?: string;
+  unit?: string;
+  title?: string;
+  modules?: string[];
+}
+
+/** 可匯入 Excel 的身分（家長只提供表單建立，不提供檔案匯入） */
+export const IMPORTABLE_ROLES: RosterRole[] = ["student", "staff", "admin"];
+
+export function isImportableRole(role: RosterRole): boolean {
+  return IMPORTABLE_ROLES.includes(role);
+}
+
+/** 管理員「指定功能模組」選項文字（用於清單顯示與匯入比對） */
+export function adminModuleLabels(values: unknown): string {
+  const list = Array.isArray(values) ? values : [];
+  return list
+    .map((value) => ADMIN_MODULES.find((item) => item.value === value)?.label || "")
+    .filter(Boolean)
+    .join("、");
 }
 
 /** 匯入檔案的格式說明（頁面上直接顯示，讓使用者對得上範例檔） */
 export function rosterImportHint(role: RosterRole): string {
   return ROSTER_FIELDS[role]
+    .filter((field) => field.key !== "password")
     .map((field) => `${field.label}${field.required ? "（必填）" : ""}`)
     .join("、");
 }
@@ -178,3 +319,6 @@ export function rosterImportHint(role: RosterRole): string {
 export function isEmptyRosterInput(input: RosterInput): boolean {
   return Object.values(input).every((value) => !String(value ?? "").trim());
 }
+
+/** 新建立的名冊條目預設狀態 */
+export const ENTRY_DEFAULT_STATUS = ACTIVE_STATUS;

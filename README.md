@@ -55,7 +55,7 @@ npm run dev
 
 ### 第 6 步（可選）：補一點測試資料
 
-管理員登入後，環境變數填 `SEED_*` 三項，對 `/api/seed-roles` 送出 **POST** 請求（僅支援 POST，避免跨站 GET 觸發），會自動建學生／家長／教職員範本帳號。
+專案根目錄執行 `node scripts/reset-users-roster.mjs`，會備份並重建使用者帳號（`users`）與四份身分名冊（`rosterStudents` / `rosterParents` / `rosterStaff` / `rosterAdmins`），種入一組測試帳號與範本資料。
 
 ### 第 7 步：上線到 Vercel
 
@@ -144,7 +144,6 @@ npm run dev
 | `SESSION_SECRET` | 是 | 簽 session JWT 用，**至少 32 字元**。可用 `openssl rand -base64 32` 產生 |
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | 是 | Firebase 服務帳號金鑰。Console → 專案設定 → 服務帳號 → 產生新的私鑰；可貼**整段 JSON 字串**或其 **base64** |
 | `ALLOW_BOOTSTRAP_ADMIN` | 首次啟動 | 僅在建立「第一個管理員」時設為 `true`，建完請改回 `false` |
-| `SEED_ACCOUNT` / `SEED_EMAIL` / `SEED_PASSWORD` | 選用 | 種子角色帳號；缺任一項則種子 API 拒絕執行 |
 
 ## Firebase 專案設定
 
@@ -168,13 +167,13 @@ npm run dev
 
 ### （選用）種子角色資料
 
-以**管理員**登入後，於環境變數填好 `SEED_*` 三項，對已部署網址請求：
+專案根目錄執行：
 
-```http
-POST /api/seed-roles
+```bash
+node scripts/reset-users-roster.mjs
 ```
 
-會依種子帳號建立學生／家長／教職員範本資料（已存在之帳號會跳過）。僅 admin session 可呼叫（需同源），並有速率限制；**不接受 GET**。
+會先將 `users`、`rosterStudents`、`rosterParents`、`rosterStaff`、`rosterAdmins` 匯出到 `backups/` 備份，再清空重建並種入測試帳號與範本資料（當期名冊）。此指令**直接連線 Firestore**（需 `FIREBASE_SERVICE_ACCOUNT_KEY`），不會經過 HTTP，因此不提供 API 端點。
 
 ## 常用指令
 

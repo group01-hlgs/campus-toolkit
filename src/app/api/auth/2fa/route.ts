@@ -9,8 +9,8 @@ import {
 import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { isSystemEnabled } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS, ROLE_LABELS, isAccountActive, UserRole } from "@/types/users";
+import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import { ROLE_LABELS, isAccountActive, USER_COLLECTION, UserRole } from "@/types/users";
 import {
   EMAIL_OTP_COOLDOWN_MS,
   checkTwoFactorAttempt,
@@ -20,7 +20,13 @@ import {
   verifyEmailOtp,
   verifyTotpWithReplay,
 } from "@/lib/two-factor";
-import { orderRoles } from "@/lib/login-candidate";
+import {
+  AccountCandidate,
+  AccountHit,
+  detectRoleCandidates,
+  orderRoles,
+} from "@/lib/login-candidate";
+import { getRosterEntry, resolveDisplayName } from "@/lib/roster";
 import { serverErrorMessage } from "@/lib/api-error";
 
 const EXPIRED_MESSAGE = "驗證階段已過期，請重新登入";
@@ -47,7 +53,7 @@ export async function GET(request: NextRequest) {
     if (!pending) return expired();
 
     const snap = await getAdminDb()
-      .collection(ROLE_COLLECTIONS[pending.role])
+      .collection(USER_COLLECTION)
       .doc(pending.uid)
       .get();
     if (!snap.exists) return expired();
@@ -93,8 +99,10 @@ export async function POST(request: NextRequest) {
     const pending = await getPending2FAPayload();
     if (!pending) return expired();
 
+    const systemEnabled = await isSystemEnabled();
+
     // 系統停用時僅管理員可完成登入（與密碼登入一致）
-    if (pending.role !== "admin" && !(await isSystemEnabled())) {
+    if (pending.role !== "admin" && !systemEnabled) {
       await clearPending2FACookie();
       return NextResponse.json(
         { success: false, message: "系統目前暫停服務，請稍後再試" },
@@ -120,9 +128,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userRef = getAdminDb()
-      .collection(ROLE_COLLECTIONS[pending.role])
-      .doc(pending.uid);
+    const userRef = getAdminDb().collection(USER_COLLECTION).doc(pending.uid);
     const snap = await userRef.get();
     if (!snap.exists) return expired();
     const userData = snap.data()!;
@@ -175,10 +181,16 @@ export async function POST(request: NextRequest) {
     await clearOtpState(userRef);
     resetTwoFactorAttempts(attemptKey);
 
-    // 多身分偵測結果與帳密／Google 登入一致：登入時存於中途憑證
-    const candidates = pending.candidates?.length
-      ? pending.candidates
-      : [{ role: pending.role, id: pending.uid }];
+    // 多身分偵測結果與帳密／Google 登入一致：
+    // 重新以當期名冊計算有效身分，並限縮在登入時偵測到的候選內（過期中途憑證不可擴張）
+    const hit: AccountHit = { id: snap.id, ref: snap.ref, data: userData };
+    const fresh = await detectRoleCandidates(hit, { adminsOnly: !systemEnabled });
+    const allowed = new Set(pending.candidates?.map((candidate) => candidate.role) ?? []);
+    const candidates: AccountCandidate[] = fresh.filter(
+      (candidate) => allowed.size === 0 || allowed.has(candidate.role)
+    );
+    if (candidates.length === 0) return expired();
+
     const preferred =
       pending.preferred &&
       candidates.some((candidate) => candidate.role === pending.preferred)
@@ -213,69 +225,44 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const role: UserRole = preferred ?? pending.role;
-    const target = candidates.find((candidate) => candidate.role === role);
+    const role: UserRole = preferred ?? candidates[0].role;
 
-    // 慣用身分未必是完成第二階段驗證的那個帳號：載入目標文件確認仍存在且有效
-    let targetRef = userRef;
-    let targetData = userData;
-    if (target && (target.role !== pending.role || target.id !== pending.uid)) {
-      const targetSnap = await getAdminDb()
-        .collection(ROLE_COLLECTIONS[target.role])
-        .doc(target.id)
-        .get();
-      if (!targetSnap.exists) return expired();
-      targetRef = targetSnap.ref;
-      targetData = targetSnap.data()!;
-      if (!isAccountActive(targetData)) {
-        await clearPending2FACookie();
-        await logActivity({
-          userId: target.id,
-          role: target.role,
-          action: "login_failed",
-          ip,
-          details: "完成第二階段驗證後目標身分帳號已停用，拒絕登入",
-        });
-        return NextResponse.json(
-          { success: false, message: "帳號已停用，無法登入" },
-          { status: 401 }
-        );
-      }
-    }
+    // 稱謂以「當期該身分名冊的姓名」為準，沒有才退回帳號姓名
+    const entry = await getRosterEntry(snap.id, role, await getCurrentPeriod());
+    const displayName = resolveDisplayName(userData, entry);
 
     // 通過：清除中途憑證
     await clearPending2FACookie();
 
     const now = Date.now();
     const loginRecords = [
-      ...((Array.isArray(targetData.loginRecords) ? targetData.loginRecords : []) as number[]),
+      ...((Array.isArray(userData.loginRecords) ? userData.loginRecords : []) as number[]),
       now,
     ].slice(-50);
 
-    await targetRef.update({
+    await userRef.update({
       failedAttempts: 0,
       lockedUntil: 0,
       lockIp: "",
-      lastLogin: now,
       lastLoginMethod: `${pending.via}+${pending.method}`,
-      loginCount: (targetData.loginCount || 0) + 1,
+      loginCount: (userData.loginCount || 0) + 1,
       loginRecords,
     });
 
     const user = {
-      uid: targetRef.id,
-      email: targetData.email,
-      account: targetData.account,
-      displayName: targetData.name || targetData.displayName || "",
+      uid: snap.id,
+      email: typeof userData.email === "string" ? userData.email : "",
+      account: typeof userData.account === "string" ? userData.account : "",
+      displayName,
       role,
       roles: candidates.map((candidate) => candidate.role),
-      tokenVersion: typeof targetData.tokenVersion === "number" ? targetData.tokenVersion : 1,
+      tokenVersion: typeof userData.tokenVersion === "number" ? userData.tokenVersion : 1,
     };
 
     await createSession({ ...user, candidates });
 
     await logActivity({
-      userId: targetRef.id,
+      userId: user.uid,
       role,
       action: "two_factor_verified",
       ip,
@@ -285,7 +272,7 @@ export async function POST(request: NextRequest) {
           : "TOTP 驗證成功，登入完成",
     });
     await logActivity({
-      userId: targetRef.id,
+      userId: user.uid,
       role,
       action: "login",
       ip,

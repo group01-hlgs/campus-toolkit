@@ -11,7 +11,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getTotpIssuer, isEmailChangeAllowed, getCurrentPeriod } from "@/lib/settings-server";
-import { entryRoleOf, getRosterEntry } from "@/lib/roster";
+import { getRosterEntry, isActiveEntry, syncEntryIdentity } from "@/lib/roster";
 import { buildOtpauthUrl } from "@/lib/totp";
 import { readTwoFactorProfile } from "@/lib/two-factor";
 import {
@@ -21,12 +21,13 @@ import {
 } from "@/lib/validation";
 import {
   ALL_ROLES,
-  ROLE_COLLECTIONS,
   ROLE_LABELS,
-  ROLE_SPECIFIC_FIELDS,
+  USER_COLLECTION,
   UserRole,
   isUserRole,
+  lastLoginOf,
 } from "@/types/users";
+import { ROLE_INFO_FIELDS, adminModuleLabels } from "@/types/roster";
 import { serverErrorMessage } from "@/lib/api-error";
 
 export interface AccountProfile {
@@ -37,7 +38,7 @@ export interface AccountProfile {
   email: string;
   account: string;
   loginCount: number;
-  /** 最後一次登入時間（epoch ms），0 表示無紀錄 */
+  /** 最後一次登入時間（epoch ms，由登入紀錄推導），0 表示無紀錄 */
   lastLogin: number;
   lastLoginMethod: string;
   /** 最近登入紀錄（新→舊，最多 20 筆） */
@@ -49,42 +50,10 @@ export interface AccountProfile {
   lockedUntil: number;
   failedAttempts: number;
   fields: Record<string, string>;
-  /** 慣用身分：多個身分共用同一組帳號／信箱時，登入預設進入的身分（空字串＝未設定） */
+  /** 慣用身分：多身分共用帳號時登入預設進入的身分（空字串＝未設定） */
   preferredRole: string;
-  /** 慣用身分可選範圍：同一組帳號／信箱同時存在的身分（僅一個時介面不顯示設定） */
+  /** 慣用身分可選範圍：當期名冊中有效的身分（僅一個時介面不顯示設定） */
   roleOptions: UserRole[];
-}
-
-/**
- * 同一組帳號／信箱同時存在的身分（慣用身分的可選範圍）。
- * 登入依 email 或 account 查找，兩欄都要比對；自身身分一定包含。
- */
-async function findRoleOptions(
-  selfRole: UserRole,
-  email: string,
-  account: string
-): Promise<UserRole[]> {
-  const db = getAdminDb();
-  const found = new Set<UserRole>([selfRole]);
-  const checks: { role: UserRole; field: "email" | "account"; value: string }[] = [];
-  for (const role of ALL_ROLES) {
-    if (role === selfRole) continue;
-    if (email) checks.push({ role, field: "email", value: email });
-    if (account) checks.push({ role, field: "account", value: account });
-  }
-  const results = await Promise.all(
-    checks.map((check) =>
-      db
-        .collection(ROLE_COLLECTIONS[check.role])
-        .where(check.field, "==", check.value)
-        .limit(1)
-        .get()
-    )
-  );
-  results.forEach((snapshot, index) => {
-    if (!snapshot.empty) found.add(checks[index].role);
-  });
-  return ALL_ROLES.filter((role) => found.has(role));
 }
 
 async function buildProfile(
@@ -95,17 +64,17 @@ async function buildProfile(
   sessionName: string,
   data: Record<string, unknown>
 ): Promise<AccountProfile> {
-  // 角色專屬欄位（學號、班級、職稱等）存於身分名冊，取目前學年度學期的條目；
-  // 管理員沒有角色專屬欄位，不需讀名冊
+  // 名冊專屬欄位（學號、班級、職稱、管理員模組等）取目前學年度學期的條目
+  const period = await getCurrentPeriod();
+  const entry = await getRosterEntry(uid, role, period);
   const fields: Record<string, string> = {};
-  const specific = ROLE_SPECIFIC_FIELDS[role];
-  if (specific.length > 0) {
-    const period = await getCurrentPeriod();
-    const entry = await getRosterEntry(uid, entryRoleOf(role), period);
-    for (const field of specific) {
-      const value = entry ? entry[field.key] : "";
-      fields[field.key] = typeof value === "string" ? value : "";
+  for (const field of ROLE_INFO_FIELDS[role]) {
+    if (field.key === "modules") {
+      fields.modules = adminModuleLabels(entry?.modules);
+      continue;
     }
+    const value = entry ? entry[field.key] : "";
+    fields[field.key] = typeof value === "string" ? value : "";
   }
 
   const { method, totpSecret } = readTwoFactorProfile(data);
@@ -113,25 +82,23 @@ async function buildProfile(
     ? data.loginRecords.filter((value): value is number => typeof value === "number")
     : [];
 
-  // 欄位存在即以檔案值為準（空字串＝使用者已清空），欄位不存在（舊資料）才回退 session 帶來的值
   const effectiveEmail = typeof data.email === "string" ? data.email : sessionEmail;
   const effectiveAccount = typeof data.account === "string" ? data.account : sessionAccount;
-  const roleOptions = await findRoleOptions(role, effectiveEmail, effectiveAccount);
+
+  // 慣用身分的可選範圍：當期名冊中「有效」的身分（自身身分恆為首項）
+  const activeOptions = await getActiveRoleOptions(uid, period, role);
+
+  const entryName = entry && typeof entry.name === "string" ? entry.name : "";
 
   return {
     uid,
     role,
     roleLabel: ROLE_LABELS[role],
-    name:
-      typeof data.name === "string" && data.name
-        ? data.name
-        : typeof data.displayName === "string" && data.displayName
-          ? data.displayName
-          : sessionName,
+    name: entryName || (typeof data.name === "string" && data.name ? data.name : sessionName),
     email: effectiveEmail,
     account: effectiveAccount,
     loginCount: typeof data.loginCount === "number" ? data.loginCount : 0,
-    lastLogin: typeof data.lastLogin === "number" ? data.lastLogin : 0,
+    lastLogin: lastLoginOf(data),
     lastLoginMethod: typeof data.lastLoginMethod === "string" ? data.lastLoginMethod : "",
     loginRecords: records.slice(-20).reverse(),
     twoFactor: method,
@@ -147,8 +114,23 @@ async function buildProfile(
     failedAttempts: typeof data.failedAttempts === "number" ? data.failedAttempts : 0,
     fields,
     preferredRole: isUserRole(data.preferredRole) ? data.preferredRole : "",
-    roleOptions,
+    roleOptions: activeOptions.length > 0 ? activeOptions : [role],
   };
+}
+
+/** 當期有效的身分清單（自身身分恆為首項） */
+async function getActiveRoleOptions(
+  uid: string,
+  period: { academicYear: number; semester: number },
+  selfRole: UserRole
+): Promise<UserRole[]> {
+  const roles = await Promise.all(
+    ALL_ROLES.map(async (role) =>
+      role === selfRole ? true : isActiveEntry(await getRosterEntry(uid, role, period))
+    )
+  );
+  const list = ALL_ROLES.filter((_, index) => roles[index]);
+  return [selfRole, ...list.filter((role) => role !== selfRole)];
 }
 
 /** GET：讀取自身帳號資料（帳號與安全管理頁三卡共用） */
@@ -166,7 +148,7 @@ export async function GET(request: NextRequest) {
     if (!session) return unauthorized();
 
     const snap = await getAdminDb()
-      .collection(ROLE_COLLECTIONS[session.role])
+      .collection(USER_COLLECTION)
       .doc(session.uid)
       .get();
     if (!snap.exists) {
@@ -199,9 +181,10 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * PUT：儲存自身電子郵件地址／帳號。
+ * PUT：儲存自身電子郵件地址／帳號／慣用身分。
  * - 兩欄可個別留空（空字串＝清除），但不可同時為空
- * - 同身分內查重（排除自己），僅在值真的變更時查詢
+ * - 全站查重（帳號與電子郵件唯一，四種身分共用同一張帳號表），排除自己
+ * - 電子郵件變更時同步「當期」各身分名冊的展示信箱
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -239,8 +222,8 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const collection = getAdminDb().collection(ROLE_COLLECTIONS[session.role]);
-    const userRef = collection.doc(session.uid);
+    const users = getAdminDb().collection(USER_COLLECTION);
+    const userRef = users.doc(session.uid);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
       return NextResponse.json({ success: false, message: "帳號不存在" }, { status: 404 });
@@ -248,8 +231,6 @@ export async function PUT(request: NextRequest) {
     const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
     const storedEmail =
       typeof userData.email === "string" ? userData.email.trim() : "";
-    // 與 buildProfile 同邏輯：檔案沒有 email 欄位（舊資料）才以 session 帶的地址為準，
-    // 欄位存在（含空字串＝使用者已清空）一律以檔案值為準
     const currentEmail = typeof userData.email === "string" ? storedEmail : session.email || "";
     const currentAccount =
       typeof userData.account === "string"
@@ -290,9 +271,9 @@ export async function PUT(request: NextRequest) {
           { status: 400 }
         );
       }
-      // 僅在值真的變更時查重：值未變即為自己，避免同身分的既有重複資料擋住其他欄位儲存
+      // 僅在值真的變更時查重：值未變即為自己
       if (email && email !== currentEmail) {
-        const dup = await collection.where("email", "==", email).limit(1).get();
+        const dup = await users.where("email", "==", email).limit(1).get();
         if (!dup.empty && dup.docs[0].id !== session.uid) {
           return NextResponse.json(
             { success: false, message: "此電子郵件已被使用" },
@@ -319,7 +300,7 @@ export async function PUT(request: NextRequest) {
       }
       // 僅在值真的變更時查重（值未變即為自己）
       if (account && account !== currentAccount) {
-        const dup = await collection.where("account", "==", account).limit(1).get();
+        const dup = await users.where("account", "==", account).limit(1).get();
         if (!dup.empty && dup.docs[0].id !== session.uid) {
           return NextResponse.json(
             { success: false, message: "此帳號已被使用" },
@@ -360,6 +341,13 @@ export async function PUT(request: NextRequest) {
 
     await userRef.update(updateData);
 
+    // 電子郵件變更：同步當期各身分名冊的展示信箱（歷史學期保留當時資料）
+    if (typeof updateData.email === "string") {
+      await syncEntryIdentity(session.uid, await getCurrentPeriod(), {
+        email: updateData.email,
+      });
+    }
+
     // session 內的 email／account 已過期：撤銷舊 session 並以新值重建（僅識別欄位變更時）
     const identityChanged =
       typeof updateData.email === "string" || typeof updateData.account === "string";
@@ -373,6 +361,9 @@ export async function PUT(request: NextRequest) {
           typeof updateData.account === "string" ? updateData.account : session.account,
         displayName: session.displayName,
         role: session.role,
+        candidates: session.candidates?.length
+          ? session.candidates
+          : [{ role: session.role, id: session.uid }],
         tokenVersion: session.tokenVersion,
       });
     }

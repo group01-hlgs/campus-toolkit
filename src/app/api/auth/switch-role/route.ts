@@ -5,8 +5,9 @@ import { revokeJti } from "@/lib/revocation";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { isSystemEnabled } from "@/lib/settings-server";
-import { ROLE_COLLECTIONS, ROLE_LABELS, isAccountActive, isUserRole } from "@/types/users";
+import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import { ROLE_LABELS, isAccountActive, USER_COLLECTION, isUserRole } from "@/types/users";
+import { getRosterEntry, isActiveEntry, resolveDisplayName } from "@/lib/roster";
 import { serverErrorMessage } from "@/lib/api-error";
 
 /**
@@ -73,9 +74,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 帳號（同一份使用者文件）＋當期該身分名冊都必須存在且有效
     const snap = await getAdminDb()
-      .collection(ROLE_COLLECTIONS[role])
-      .doc(target.id)
+      .collection(USER_COLLECTION)
+      .doc(session.uid)
       .get();
     if (!snap.exists) {
       return NextResponse.json(
@@ -87,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     if (!isAccountActive(data)) {
       await logActivity({
-        userId: target.id,
+        userId: session.uid,
         role,
         action: "role_switched",
         ip: getClientIp(request),
@@ -99,11 +101,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const displayName = data.name || data.displayName || "";
+    const entry = await getRosterEntry(session.uid, role, await getCurrentPeriod());
+    if (!isActiveEntry(entry)) {
+      await logActivity({
+        userId: session.uid,
+        role,
+        action: "role_switched",
+        ip: getClientIp(request),
+        details: `切換至 ${ROLE_LABELS[role]} 失敗：當期名冊無此身分`,
+      });
+      return NextResponse.json(
+        { success: false, message: "身分資料已不存在，請重新登入" },
+        { status: 401 }
+      );
+    }
+
+    const displayName = resolveDisplayName(data, entry);
     const user = {
-      uid: target.id,
-      email: data.email,
-      account: data.account,
+      uid: session.uid,
+      email: typeof data.email === "string" ? data.email : "",
+      account: typeof data.account === "string" ? data.account : "",
       displayName,
       role,
       roles: candidates.map((candidate) => candidate.role),

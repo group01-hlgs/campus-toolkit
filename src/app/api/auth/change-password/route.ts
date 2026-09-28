@@ -8,7 +8,7 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
-import { ROLE_COLLECTIONS } from "@/types/users";
+import { USER_COLLECTION } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 export async function POST(request: NextRequest) {
@@ -46,8 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 一律以 session.uid 直取自身文件，避免用 body 查詢命中他人文件（IDOR）
-    const collectionName = ROLE_COLLECTIONS[session.role];
-    const userDoc = await getAdminDb().collection(collectionName).doc(session.uid).get();
+    const userDoc = await getAdminDb().collection(USER_COLLECTION).doc(session.uid).get();
     if (!userDoc.exists) {
       return NextResponse.json({ success: false, message: "帳號不存在" }, { status: 404 });
     }
@@ -75,6 +74,9 @@ export async function POST(request: NextRequest) {
       account: session.account,
       displayName: session.displayName,
       role: session.role,
+      candidates: session.candidates?.length
+        ? session.candidates
+        : [{ role: session.role, id: session.uid }],
       tokenVersion: newTokenVersion,
     });
 

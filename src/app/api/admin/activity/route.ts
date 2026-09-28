@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { requireRole, toAuthResponse } from "@/lib/dal";
+import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { serverErrorMessage } from "@/lib/api-error";
 
@@ -13,7 +13,7 @@ const MAX_LIMIT = 200;
  */
 export async function GET(request: NextRequest) {
   try {
-    const { session, denial } = await requireRole("admin");
+    const { session, denial } = await requireAdminModule("activity");
     if (denial) return toAuthResponse(denial);
 
     const limited = enforceRateLimit(

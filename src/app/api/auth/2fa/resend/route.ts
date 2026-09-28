@@ -8,7 +8,7 @@ import {
   EMAIL_OTP_COOLDOWN_MS,
   sendEmailOtp,
 } from "@/lib/two-factor";
-import { ROLE_COLLECTIONS } from "@/types/users";
+import { USER_COLLECTION } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 /** POST：重寄 Email OTP（同用戶 120 秒節流，另受每 IP 限流） */
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userRef = getAdminDb()
-      .collection(ROLE_COLLECTIONS[pending.role])
+      .collection(USER_COLLECTION)
       .doc(pending.uid);
     const snap = await userRef.get();
     if (!snap.exists) {

@@ -1,51 +1,77 @@
 import "server-only";
 import type { DocumentReference, DocumentData } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { verifyPassword } from "@/lib/auth";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { entryRoleOf, getRosterEntry } from "@/lib/roster";
-import { ALL_ROLES, isAccountActive, isUserRole, ROLE_COLLECTIONS, UserRole } from "@/types/users";
+import { getRosterEntry, isActiveEntry } from "@/lib/roster";
+import { ALL_ROLES, isAccountActive, isUserRole, USER_COLLECTION, UserRole } from "@/types/users";
 
-/** 使用者帳號的一筆候選（身分 × 帳號文件） */
-export interface AccountCandidate {
-  role: UserRole;
+/** 使用者帳號的查詢結果（身分尚未決定；身分來自當期身分名冊） */
+export interface AccountHit {
   /** 帳號文件 id（即 uid） */
   id: string;
   ref: DocumentReference;
   data: DocumentData;
 }
 
+/** 使用者帳號的一筆候選（身分 × 同一份使用者帳號文件） */
+export interface AccountCandidate {
+  role: UserRole;
+  /** 帳號文件 id（即 uid，所有候選相同） */
+  id: string;
+  ref: DocumentReference;
+  data: DocumentData;
+}
+
 /**
- * 依欄位（email／account）同時查找四種身分的使用者帳號。
- * 登入頁不再選身分，身分由伺服器端查找決定；回傳順序固定為 ALL_ROLES。
+ * 依欄位（email／account）查找唯一的使用者帳號。
+ * 帳號與電子郵件都全站唯一，故最多只會有一筆。
  */
-export async function findAccountsBy(
+export async function findAccountBy(
   field: "email" | "account",
   value: string
-): Promise<AccountCandidate[]> {
-  const db = getAdminDb();
-  const snapshots = await Promise.all(
-    ALL_ROLES.map((role) =>
-      db.collection(ROLE_COLLECTIONS[role]).where(field, "==", value).limit(1).get()
-    )
-  );
+): Promise<AccountHit | null> {
+  const snapshot = await getAdminDb()
+    .collection(USER_COLLECTION)
+    .where(field, "==", value)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return { id: doc.id, ref: doc.ref, data: doc.data() };
+}
 
+/**
+ * 身分候選：同一份使用者帳號在「當期」名冊中有效的身分，順序固定 ALL_ROLES。
+ * ①帳號狀態有效 ②具備當期（同學年度學期）且狀態有效的身分名冊條目。
+ * adminsOnly（系統維護）時只保留管理員，與非管理員一律 503 的行為一致。
+ */
+export async function detectRoleCandidates(
+  hit: AccountHit,
+  options: { adminsOnly?: boolean } = {}
+): Promise<AccountCandidate[]> {
+  if (!isAccountActive(hit.data)) return [];
+  const period = await getCurrentPeriod();
+  const roles = ALL_ROLES.filter((role) => !options.adminsOnly || role === "admin");
+  const entries = await Promise.all(
+    roles.map((role) => getRosterEntry(hit.id, role, period))
+  );
   const candidates: AccountCandidate[] = [];
-  snapshots.forEach((snapshot, index) => {
-    if (snapshot.empty) return;
-    const doc = snapshot.docs[0];
-    candidates.push({ role: ALL_ROLES[index], id: doc.id, ref: doc.ref, data: doc.data() });
+  roles.forEach((role, index) => {
+    if (isActiveEntry(entries[index])) {
+      candidates.push({ role, id: hit.id, ref: hit.ref, data: hit.data });
+    }
   });
   return candidates;
 }
 
 /**
- * 多個候選時取出慣用身分：彙整候選文件上的 preferredRole（僅承認候選中真實存在的身分），
+ * 慣用身分：彙整候選上的 preferredRole（僅承認候選中真實存在的身分），
  * 剛好只有一個選擇才生效；沒有設定或多個互斥設定都回 null（交由選擇步驟處理）。
  */
 export function preferredRoleAmong(
   candidates: readonly { role: UserRole; data: DocumentData }[]
 ): UserRole | null {
+  if (candidates.length === 0) return null;
   const roles = new Set(candidates.map((candidate) => candidate.role));
   const preferred = new Set<UserRole>();
   for (const candidate of candidates) {
@@ -55,63 +81,25 @@ export function preferredRoleAmong(
   return preferred.size === 1 ? [...preferred][0] : null;
 }
 
-/**
- * 以密碼篩出有效的候選：相同密碼雜湊只比對一次（種子帳號等多身分共用同一組密碼時只跑一次 bcrypt）。
- * 回傳通過驗證的候選，順序維持 ALL_ROLES。
- */
-export async function filterByPassword(
-  password: string,
-  candidates: AccountCandidate[]
-): Promise<AccountCandidate[]> {
-  const byHash = new Map<string, AccountCandidate[]>();
-  for (const candidate of candidates) {
-    const hash = typeof candidate.data.passwordHash === "string" ? candidate.data.passwordHash : "";
-    const group = byHash.get(hash);
-    if (group) group.push(candidate);
-    else byHash.set(hash, [candidate]);
-  }
-
-  const valid: AccountCandidate[] = [];
-  for (const [hash, group] of byHash) {
-    // 雜湊缺漏／格式錯誤直接視為不通過，不送進 bcrypt
-    if (!hash || !hash.startsWith("$")) continue;
-    if (await verifyPassword(password, hash)) valid.push(...group);
-  }
-  return valid;
-}
-
 /** 多身分選擇回應的身分清單（固定 ALL_ROLES 順序） */
 export function orderRoles(roles: UserRole[]): UserRole[] {
   return ALL_ROLES.filter((role) => roles.includes(role));
 }
 
 /**
- * 多身分偵測：以 primary 的電子郵件地址去找其他身分，符合以下條件才算數——
- * ①同一組電子郵件地址 ②帳號狀態有效 ③具備當期（同學年度學期）的身分名冊條目。
- * primary（已通過帳密／Google 驗證的帳號）恆列為候選之首，不受名冊條目影響。
- * scoped＝以登入識別（email 或 account）查出的候選，順序固定 ALL_ROLES。
+ * 載入「使用者帳號＋當期該身分名冊條目」，並檢查兩層狀態。
+ * 帳號不存在／帳號無效／名冊條目不存在或無效都回 null（session 與中途憑證都該失效）。
  */
-export async function detectRoleCandidates(
-  primary: AccountCandidate,
-  scoped: AccountCandidate[]
-): Promise<AccountCandidate[]> {
-  const email = typeof primary.data.email === "string" ? primary.data.email : "";
-  const others = email
-    ? scoped.filter(
-        (candidate) =>
-          candidate.role !== primary.role && candidate.data.email === email
-      )
-    : [];
-  if (others.length === 0) return [primary];
-
+export async function loadRoleContext(
+  uid: string,
+  role: UserRole
+): Promise<{ account: AccountHit; entry: Record<string, unknown> } | null> {
+  const snap = await getAdminDb().collection(USER_COLLECTION).doc(uid).get();
+  if (!snap.exists) return null;
+  const data = snap.data()!;
+  if (!isAccountActive(data)) return null;
   const period = await getCurrentPeriod();
-  const checked = await Promise.all(
-    others.map(async (candidate) => ({
-      candidate,
-      ok:
-        isAccountActive(candidate.data) &&
-        (await getRosterEntry(candidate.id, entryRoleOf(candidate.role), period)) !== null,
-    }))
-  );
-  return [primary, ...checked.filter((item) => item.ok).map((item) => item.candidate)];
+  const entry = await getRosterEntry(uid, role, period);
+  if (!entry || !isActiveEntry(entry)) return null;
+  return { account: { id: snap.id, ref: snap.ref, data }, entry };
 }

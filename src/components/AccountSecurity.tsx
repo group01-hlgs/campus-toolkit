@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
 import {
   ROLE_LABELS,
-  ROLE_SPECIFIC_FIELDS,
   TWO_FACTOR_METHODS,
   UserRole,
 } from "@/types/users";
+import { ROLE_INFO_FIELDS } from "@/types/roster";
 import { fetchSession, logout } from "@/lib/session";
 import {
   ACCOUNT_EMAIL_REQUIRED_MESSAGE,
@@ -610,7 +610,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
             <span className="text-t3">最後登入：</span>
             <span className="text-t1">{profile ? formatDateTime(profile.lastLogin) : "—"}</span>
           </div>
-          {ROLE_SPECIFIC_FIELDS[role].map((f) => (
+          {ROLE_INFO_FIELDS[role].map((f) => (
             <div key={f.key}>
               <span className="text-t3">{f.label}：</span>
               <span className="text-t1">{profile?.fields?.[f.key] || "—"}</span>

@@ -8,7 +8,7 @@ import {
 import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { isSystemEnabled } from "@/lib/settings-server";
+import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
 import {
   maskEmail,
   readTwoFactorProfile,
@@ -18,10 +18,11 @@ import {
 import { isAccountActive, UserRole } from "@/types/users";
 import {
   detectRoleCandidates,
-  findAccountsBy,
+  findAccountBy,
   orderRoles,
   preferredRoleAmong,
 } from "@/lib/login-candidate";
+import { getRosterEntry, resolveDisplayName } from "@/lib/roster";
 import { serverErrorMessage } from "@/lib/api-error";
 
 const GENERIC_LOGIN_ERROR = "登入失敗，請稍後再試";
@@ -73,14 +74,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "無法取得 Google 帳號資訊" }, { status: 401 });
     }
 
-    // 以已驗證的 Google 信箱查找四種身分的帳號（登入頁不選身分）
-    const found = await findAccountsBy("email", email);
-    // 系統停用（維護）時僅管理員可登入：先收斂候選，避免以回覆差異洩漏帳號狀態
-    const scoped = systemEnabled
-      ? found
-      : found.filter((candidate) => candidate.role === "admin");
+    // 以已驗證的 Google 信箱查找使用者帳號（身分由當期名冊決定）
+    const hit = await findAccountBy("email", email);
 
-    if (scoped.length === 0) {
+    if (!hit) {
       if (!systemEnabled) {
         return NextResponse.json(
           { success: false, message: SYSTEM_DISABLED_MESSAGE },
@@ -99,12 +96,10 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    // 停用（無效／停權）帳號不得以 Google 登入：只在「有效」帳號間解析
-    const pool = scoped.filter((candidate) => isAccountActive(candidate.data));
-    if (pool.length === 0) {
+    // 停用（無效／停權）帳號不得以 Google 登入
+    if (!isAccountActive(hit.data)) {
       await logActivity({
-        userId: scoped[0].id,
-        role: scoped.length === 1 ? scoped[0].role : undefined,
+        userId: hit.id,
         action: "login_failed",
         ip,
         details: `停用帳號嘗試 Google 登入：${email}`,
@@ -115,44 +110,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 多身分偵測：以已驗證信箱比對其他身分（有效＋當期名冊條目）
-    const primary = pool[0];
-    const candidates = await detectRoleCandidates(primary, scoped);
-    const preferred = preferredRoleAmong(candidates);
-
-    // 鎖定：全域（lockIp 為空）或綁定來源 IP（與密碼登入一致）
-    const locked = candidates.some((candidate) => {
-      const data = candidate.data;
-      const lockedUntil = typeof data.lockedUntil === "number" ? data.lockedUntil : 0;
-      const lockIp = typeof data.lockIp === "string" ? data.lockIp : "";
-      const failedAttempts =
-        typeof data.failedAttempts === "number" ? data.failedAttempts : 0;
-      const lockActive =
-        lockedUntil > Date.now() && (!lockIp || !ip || lockIp === ip);
-      const globalLockActive = failedAttempts >= 20 && lockedUntil > Date.now();
-      return lockActive || globalLockActive;
-    });
-    if (locked) {
+    // 身分候選：當期名冊中有效的身分；系統停用（維護）時僅管理員可登入
+    const candidates = await detectRoleCandidates(hit, { adminsOnly: !systemEnabled });
+    if (candidates.length === 0) {
+      if (!systemEnabled) {
+        return NextResponse.json(
+          { success: false, message: SYSTEM_DISABLED_MESSAGE },
+          { status: 503 }
+        );
+      }
+      await logActivity({
+        userId: hit.id,
+        action: "login_failed",
+        ip,
+        details: `Google 登入通過，但當期無可用身分：${email}`,
+      });
       return NextResponse.json({
         success: false,
         message: GENERIC_LOGIN_ERROR,
       }, { status: 401 });
     }
 
-    const displayName = primary.data.name || primary.data.displayName || "";
-    const primaryEmail = typeof primary.data.email === "string" ? primary.data.email : "";
-    const primaryAccount =
-      typeof primary.data.account === "string" ? primary.data.account : "";
+    const preferred = preferredRoleAmong(candidates);
+    const primary = candidates[0];
+
+    // 鎖定：全域（lockIp 為空）或綁定來源 IP（與密碼登入一致）
+    const data = hit.data;
+    const lockedUntil = typeof data.lockedUntil === "number" ? data.lockedUntil : 0;
+    const lockIp = typeof data.lockIp === "string" ? data.lockIp : "";
+    const failedAttempts = typeof data.failedAttempts === "number" ? data.failedAttempts : 0;
+    const lockActive = lockedUntil > Date.now() && (!lockIp || !ip || lockIp === ip);
+    const globalLockActive = failedAttempts >= 20 && lockedUntil > Date.now();
+    if (lockActive || globalLockActive) {
+      return NextResponse.json({
+        success: false,
+        message: GENERIC_LOGIN_ERROR,
+      }, { status: 401 });
+    }
+
+    const displayName = typeof data.name === "string" ? data.name : "";
+    const primaryEmail = typeof data.email === "string" ? data.email : "";
+    const primaryAccount = typeof data.account === "string" ? data.account : "";
 
     // 兩階段驗證：登入時驗證一次，與要進入的身分無關
-    const { method: twoFactorMethod } = readTwoFactorProfile(primary.data);
+    const { method: twoFactorMethod } = readTwoFactorProfile(data);
 
     if (twoFactorMethod === "email_otp" || twoFactorMethod === "totp") {
       const otpState =
         twoFactorMethod === "email_otp"
           ? await sendEmailOtp({
-              ref: primary.ref,
-              data: primary.data,
+              ref: hit.ref,
+              data,
               email: primaryEmail,
               displayName,
               account: primaryAccount,
@@ -162,7 +170,7 @@ export async function POST(request: NextRequest) {
 
       if (otpState !== "smtp") {
         await setPending2FACookie({
-          uid: primary.id,
+          uid: hit.id,
           email: primaryEmail,
           account: primaryAccount,
           displayName,
@@ -173,7 +181,7 @@ export async function POST(request: NextRequest) {
           via: "google",
         });
         await logActivity({
-          userId: primary.id,
+          userId: hit.id,
           role: primary.role,
           action: twoFactorMethod === "email_otp" ? "email_otp_sent" : "login",
           ip,
@@ -190,7 +198,7 @@ export async function POST(request: NextRequest) {
       }
 
       await logActivity({
-        userId: primary.id,
+        userId: hit.id,
         role: primary.role,
         action: "login",
         ip,
@@ -215,41 +223,35 @@ export async function POST(request: NextRequest) {
     }
 
     const role: UserRole = preferred ?? primary.role;
-    // 系統停用時僅管理員可登入（於此判定）
-    if (!systemEnabled && role !== "admin") {
-      return NextResponse.json(
-        { success: false, message: SYSTEM_DISABLED_MESSAGE },
-        { status: 503 }
-      );
-    }
 
-    const target = candidates.find((candidate) => candidate.role === role) ?? primary;
+    // 稱謂以「當期該身分名冊的姓名」為準，沒有才退回帳號姓名
+    const entry = await getRosterEntry(hit.id, role, await getCurrentPeriod());
+    const finalDisplayName = resolveDisplayName(data, entry);
 
     const now = Date.now();
     const loginRecords = [
-      ...((Array.isArray(target.data.loginRecords) ? target.data.loginRecords : []) as number[]),
+      ...((Array.isArray(data.loginRecords) ? data.loginRecords : []) as number[]),
       now,
     ].slice(-50);
 
-    await target.ref.update({
+    await hit.ref.update({
       failedAttempts: 0,
       lockedUntil: 0,
       lockIp: "",
-      lastLogin: now,
       lastLoginMethod:
         twoFactorMethod === "email_notify" ? "google+email_notify" : "google",
-      loginCount: (target.data.loginCount || 0) + 1,
+      loginCount: (data.loginCount || 0) + 1,
       loginRecords,
     });
 
     const user = {
-      uid: target.id,
-      email: target.data.email,
-      account: target.data.account,
-      displayName: target.data.name || target.data.displayName || "",
+      uid: hit.id,
+      email: primaryEmail,
+      account: primaryAccount,
+      displayName: finalDisplayName,
       role,
       roles: candidates.map((candidate) => candidate.role),
-      tokenVersion: typeof target.data.tokenVersion === "number" ? target.data.tokenVersion : 1,
+      tokenVersion: typeof data.tokenVersion === "number" ? data.tokenVersion : 1,
     };
 
     await createSession({ ...user, candidates });

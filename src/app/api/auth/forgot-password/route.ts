@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb } from "@/lib/firebase-admin";
 import { assertSameOrigin } from "@/lib/csrf";
 import {
   enforceRateLimit,
@@ -14,8 +13,12 @@ import {
 } from "@/lib/password-reset";
 import { isMailConfigured, sendPasswordResetEmail } from "@/lib/mailer";
 import { getMailIdentity } from "@/lib/settings-server";
-import { ALL_ROLES, ROLE_COLLECTIONS, ROLE_LABELS, UserRole } from "@/types/users";
-import { preferredRoleAmong } from "@/lib/login-candidate";
+import { ROLE_LABELS, UserRole } from "@/types/users";
+import {
+  detectRoleCandidates,
+  findAccountBy,
+  preferredRoleAmong,
+} from "@/lib/login-candidate";
 import { serverErrorMessage } from "@/lib/api-error";
 
 /**
@@ -54,40 +57,17 @@ async function findUserByEmail(
   role: UserRole;
   displayName: string;
 } | null> {
-  const db = getAdminDb();
-  const snapshots = await Promise.all(
-    ALL_ROLES.map((role) =>
-      db.collection(ROLE_COLLECTIONS[role]).where("email", "==", email).limit(1).get()
-    )
-  );
+  // 使用者帳號唯一；重設信需要一個「當期有效身分」來標示收件人
+  const hit = await findAccountBy("email", email);
+  if (!hit) return null;
+  const candidates = await detectRoleCandidates(hit);
+  if (candidates.length === 0) return null;
 
-  const matches: { role: UserRole; id: string; data: Record<string, unknown> }[] = [];
-  snapshots.forEach((snapshot, index) => {
-    if (snapshot.empty) return;
-    const doc = snapshot.docs[0];
-    matches.push({ role: ALL_ROLES[index], id: doc.id, data: doc.data() });
-  });
-  if (matches.length === 0) return null;
-
-  // 同一信箱可能同時存在於多個身分（種子帳號等），優先採用帳號文件設定的慣用身分，
-  // 否則固定依 ALL_ROLES 順序；token 記錄實際命中的 role，重設才不會改到別的帳號
-  const preferred = preferredRoleAmong(matches);
-  const order = preferred
-    ? [preferred, ...ALL_ROLES.filter((role) => role !== preferred)]
-    : ALL_ROLES;
-  const hit = matches.find((match) => match.role === order[0]) ?? matches[0];
-
-  const data = hit.data;
-  return {
-    uid: hit.id,
-    role: hit.role,
-    displayName:
-      typeof data.name === "string" && data.name
-        ? data.name
-        : typeof data.displayName === "string"
-          ? data.displayName
-          : "",
-  };
+  // 慣用身分優先，否則固定依 ALL_ROLES 順序；token 記錄實際使用的 role（僅供信件顯示與重設後自動登入）
+  const preferred = preferredRoleAmong(candidates);
+  const role = preferred ?? candidates[0].role;
+  const name = typeof hit.data.name === "string" ? hit.data.name : "";
+  return { uid: hit.id, role, displayName: name };
 }
 
 export async function POST(request: NextRequest) {
