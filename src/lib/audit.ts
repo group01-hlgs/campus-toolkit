@@ -18,7 +18,11 @@ export type ActivityAction =
   | "two_factor_changed"
   | "two_factor_verified"
   | "two_factor_failed"
-  | "email_otp_sent";
+  | "email_otp_sent"
+  | "roster_created"
+  | "roster_updated"
+  | "roster_deleted"
+  | "roster_imported";
 
 export interface ActivityEntry {
   userId?: string;

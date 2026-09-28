@@ -33,7 +33,8 @@
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "overrides": {
     "jwks-rsa": {

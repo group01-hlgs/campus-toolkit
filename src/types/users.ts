@@ -77,6 +77,8 @@ export interface BaseUserRecord {
 
 export interface StudentRecord extends BaseUserRecord {
   studentId: string;
+  /** 年級（舊資料可能沒有此欄位，缺省視為未填） */
+  grade?: string;
   className: string;
   classNumber: string;
 }
@@ -132,6 +134,7 @@ export const ROLE_SPECIFIC_FIELDS: Record<
 > = {
   student: [
     { key: "studentId", label: "學號" },
+    { key: "grade", label: "年級" },
     { key: "className", label: "班級" },
     { key: "classNumber", label: "班號" },
   ],
