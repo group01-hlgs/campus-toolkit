@@ -4,10 +4,16 @@ import { useEffect, useMemo, useRef, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
 import {
+  ROSTER_BATCH_MODES,
+  ROSTER_BATCH_MODE_LABELS,
   ROSTER_COLUMNS,
   ROSTER_FIELDS,
   ROSTER_ROLES,
   ACCOUNT_FIELD_KEYS,
+  RosterBatchMode,
+  RosterBatchPreview,
+  RosterBatchResult,
+  RosterBatchRow,
   RosterColumnKey,
   RosterFieldDef,
   RosterFieldKey,
@@ -15,6 +21,7 @@ import {
   RosterMember,
   RosterRole,
   isImportableRole,
+  isRosterRole,
   rosterRequiredHint,
 } from "@/types/roster";
 import {
@@ -50,14 +57,37 @@ interface BindTarget {
   roles: UserRole[];
 }
 
-interface ImportSkipped {
-  row: number;
-  reason: string;
+/** 批次管理卡片的模式說明（新增模式依所選身分列出必填欄位） */
+function batchHint(mode: RosterBatchMode, role: RosterRole): string {
+  if (mode === "create") {
+    if (!isImportableRole(role)) {
+      return "家長身分不提供檔案匯入，請以「新增家長」表單建立。";
+    }
+    return `必填欄位：${rosterRequiredHint(role)}、密碼；其餘欄位可留空。單批最多 900 列。`;
+  }
+  if (mode === "update") {
+    return "以「電子郵件地址」或「帳號」辨識該列（兩者都填須為同一帳號）；只更新本期名冊欄位，空白欄位＝不修改。姓名、電子郵件、帳號請至「使用者帳號管理」維護。";
+  }
+  return "以「電子郵件地址」或「帳號」辨識該列；將刪除該列本期的名冊條目，帳號與其他學期資料保留，刪除後無法復原。";
 }
 
-interface ImportResult {
-  created: number;
-  skipped: ImportSkipped[];
+const BATCH_ACTION_LABELS: Record<RosterBatchRow["action"], string> = {
+  create: "新增",
+  update: "修改",
+  delete: "刪除",
+  skip: "略過",
+};
+
+function describeBatchRow(item: RosterBatchRow): string {
+  if (item.action === "skip") {
+    return `第 ${item.row} 列 · 略過「${item.key}」：${item.reason}`;
+  }
+  const changes = (item.changes ?? [])
+    .map((change) => `${change.label} ${change.from || "（空）"} → ${change.to || "（空）"}`)
+    .join("、");
+  return `第 ${item.row} 列 · ${BATCH_ACTION_LABELS[item.action]}「${item.key}」${
+    changes ? `：${changes}` : ""
+  }`;
 }
 
 /** 全部身分欄位的空白表單（帳號欄位＋各名冊專屬欄位） */
@@ -167,10 +197,36 @@ export default function RosterPage() {
     };
   }, []);
 
-  // Excel 匯入
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 批次管理：上傳試算表 → 預覽 → 確認執行（卡片預設收合）
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchRole, setBatchRole] = useState<RosterRole>("student");
+  const [batchMode, setBatchMode] = useState<RosterBatchMode>("create");
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchBusy, setBatchBusy] = useState<"" | "preview" | "execute">("");
+  const [batchPreview, setBatchPreview] = useState<RosterBatchPreview | null>(null);
+  const [batchResult, setBatchResult] = useState<RosterBatchResult | null>(null);
+  const [batchError, setBatchError] = useState("");
+  const batchFileRef = useRef<HTMLInputElement>(null);
+
+  // 確認對話 modal：取代原生 confirm，樣式跟隨主題
+  const [confirmRequest, setConfirmRequest] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  function askConfirm(message: string, onConfirm: () => void) {
+    setConfirmRequest({ message, onConfirm });
+  }
+
+  // 確認 modal：Esc 取消
+  useEffect(() => {
+    if (!confirmRequest) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setConfirmRequest(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [confirmRequest]);
 
   const loadMembers = async (targetRole: RosterRole) => {
     setLoading(true);
@@ -208,7 +264,6 @@ export default function RosterPage() {
   useEffect(() => {
     setKeyword("");
     closeForm();
-    setImportResult(null);
     void loadMembers(role);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
@@ -488,33 +543,67 @@ export default function RosterPage() {
     }
   }
 
-  async function handleImport(file: File) {
-    if (importing) return;
-    setImporting(true);
-    setImportResult(null);
-    setFlash(null);
+  function clearBatchSelection() {
+    setBatchFile(null);
+    setBatchPreview(null);
+    setBatchResult(null);
+    setBatchError("");
+    if (batchFileRef.current) batchFileRef.current.value = "";
+  }
+
+  function selectBatchMode(mode: RosterBatchMode) {
+    setBatchMode(mode);
+    clearBatchSelection();
+  }
+
+  function runBatch(dryRun: boolean) {
+    if (!batchFile || batchBusy) return;
+    if (dryRun) {
+      void executeBatch(true);
+      return;
+    }
+    const roleLabel = ROSTER_ROLES.find((item) => item.value === batchRole)?.label ?? "身分";
+    const question =
+      batchMode === "delete"
+        ? `確定執行批次刪除？共 ${
+            batchPreview?.deleted ?? 0
+          } 筆本期${roleLabel}名冊資料將被刪除，帳號與其他學期資料保留。`
+        : `確定執行批次「${ROSTER_BATCH_MODE_LABELS[batchMode]}」？共 ${
+            batchPreview?.total ?? 0
+          } 列。`;
+    askConfirm(question, () => void executeBatch(false));
+  }
+
+  async function executeBatch(dryRun: boolean) {
+    if (!batchFile || batchBusy) return;
+    setBatchBusy(dryRun ? "preview" : "execute");
+    setBatchError("");
     try {
       const body = new FormData();
-      body.append("role", role);
-      body.append("file", file);
-      const res = await fetch("/api/admin/roster/import", { method: "POST", body });
+      body.append("mode", batchMode);
+      body.append("role", batchRole);
+      body.append("dryRun", dryRun ? "true" : "false");
+      body.append("file", batchFile);
+      const res = await fetch("/api/admin/roster/batch", { method: "POST", body });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setFlash({ type: "error", text: data?.message || "匯入失敗" });
-        return;
+        throw new Error(data?.message || "批次作業失敗");
       }
-      setImportResult({
-        created: typeof data.created === "number" ? data.created : 0,
-        skipped: Array.isArray(data.skipped) ? data.skipped : [],
-      });
-      setFlash({ type: "success", text: data.message || "匯入完成" });
-      showSuccessModal(data.message || "匯入完成");
-      await loadMembers(role);
+      if (dryRun) {
+        setBatchResult(null);
+        setBatchPreview(data.preview as RosterBatchPreview);
+      } else {
+        setBatchPreview(null);
+        setBatchResult(data.result as RosterBatchResult);
+        setBatchFile(null);
+        if (batchFileRef.current) batchFileRef.current.value = "";
+        if (batchRole === role) await loadMembers(role);
+        showSuccessModal(data.message || "批次作業完成");
+      }
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "匯入失敗" });
+      setBatchError(error instanceof Error ? error.message : "批次作業失敗");
     } finally {
-      setImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setBatchBusy("");
     }
   }
 
@@ -647,7 +736,8 @@ export default function RosterPage() {
   }, [members, keyword]);
 
   const columns = ROSTER_COLUMNS[role];
-  const importable = isImportableRole(role);
+  // 家長不提供檔案匯入：新增模式下鎖住檔案選擇與上傳預覽
+  const batchCreateBlocked = batchMode === "create" && !isImportableRole(batchRole);
   const actionButtons = (
     <>
       <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
@@ -686,6 +776,160 @@ export default function RosterPage() {
         <RoleEnablePanel />
       </div>
 
+      {/* 批次管理：上傳試算表 → 預覽 → 確認執行（原「Excel 匯入」整併於此，預設收合） */}
+      <div className="w-full max-w-5xl border border-themed rounded-lg bg-card p-4 mb-6">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-lg font-bold text-t1">批次管理</h3>
+          <button
+            type="button"
+            onClick={() => setBatchOpen((prev) => !prev)}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+            aria-expanded={batchOpen}
+          >
+            {batchOpen ? "收合" : "展開"}
+          </button>
+        </div>
+
+        {batchOpen && (
+          <div className="mt-3">
+            {/* 身分選擇：批次作業的對象身分（與下方名冊分頁各自獨立） */}
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <label htmlFor="roster-batch-role" className="text-sm text-t2">
+                身分
+              </label>
+              <select
+                id="roster-batch-role"
+                value={batchRole}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (!isRosterRole(next)) return;
+                  setBatchRole(next);
+                  clearBatchSelection();
+                }}
+                className="input-theme rounded px-3 py-2 text-sm"
+              >
+                {ROSTER_ROLES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-t3">
+                Excel／CSV（.xlsx、.xls、.csv），上傳後先預覽再執行
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-3">
+              {ROSTER_BATCH_MODES.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => selectBatchMode(item.value)}
+                  className={`rounded-lg px-4 py-1.5 text-sm cursor-pointer border ${
+                    batchMode === item.value
+                      ? "btn-theme"
+                      : "border-themed text-t2 bg-card hover:text-t1"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                ref={batchFileRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  setBatchFile(e.target.files?.[0] ?? null);
+                  setBatchPreview(null);
+                  setBatchResult(null);
+                  setBatchError("");
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => batchFileRef.current?.click()}
+                disabled={batchCreateBlocked}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                選擇檔案
+              </button>
+              <span className="text-sm text-t2">
+                {batchFile ? batchFile.name : "尚未選擇檔案"}
+              </span>
+              <button
+                type="button"
+                onClick={() => void runBatch(true)}
+                disabled={!batchFile || batchCreateBlocked}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                上傳預覽
+              </button>
+              {batchPreview && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void runBatch(false)}
+                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+                  >
+                    確認執行
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearBatchSelection}
+                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+                  >
+                    取消
+                  </button>
+                </>
+              )}
+            </div>
+
+            <p className="text-xs text-t3 mt-2">{batchHint(batchMode, batchRole)}</p>
+
+            {batchError && (
+              <p className="text-sm text-danger mt-2" role="alert">
+                {batchError}
+              </p>
+            )}
+
+            {batchPreview && (
+              <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
+                <p className="font-bold text-t1 mb-2">
+                  預覽：新增 {batchPreview.created} 筆、更新 {batchPreview.updated} 筆、刪除{" "}
+                  {batchPreview.deleted} 筆、略過 {batchPreview.skipped} 筆（共{" "}
+                  {batchPreview.total} 列）
+                </p>
+                <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
+                  {batchPreview.rows.map((item) => (
+                    <li key={item.row}>{describeBatchRow(item)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {batchResult && (
+              <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
+                <p className="font-bold text-t1 mb-2">
+                  批次作業完成：新增 {batchResult.created} 筆、更新 {batchResult.updated} 筆、刪除{" "}
+                  {batchResult.deleted} 筆、略過 {batchResult.skipped.length} 筆
+                </p>
+                {batchResult.skipped.length > 0 && (
+                  <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
+                    {batchResult.skipped.map((item) => (
+                      <li key={item.row}>第 {item.row} 列：{item.reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* 身分分頁 */}
       <div className="w-full max-w-5xl flex flex-wrap gap-2 mb-4">
         {ROSTER_ROLES.map((item) => (
@@ -703,7 +947,7 @@ export default function RosterPage() {
         ))}
       </div>
 
-      {/* 工具列：搜尋、新增、匯入 */}
+      {/* 工具列：搜尋、新增 */}
       <div className="w-full max-w-5xl flex flex-wrap items-center gap-3 mb-4">
         <input
           type="search"
@@ -718,36 +962,6 @@ export default function RosterPage() {
         >
           新增{ROSTER_ROLES.find((item) => item.value === role)?.label}
         </button>
-        {importable && (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-          >
-            {importing ? "匯入中..." : "Excel 匯入"}
-          </button>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls,.csv"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleImport(file);
-          }}
-        />
-      </div>
-
-      {/* 匯入格式說明 */}
-      <div className="w-full max-w-5xl mb-4 text-sm text-t3">
-        {importable ? (
-          <>
-            Excel 匯入每批最多 900 列；必填欄位：{rosterRequiredHint(role)}，其餘欄位可留空。
-          </>
-        ) : (
-          <>家長身分不提供檔案匯入，請以「新增家長」表單建立。</>
-        )}
       </div>
 
       {/* 提示訊息 */}
@@ -757,24 +971,6 @@ export default function RosterPage() {
           role="status"
         >
           {flash.text}
-        </div>
-      )}
-
-      {/* 匯入結果 */}
-      {importResult && (
-        <div className="w-full max-w-5xl mb-4 border border-themed rounded-lg p-4 bg-card text-sm">
-          <p className="font-bold text-t1 mb-2">
-            匯入結果：新增 {importResult.created} 筆，略過 {importResult.skipped.length} 筆
-          </p>
-          {importResult.skipped.length > 0 && (
-            <ul className="space-y-1 text-t2">
-              {importResult.skipped.map((item) => (
-                <li key={item.row}>
-                  第 {item.row} 列：{item.reason}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
 
@@ -1050,19 +1246,62 @@ export default function RosterPage() {
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
 
-      {/* 作業遮罩：儲存／刪除／匯入／狀態切換期間覆蓋畫面、阻擋重複操作 */}
-      {(saving || deleting || importing || toggling) && (
+      {/* 作業遮罩：儲存／刪除／狀態切換／批次作業期間覆蓋畫面、阻擋重複操作 */}
+      {(saving || deleting || toggling || batchBusy) && (
         <BlockingMask
           text={
             toggling
               ? "更新狀態中，請稍候…"
-              : importing
-                ? "匯入中，請稍候…"
-                : deleting
-                  ? "刪除中，請稍候…"
+              : deleting
+                ? "刪除中，請稍候…"
+                : batchBusy
+                  ? batchBusy === "execute"
+                    ? "批次執行中，請稍候…"
+                    : "上傳預覽中，請稍候…"
                   : "儲存中，請稍候…"
           }
         />
+      )}
+
+      {/* 確認 modal：取代原生 confirm，樣式跟隨主題 */}
+      {confirmRequest && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          onClick={() => setConfirmRequest(null)}
+        >
+          <div
+            className="bg-card rounded-2xl p-6 w-full max-w-md space-y-4 shadow-lg animate-fade-in"
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div>
+              <h3 className="text-lg font-bold text-t1">確認操作</h3>
+              <p className="text-sm text-t2 mt-2">{confirmRequest.message}</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmRequest(null)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const onConfirm = confirmRequest.onConfirm;
+                  setConfirmRequest(null);
+                  onConfirm();
+                }}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                確認
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 儲存成功 modal：完成時跳出，1 秒後自動消失 */}

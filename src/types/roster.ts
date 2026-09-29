@@ -359,6 +359,57 @@ export function rosterRequiredHint(role: RosterRole): string {
     .join("、");
 }
 
+/** 「身分名冊管理」批次作業的三種模式（上傳試算表） */
+export type RosterBatchMode = "create" | "update" | "delete";
+
+export const ROSTER_BATCH_MODES: { value: RosterBatchMode; label: string }[] = [
+  { value: "create", label: "新增" },
+  { value: "update", label: "修改" },
+  { value: "delete", label: "刪除" },
+];
+
+export const ROSTER_BATCH_MODE_LABELS: Record<RosterBatchMode, string> = {
+  create: "新增",
+  update: "修改",
+  delete: "刪除",
+};
+
+/** 預覽中單一欄位的變更內容（顯示用） */
+export interface RosterBatchChange {
+  label: string;
+  from: string;
+  to: string;
+}
+
+export interface RosterBatchRow {
+  /** 工作表實際列號（第 1 列為標題） */
+  row: number;
+  /** 該列的辨識鍵（電子郵件地址或帳號） */
+  key: string;
+  action: "create" | "update" | "delete" | "skip";
+  /** 僅 skip 有值 */
+  reason?: string;
+  /** 僅 update 有值 */
+  changes?: RosterBatchChange[];
+}
+
+export interface RosterBatchPreview {
+  mode: RosterBatchMode;
+  total: number;
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+  rows: RosterBatchRow[];
+}
+
+export interface RosterBatchResult {
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: { row: number; reason: string }[];
+}
+
 /** 一列完全空白時視為空列，匯入時直接略過不回報錯誤 */
 export function isEmptyRosterInput(input: RosterInput): boolean {
   return Object.values(input).every((value) => !String(value ?? "").trim());

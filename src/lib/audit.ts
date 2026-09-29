@@ -27,6 +27,7 @@ export type ActivityAction =
   | "roster_updated"
   | "roster_deleted"
   | "roster_imported"
+  | "roster_batch"
   | "role_settings_updated";
 
 export interface ActivityEntry {
