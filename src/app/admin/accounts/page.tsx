@@ -664,8 +664,7 @@ export default function AccountsPage() {
           <button
             type="button"
             onClick={() => batchFileRef.current?.click()}
-            disabled={Boolean(batchBusy)}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
           >
             選擇檔案
           </button>
@@ -673,26 +672,24 @@ export default function AccountsPage() {
           <button
             type="button"
             onClick={() => void runBatch(true)}
-            disabled={!batchFile || Boolean(batchBusy)}
+            disabled={!batchFile}
             className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
           >
-            {batchBusy === "preview" ? "預覽中..." : "上傳預覽"}
+            上傳預覽
           </button>
           {batchPreview && (
             <>
               <button
                 type="button"
                 onClick={() => void runBatch(false)}
-                disabled={Boolean(batchBusy)}
-                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
               >
-                {batchBusy === "execute" ? "執行中..." : "確認執行"}
+                確認執行
               </button>
               <button
                 type="button"
                 onClick={clearBatchSelection}
-                disabled={Boolean(batchBusy)}
-                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
               >
                 取消
               </button>
@@ -1103,8 +1100,8 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* 作業遮罩：儲存／刪除／狀態切換／重設密碼期間覆蓋畫面、阻擋重複操作 */}
-      {(saving || deleting || toggling || resetting) && (
+      {/* 作業遮罩：儲存／刪除／狀態切換／重設密碼／批次作業期間覆蓋畫面、阻擋重複操作 */}
+      {(saving || deleting || toggling || resetting || batchBusy) && (
         <BlockingMask
           text={
             toggling
@@ -1113,7 +1110,11 @@ export default function AccountsPage() {
                 ? "重設密碼中，請稍候…"
                 : deleting
                   ? "刪除中，請稍候…"
-                  : "儲存中，請稍候…"
+                  : batchBusy
+                    ? batchBusy === "execute"
+                      ? "批次執行中，請稍候…"
+                      : "上傳預覽中，請稍候…"
+                    : "儲存中，請稍候…"
           }
         />
       )}
