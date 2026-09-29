@@ -416,7 +416,7 @@ export default function RosterPage() {
     const roleLabel = ROSTER_ROLES.find((item) => item.value === role)?.label ?? "身分";
     if (
       !window.confirm(
-        `確定刪除 ${label} 的本期${roleLabel}名冊資料？只刪除本期資料，帳號與其他學期資料保留（如需刪除帳號，請至「帳號、身分與安全管理」）。`
+        `確定刪除 ${label} 的本期${roleLabel}名冊資料？只刪除本期資料，帳號與其他學期資料保留（如需刪除帳號，請至「使用者帳號管理」）。`
       )
     ) {
       return;
@@ -447,7 +447,7 @@ export default function RosterPage() {
 
   /**
    * 設定「本期該身分」的名冊狀態。
-   * 帳號層狀態（能否登入）於「帳號、身分與安全管理」工作表調整。
+   * 帳號層狀態（能否登入）於「使用者帳號管理」工作表調整。
    */
   async function handleSetStatus(member: RosterMember, status: AccountStatus) {
     if (toggling) return;
@@ -587,7 +587,7 @@ export default function RosterPage() {
   function renderField(field: RosterFieldDef) {
     if (field.key === "attribute") return renderAttributeSelect(field);
     if (field.key === "modules") return renderModules();
-    // 編輯時不改密碼（密碼屬帳號層，於「帳號、身分與安全管理」重設）
+    // 編輯時不改密碼（密碼屬帳號層，於「使用者帳號管理」重設）
     if (field.key === "password" && editingUid) return null;
     // 編輯時帳號欄位唯讀：姓名／信箱／帳號屬帳號層
     const readOnly = Boolean(editingUid) && isAccountField(field.key);
@@ -675,7 +675,7 @@ export default function RosterPage() {
         <h2 className="text-2xl font-bold text-t1">身分名冊管理</h2>
         <p className="text-t2 mt-1 text-sm">
           四種身分名冊（學生、家長、教職員、管理員）以學年度＋學期為週期；本頁管理名冊資料與本期身分狀態，
-          帳號、密碼與帳號狀態請至「帳號、身分與安全管理」
+          帳號、密碼與帳號狀態請至「使用者帳號管理」
         </p>
       </div>
 
@@ -851,7 +851,7 @@ export default function RosterPage() {
                 .filter((field) => isAccountField(field.key) && field.key !== "password")
                 .map(renderField)}
               <p className="text-xs text-t3">
-                姓名、電子郵件、帳號（含密碼、慣用身分與帳號狀態）請至「帳號、身分與安全管理」維護。
+                姓名、電子郵件、帳號（含密碼、慣用身分與帳號狀態）請至「使用者帳號管理」維護。
               </p>
             </div>
           ) : formMode === "bind" ? (

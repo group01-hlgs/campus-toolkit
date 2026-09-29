@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("account");
+    const { denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
     const period = await getCurrentPeriod();
@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("account");
+    const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -241,7 +241,7 @@ export async function PUT(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("account");
+    const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -330,7 +330,7 @@ export async function PATCH(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("account");
+    const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -383,7 +383,7 @@ export async function DELETE(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("account");
+    const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;

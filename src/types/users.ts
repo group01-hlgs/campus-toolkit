@@ -99,10 +99,11 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
 /**
  * 管理員可指定的功能模組（超級＝全開；一般＝僅被指定的模組）。
  * 模組決定：首頁卡片是否顯示、對應 API 是否放行（requireAdminModule）。
+ * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示。
  */
 export const ADMIN_MODULES = [
+  { value: "users", label: "使用者帳號管理" },
   { value: "roster", label: "身分名冊管理" },
-  { value: "account", label: "帳號、身分與安全管理" },
   { value: "settings", label: "系統設定" },
   { value: "activity", label: "稽核紀錄" },
 ] as const;
@@ -117,12 +118,15 @@ export function isAdminModule(value: unknown): value is AdminModule {
 
 /**
  * 改版前的模組代碼／標籤 → 現行模組（僅舊資料與舊輸入相容）。
- * `roles`（身分管理）已併入「身分名冊管理」，舊管理員的指派不會因此失權。
+ * - `roles`（身分管理）已併入「身分名冊管理」，舊管理員的指派不會因此失權。
+ * - 舊 `使用者帳號管理`（代碼 `roster`）改版後對應「身分名冊管理」；
+ *   如該管理員也要用帳號工作表，請在名冊管理頁補勾「使用者帳號管理」。
+ * - 舊 `account`（個人頁「帳號、身分與安全管理」）不再對應任何模組：
+ *   個人頁不需權限，人人可見，故不授予管理工作。
  */
 const LEGACY_ADMIN_MODULES: Record<string, AdminModule> = {
   roles: "roster",
   身分管理: "roster",
-  使用者帳號管理: "roster",
 };
 
 /** 解析一個模組代碼或標籤（含舊值），無法辨識回 undefined */
@@ -200,7 +204,7 @@ export interface AccountRecord {
 }
 
 /**
- * 「帳號、身分與安全管理」工作表的一列（API 回傳格式，不含密碼）。
+ * 「使用者帳號管理」工作表的一列（API 回傳格式，不含密碼）。
  * 具備身分＝該帳號於「當期」四張身分名冊中存在條目（不論條目狀態）。
  */
 export interface AccountSummary {

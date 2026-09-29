@@ -400,7 +400,7 @@ export default function AccountsPage() {
         onClick={() => router.push("/admin/admins")}
         className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
       >
-        管理我的帳號
+        管理我的帳號、身分與安全
       </button>
       <button
         onClick={() => void logout()}
@@ -422,7 +422,7 @@ export default function AccountsPage() {
 
       {/* 功能標題 */}
       <div className="w-full max-w-6xl mt-4 mb-2 text-center">
-        <h2 className="text-2xl font-bold text-t1">帳號、身分與安全管理</h2>
+        <h2 className="text-2xl font-bold text-t1">使用者帳號管理</h2>
         <p className="text-t2 mt-1 text-sm">
           全部使用者帳號集中在同一張工作表；帳號狀態決定能否登入，具備身分與名冊資料請至「身分名冊管理」
         </p>

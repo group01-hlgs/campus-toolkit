@@ -167,9 +167,9 @@ export const RATE = {
   ACCOUNT_UPDATE: { limit: 10, windowMs: 60_000 },
   /** 帳號與安全：設定兩階段驗證方式／重新產生 TOTP 密鑰 */
   TWO_FACTOR_SET: { limit: 10, windowMs: 60_000 },
-  /** 帳號、身分與安全管理：讀取全帳號工作表 */
+  /** 使用者帳號管理：讀取全帳號工作表 */
   ACCOUNTS_LIST: { limit: 60, windowMs: 60_000 },
-  /** 帳號、身分與安全管理：新增／更新／狀態／刪除（含 bcrypt，額度從嚴） */
+  /** 使用者帳號管理：新增／更新／狀態／刪除（含 bcrypt，額度從嚴） */
   ACCOUNTS_MUTATE: { limit: 20, windowMs: 60_000 },
   /** 身分名冊管理：讀取該身分名冊清單 */
   ROSTER_LIST: { limit: 60, windowMs: 60_000 },

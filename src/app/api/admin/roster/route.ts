@@ -309,7 +309,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    // 密碼、慣用身分、帳號狀態屬帳號層，由「帳號、身分與安全管理」工作表維護
+    // 密碼、慣用身分、帳號狀態屬帳號層，由「使用者帳號管理」工作表維護
     const { account } = result;
     await ref.update({
       email: account.email,
@@ -353,7 +353,7 @@ export async function PUT(request: NextRequest) {
 
 /**
  * PATCH：切換「本期該身分」的名冊狀態（有效／無效／停權）。
- * 帳號層狀態（整個帳號能否登入）由「帳號、身分與安全管理」工作表維護。
+ * 帳號層狀態（整個帳號能否登入）由「使用者帳號管理」工作表維護。
  */
 export async function PATCH(request: NextRequest) {
   try {

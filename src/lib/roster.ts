@@ -170,7 +170,7 @@ export type AccountValidation =
   | { ok: false; message: string };
 
 /**
- * 驗證「帳號、身分與安全管理」工作表的帳號輸入（無名冊欄位）。
+ * 驗證「使用者帳號管理」工作表的帳號輸入（無名冊欄位）。
  * 建立時密碼必填；更新時密碼留空代表不變更。
  */
 export function validateAccountInput(
