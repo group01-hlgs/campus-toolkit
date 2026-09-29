@@ -41,6 +41,13 @@ function formatDateTime(value?: number): string {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function roleDisplayLines(roles: UserRole[]): string[] {
+  const labels = roles.map((role) => ROLE_LABELS[role]);
+  if (labels.length < 3) return [labels.join("、")];
+  const cut = Math.ceil(labels.length / 2);
+  return [labels.slice(0, cut).join("、"), labels.slice(cut).join("、")];
+}
+
 interface AccountForm {
   email: string;
   account: string;
@@ -693,7 +700,7 @@ export default function AccountsPage() {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {item.roles.length
-                      ? item.roles.map((role) => ROLE_LABELS[role]).join("、")
+                      ? roleDisplayLines(item.roles).map((line) => <div key={line}>{line}</div>)
                       : "—"}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
