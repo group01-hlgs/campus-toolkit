@@ -142,7 +142,8 @@ export default function AccountsPage() {
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
 
-  // 批次管理：上傳試算表 → 預覽 → 確認執行
+  // 批次管理：上傳試算表 → 預覽 → 確認執行（卡片預設收合）
+  const [batchOpen, setBatchOpen] = useState(false);
   const [batchMode, setBatchMode] = useState<AccountBatchMode>("create");
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchBusy, setBatchBusy] = useState<"" | "preview" | "execute">("");
@@ -624,114 +625,129 @@ export default function AccountsPage() {
 
       <hr className="w-full max-w-6xl border-themed mb-4" />
 
-      {/* 批次管理：上傳試算表 → 預覽 → 確認執行 */}
+      {/* 批次管理：上傳試算表 → 預覽 → 確認執行（預設收合） */}
       <div className="w-full max-w-6xl border border-themed rounded-lg bg-card p-4 mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-t1">批次管理</h3>
-          <span className="text-xs text-t3">Excel／CSV（.xlsx、.xls、.csv），上傳後先預覽再執行</span>
-        </div>
-
-        <div className="flex flex-wrap gap-2 mb-3">
-          {ACCOUNT_BATCH_MODES.map((item) => (
-            <button
-              key={item.value}
-              type="button"
-              onClick={() => selectBatchMode(item.value)}
-              className={`rounded-lg px-4 py-1.5 text-sm cursor-pointer border ${
-                batchMode === item.value
-                  ? "btn-theme"
-                  : "border-themed text-t2 bg-card hover:text-t1"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            ref={batchFileRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => {
-              setBatchFile(e.target.files?.[0] ?? null);
-              setBatchPreview(null);
-              setBatchResult(null);
-              setBatchError("");
-            }}
-          />
           <button
             type="button"
-            onClick={() => batchFileRef.current?.click()}
+            onClick={() => setBatchOpen((prev) => !prev)}
             className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+            aria-expanded={batchOpen}
           >
-            選擇檔案
+            {batchOpen ? "收合" : "展開"}
           </button>
-          <span className="text-sm text-t2">{batchFile ? batchFile.name : "尚未選擇檔案"}</span>
-          <button
-            type="button"
-            onClick={() => void runBatch(true)}
-            disabled={!batchFile}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-          >
-            上傳預覽
-          </button>
-          {batchPreview && (
-            <>
-              <button
-                type="button"
-                onClick={() => void runBatch(false)}
-                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-              >
-                確認執行
-              </button>
-              <button
-                type="button"
-                onClick={clearBatchSelection}
-                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-              >
-                取消
-              </button>
-            </>
-          )}
         </div>
 
-        <p className="text-xs text-t3 mt-2">{BATCH_HINTS[batchMode]}</p>
-
-        {batchError && (
-          <p className="text-sm text-danger mt-2" role="alert">
-            {batchError}
-          </p>
-        )}
-
-        {batchPreview && (
-          <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
-            <p className="font-bold text-t1 mb-2">
-              預覽：新增 {batchPreview.created} 筆、更新 {batchPreview.updated} 筆、刪除{" "}
-              {batchPreview.deleted} 筆、略過 {batchPreview.skipped} 筆（共{" "}
-              {batchPreview.total} 列）
+        {batchOpen && (
+          <div className="mt-3">
+            <p className="text-xs text-t3 mb-3">
+              Excel／CSV（.xlsx、.xls、.csv），上傳後先預覽再執行
             </p>
-            <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
-              {batchPreview.rows.map((item) => (
-                <li key={item.row}>{describeBatchRow(item)}</li>
+
+            <div className="flex flex-wrap gap-2 mb-3">
+              {ACCOUNT_BATCH_MODES.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => selectBatchMode(item.value)}
+                  className={`rounded-lg px-4 py-1.5 text-sm cursor-pointer border ${
+                    batchMode === item.value
+                      ? "btn-theme"
+                      : "border-themed text-t2 bg-card hover:text-t1"
+                  }`}
+                >
+                  {item.label}
+                </button>
               ))}
-            </ul>
-          </div>
-        )}
+            </div>
 
-        {batchResult && (
-          <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
-            <p className="font-bold text-t1 mb-2">
-              批次作業完成：新增 {batchResult.created} 筆、更新 {batchResult.updated} 筆、刪除{" "}
-              {batchResult.deleted} 筆、略過 {batchResult.skipped.length} 筆
-            </p>
-            {batchResult.skipped.length > 0 && (
-              <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
-                {batchResult.skipped.map((item) => (
-                  <li key={item.row}>第 {item.row} 列：{item.reason}</li>
-                ))}
-              </ul>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                ref={batchFileRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  setBatchFile(e.target.files?.[0] ?? null);
+                  setBatchPreview(null);
+                  setBatchResult(null);
+                  setBatchError("");
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => batchFileRef.current?.click()}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                選擇檔案
+              </button>
+              <span className="text-sm text-t2">{batchFile ? batchFile.name : "尚未選擇檔案"}</span>
+              <button
+                type="button"
+                onClick={() => void runBatch(true)}
+                disabled={!batchFile}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                上傳預覽
+              </button>
+              {batchPreview && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void runBatch(false)}
+                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+                  >
+                    確認執行
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearBatchSelection}
+                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+                  >
+                    取消
+                  </button>
+                </>
+              )}
+            </div>
+
+            <p className="text-xs text-t3 mt-2">{BATCH_HINTS[batchMode]}</p>
+
+            {batchError && (
+              <p className="text-sm text-danger mt-2" role="alert">
+                {batchError}
+              </p>
+            )}
+
+            {batchPreview && (
+              <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
+                <p className="font-bold text-t1 mb-2">
+                  預覽：新增 {batchPreview.created} 筆、更新 {batchPreview.updated} 筆、刪除{" "}
+                  {batchPreview.deleted} 筆、略過 {batchPreview.skipped} 筆（共{" "}
+                  {batchPreview.total} 列）
+                </p>
+                <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
+                  {batchPreview.rows.map((item) => (
+                    <li key={item.row}>{describeBatchRow(item)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {batchResult && (
+              <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
+                <p className="font-bold text-t1 mb-2">
+                  批次作業完成：新增 {batchResult.created} 筆、更新 {batchResult.updated} 筆、刪除{" "}
+                  {batchResult.deleted} 筆、略過 {batchResult.skipped.length} 筆
+                </p>
+                {batchResult.skipped.length > 0 && (
+                  <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
+                    {batchResult.skipped.map((item) => (
+                      <li key={item.row}>第 {item.row} 列：{item.reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
           </div>
         )}
