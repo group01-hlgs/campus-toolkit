@@ -133,6 +133,8 @@ export default function ChooseRolePage() {
     if (submitting) return;
     setSubmitting(true);
     setError("");
+    // 成功導向功能頁後不關閉遮罩：維持到新頁面渲染完成、本頁卸載為止
+    let navigating = false;
     try {
       const res = await fetch("/api/auth/role-choice", {
         method: "POST",
@@ -173,11 +175,12 @@ export default function ChooseRolePage() {
         return;
       }
       setCachedSession(user);
+      navigating = true;
       router.push(ROLE_HOME[user.role] || "/");
     } catch {
       setError("系統錯誤，請稍後再試");
     } finally {
-      setSubmitting(false);
+      if (!navigating) setSubmitting(false);
     }
   }
 
