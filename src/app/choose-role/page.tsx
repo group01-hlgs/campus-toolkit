@@ -27,6 +27,30 @@ type ApiResponse = {
 
 const EXPIRED_MESSAGE = "驗證階段已過期，請重新登入";
 
+/** 全螢幕遮罩（選擇身分進入中）：淡入過場並擋住下方所有操作 */
+function BlockingMask({ text }: { text: string }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 animate-fade-in"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+      role="status"
+      aria-live="polite"
+    >
+      <svg
+        className="w-10 h-10 animate-spin text-t2"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" d="M21 12a9 9 0 11-6.22-8.56" />
+      </svg>
+      <p className="text-sm text-t2">{text}</p>
+    </div>
+  );
+}
+
 export default function ChooseRolePage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
@@ -167,7 +191,7 @@ export default function ChooseRolePage() {
 
       <div className="text-center mt-4">
         <h2 className="text-2xl font-bold text-t1">使用身分</h2>
-        <p className="text-t2 mt-1">{identity ? `${identity}，你好` : "你好"}</p>
+        <p className="text-t2 mt-1">{identity ? `${identity}，您好` : "您好"}</p>
       </div>
 
       <div className="w-full max-w-md mt-6 border border-themed rounded-lg p-6">
@@ -188,9 +212,9 @@ export default function ChooseRolePage() {
                   type="button"
                   onClick={() => void choose(role)}
                   disabled={submitting}
-                  className="w-full btn-soft rounded py-3 font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                  className="w-full btn-soft rounded py-3 font-medium transition-colors cursor-pointer"
                 >
-                  {submitting ? "進入中..." : `以「${ROLE_LABELS[role]}」身分進入`}
+                  {`以「${ROLE_LABELS[role]}」身分進入`}
                 </button>
               ))}
             </div>
@@ -210,6 +234,9 @@ export default function ChooseRolePage() {
       >
         返回登入頁
       </button>
+
+      {/* 選擇身分進入中：全螢幕遮罩過場，避免按鈕上做動畫 */}
+      {submitting && <BlockingMask text="進入中，請稍候…" />}
 
       {/* 廣告區域 */}
       {settings.sponsorAdEnabled && (
