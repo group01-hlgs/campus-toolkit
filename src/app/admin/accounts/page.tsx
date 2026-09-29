@@ -4,6 +4,12 @@ import { useEffect, useMemo, useRef, useState, FormEvent, MouseEvent as ReactMou
 import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
 import {
+  ACCOUNT_BATCH_MODES,
+  ACCOUNT_BATCH_MODE_LABELS,
+  AccountBatchMode,
+  AccountBatchPreview,
+  AccountBatchResult,
+  AccountBatchRow,
   AccountStatus,
   AccountSummary,
   ALL_ROLES,
@@ -56,6 +62,31 @@ interface AccountForm {
 }
 
 const EMPTY_FORM: AccountForm = { email: "", account: "", name: "", password: "" };
+
+const BATCH_HINTS: Record<AccountBatchMode, string> = {
+  create: "必填欄位：電子郵件地址、姓名、密碼；可選：帳號、慣用身分（學生／家長／教職員／管理員）。單批最多 900 列。",
+  update: "以「電子郵件地址」或「帳號」辨識該列（兩者都填須為同一帳號）；可更新：姓名、帳號、慣用身分、狀態，空白欄位＝不修改。不支援批次修改電子郵件地址與密碼。",
+  delete: "以「電子郵件地址」或「帳號」辨識該列；將刪除帳號與其所有學期的名冊條目，刪除後無法復原。",
+};
+
+const BATCH_ACTION_LABELS: Record<AccountBatchRow["action"], string> = {
+  create: "新增",
+  update: "修改",
+  delete: "刪除",
+  skip: "略過",
+};
+
+function describeBatchRow(item: AccountBatchRow): string {
+  if (item.action === "skip") {
+    return `第 ${item.row} 列 · 略過「${item.key}」：${item.reason}`;
+  }
+  const changes = (item.changes ?? [])
+    .map((change) => `${change.label} ${change.from || "（空）"} → ${change.to || "（空）"}`)
+    .join("、");
+  return `第 ${item.row} 列 · ${BATCH_ACTION_LABELS[item.action]}「${item.key}」${
+    changes ? `：${changes}` : ""
+  }`;
+}
 
 /** 全螢幕遮罩（儲存／刪除中）：淡入過場並擋住下方所有操作 */
 function BlockingMask({ text }: { text: string }) {
@@ -110,6 +141,15 @@ export default function AccountsPage() {
 
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
+
+  // 批次管理：上傳試算表 → 預覽 → 確認執行
+  const [batchMode, setBatchMode] = useState<AccountBatchMode>("create");
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchBusy, setBatchBusy] = useState<"" | "preview" | "execute">("");
+  const [batchPreview, setBatchPreview] = useState<AccountBatchPreview | null>(null);
+  const [batchResult, setBatchResult] = useState<AccountBatchResult | null>(null);
+  const [batchError, setBatchError] = useState("");
+  const batchFileRef = useRef<HTMLInputElement>(null);
 
   // 操作欄下拉選單：記錄開啟的列與定位（top／bottom 二選一，避開視窗下緣）
   const [menu, setMenu] = useState<{
@@ -441,6 +481,60 @@ export default function AccountsPage() {
     router.push("/admin");
   }
 
+  function clearBatchSelection() {
+    setBatchFile(null);
+    setBatchPreview(null);
+    setBatchResult(null);
+    setBatchError("");
+    if (batchFileRef.current) batchFileRef.current.value = "";
+  }
+
+  function selectBatchMode(mode: AccountBatchMode) {
+    setBatchMode(mode);
+    clearBatchSelection();
+  }
+
+  async function runBatch(dryRun: boolean) {
+    if (!batchFile || batchBusy) return;
+    if (!dryRun) {
+      const question =
+        batchMode === "delete"
+          ? `確定執行批次刪除？共 ${batchPreview?.deleted ?? 0} 個帳號將被刪除，無法復原。`
+          : `確定執行批次「${ACCOUNT_BATCH_MODE_LABELS[batchMode]}」？共 ${
+              batchPreview?.total ?? 0
+            } 列。`;
+      if (!window.confirm(question)) return;
+    }
+
+    setBatchBusy(dryRun ? "preview" : "execute");
+    setBatchError("");
+    try {
+      const body = new FormData();
+      body.append("mode", batchMode);
+      body.append("dryRun", dryRun ? "true" : "false");
+      body.append("file", batchFile);
+      const res = await fetch("/api/admin/accounts/batch", { method: "POST", body });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "批次作業失敗");
+      }
+      if (dryRun) {
+        setBatchResult(null);
+        setBatchPreview(data.preview as AccountBatchPreview);
+      } else {
+        setBatchPreview(null);
+        setBatchResult(data.result as AccountBatchResult);
+        setBatchFile(null);
+        if (batchFileRef.current) batchFileRef.current.value = "";
+        await loadAccounts();
+      }
+    } catch (error) {
+      setBatchError(error instanceof Error ? error.message : "批次作業失敗");
+    } finally {
+      setBatchBusy("");
+    }
+  }
+
   const filtered = useMemo(() => {
     const key = keyword.trim().toLowerCase();
     if (!key) return accounts;
@@ -501,6 +595,122 @@ export default function AccountsPage() {
       <div className="w-full max-w-6xl flex justify-end gap-3 mb-4">{actionButtons}</div>
 
       <hr className="w-full max-w-6xl border-themed mb-4" />
+
+      {/* 批次管理：上傳試算表 → 預覽 → 確認執行 */}
+      <div className="w-full max-w-6xl border border-themed rounded-lg bg-card p-4 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h3 className="text-lg font-bold text-t1">批次管理</h3>
+          <span className="text-xs text-t3">Excel／CSV（.xlsx、.xls、.csv），上傳後先預覽再執行</span>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-3">
+          {ACCOUNT_BATCH_MODES.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => selectBatchMode(item.value)}
+              className={`rounded-lg px-4 py-1.5 text-sm cursor-pointer border ${
+                batchMode === item.value
+                  ? "btn-theme"
+                  : "border-themed text-t2 bg-card hover:text-t1"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            ref={batchFileRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => {
+              setBatchFile(e.target.files?.[0] ?? null);
+              setBatchPreview(null);
+              setBatchResult(null);
+              setBatchError("");
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => batchFileRef.current?.click()}
+            disabled={Boolean(batchBusy)}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            選擇檔案
+          </button>
+          <span className="text-sm text-t2">{batchFile ? batchFile.name : "尚未選擇檔案"}</span>
+          <button
+            type="button"
+            onClick={() => void runBatch(true)}
+            disabled={!batchFile || Boolean(batchBusy)}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            {batchBusy === "preview" ? "預覽中..." : "上傳預覽"}
+          </button>
+          {batchPreview && (
+            <>
+              <button
+                type="button"
+                onClick={() => void runBatch(false)}
+                disabled={Boolean(batchBusy)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                {batchBusy === "execute" ? "執行中..." : "確認執行"}
+              </button>
+              <button
+                type="button"
+                onClick={clearBatchSelection}
+                disabled={Boolean(batchBusy)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                取消
+              </button>
+            </>
+          )}
+        </div>
+
+        <p className="text-xs text-t3 mt-2">{BATCH_HINTS[batchMode]}</p>
+
+        {batchError && (
+          <p className="text-sm text-danger mt-2" role="alert">
+            {batchError}
+          </p>
+        )}
+
+        {batchPreview && (
+          <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
+            <p className="font-bold text-t1 mb-2">
+              預覽：新增 {batchPreview.created} 筆、更新 {batchPreview.updated} 筆、刪除{" "}
+              {batchPreview.deleted} 筆、略過 {batchPreview.skipped} 筆（共{" "}
+              {batchPreview.total} 列）
+            </p>
+            <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
+              {batchPreview.rows.map((item) => (
+                <li key={item.row}>{describeBatchRow(item)}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {batchResult && (
+          <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
+            <p className="font-bold text-t1 mb-2">
+              批次作業完成：新增 {batchResult.created} 筆、更新 {batchResult.updated} 筆、刪除{" "}
+              {batchResult.deleted} 筆、略過 {batchResult.skipped.length} 筆
+            </p>
+            {batchResult.skipped.length > 0 && (
+              <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
+                {batchResult.skipped.map((item) => (
+                  <li key={item.row}>第 {item.row} 列：{item.reason}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* 工具列：搜尋、新增 */}
       <div className="w-full max-w-6xl flex flex-wrap items-center gap-3 mb-4">

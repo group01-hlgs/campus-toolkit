@@ -23,12 +23,10 @@ import {
 import { SchoolPeriod } from "@/types/settings";
 import { rosterCollection } from "@/types/roster";
 import {
+  accountStatusGuard,
   buildAccountRecord,
   checkRosterConflict,
-  countOtherActiveAdmins,
-  getRosterEntry,
   hashRosterPassword,
-  isActiveEntry,
   loadAccountIndex,
   syncEntryIdentity,
   validateAccountInput,
@@ -39,21 +37,9 @@ async function assertAccountStatusAllowed(
   uid: string,
   sessionUid: string
 ): Promise<NextResponse | null> {
-  if (uid === sessionUid) {
-    return NextResponse.json(
-      { success: false, message: "無法停用自己使用的帳號" },
-      { status: 400 }
-    );
-  }
-  const period = await getCurrentPeriod();
-  const entry = await getRosterEntry(uid, "admin", period);
-  if (isActiveEntry(entry) && (await countOtherActiveAdmins(uid)) === 0) {
-    return NextResponse.json(
-      { success: false, message: "無法停用最後一位有效管理員" },
-      { status: 400 }
-    );
-  }
-  return null;
+  const message = await accountStatusGuard(uid, sessionUid);
+  if (!message) return null;
+  return NextResponse.json({ success: false, message }, { status: 400 });
 }
 
 /** 當期四張名冊 → 每個 uid 具備的身分（順序固定 ALL_ROLES） */

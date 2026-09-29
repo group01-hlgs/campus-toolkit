@@ -171,6 +171,8 @@ export const RATE = {
   ACCOUNTS_LIST: { limit: 60, windowMs: 60_000 },
   /** 使用者帳號管理：新增／更新／狀態／刪除（含 bcrypt，額度從嚴） */
   ACCOUNTS_MUTATE: { limit: 20, windowMs: 60_000 },
+  /** 使用者帳號管理：批次作業（預覽與執行各計一次，單批最多 900 列） */
+  ACCOUNTS_BATCH: { limit: 10, windowMs: 60 * 60_000 },
   /** 身分名冊管理：讀取該身分名冊清單 */
   ROSTER_LIST: { limit: 60, windowMs: 60_000 },
   /** 身分名冊管理：單筆新增／更新／刪除（每筆都要 bcrypt，額度從嚴） */

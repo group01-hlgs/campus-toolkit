@@ -246,3 +246,54 @@ export interface AccountSummary {
   /** 具備身分（當期名冊有條目者，順序 ALL_ROLES） */
   roles: UserRole[];
 }
+
+/** 「使用者帳號管理」批次作業的三種模式（上傳試算表） */
+export type AccountBatchMode = "create" | "update" | "delete";
+
+export const ACCOUNT_BATCH_MODES: { value: AccountBatchMode; label: string }[] = [
+  { value: "create", label: "新增" },
+  { value: "update", label: "修改" },
+  { value: "delete", label: "刪除" },
+];
+
+export const ACCOUNT_BATCH_MODE_LABELS: Record<AccountBatchMode, string> = {
+  create: "新增",
+  update: "修改",
+  delete: "刪除",
+};
+
+/** 預覽中單一欄位的變更內容（顯示用） */
+export interface AccountBatchChange {
+  label: string;
+  from: string;
+  to: string;
+}
+
+export interface AccountBatchRow {
+  /** 工作表實際列號（第 1 列為標題） */
+  row: number;
+  /** 該列的辨識鍵（電子郵件地址或帳號） */
+  key: string;
+  action: "create" | "update" | "delete" | "skip";
+  /** 僅 skip 有值 */
+  reason?: string;
+  /** 僅 update 有值 */
+  changes?: AccountBatchChange[];
+}
+
+export interface AccountBatchPreview {
+  mode: AccountBatchMode;
+  total: number;
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+  rows: AccountBatchRow[];
+}
+
+export interface AccountBatchResult {
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: { row: number; reason: string }[];
+}

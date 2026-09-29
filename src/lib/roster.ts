@@ -562,6 +562,20 @@ export async function countOtherActiveAdmins(excludeUid: string): Promise<number
   return docs.filter((doc) => doc.exists && isAccountActive(doc.data())).length;
 }
 
+/**
+ * 狀態變更／刪除的守門：本人、以及「仍是有效管理員且只剩他一位」。
+ * 回傳擋下訊息，null＝放行（訊息用語由呼叫端依情境調整）。
+ */
+export async function accountStatusGuard(uid: string, sessionUid: string): Promise<string | null> {
+  if (uid === sessionUid) return "無法停用自己使用的帳號";
+  const period = await getCurrentPeriod();
+  const entry = await getRosterEntry(uid, "admin", period);
+  if (isActiveEntry(entry) && (await countOtherActiveAdmins(uid)) === 0) {
+    return "無法停用最後一位有效管理員";
+  }
+  return null;
+}
+
 /** 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應） */
 export function adminModulesOf(entry: Record<string, unknown> | null | undefined): AdminModule[] {
   if (!entry) return [];

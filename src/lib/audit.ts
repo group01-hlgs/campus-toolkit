@@ -17,6 +17,7 @@ export type ActivityAction =
   | "account_created"
   | "account_updated"
   | "account_deleted"
+  | "account_batch"
   | "two_factor_changed"
   | "two_factor_verified"
   | "two_factor_failed"
