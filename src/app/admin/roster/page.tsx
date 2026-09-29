@@ -673,10 +673,6 @@ export default function RosterPage() {
       {/* 功能標題 */}
       <div className="w-full max-w-5xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">身分名冊管理</h2>
-        <p className="text-t2 mt-1 text-sm">
-          四種身分名冊（學生、家長、教職員、管理員）以學年度＋學期為週期；本頁管理名冊資料與身分啟用狀態，
-          帳號、密碼與帳號狀態請至「使用者帳號管理」
-        </p>
       </div>
 
       {/* 操作按鈕 */}

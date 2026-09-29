@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ALL_ROLES, ROLE_LABELS, UserRole } from "@/types/users";
 import { RoleEnabledMap } from "@/types/role-settings";
 
@@ -26,17 +26,18 @@ const ROLE_HINTS: Record<UserRole, string> = {
 
 /**
  * 身分啟用／停用面板（原「身分管理」頁，併入身分名冊管理頁頂端）。
+ * 預設收合，管理員按「展開」才讀取／顯示四張開關卡（首次展開才打 API）。
  * 開關存於系統設定（settings/system 的 roleEnabled），屬現行狀態、跨學期沿用。
- * 自行讀取 /api/admin/roles。
  */
 export default function RoleEnablePanel() {
+  const [open, setOpen] = useState(false);
   const [view, setView] = useState<RolesView | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState<UserRole | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
 
-  /** silent=true：背景重新整理（啟用／停用後不整頁跳回載入中） */
+  /** 首次展開才讀取（之後以快取內容顯示，重新整理走背景更新） */
   async function loadView(silent = false) {
     if (!silent) setLoading(true);
     setLoadError("");
@@ -54,10 +55,11 @@ export default function RoleEnablePanel() {
     }
   }
 
-  useEffect(() => {
-    void loadView();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  function handleOpenChange() {
+    const next = !open;
+    setOpen(next);
+    if (next && !view) void loadView();
+  }
 
   /** 啟用／停用身分 */
   async function toggle(role: UserRole, enabled: boolean) {
@@ -83,91 +85,97 @@ export default function RoleEnablePanel() {
     }
   }
 
-  if (loading) {
-    return <p className="mb-6 text-center text-t3">身分啟用狀態載入中...</p>;
-  }
-
-  if (loadError) {
-    return (
-      <div className="mb-6">
-        <div className="alert-danger p-4 text-sm">
-          <span className="font-bold text-danger">讀取失敗：</span>
-          {loadError}
-        </div>
-        <button
-          onClick={() => void loadView()}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer mt-3"
-        >
-          重新讀取
-        </button>
-      </div>
-    );
-  }
-
-  if (!view) return null;
-
   return (
     <div className="mb-6">
-      <h3 className="text-lg font-bold text-t1 mb-1">身分啟用狀態</h3>
-      <p className="text-sm text-t3 mb-3">
-        全校層開關：停用後該身分無法登入、無法切換，已登入者立即失效。設定為現行狀態，學期轉換沿用。
-      </p>
-
-      {flash && (
-        <p
-          className={`text-sm mb-4 ${flash.type === "success" ? "text-success" : "text-danger"}`}
-          role="status"
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-bold text-t1">身分啟用狀態</h3>
+        <button
+          type="button"
+          onClick={handleOpenChange}
+          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+          aria-expanded={open}
         >
-          {flash.text}
-        </p>
-      )}
+          {open ? "收合" : "展開"}
+        </button>
+      </div>
 
-      {/* 四種身分的啟用狀態 */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {ALL_ROLES.map((role) => {
-          const enabled = view.roles[role];
-          const adminLocked = role === "admin" && enabled;
-          return (
-            <div
-              key={role}
-              className="border border-themed rounded-lg p-5 bg-card flex flex-col gap-3"
+      {open && (
+        <div className="mt-3">
+          <p className="text-sm text-t3 mb-3">
+            全校層開關：停用後該身分無法登入、無法切換，已登入者立即失效。設定為現行狀態，學期轉換沿用。
+          </p>
+
+          {flash && (
+            <p
+              className={`text-sm mb-4 ${flash.type === "success" ? "text-success" : "text-danger"}`}
+              role="status"
             >
-              <div className="flex items-center justify-between gap-2">
-                <h4 className="text-lg font-bold text-t1">{ROLE_LABELS[role]}</h4>
-                <span
-                  className={`text-sm font-medium ${enabled ? "text-success" : "text-danger"}`}
-                >
-                  {enabled ? "啟用中" : "已停用"}
-                </span>
+              {flash.text}
+            </p>
+          )}
+
+          {loading ? (
+            <p className="text-center text-t3">身分啟用狀態載入中...</p>
+          ) : loadError ? (
+            <div>
+              <div className="alert-danger p-4 text-sm">
+                <span className="font-bold text-danger">讀取失敗：</span>
+                {loadError}
               </div>
-              <p className="text-sm text-t3 flex-1">
-                {ROLE_HINTS[role]}
-                <br />
-                {enabled
-                  ? "全校開放以此身分登入。"
-                  : "已停用，所有人都無法以此身分登入。"}
-              </p>
               <button
-                type="button"
-                onClick={() => void toggle(role, !enabled)}
-                disabled={saving !== null || adminLocked}
-                title={adminLocked ? "無法停用管理員身分" : undefined}
-                className={
-                  enabled
-                    ? "btn-danger rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-                    : "btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-                }
+                onClick={() => void loadView()}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer mt-3"
               >
-                {saving === role
-                  ? "處理中..."
-                  : enabled
-                    ? "停用此身分"
-                    : "啟用此身分"}
+                重新讀取
               </button>
             </div>
-          );
-        })}
-      </div>
+          ) : view ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {ALL_ROLES.map((role) => {
+                const enabled = view.roles[role];
+                const adminLocked = role === "admin" && enabled;
+                return (
+                  <div
+                    key={role}
+                    className="border border-themed rounded-lg p-5 bg-card flex flex-col gap-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-lg font-bold text-t1">{ROLE_LABELS[role]}</h4>
+                      <span
+                        className={`text-sm font-medium ${enabled ? "text-success" : "text-danger"}`}
+                      >
+                        {enabled ? "啟用中" : "已停用"}
+                      </span>
+                    </div>
+                    <p className="text-sm text-t3 flex-1">
+                      {ROLE_HINTS[role]}
+                      <br />
+                      {enabled ? "全校開放以此身分登入。" : "已停用，所有人都無法以此身分登入。"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void toggle(role, !enabled)}
+                      disabled={saving !== null || adminLocked}
+                      title={adminLocked ? "無法停用管理員身分" : undefined}
+                      className={
+                        enabled
+                          ? "btn-danger rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                          : "btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                      }
+                    >
+                      {saving === role
+                        ? "處理中..."
+                        : enabled
+                          ? "停用此身分"
+                          : "啟用此身分"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
