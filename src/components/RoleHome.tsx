@@ -19,7 +19,7 @@ const accountModule = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
     </svg>
   ),
-  label: "帳號與安全管理",
+  label: "帳號、身分與安全管理",
 };
 
 // 齒輪圖示與管理員首頁「系統設定」卡一致（主程式必有的子功能）
@@ -81,7 +81,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const roleLabel = ROLE_LABELS[role];
   const accountHref = `${ROLE_HOME[role]}/account`;
   const settingsHref = `${ROLE_HOME[role]}/settings`;
-  // 功能入口卡片：順序比照主程式管理員首頁（系統設定 → 帳號與安全管理）
+  // 功能入口卡片：順序比照主程式管理員首頁（系統設定 → 帳號、身分與安全管理）
   const entryCards = [
     { ...settingsModule, id: "settings", href: settingsHref },
     { ...accountModule, id: "account", href: accountHref },

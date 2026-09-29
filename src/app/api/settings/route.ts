@@ -25,7 +25,7 @@ const PUBLIC_SETTINGS_KEYS: (keyof Settings)[] = [
   "copyrightNotice",
   "sponsorAdEnabled",
   "sessionTimeout",
-  // 使用者帳號與安全管理頁需顯示「是否開放變更電子郵件」提示
+  // 使用者帳號、身分與安全管理頁需顯示「是否開放變更電子郵件」提示
   "emailChangeAllowed",
 ];
 

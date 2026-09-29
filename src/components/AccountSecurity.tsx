@@ -580,7 +580,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       </div>
 
       <div className="w-full max-w-2xl mt-4 mb-2 text-center">
-        <h2 className="text-2xl font-bold text-t1">帳號與安全管理</h2>
+        <h2 className="text-2xl font-bold text-t1">帳號、身分與安全管理</h2>
         <p className="text-t3 text-sm mt-1">{roleLabel}</p>
       </div>
 

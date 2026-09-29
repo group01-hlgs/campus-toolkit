@@ -133,7 +133,7 @@ async function getActiveRoleOptions(
   return [selfRole, ...list.filter((role) => role !== selfRole)];
 }
 
-/** GET：讀取自身帳號資料（帳號與安全管理頁三卡共用） */
+/** GET：讀取自身帳號資料（帳號、身分與安全管理頁三卡共用） */
 export async function GET(request: NextRequest) {
   try {
     const limited = enforceRateLimit(
