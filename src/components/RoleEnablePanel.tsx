@@ -86,7 +86,7 @@ export default function RoleEnablePanel() {
   }
 
   return (
-    <div className="mb-6">
+    <div className="border border-themed rounded-lg bg-card p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-lg font-bold text-t1">身分啟用狀態</h3>
         <button

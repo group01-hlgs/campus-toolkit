@@ -741,7 +741,9 @@ export default function RosterPage() {
       {/* 匯入格式說明 */}
       <div className="w-full max-w-5xl mb-4 text-sm text-t3">
         {importable ? (
-          <>必填欄位：{rosterRequiredHint(role)}；單次最多 900 列。</>
+          <>
+            Excel 匯入每批最多 900 列；必填欄位：{rosterRequiredHint(role)}，其餘欄位可留空。
+          </>
         ) : (
           <>家長身分不提供檔案匯入，請以「新增家長」表單建立。</>
         )}
