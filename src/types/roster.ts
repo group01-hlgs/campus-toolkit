@@ -351,12 +351,30 @@ export function rosterImportHint(role: RosterRole): string {
     .join("、");
 }
 
-/** 頁面提示用：只列必填欄位，其他欄位可留空 */
-export function rosterRequiredHint(role: RosterRole): string {
-  return ROSTER_FIELDS[role]
-    .filter((field) => field.required && field.key !== "password")
-    .map((field) => field.label)
-    .join("、");
+/**
+ * 批次新增提示用：列出該身分的必填與可選欄位名稱。
+ * 電子郵件地址、姓名、密碼一律必填；管理員屬性必填、屬性為一般時另需指定功能模組。
+ */
+export function rosterBatchFieldHints(role: RosterRole): { required: string; optional: string } {
+  const required = new Set<RosterFieldKey>(["email", "name"]);
+  for (const field of ROSTER_FIELDS[role]) {
+    if (field.required) required.add(field.key);
+  }
+  if (role === "admin") {
+    required.add("attribute");
+    required.add("modules");
+  }
+
+  const requiredLabels = ROSTER_FIELDS[role]
+    .filter((field) => required.has(field.key))
+    .map((field) => (field.key === "modules" ? `${field.label}（屬性為一般時）` : field.label));
+  requiredLabels.push("密碼");
+
+  const optionalLabels = ROSTER_FIELDS[role]
+    .filter((field) => !required.has(field.key) && field.key !== "password")
+    .map((field) => field.label);
+
+  return { required: requiredLabels.join("、"), optional: optionalLabels.join("、") || "無" };
 }
 
 /** 「身分名冊管理」批次作業的三種模式（上傳試算表） */
