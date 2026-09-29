@@ -343,11 +343,19 @@ export function adminModuleLabels(values: unknown): string {
     .join("、");
 }
 
-/** 匯入檔案的格式說明（頁面上直接顯示，讓使用者對得上範例檔） */
+/** 匯入檔案的格式說明（匯入失敗時列出所有可辨識的標題列） */
 export function rosterImportHint(role: RosterRole): string {
   return ROSTER_FIELDS[role]
     .filter((field) => field.key !== "password")
     .map((field) => `${field.label}${field.required ? "（必填）" : ""}`)
+    .join("、");
+}
+
+/** 頁面提示用：只列必填欄位，其他欄位可留空 */
+export function rosterRequiredHint(role: RosterRole): string {
+  return ROSTER_FIELDS[role]
+    .filter((field) => field.required && field.key !== "password")
+    .map((field) => field.label)
     .join("、");
 }
 

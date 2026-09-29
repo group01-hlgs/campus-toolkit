@@ -15,7 +15,7 @@ import {
   RosterMember,
   RosterRole,
   isImportableRole,
-  rosterImportHint,
+  rosterRequiredHint,
 } from "@/types/roster";
 import {
   ADMIN_MODULES,
@@ -741,15 +741,9 @@ export default function RosterPage() {
       {/* 匯入格式說明 */}
       <div className="w-full max-w-5xl mb-4 text-sm text-t3">
         {importable ? (
-          <>
-            匯入欄位：{rosterImportHint(role)}；電子郵件地址必填，單次最多 900
-            列；名冊欄位寫入 {settings.academicYear} 學年度第{settings.semester}學期。
-          </>
+          <>必填欄位：{rosterRequiredHint(role)}；單次最多 900 列。</>
         ) : (
-          <>
-            家長身分不提供檔案匯入，請以「新增家長」表單建立；名冊欄位寫入 {settings.academicYear}{" "}
-            學年度第{settings.semester}學期。
-          </>
+          <>家長身分不提供檔案匯入，請以「新增家長」表單建立。</>
         )}
       </div>
 
