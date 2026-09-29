@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
 import {
@@ -104,6 +104,14 @@ export default function AccountsPage() {
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
 
+  // 操作欄下拉選單：記錄開啟的列與定位（top／bottom 二選一，避開視窗下緣）
+  const [menu, setMenu] = useState<{
+    uid: string;
+    right: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+
   // 儲存成功提示 modal：完成時跳出，1 秒後自動消失
   const [successModal, setSuccessModal] = useState<string | null>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -113,6 +121,28 @@ export default function AccountsPage() {
       if (successTimerRef.current) clearTimeout(successTimerRef.current);
     };
   }, []);
+
+  // 選單開啟時：點外部、按 Esc、捲動頁面都收合
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onPointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-account-menu]")) return;
+      setMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
 
   const loadAccounts = async () => {
     setLoading(true);
@@ -191,6 +221,36 @@ export default function AccountsPage() {
     setFormError("");
     setShowPassword(false);
     setFormOpen(true);
+  }
+
+  /** 重設密碼視窗：清空欄位後開啟 */
+  function openReset(target: AccountSummary) {
+    setResetTarget(target);
+    setResetPassword("");
+    setResetConfirm("");
+    setResetError("");
+  }
+
+  /** 依按鈕位置開啟操作選單；同一列再按一次即收合 */
+  function toggleMenu(event: ReactMouseEvent<HTMLButtonElement>, uid: string) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenu((prev) => {
+      if (prev?.uid === uid) return null;
+      const openUp = rect.bottom + 230 > window.innerHeight;
+      return {
+        uid,
+        right: Math.max(8, window.innerWidth - rect.right),
+        ...(openUp
+          ? { bottom: Math.max(8, window.innerHeight - rect.top + 4) }
+          : { top: rect.bottom + 4 }),
+      };
+    });
+  }
+
+  /** 選單項目共用：先收合選單再執行動作 */
+  function runMenuAction(action: () => void) {
+    setMenu(null);
+    action();
   }
 
   function handleField(key: keyof AccountForm, value: string) {
@@ -399,6 +459,9 @@ export default function AccountsPage() {
     () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
     [filtered, currentPage, pageSize]
   );
+
+  // 目前開啟選單的帳號（清單重載後找不到就自動不顯示）
+  const menuTarget = menu ? accounts.find((item) => item.uid === menu.uid) : null;
 
   const actionButtons = (
     <>
@@ -635,53 +698,26 @@ export default function AccountsPage() {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
                     <button
-                      onClick={() => openEdit(item)}
-                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2"
+                      type="button"
+                      data-account-menu
+                      aria-haspopup="menu"
+                      aria-expanded={menu?.uid === item.uid}
+                      onClick={(event) => toggleMenu(event, item.uid)}
+                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer inline-flex items-center gap-1"
                     >
-                      編輯
-                    </button>
-                    <button
-                      onClick={() => {
-                        setResetTarget(item);
-                        setResetPassword("");
-                        setResetConfirm("");
-                        setResetError("");
-                      }}
-                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2"
-                    >
-                      重設密碼
-                    </button>
-                    {item.status === "有效" ? (
-                      <>
-                        <button
-                          onClick={() => void handleSetStatus(item, "無效")}
-                          disabled={toggling}
-                          className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
-                        >
-                          停用帳號
-                        </button>
-                        <button
-                          onClick={() => void handleSetStatus(item, "停權")}
-                          disabled={toggling}
-                          className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
-                        >
-                          停權
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => void handleSetStatus(item, "有效")}
-                        disabled={toggling}
-                        className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                      操作
+                      <svg
+                        className={`w-3 h-3 transition-transform ${
+                          menu?.uid === item.uid ? "rotate-180" : ""
+                        }`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        aria-hidden="true"
                       >
-                        啟用帳號
-                      </button>
-                    )}
-                    <button
-                      onClick={() => void handleDelete(item)}
-                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
-                    >
-                      刪除
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
                     </button>
                   </td>
                 </tr>
@@ -766,6 +802,72 @@ export default function AccountsPage() {
       <div className="w-full max-w-6xl mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
+
+      {/* 操作下拉選單：依按鈕位置以 fixed 定位，避免被表格水平捲動區裁切 */}
+      {menu && menuTarget && (
+        <div
+          role="menu"
+          data-account-menu
+          aria-label={`${menuTarget.name} 的操作`}
+          className="fixed z-40 min-w-[172px] rounded-lg border border-themed bg-card py-1 shadow-lg animate-fade-in"
+          style={{ top: menu.top, bottom: menu.bottom, right: menu.right }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            onClick={() => runMenuAction(() => openEdit(menuTarget))}
+          >
+            編輯
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            onClick={() => runMenuAction(() => openReset(menuTarget))}
+          >
+            重設密碼
+          </button>
+          {menuTarget.status === "有效" ? (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "無效"))}
+              >
+                停用帳號
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "停權"))}
+              >
+                停權
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "有效"))}
+            >
+              啟用帳號
+            </button>
+          )}
+          <div className="my-1 border-t border-themed" />
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item is-danger"
+            onClick={() => runMenuAction(() => void handleDelete(menuTarget))}
+          >
+            刪除
+          </button>
+        </div>
+      )}
 
       {/* 作業遮罩：儲存／刪除／狀態切換／重設密碼期間覆蓋畫面、阻擋重複操作 */}
       {(saving || deleting || toggling || resetting) && (

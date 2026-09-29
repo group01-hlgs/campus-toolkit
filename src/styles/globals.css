@@ -351,6 +351,32 @@ mark {
   color: var(--btn-secondary-text-hover);
 }
 
+/* 下拉選單項目：透明底、hover 走主題表面色；is-danger 用主題危險色 */
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  text-align: left;
+  color: var(--t1);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--bg2);
+  outline: none;
+}
+.menu-item.is-danger {
+  color: var(--danger);
+}
+.menu-item.is-danger:hover,
+.menu-item.is-danger:focus-visible {
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg));
+}
+
 /* 警示訊息框：危險色邊框＋以主題危險色淡化的底色（各主題 --danger 不同，不可寫死色票） */
 .alert-danger {
   border: 1px solid var(--danger);
