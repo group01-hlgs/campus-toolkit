@@ -37,6 +37,12 @@
   --transition: 0.2s ease;
 }
 
+/* 全域鎖定水平捲動：任何元素（含固定定位、廣告）都不該讓頁面被左右滑出空白邊界 */
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   color: var(--t1);
   background-color: var(--bg);

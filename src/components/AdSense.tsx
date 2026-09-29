@@ -93,7 +93,7 @@ export default function AdSense({ units = AD_UNITS }: { units?: AdUnit[] }) {
               insRefs.current[index] = el;
             }}
             className="adsbygoogle"
-            style={unit.style}
+            style={{ ...unit.style, maxWidth: "100%" }}
             data-ad-client={unit.client}
             data-ad-slot={unit.slot}
             data-ad-format={unit.format}

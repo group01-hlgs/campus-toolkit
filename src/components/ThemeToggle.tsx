@@ -45,19 +45,21 @@ export default function ThemeToggle() {
         />
       )}
 
-      {/* 抽屜 */}
-      <div
-        className={`fixed top-0 right-0 h-full z-50 transition-transform duration-300 ${
-          isOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-        style={{
-          minWidth: "200px",
-          maxWidth: "85vw",
-          backgroundColor: "var(--card)",
-          borderLeft: "1px solid var(--bd)",
-          boxShadow: "-4px 0 24px rgba(0,0,0,0.12)",
-        }}
-      >
+      {/* 抽屜：外層固定滿版＋overflow-hidden（永遠 pointer-events-none），避免關閉時抽屜停在視窗外造成頁面水平空白 */}
+      <div className="fixed inset-0 z-50 overflow-hidden" aria-hidden={!isOpen} style={{ pointerEvents: "none" }}>
+        <div
+          className={`absolute top-0 right-0 h-full transition-transform duration-300 ${
+            isOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+          style={{
+            minWidth: "200px",
+            maxWidth: "85vw",
+            backgroundColor: "var(--card)",
+            borderLeft: "1px solid var(--bd)",
+            boxShadow: "-4px 0 24px rgba(0,0,0,0.12)",
+            pointerEvents: isOpen ? "auto" : "none",
+          }}
+        >
         {/* 標題 */}
         <div
           className="flex items-center justify-between p-4"
@@ -133,6 +135,7 @@ export default function ThemeToggle() {
           }}
         >
           共 {availableThemes.length} 款內建主題
+        </div>
         </div>
       </div>
     </>
