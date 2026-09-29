@@ -163,6 +163,16 @@ export default function AccountsPage() {
   const [successModal, setSuccessModal] = useState<string | null>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 確認對話 modal：取代原生 confirm，樣式跟隨主題
+  const [confirmRequest, setConfirmRequest] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  function askConfirm(message: string, onConfirm: () => void) {
+    setConfirmRequest({ message, onConfirm });
+  }
+
   useEffect(() => {
     return () => {
       if (successTimerRef.current) clearTimeout(successTimerRef.current);
@@ -190,6 +200,16 @@ export default function AccountsPage() {
       window.removeEventListener("scroll", close, true);
     };
   }, [menu]);
+
+  // 確認 modal：Esc 取消
+  useEffect(() => {
+    if (!confirmRequest) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setConfirmRequest(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [confirmRequest]);
 
   const loadAccounts = async () => {
     setLoading(true);
@@ -406,7 +426,7 @@ export default function AccountsPage() {
   }
 
   /** 帳號狀態（擋整個帳戶能否登入） */
-  async function handleSetStatus(target: AccountSummary, status: AccountStatus) {
+  function handleSetStatus(target: AccountSummary, status: AccountStatus) {
     if (toggling) return;
     if (status === target.status) return;
     const label = `${target.name}（${target.account || target.email}）`;
@@ -414,8 +434,10 @@ export default function AccountsPage() {
       status === "有效"
         ? `確定恢復 ${label} 的帳號狀態為「有效」？`
         : `確定停用 ${label} 的帳號？停用後無法登入（含所有身分）。`;
-    if (!window.confirm(question)) return;
+    askConfirm(question, () => void applySetStatus(target, status));
+  }
 
+  async function applySetStatus(target: AccountSummary, status: AccountStatus) {
     setToggling(true);
     setFlash(null);
     try {
@@ -443,16 +465,16 @@ export default function AccountsPage() {
     }
   }
 
-  async function handleDelete(target: AccountSummary) {
-    const label = `${target.name}（${target.account || target.email}）`;
-    if (
-      !window.confirm(
-        `確定刪除 ${label}？將刪除帳號與所有學期的身分名冊資料，刪除後無法復原。`
-      )
-    ) {
-      return;
-    }
+  function handleDelete(target: AccountSummary) {
     if (deleting) return;
+    const label = `${target.name}（${target.account || target.email}）`;
+    askConfirm(
+      `確定刪除 ${label}？將刪除帳號與所有學期的身分名冊資料，刪除後無法復原。`,
+      () => void applyDelete(target)
+    );
+  }
+
+  async function applyDelete(target: AccountSummary) {
     setDeleting(true);
     setFlash(null);
     try {
@@ -494,18 +516,23 @@ export default function AccountsPage() {
     clearBatchSelection();
   }
 
-  async function runBatch(dryRun: boolean) {
+  function runBatch(dryRun: boolean) {
     if (!batchFile || batchBusy) return;
-    if (!dryRun) {
-      const question =
-        batchMode === "delete"
-          ? `確定執行批次刪除？共 ${batchPreview?.deleted ?? 0} 個帳號將被刪除，無法復原。`
-          : `確定執行批次「${ACCOUNT_BATCH_MODE_LABELS[batchMode]}」？共 ${
-              batchPreview?.total ?? 0
-            } 列。`;
-      if (!window.confirm(question)) return;
+    if (dryRun) {
+      void executeBatch(true);
+      return;
     }
+    const question =
+      batchMode === "delete"
+        ? `確定執行批次刪除？共 ${batchPreview?.deleted ?? 0} 個帳號將被刪除，無法復原。`
+        : `確定執行批次「${ACCOUNT_BATCH_MODE_LABELS[batchMode]}」？共 ${
+            batchPreview?.total ?? 0
+          } 列。`;
+    askConfirm(question, () => void executeBatch(false));
+  }
 
+  async function executeBatch(dryRun: boolean) {
+    if (!batchFile || batchBusy) return;
     setBatchBusy(dryRun ? "preview" : "execute");
     setBatchError("");
     try {
@@ -527,6 +554,7 @@ export default function AccountsPage() {
         setBatchFile(null);
         if (batchFileRef.current) batchFileRef.current.value = "";
         await loadAccounts();
+        showSuccessModal(data.message || "批次作業完成");
       }
     } catch (error) {
       setBatchError(error instanceof Error ? error.message : "批次作業失敗");
@@ -1163,6 +1191,47 @@ export default function AccountsPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* 確認 modal：取代原生 confirm，樣式跟隨主題 */}
+      {confirmRequest && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          onClick={() => setConfirmRequest(null)}
+        >
+          <div
+            className="bg-card rounded-2xl p-6 w-full max-w-md space-y-4 shadow-lg animate-fade-in"
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div>
+              <h3 className="text-lg font-bold text-t1">確認操作</h3>
+              <p className="text-sm text-t2 mt-2">{confirmRequest.message}</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmRequest(null)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const onConfirm = confirmRequest.onConfirm;
+                  setConfirmRequest(null);
+                  onConfirm();
+                }}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                確認
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
