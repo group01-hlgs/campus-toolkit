@@ -248,14 +248,14 @@ export default function AccountsPage() {
     void loadAccounts();
   }, []);
 
-  /** 儲存成功訊息：跳出 modal，1 秒後自動消失（重複呼叫會重置計時） */
+  /** 儲存成功訊息：跳出 modal，3 秒後自動消失（重複呼叫會重置計時） */
   function showSuccessModal(text: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current);
     setSuccessModal(text);
     successTimerRef.current = setTimeout(() => {
       setSuccessModal(null);
       successTimerRef.current = null;
-    }, 1000);
+    }, 3000);
   }
 
   function closeForm() {
@@ -1236,7 +1236,7 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* 儲存成功 modal：完成時跳出，1 秒後自動消失 */}
+      {/* 儲存成功 modal：完成時跳出，3 秒後自動消失 */}
       {successModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
