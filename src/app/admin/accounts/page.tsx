@@ -79,6 +79,8 @@ export default function AccountsPage() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
   const [flash, setFlash] = useState<Flash>(null);
@@ -391,16 +393,17 @@ export default function AccountsPage() {
     });
   }, [accounts, keyword]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize]
+  );
+
   const actionButtons = (
     <>
       <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
         返回功能首頁
-      </button>
-      <button
-        onClick={() => router.push("/admin/admins")}
-        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-      >
-        管理我的帳號、身分與安全
       </button>
       <button
         onClick={() => void logout()}
@@ -423,9 +426,6 @@ export default function AccountsPage() {
       {/* 功能標題 */}
       <div className="w-full max-w-6xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">使用者帳號管理</h2>
-        <p className="text-t2 mt-1 text-sm">
-          全部使用者帳號集中在同一張工作表；帳號狀態決定能否登入，具備身分與名冊資料請至「身分名冊管理」
-        </p>
       </div>
 
       {/* 操作按鈕 */}
@@ -438,7 +438,10 @@ export default function AccountsPage() {
         <input
           type="search"
           value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          onChange={(e) => {
+            setKeyword(e.target.value);
+            setPage(1);
+          }}
           placeholder="搜尋姓名、帳號、信箱、身分或狀態"
           className="flex-1 min-w-[200px] input-theme rounded px-3 py-2"
         />
@@ -573,7 +576,7 @@ export default function AccountsPage() {
         </form>
       )}
 
-      {/* 帳號工作表（單一功能頁面，無分頁） */}
+      {/* 帳號工作表（依每頁筆數分頁顯示） */}
       <div className="w-full max-w-6xl border border-themed rounded-lg bg-card mb-4 overflow-x-auto">
         {loading ? (
           <p className="p-6 text-center text-t3">帳號清單載入中...</p>
@@ -603,7 +606,7 @@ export default function AccountsPage() {
                   </td>
                 </tr>
               )}
-              {filtered.map((item) => (
+              {paged.map((item) => (
                 <tr key={item.uid} className="border-b border-themed last:border-0 text-t1">
                   <td className="px-3 py-2 whitespace-nowrap">{item.name || "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{item.email || "—"}</td>
@@ -685,6 +688,67 @@ export default function AccountsPage() {
           </table>
         )}
       </div>
+
+      {/* 分頁列：每頁筆數選擇與頁次切換 */}
+      {!loading && !listError && filtered.length > 0 && (
+        <div className="w-full max-w-6xl flex flex-wrap items-center justify-between gap-3 mb-4 text-sm text-t2">
+          <div className="flex items-center gap-2">
+            <label htmlFor="accounts-page-size">每頁</label>
+            <select
+              id="accounts-page-size"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              className="input-theme rounded px-2 py-1 cursor-pointer"
+            >
+              {[10, 20, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span>
+              筆，共 {filtered.length} 筆
+              {filtered.length !== accounts.length && `（全部 ${accounts.length} 筆）`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(1)}
+              disabled={currentPage <= 1}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              第一頁
+            </button>
+            <button
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage <= 1}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              上一頁
+            </button>
+            <span>
+              第 {currentPage} / {totalPages} 頁
+            </span>
+            <button
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage >= totalPages}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              下一頁
+            </button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={currentPage >= totalPages}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              最後一頁
+            </button>
+          </div>
+        </div>
+      )}
 
       <hr className="w-full max-w-6xl border-themed mb-4" />
 
