@@ -23,7 +23,7 @@ import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
 
-/** /api/account 回傳的自身帳號資料（三卡版型共用） */
+/** /api/account 回傳的自身帳號資料（頁面各卡共用） */
 interface AccountProfile {
   uid: string;
   role: string;
@@ -106,6 +106,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const [name, setName] = useState("");
   // 慣用身分：同一組帳號／信箱具備多個身分時，登入預設進入的身分
   const [preferredRole, setPreferredRole] = useState("");
+  const [preferredFlash, setPreferredFlash] = useState<Flash>(null);
+  const [savingPreferred, setSavingPreferred] = useState(false);
 
   // 兩階段驗證
   const [twoFactor, setTwoFactor] = useState<string>("off");
@@ -378,14 +380,12 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       const unchanged =
         Boolean(profile) &&
         emailValue === storedEmail &&
-        accountValue === storedAccount &&
-        !preferredChanged;
+        accountValue === storedAccount;
       if (!unchanged) {
-        const payload: { email: string; account: string; preferredRole?: string } = {
+        const payload: { email: string; account: string } = {
           email,
           account,
         };
-        if (preferredChanged) payload.preferredRole = preferredRole;
         const res = await fetch("/api/account", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -432,6 +432,38 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       setAccountFlash({ type: "error", text: "系統錯誤，請稍後再試" });
     } finally {
       setSavingAccount(false);
+    }
+  }
+
+  /** 慣用身分卡：獨立儲存（僅多身分帳號顯示此卡） */
+  async function handleSavePreferredRole(e: FormEvent) {
+    e.preventDefault();
+    setPreferredFlash(null);
+    if (!preferredChanged) {
+      setPreferredFlash({ type: "success", text: "沒有變更" });
+      showSuccessModal("沒有變更");
+      return;
+    }
+    setSavingPreferred(true);
+    try {
+      const res = await fetch("/api/account", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferredRole }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setPreferredFlash({ type: "error", text: data.message || "儲存失敗" });
+        return;
+      }
+      if (data.profile) applyProfile(data.profile);
+      const savedText = data.message || "儲存成功";
+      setPreferredFlash({ type: "success", text: savedText });
+      showSuccessModal(savedText);
+    } catch {
+      setPreferredFlash({ type: "error", text: "系統錯誤，請稍後再試" });
+    } finally {
+      setSavingPreferred(false);
     }
   }
 
@@ -610,12 +642,17 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
             <span className="text-t3">最後登入：</span>
             <span className="text-t1">{profile ? formatDateTime(profile.lastLogin) : "—"}</span>
           </div>
-          {ROLE_INFO_FIELDS[role].map((f) => (
-            <div key={f.key}>
-              <span className="text-t3">{f.label}：</span>
-              <span className="text-t1">{profile?.fields?.[f.key] || "—"}</span>
-            </div>
-          ))}
+          {ROLE_INFO_FIELDS[role].map((f) => {
+            const value = profile?.fields?.[f.key] || "";
+            // 有值才顯示的欄位（教職員班級名稱）：空值時整格不渲染
+            if (f.showOnlyWhenFilled && !value) return null;
+            return (
+              <div key={f.key}>
+                <span className="text-t3">{f.label}：</span>
+                <span className="text-t1">{value || "—"}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -666,30 +703,6 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           {accountFeedback && <p className={`text-xs ${accountFeedback.className}`}>{accountFeedback.text}</p>}
         </div>
 
-        {/* 慣用身分：同一組帳號／信箱具備多個身分時才顯示 */}
-        {roleOptions.length > 1 && (
-          <>
-            <label className="block text-sm text-t2 mb-1">慣用身分</label>
-            <select
-              value={preferredRole}
-              onChange={(e) => setPreferredRole(e.target.value)}
-              className="w-full input-theme rounded px-4 py-2 mb-1"
-            >
-              <option value="">未設定（登入時詢問）</option>
-              {roleOptions.map((option) => (
-                <option key={option} value={option}>
-                  {ROLE_LABELS[option]}
-                </option>
-              ))}
-            </select>
-            <div className="mb-4 space-y-1">
-              <p className="text-xs text-t3">
-                您的帳號／電子郵件同時具備多個身分：設定後登入會直接以此身分進入，不再詢問。
-              </p>
-            </div>
-          </>
-        )}
-
         <h4 className="font-bold text-t1 mb-3">變更密碼</h4>
         <p className="text-xs text-t3 mb-3">
           已登入狀態下即可變更，不需輸入目前密碼；變更完成後其他裝置的登入狀態會自動失效。
@@ -736,6 +749,48 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           {savingAccount ? "儲存中..." : "儲存帳密資料"}
         </button>
       </form>
+
+      {/* 慣用身分卡：同一組帳號／信箱具備多個身分時才顯示，獨立於帳密管理儲存 */}
+      {roleOptions.length > 1 && (
+        <form
+          onSubmit={handleSavePreferredRole}
+          noValidate
+          className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4"
+        >
+          <h3 className="font-bold text-t1 mb-4">慣用身分</h3>
+
+          {preferredFlash && (
+            <p className={`text-sm mb-3 ${messageClass(preferredFlash.type)}`}>{preferredFlash.text}</p>
+          )}
+
+          <label className="block text-sm text-t2 mb-1">慣用身分</label>
+          <select
+            value={preferredRole}
+            onChange={(e) => setPreferredRole(e.target.value)}
+            className="w-full input-theme rounded px-4 py-2 mb-1"
+          >
+            <option value="">未設定（登入時詢問）</option>
+            {roleOptions.map((option) => (
+              <option key={option} value={option}>
+                {ROLE_LABELS[option]}
+              </option>
+            ))}
+          </select>
+          <div className="mb-4 space-y-1">
+            <p className="text-xs text-t3">
+              您的帳號／電子郵件同時具備多個身分：設定後登入會直接以此身分進入，不再詢問。
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || savingPreferred}
+            className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {savingPreferred ? "儲存中..." : "儲存慣用身分"}
+          </button>
+        </form>
+      )}
 
       {/* 兩階段驗證卡 */}
       <form onSubmit={handleSaveTwoFactor} className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4">
@@ -824,8 +879,10 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       {/* 進頁載入遮罩：帳號資料與系統設定到齊前擋住操作，避免搶快使用功能而繞過尚未載入的限制 */}
       {loading && <BlockingMask text="資料載入中，請稍候…" />}
 
-      {/* 儲存遮罩：帳密管理與兩階段驗證儲存期間覆蓋畫面、阻擋重複操作 */}
-      {(savingAccount || savingTwoFactor) && <BlockingMask text="儲存中，請稍候…" />}
+      {/* 儲存遮罩：帳密管理、慣用身分與兩階段驗證儲存期間覆蓋畫面、阻擋重複操作 */}
+      {(savingAccount || savingPreferred || savingTwoFactor) && (
+        <BlockingMask text="儲存中，請稍候…" />
+      )}
 
       {/* 儲存成功 modal：完成時跳出，1 秒後自動消失 */}
       {successModal && (

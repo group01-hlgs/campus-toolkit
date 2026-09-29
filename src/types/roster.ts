@@ -59,6 +59,7 @@ export const ACCOUNT_FIELD_KEYS: readonly AccountFieldKey[] = [
 export type EntryFieldKey =
   | "studentId"
   | "grade"
+  | "studentName"
   | "classCode"
   | "className"
   | "seatNo"
@@ -77,6 +78,7 @@ export type RosterFieldKey = AccountFieldKey | EntryFieldKey;
 export const ROSTER_ENTRY_FIELDS: Record<UserRole, EntryFieldKey[]> = {
   student: ["studentId", "grade", "classCode", "className", "seatNo", "rollNo"],
   parent: [
+    "studentName",
     "studentEmail",
     "studentId",
     "grade",
@@ -107,6 +109,8 @@ export interface RosterEntry {
   academicYear: number;
   /** 學期：1=第1學期、2=第2學期 */
   semester: number;
+  /** 學生姓名（家長表專屬：其子女姓名） */
+  studentName?: string;
   studentEmail?: string;
   studentId?: string;
   grade?: string;
@@ -146,7 +150,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "studentId", label: "學號", required: true, aliases: ["學號", "studentid", "student id"] },
     { key: "grade", label: "年級", aliases: ["年級", "grade", "年"] },
-    { key: "classCode", label: "班級代號", aliases: ["班級代號", "班級代碼", "classcode", "class code"] },
+    { key: "classCode", label: "班級代碼", aliases: ["班級代碼", "班級代號", "classcode", "class code"] },
     { key: "className", label: "班級名稱", aliases: ["班級名稱", "班級", "class", "classname"] },
     { key: "seatNo", label: "座號", aliases: ["座號", "seatno", "seat no"] },
     { key: "rollNo", label: "班號", aliases: ["班號", "rollno", "roll no", "number"] },
@@ -157,13 +161,18 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     {
+      key: "studentName",
+      label: "學生姓名",
+      aliases: ["學生姓名", "studentname", "student name"],
+    },
+    {
       key: "studentEmail",
       label: "學生電子郵件地址",
       aliases: ["學生電子郵件地址", "學生信箱", "學生email"],
     },
     { key: "studentId", label: "學號", aliases: ["學號", "studentid", "student id"] },
     { key: "grade", label: "年級", aliases: ["年級", "grade", "年"] },
-    { key: "classCode", label: "班級代號", aliases: ["班級代號", "班級代碼", "classcode"] },
+    { key: "classCode", label: "班級代碼", aliases: ["班級代碼", "班級代號", "classcode"] },
     { key: "className", label: "班級名稱", aliases: ["班級名稱", "班級", "class"] },
     { key: "seatNo", label: "座號", aliases: ["座號", "seatno"] },
     { key: "rollNo", label: "班號", aliases: ["班號", "rollno", "number"] },
@@ -177,7 +186,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
     { key: "unit", label: "單位", aliases: ["單位", "部門", "unit", "department"] },
     { key: "title", label: "職稱", aliases: ["職稱", "title"] },
-    { key: "classCode", label: "班級代號", aliases: ["班級代號", "班級代碼", "classcode"] },
+    { key: "classCode", label: "班級代碼", aliases: ["班級代碼", "班級代號", "classcode"] },
     { key: "className", label: "班級名稱", aliases: ["班級名稱", "班級", "class"] },
   ],
   admin: [
@@ -194,18 +203,47 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   ],
 };
 
-/** 資訊卡（帳號與安全頁）顯示的名冊欄位＝該身分的名冊專屬欄位 */
-export const ROLE_INFO_FIELDS: Record<UserRole, { key: RosterFieldKey; label: string }[]> =
-  Object.fromEntries(
-    Object.entries(ROSTER_ENTRY_FIELDS).map(([role, keys]) => [
-      role,
-      keys.map((key) => ({
-        key,
-        label:
-          ROSTER_FIELDS[role as RosterRole].find((field) => field.key === key)?.label || key,
-      })),
-    ])
-  ) as Record<UserRole, { key: RosterFieldKey; label: string }[]>;
+/** 資訊卡（帳號與安全頁）顯示的名冊欄位：依身分裁剪，與名冊表單欄位不完全相同 */
+export interface RoleInfoField {
+  key: RosterFieldKey;
+  label: string;
+  /** 有值才顯示（教職員班級名稱）；預設空值顯示破折號 */
+  showOnlyWhenFilled?: boolean;
+}
+
+/** 以身分表單欄位定義組出資訊卡欄位（label 與名冊表單一致） */
+function infoFields(role: RosterRole, keys: RosterFieldKey[]): RoleInfoField[] {
+  return keys.map((key) => ({
+    key,
+    label: ROSTER_FIELDS[role].find((field) => field.key === key)?.label || key,
+  }));
+}
+
+export const ROLE_INFO_FIELDS: Record<UserRole, RoleInfoField[]> = {
+  // 學生：不顯示班級代碼、座號
+  student: infoFields("student", ["studentId", "grade", "className", "rollNo"]),
+  // 家長：不顯示班級代碼、座號；顯示學生姓名
+  parent: infoFields("parent", [
+    "studentName",
+    "studentEmail",
+    "studentId",
+    "grade",
+    "className",
+    "rollNo",
+    "relation",
+  ]),
+  // 教職員：不顯示班級代碼；班級名稱有值才顯示
+  staff: [
+    ...infoFields("staff", ["attribute", "unit", "title"]),
+    {
+      key: "className",
+      label: ROSTER_FIELDS.staff.find((field) => field.key === "className")?.label || "班級名稱",
+      showOnlyWhenFilled: true,
+    },
+  ],
+  // 管理員：不顯示屬性、指定功能模組
+  admin: [],
+};
 
 /** 帳號清單的表格欄位鍵（帳號／名冊欄位＋慣用身分） */
 export type RosterColumnKey = RosterFieldKey | "preferredRole";
@@ -218,7 +256,7 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "account", label: "帳號" },
     { key: "studentId", label: "學號" },
     { key: "grade", label: "年級" },
-    { key: "classCode", label: "班級代號" },
+    { key: "classCode", label: "班級代碼" },
     { key: "className", label: "班級名稱" },
     { key: "seatNo", label: "座號" },
     { key: "rollNo", label: "班號" },
@@ -228,10 +266,11 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "name", label: "姓名" },
     { key: "email", label: "電子郵件地址" },
     { key: "account", label: "帳號" },
+    { key: "studentName", label: "學生姓名" },
     { key: "studentEmail", label: "學生電子郵件地址" },
     { key: "studentId", label: "學號" },
     { key: "grade", label: "年級" },
-    { key: "classCode", label: "班級代號" },
+    { key: "classCode", label: "班級代碼" },
     { key: "className", label: "班級名稱" },
     { key: "seatNo", label: "座號" },
     { key: "rollNo", label: "班號" },
@@ -245,7 +284,7 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "attribute", label: "屬性" },
     { key: "unit", label: "單位" },
     { key: "title", label: "職稱" },
-    { key: "classCode", label: "班級代號" },
+    { key: "classCode", label: "班級代碼" },
     { key: "className", label: "班級名稱" },
     { key: "preferredRole", label: "慣用身分" },
   ],
@@ -277,6 +316,7 @@ export interface RosterMember {
   /** 最後登入（由登入紀錄推導） */
   lastLogin?: number;
   loginCount?: number;
+  studentName?: string;
   studentEmail?: string;
   studentId?: string;
   grade?: string;

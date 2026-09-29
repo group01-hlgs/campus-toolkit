@@ -176,7 +176,7 @@ async function main() {
   const rosterDocId = `${SEED.uid}_${period.academicYear}_${period.semester}`;
   const entries = [
     ["rosterStudents", entryBase({ studentId: "1110001", grade: "1", classCode: "101", className: "一年一班", seatNo: "01", rollNo: "01" })],
-    ["rosterParents", entryBase({ studentEmail: SEED.email, studentId: "1110001", grade: "1", classCode: "101", className: "一年一班", seatNo: "01", rollNo: "01", relation: "父親" })],
+    ["rosterParents", entryBase({ studentName: SEED.name, studentEmail: SEED.email, studentId: "1110001", grade: "1", classCode: "101", className: "一年一班", seatNo: "01", rollNo: "01", relation: "父親" })],
     ["rosterStaff", entryBase({ attribute: "行政", unit: "教務處", title: "組長", classCode: "", className: "" })],
     ["rosterAdmins", entryBase({ attribute: "超級", modules: ["roster", "settings", "account", "activity"] })],
   ];
