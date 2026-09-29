@@ -64,7 +64,7 @@ function batchHint(mode: RosterBatchMode, role: RosterRole): string {
       return "家長身分不提供檔案匯入，請以「新增家長」表單建立。";
     }
     const { required, optional } = rosterBatchFieldHints(role);
-    return `必填欄位：${required}；可選欄位：${optional}（可留空）。單批最多 900 列。`;
+    return `必填欄位：${required}；可選欄位（可留空）：${optional}。單批最多 900 列。`;
   }
   if (mode === "update") {
     return "以「電子郵件地址」或「帳號」辨識該列（兩者都填須為同一帳號）；只更新本期名冊欄位，空白欄位＝不修改。姓名、電子郵件、帳號請至「使用者帳號管理」維護。";
