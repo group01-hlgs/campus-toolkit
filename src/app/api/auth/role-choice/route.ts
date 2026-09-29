@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 選擇期間該身分被身分管理停用：中途憑證作廢
-    if (!(await isRoleEnabled(role, period))) {
+    if (!(await isRoleEnabled(role))) {
       await clearPendingRoleCookie();
       return expired();
     }

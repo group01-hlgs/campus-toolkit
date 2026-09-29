@@ -2,8 +2,8 @@ import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { defaultSettings, DEFAULT_SYSTEM_NAME, detectPeriod, SchoolPeriod } from "@/types/settings";
 
-const SETTINGS_COLLECTION = "settings";
-const SETTINGS_DOC_ID = "system";
+export const SETTINGS_COLLECTION = "settings";
+export const SETTINGS_DOC_ID = "system";
 const CACHE_TTL_MS = 30_000;
 
 let timeoutCache: { minutes: number; at: number } | null = null;

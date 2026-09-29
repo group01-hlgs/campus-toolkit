@@ -179,6 +179,6 @@ export const RATE = {
   ROSTER_IMPORT: { limit: 5, windowMs: 60 * 60_000 },
   /** 身分名冊管理：讀取該期四種身分的啟用狀態 */
   ROLE_SETTINGS_GET: { limit: 60, windowMs: 60_000 },
-  /** 身分名冊管理：啟用／停用身分、對齊學期 */
+  /** 身分名冊管理：啟用／停用身分（現行開關） */
   ROLE_SETTINGS_MUTATE: { limit: 30, windowMs: 60_000 },
 } as const;

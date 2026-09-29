@@ -44,8 +44,8 @@ export async function verifySession(): Promise<SessionPayload | null> {
     const entry = await getRosterEntry(session.uid, session.role, period);
     if (!isActiveEntry(entry)) return null;
 
-    // 身分管理停用該學期的身分時，既有 session 同步失效
-    if (!(await isRoleEnabled(session.role, period))) return null;
+    // 身分開關停用該身分時，既有 session 同步失效
+    if (!(await isRoleEnabled(session.role))) return null;
 
     // 鎖定與登入路由一致：僅當鎖定綁定的來源 IP（或未綁定）命中目前請求才失效
     const lockedUntil = typeof data?.lockedUntil === "number" ? data.lockedUntil : 0;

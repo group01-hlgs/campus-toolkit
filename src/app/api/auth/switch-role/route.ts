@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 身分管理停用該學期的身分：不得切換過去
-    if (!(await isRoleEnabled(role, period))) {
+    if (!(await isRoleEnabled(role))) {
       await logActivity({
         userId: session.uid,
         role,

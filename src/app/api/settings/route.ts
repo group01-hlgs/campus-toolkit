@@ -7,6 +7,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { Settings, defaultSettings } from "@/types/settings";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateSettingsCache } from "@/lib/settings-server";
+import { ROLE_ENABLED_FIELD } from "@/types/role-settings";
 
 const SETTINGS_DOC = { collection: "settings", id: "system" };
 const MAX_SETTINGS = 200_000;
@@ -124,11 +125,16 @@ export async function PUT(request: NextRequest) {
     if (settings.sessionTimeout < 1) settings.sessionTimeout = 1;
 
     // 不使用 merge：整份覆寫，讓已廢棄欄位（例如 oauthClientId）
-    // 在下次儲存設定時自動從 Firestore settings/system 清除
-    await getAdminDb()
-      .collection(SETTINGS_DOC.collection)
-      .doc(SETTINGS_DOC.id)
-      .set(settings);
+    // 在下次儲存設定時自動從 Firestore settings/system 清除。
+    // 身分開關（roleEnabled）不屬於本表單欄位，覆寫時保留，避免儲存系統設定把開關重置。
+    const ref = getAdminDb().collection(SETTINGS_DOC.collection).doc(SETTINGS_DOC.id);
+    const existing = await ref.get();
+    const roleEnabled = existing.exists
+      ? (existing.data() as Record<string, unknown>)?.[ROLE_ENABLED_FIELD]
+      : undefined;
+    await ref.set(
+      roleEnabled === undefined ? settings : { ...settings, [ROLE_ENABLED_FIELD]: roleEnabled }
+    );
     invalidateSettingsCache();
 
     await logActivity({
