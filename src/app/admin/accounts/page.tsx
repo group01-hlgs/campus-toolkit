@@ -8,6 +8,7 @@ import {
   AccountSummary,
   ALL_ROLES,
   ROLE_LABELS,
+  statusLabel,
   twoFactorShortLabel,
   UserRole,
 } from "@/types/users";
@@ -27,11 +28,10 @@ import PasswordToggleButton from "@/components/PasswordToggleButton";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
-/** 狀態標籤配色：有效＝綠、無效＝黃、停權＝紅 */
+/** 狀態標籤配色：有效＝綠、停用＝黃 */
 const STATUS_STYLE: Record<AccountStatus, string> = {
   有效: "text-success",
   無效: "text-warning",
-  停權: "text-danger",
 };
 
 function formatDateTime(value?: number): string {
@@ -373,9 +373,7 @@ export default function AccountsPage() {
     const question =
       status === "有效"
         ? `確定恢復 ${label} 的帳號狀態為「有效」？`
-        : status === "無效"
-          ? `確定停用 ${label} 的帳號？停用後無法登入（含所有身分）。`
-          : `確定將 ${label} 的帳號停權？原有資料不會刪除。`;
+        : `確定停用 ${label} 的帳號？停用後無法登入（含所有身分）。`;
     if (!window.confirm(question)) return;
 
     setToggling(true);
@@ -452,6 +450,7 @@ export default function AccountsPage() {
         item.email,
         item.account,
         item.status,
+        statusLabel(item.status),
         item.preferredRole ? ROLE_LABELS[item.preferredRole] : "",
         twoFactorShortLabel(item.twoFactor),
         item.roles.map((role) => ROLE_LABELS[role]).join(" "),
@@ -680,7 +679,7 @@ export default function AccountsPage() {
                     <span
                       className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ${STATUS_STYLE[item.status]}`}
                     >
-                      {item.status}
+                      {statusLabel(item.status)}
                     </span>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{item.name || "—"}</td>
@@ -836,24 +835,14 @@ export default function AccountsPage() {
             重設密碼
           </button>
           {menuTarget.status === "有效" ? (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="menu-item"
-                onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "無效"))}
-              >
-                停用帳號
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="menu-item"
-                onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "停權"))}
-              >
-                停權
-              </button>
-            </>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "無效"))}
+            >
+              停用帳號
+            </button>
           ) : (
             <button
               type="button"

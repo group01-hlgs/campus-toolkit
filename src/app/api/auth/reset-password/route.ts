@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userData = userDoc.data() || {};
-    // 停用（無效／停權）帳號：完成重設也不建立 session，直接擋下避免繞道登入
+    // 停用（無效）帳號：完成重設也不建立 session，直接擋下避免繞道登入
     if (!isAccountActive(userData)) {
       await logActivity({
         userId: record.uid,

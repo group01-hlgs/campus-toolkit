@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    // 停用（無效／停權）帳號不得以 Google 登入
+    // 停用（無效）帳號不得以 Google 登入
     if (!isAccountActive(hit.data)) {
       await logActivity({
         userId: hit.id,

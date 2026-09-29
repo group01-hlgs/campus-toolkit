@@ -20,6 +20,7 @@ import {
 import {
   ADMIN_MODULES,
   ROLE_LABELS,
+  statusLabel,
   type AccountStatus,
   type UserRole,
 } from "@/types/users";
@@ -74,11 +75,10 @@ function isAccountField(key: RosterFieldKey): boolean {
   return (ACCOUNT_FIELD_KEYS as readonly string[]).includes(key);
 }
 
-/** 狀態標籤配色：有效＝綠、無效＝黃、停權＝紅 */
+/** 狀態標籤配色：有效＝綠、停用＝黃 */
 const STATUS_STYLE: Record<AccountStatus, string> = {
   有效: "text-success",
   無效: "text-warning",
-  停權: "text-danger",
 };
 
 function formatDateTime(value?: number): string {
@@ -458,9 +458,7 @@ export default function RosterPage() {
     const question =
       status === "有效"
         ? `確定恢復 ${label} 本期${roleLabel}身分狀態為「有效」？`
-        : status === "無效"
-          ? `確定停用 ${label} 本期${roleLabel}身分？僅停用本期該身分，其他身分與帳戶登入不受影響。`
-          : `確定將 ${label} 本期${roleLabel}身分停權？原有資料不會刪除。`;
+        : `確定停用 ${label} 本期${roleLabel}身分？僅停用本期該身分，其他身分與帳戶登入不受影響。`;
     if (!window.confirm(question)) return;
 
     setToggling(true);
@@ -638,9 +636,12 @@ export default function RosterPage() {
       const record = member as unknown as Record<string, unknown>;
       return Object.entries(record)
         .filter(([field]) => field !== "uid" && field !== "lastLogin")
-        .map(([, value]) =>
-          Array.isArray(value) ? value.join(" ") : String(value ?? "")
-        )
+        .map(([field, value]) => {
+          const text = Array.isArray(value) ? value.join(" ") : String(value ?? "");
+          return field === "status" || field === "rosterStatus"
+            ? `${text} ${statusLabel(value as AccountStatus)}`
+            : text;
+        })
         .some((value) => value.toLowerCase().includes(key));
     });
   }, [members, keyword]);
@@ -993,7 +994,7 @@ export default function RosterPage() {
                     <span
                       className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ${STATUS_STYLE[member.rosterStatus]}`}
                     >
-                      本期：{member.rosterStatus}
+                      本期：{statusLabel(member.rosterStatus)}
                     </span>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">

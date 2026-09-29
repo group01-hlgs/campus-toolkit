@@ -33,7 +33,7 @@ export async function verifySession(): Promise<SessionPayload | null> {
     if (!snap.exists) return null;
 
     const data = snap.data();
-    // 停用（無效／停權）帳號的既有 session 全數失效
+    // 停用（無效）帳號的既有 session 全數失效
     if (!isAccountActive(data)) return null;
 
     const tokenVersion = typeof data?.tokenVersion === "number" ? data.tokenVersion : 1;

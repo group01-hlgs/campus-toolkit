@@ -65,17 +65,35 @@ export function requiresSecondFactor(value: unknown): value is "email_otp" | "to
 
 /**
  * 狀態（帳號層＝是否可登入；名冊層＝該期該身分是否可用），兩層共用同一組值。
- * 有效＝正常；無效／停權＝不可用，差別只在清單標示與操作用語。
+ * 有效＝正常；無效＝停用（不可用）。舊資料的「停權」已併入無效，讀取時自動轉換。
  */
-export type AccountStatus = "有效" | "無效" | "停權";
+export type AccountStatus = "有效" | "無效";
 
-export const ACCOUNT_STATUSES: AccountStatus[] = ["有效", "無效", "停權"];
+export const ACCOUNT_STATUSES: AccountStatus[] = ["有效", "無效"];
 
 /** 可用的狀態 */
 export const ACTIVE_STATUS: AccountStatus = "有效";
 
+/** 顯示名稱：儲存值為「無效」，介面一律稱「停用」 */
+export const STATUS_LABELS: Record<AccountStatus, string> = {
+  有效: "有效",
+  無效: "停用",
+};
+
+export function statusLabel(status: AccountStatus): string {
+  return STATUS_LABELS[status];
+}
+
 export function isAccountStatus(value: unknown): value is AccountStatus {
-  return value === "有效" || value === "無效" || value === "停權";
+  return value === "有效" || value === "無效";
+}
+
+/**
+ * 讀取資料時的狀態正規化：舊「停權」視為無效（不可用，不會意外復活）；
+ * 缺值或未知值維持原預設＝有效。
+ */
+export function normalizeAccountStatus(value: unknown): AccountStatus {
+  return value === "無效" || value === "停權" ? "無效" : ACTIVE_STATUS;
 }
 
 /** 是否為「有效」狀態（名冊條目、帳號文件共用） */
@@ -173,7 +191,7 @@ export interface AccountRecord {
   passwordHash: string;
   /** 姓名（帳號層預設值；顯示以當期名冊姓名為準） */
   name: string;
-  /** 狀態：有效／無效／停權（決定能否登入，缺省＝有效） */
+  /** 狀態：有效／無效（停用；決定能否登入，缺省＝有效） */
   status?: AccountStatus;
   /** 慣用身分：多身分時登入預設進入的身分；未設定＝登入時詢問 */
   preferredRole?: UserRole;

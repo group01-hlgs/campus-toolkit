@@ -23,6 +23,7 @@ import {
   isAccountStatus,
   isUserRole,
   lastLoginOf,
+  normalizeAccountStatus,
 } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
 import { getCurrentPeriod } from "@/lib/settings-server";
@@ -256,7 +257,7 @@ export async function findAccountByKey(key: string): Promise<{
       email: typeof data.email === "string" ? data.email : "",
       account: typeof data.account === "string" ? data.account : "",
       name: typeof data.name === "string" ? data.name : "",
-      status: isAccountStatus(data.status) ? data.status : ACTIVE_STATUS,
+      status: normalizeAccountStatus(data.status),
     };
   }
   return null;
@@ -416,10 +417,9 @@ export function isActiveEntry(entry: Record<string, unknown> | null | undefined)
   return true;
 }
 
-/** 名冊條目的狀態（有效／無效／停權；缺 status 視為有效） */
+/** 名冊條目的狀態（有效／無效；缺 status 視為有效） */
 export function entryStatus(entry: Record<string, unknown> | null | undefined): AccountStatus {
-  if (entry && isAccountStatus(entry.status)) return entry.status;
-  return ACTIVE_STATUS;
+  return entry ? normalizeAccountStatus(entry.status) : ACTIVE_STATUS;
 }
 
 /**
@@ -481,8 +481,7 @@ export async function syncEntryIdentity(
 
 /** 使用者帳號文件 → 帳號清單的帳號段（不含密碼） */
 function accountStatus(account: Record<string, unknown> | null): AccountStatus {
-  if (account && isAccountStatus(account.status)) return account.status;
-  return ACTIVE_STATUS;
+  return account ? normalizeAccountStatus(account.status) : ACTIVE_STATUS;
 }
 
 /** 使用者帳號＋當期名冊條目 → 帳號清單一列（不含密碼；名冊欄位取自目前學年度學期） */

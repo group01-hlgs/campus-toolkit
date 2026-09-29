@@ -15,6 +15,8 @@ import {
   isTwoFactorMethod,
   isUserRole,
   lastLoginOf,
+  normalizeAccountStatus,
+  statusLabel,
   USER_COLLECTION,
   UserRole,
 } from "@/types/users";
@@ -95,7 +97,7 @@ function toAccountSummary(
     email: str("email"),
     account: str("account"),
     name: str("name"),
-    status: isAccountStatus(data.status) ? data.status : ACTIVE_STATUS,
+    status: normalizeAccountStatus(data.status),
     roles,
   };
   if (isUserRole(data.preferredRole)) summary.preferredRole = data.preferredRole;
@@ -316,7 +318,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-/** PATCH：帳號狀態（有效／無效／停權），擋整個帳號能否登入 */
+/** PATCH：帳號狀態（有效／無效），擋整個帳號能否登入 */
 export async function PATCH(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -356,12 +358,12 @@ export async function PATCH(request: NextRequest) {
       role: "admin",
       action: "account_updated",
       ip: getClientIp(request),
-      details: `將帳號 ${account.account || uid} 狀態設為「${status}」`,
+      details: `將帳號 ${account.account || uid} 狀態設為「${statusLabel(status)}」`,
     });
 
     return NextResponse.json({
       success: true,
-      message: status === ACTIVE_STATUS ? "狀態已恢復為有效" : `狀態已設為「${status}」`,
+      message: status === ACTIVE_STATUS ? "狀態已恢復為有效" : `狀態已設為「${statusLabel(status)}」`,
     });
   } catch (error) {
     console.error("Account status error:", error);

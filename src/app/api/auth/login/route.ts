@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 停用（無效／停權）帳號不得登入。放在密碼驗證成功後才擋，
+    // 停用（無效）帳號不得登入。放在密碼驗證成功後才擋，
     // 不會在帳號不存在／密碼錯誤時透露帳號狀態（防枚舉）
     if (!isAccountActive(hit.data)) {
       await logActivity({

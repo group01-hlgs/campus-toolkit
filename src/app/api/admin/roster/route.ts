@@ -11,6 +11,7 @@ import {
   ACTIVE_STATUS,
   ALL_ROLES,
   isAccountStatus,
+  statusLabel,
   USER_COLLECTION,
 } from "@/types/users";
 import {
@@ -352,7 +353,7 @@ export async function PUT(request: NextRequest) {
 }
 
 /**
- * PATCH：切換「本期該身分」的名冊狀態（有效／無效／停權）。
+ * PATCH：切換「本期該身分」的名冊狀態（有效／無效）。
  * 帳號層狀態（整個帳號能否登入）由「使用者帳號管理」工作表維護。
  */
 export async function PATCH(request: NextRequest) {
@@ -410,12 +411,12 @@ export async function PATCH(request: NextRequest) {
       role: "admin",
       action: "roster_updated",
       ip: getClientIp(request),
-      details: `將${rosterRoleLabel(role)}本期身分 ${account.account || uid} 狀態設為「${status}」`,
+      details: `將${rosterRoleLabel(role)}本期身分 ${account.account || uid} 狀態設為「${statusLabel(status)}」`,
     });
 
     return NextResponse.json({
       success: true,
-      message: status === ACTIVE_STATUS ? "狀態已恢復為有效" : `狀態已設為「${status}」`,
+      message: status === ACTIVE_STATUS ? "狀態已恢復為有效" : `狀態已設為「${statusLabel(status)}」`,
     });
   } catch (error) {
     console.error("Account status error:", error);

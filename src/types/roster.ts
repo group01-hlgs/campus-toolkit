@@ -99,7 +99,7 @@ export const ROSTER_ENTRY_FIELDS: Record<UserRole, EntryFieldKey[]> = {
 export interface RosterEntry {
   /** 連回使用者帳號文件（users 的 doc id） */
   uid: string;
-  /** 狀態：有效／無效／停權（擋該身分能否使用） */
+  /** 狀態：有效／無效（擋該身分能否使用） */
   status: AccountStatus;
   /** 電子郵件地址（該期該身分的信箱，展示／搜尋） */
   email: string;
@@ -303,9 +303,9 @@ export interface RosterMember {
   email: string;
   account: string;
   name: string;
-  /** 帳號狀態：有效／無效／停權（擋整個帳號能否登入） */
+  /** 帳號狀態：有效／無效（擋整個帳號能否登入） */
   status: AccountStatus;
-  /** 名冊狀態：有效／無效／停權（擋本期該身分能否使用） */
+  /** 名冊狀態：有效／無效（擋本期該身分能否使用） */
   rosterStatus: AccountStatus;
   /** 慣用身分：多身分共用帳號時登入預設進入的身分（未設定則登入時詢問） */
   preferredRole?: UserRole;
