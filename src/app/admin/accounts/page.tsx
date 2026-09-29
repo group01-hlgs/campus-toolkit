@@ -69,6 +69,25 @@ const BATCH_HINTS: Record<AccountBatchMode, string> = {
   delete: "以「電子郵件地址」或「帳號」辨識該列；將刪除帳號與其所有學期的名冊條目，刪除後無法復原。",
 };
 
+/** 批次作業範例檔（存於 docs/，由 /api/admin/downloads 提供下載；粗體＝目前所選模式） */
+const BATCH_SAMPLE_FILES: { key: AccountBatchMode; href: string; label: string }[] = [
+  {
+    key: "create",
+    href: "/api/admin/downloads/範例_使用者帳號管理_批次新增.xlsx",
+    label: "批次新增",
+  },
+  {
+    key: "update",
+    href: "/api/admin/downloads/範例_使用者帳號管理_批次修改姓名.xlsx",
+    label: "批次修改姓名",
+  },
+  {
+    key: "delete",
+    href: "/api/admin/downloads/範例_使用者帳號管理_批次刪除.xlsx",
+    label: "批次刪除",
+  },
+];
+
 const BATCH_ACTION_LABELS: Record<AccountBatchRow["action"], string> = {
   create: "新增",
   update: "修改",
@@ -712,6 +731,27 @@ export default function AccountsPage() {
             </div>
 
             <p className="text-xs text-t3 mt-2">{BATCH_HINTS[batchMode]}</p>
+
+            <p className="text-xs text-t3 mt-2">
+              範例檔下載：
+              {BATCH_SAMPLE_FILES.map((item, index) => (
+                <span key={item.href}>
+                  {index > 0 && "、"}
+                  <a
+                    href={encodeURI(item.href)}
+                    download
+                    className={
+                      item.key === batchMode
+                        ? "text-t1 font-medium"
+                        : "text-t2 underline hover:text-t1"
+                    }
+                  >
+                    {item.label}
+                  </a>
+                </span>
+              ))}
+              ，可另存修改後再上傳。
+            </p>
 
             {batchError && (
               <p className="text-sm text-danger mt-2" role="alert">
