@@ -19,7 +19,7 @@ import {
   roleSettingsId,
 } from "@/types/role-settings";
 
-/** 身分管理總覽回應 */
+/** 身分名冊管理：該期四種身分的啟用狀態總覽回應 */
 interface RoleSettingsView {
   period: SchoolPeriod;
   roles: RoleEnabledMap;
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("roles");
+    const { denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
     const view = await loadView(await getCurrentPeriod());
@@ -144,7 +144,7 @@ export async function PUT(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("roles");
+    const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
     const period = await getCurrentPeriod();
@@ -180,7 +180,7 @@ export async function PATCH(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("roles");
+    const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;

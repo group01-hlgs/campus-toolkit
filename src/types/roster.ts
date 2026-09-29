@@ -260,7 +260,6 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "className", label: "班級名稱" },
     { key: "seatNo", label: "座號" },
     { key: "rollNo", label: "班號" },
-    { key: "preferredRole", label: "慣用身分" },
   ],
   parent: [
     { key: "name", label: "姓名" },
@@ -275,7 +274,6 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "seatNo", label: "座號" },
     { key: "rollNo", label: "班號" },
     { key: "relation", label: "關係" },
-    { key: "preferredRole", label: "慣用身分" },
   ],
   staff: [
     { key: "name", label: "姓名" },
@@ -286,7 +284,6 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "title", label: "職稱" },
     { key: "classCode", label: "班級代碼" },
     { key: "className", label: "班級名稱" },
-    { key: "preferredRole", label: "慣用身分" },
   ],
   admin: [
     { key: "name", label: "姓名" },
@@ -294,7 +291,6 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "account", label: "帳號" },
     { key: "attribute", label: "屬性" },
     { key: "modules", label: "指定功能模組" },
-    { key: "preferredRole", label: "慣用身分" },
   ],
 };
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
@@ -9,11 +9,9 @@ import { getCurrentPeriod } from "@/lib/settings-server";
 import {
   AccountStatus,
   ACTIVE_STATUS,
-  isAccountActive,
+  ALL_ROLES,
   isAccountStatus,
-  isUserRole,
   USER_COLLECTION,
-  UserRole,
 } from "@/types/users";
 import {
   isRosterRole,
@@ -26,8 +24,10 @@ import {
   buildAccountRecord,
   buildRosterEntry,
   checkRosterConflict,
+  countOtherActiveAdmins,
+  findAccountByKey,
+  getRosterEntry,
   hashRosterPassword,
-  isActiveEntry,
   loadRosterIndex,
   rosterEntryId,
   syncEntryIdentity,
@@ -39,7 +39,7 @@ function parseRosterBody(body: Record<string, unknown>): {
   role: RosterRole | null;
   uid: string;
   input: RosterInput;
-  preferredRole: unknown;
+  mode: "create" | "bind";
 } {
   const role = isRosterRole(body.role) ? body.role : null;
   const uid = typeof body.uid === "string" ? body.uid : "";
@@ -48,41 +48,12 @@ function parseRosterBody(body: Record<string, unknown>): {
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as RosterInput)
       : {};
-  return { role, uid, input, preferredRole: body.preferredRole };
-}
-
-/** 慣用身分：undefined＝不更動、空字串＝清除、其餘須為合法身分 */
-function isValidPreferredRole(value: unknown): boolean {
-  return value === undefined || value === "" || isUserRole(value);
-}
-
-function preferredRoleOf(value: unknown): UserRole | "" {
-  return isUserRole(value) ? value : "";
-}
-
-/**
- * 當期「其他有效管理員」人數：名冊條目有效 ＋ 使用者帳號有效。
- * 用於擋停用／刪除最後一位管理員，避免把自己鎖在門外。
- */
-async function countOtherActiveAdmins(excludeUid: string): Promise<number> {
-  const db = getAdminDb();
-  const period = await getCurrentPeriod();
-  const snapshot = await db
-    .collection(rosterCollection("admin"))
-    .where("academicYear", "==", period.academicYear)
-    .where("semester", "==", period.semester)
-    .get();
-
-  const uids = snapshot.docs
-    .map((doc) => doc.data())
-    .filter((data) => isActiveEntry(data) && typeof data.uid === "string" && data.uid !== excludeUid)
-    .map((data) => data.uid as string);
-  if (uids.length === 0) return 0;
-
-  const docs = await db.getAll(
-    ...uids.map((uid) => db.collection(USER_COLLECTION).doc(uid))
-  );
-  return docs.filter((doc) => doc.exists && isAccountActive(doc.data())).length;
+  return {
+    role,
+    uid,
+    input,
+    mode: body.mode === "bind" ? "bind" : "create",
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -97,6 +68,24 @@ export async function GET(request: NextRequest) {
 
     const { denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
+
+    // 綁定既有帳號：先用電子郵件／帳號查出帳號與其當期具備的身分
+    const lookup = request.nextUrl.searchParams.get("lookup");
+    if (lookup) {
+      const account = await findAccountByKey(lookup);
+      if (!account) {
+        return NextResponse.json({ success: false, message: "查無此帳號" }, { status: 404 });
+      }
+      const period = await getCurrentPeriod();
+      const entries = await Promise.all(
+        ALL_ROLES.map((role) => getRosterEntry(account.uid, role, period))
+      );
+      const roles = ALL_ROLES.filter((_, index) => entries[index] !== null);
+      return NextResponse.json(
+        { success: true, account: { ...account, roles } },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
 
     const role = request.nextUrl.searchParams.get("role");
     if (!isRosterRole(role)) {
@@ -168,12 +157,68 @@ export async function POST(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { role, input, preferredRole } = parseRosterBody(body);
+    const { role, uid, input, mode } = parseRosterBody(body);
     if (!role) {
       return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
     }
-    if (!isValidPreferredRole(preferredRole)) {
-      return NextResponse.json({ success: false, message: "慣用身分無效" }, { status: 400 });
+
+    const period = await getCurrentPeriod();
+
+    // 綁定既有帳號：一個帳號最多四種身分（同身分同週期唯一），故只建立名冊條目
+    if (mode === "bind") {
+      if (!uid) {
+        return NextResponse.json({ success: false, message: "請先查詢要綁定的帳號" }, { status: 400 });
+      }
+      const db = getAdminDb();
+      const accountSnap = await db.collection(USER_COLLECTION).doc(uid).get();
+      if (!accountSnap.exists) {
+        return NextResponse.json({ success: false, message: "查無此帳號" }, { status: 404 });
+      }
+      const accountData = accountSnap.data() || {};
+      const email = typeof accountData.email === "string" ? accountData.email : "";
+      const name = typeof accountData.name === "string" ? accountData.name : "";
+
+      const result = validateRosterInput(
+        role,
+        { ...input, email, name },
+        { requirePassword: false }
+      );
+      if (!result.ok) {
+        return NextResponse.json({ success: false, message: result.message }, { status: 400 });
+      }
+
+      const entryRef = db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
+      if ((await entryRef.get()).exists) {
+        return NextResponse.json(
+          { success: false, message: `此帳號本期已具備${rosterRoleLabel(role)}身分` },
+          { status: 409 }
+        );
+      }
+
+      // 電子郵件／帳號屬既有帳號，只檢查該身分專屬欄位（如學號）是否衝突
+      const index = await loadRosterIndex(role, period, uid);
+      const conflict = checkRosterConflict(result.account, result.roster, index);
+      if (conflict) {
+        return NextResponse.json({ success: false, message: conflict }, { status: 409 });
+      }
+
+      await entryRef.set(
+        buildRosterEntry(uid, role, period, result.roster, { email, name })
+      );
+
+      await logActivity({
+        userId: session.uid,
+        role: "admin",
+        action: "roster_created",
+        ip: getClientIp(request),
+        details: `將${rosterRoleLabel(role)}身分綁定至既有帳號 ${accountData.account || email}（${name}）`,
+      });
+
+      return NextResponse.json({
+        success: true,
+        uid,
+        message: `${rosterRoleLabel(role)}已建立`,
+      });
     }
 
     const result = validateRosterInput(role, input, { requirePassword: true });
@@ -181,7 +226,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }
 
-    const period = await getCurrentPeriod();
     const index = await loadRosterIndex(role, period);
     const conflict = checkRosterConflict(result.account, result.roster, index);
     if (conflict) {
@@ -191,8 +235,7 @@ export async function POST(request: NextRequest) {
     const db = getAdminDb();
     const accountRecord = buildAccountRecord(
       result.account,
-      await hashRosterPassword(result.password as string),
-      preferredRoleOf(preferredRole)
+      await hashRosterPassword(result.password as string)
     );
     const docRef = await db.collection(USER_COLLECTION).add(accountRecord);
 
@@ -243,12 +286,9 @@ export async function PUT(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { role, uid, input, preferredRole } = parseRosterBody(body);
+    const { role, uid, input } = parseRosterBody(body);
     if (!role || !uid) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
-    }
-    if (!isValidPreferredRole(preferredRole)) {
-      return NextResponse.json({ success: false, message: "慣用身分無效" }, { status: 400 });
     }
 
     const result = validateRosterInput(role, input, { requirePassword: false });
@@ -269,38 +309,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    const { account, password } = result;
-    const updateData: Record<string, unknown> = {
+    // 密碼、慣用身分、帳號狀態屬帳號層，由「帳號、身分與安全管理」工作表維護
+    const { account } = result;
+    await ref.update({
       email: account.email,
       account: account.account,
       name: account.name,
-    };
-    if (password) {
-      const current = snap.data() || {};
-      updateData.passwordHash = await hashRosterPassword(password);
-      // 重設密碼即失效該帳號既有 session（文件沒有 tokenVersion 時視為 1）
-      const currentVersion = typeof current.tokenVersion === "number" ? current.tokenVersion : 1;
-      updateData.tokenVersion = currentVersion + 1;
-      updateData.failedAttempts = 0;
-      updateData.lockedUntil = 0;
-      updateData.lockIp = "";
-    }
-    // 慣用身分：空字串＝清除（多身分登入時改回每次詢問）
-    if (preferredRole !== undefined) {
-      updateData.preferredRole = isUserRole(preferredRole)
-        ? preferredRole
-        : FieldValue.delete();
-    }
-
-    await ref.update(updateData);
+    });
 
     // 名稱／信箱變更：同步當期四張名冊的展示資料（歷史學期保留當時資料）
-    if (typeof updateData.email === "string" || typeof updateData.name === "string") {
-      await syncEntryIdentity(uid, period, {
-        ...(typeof updateData.email === "string" ? { email: updateData.email } : {}),
-        ...(typeof updateData.name === "string" ? { name: updateData.name } : {}),
-      });
-    }
+    await syncEntryIdentity(uid, period, { email: account.email, name: account.name });
 
     // 名冊專屬欄位寫入「目前學年度學期」的條目，歷史學期不受影響
     const entryId = rosterEntryId(uid, period);
@@ -323,9 +341,7 @@ export async function PUT(request: NextRequest) {
       role: "admin",
       action: "roster_updated",
       ip: getClientIp(request),
-      details: `更新${rosterRoleLabel(role)} ${account.account || account.email}${
-        password ? "（密碼已重設）" : ""
-      }${preferredRole !== undefined ? "（慣用身分已更新）" : ""}`,
+      details: `更新${rosterRoleLabel(role)} ${account.account || account.email}`,
     });
 
     return NextResponse.json({ success: true, message: "資料已更新" });
@@ -336,9 +352,8 @@ export async function PUT(request: NextRequest) {
 }
 
 /**
- * PATCH：切換狀態（有效／無效／停權）。
- * scope="account"＝帳號層（整個帳號能否登入）；scope="roster"＝名冊層（本期該身分能否使用）。
- * 預設 roster（列表上的「停用」按鈕＝停用本期該身分）。
+ * PATCH：切換「本期該身分」的名冊狀態（有效／無效／停權）。
+ * 帳號層狀態（整個帳號能否登入）由「帳號、身分與安全管理」工作表維護。
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -359,7 +374,6 @@ export async function PATCH(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const role = isRosterRole(body.role) ? body.role : null;
     const uid = typeof body.uid === "string" ? body.uid : "";
-    const scope: "account" | "roster" = body.scope === "account" ? "account" : "roster";
     const status: AccountStatus | null = isAccountStatus(body.status) ? body.status : null;
     if (!role || !uid || !status) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
@@ -367,13 +381,13 @@ export async function PATCH(request: NextRequest) {
 
     if (status !== ACTIVE_STATUS && uid === session.uid) {
       return NextResponse.json(
-        { success: false, message: "無法停用自己使用的帳號" },
+        { success: false, message: "無法停用自己使用的本期身分" },
         { status: 400 }
       );
     }
 
     if (status !== ACTIVE_STATUS && role === "admin") {
-      // 停用管理員前先確認還有其他有效管理員，避免把自己鎖在門外
+      // 停用管理員名冊前先確認還有其他有效管理員，避免把自己鎖在門外
       if ((await countOtherActiveAdmins(uid)) === 0) {
         return NextResponse.json(
           { success: false, message: "無法停用最後一位有效管理員" },
@@ -383,32 +397,20 @@ export async function PATCH(request: NextRequest) {
     }
 
     const period = await getCurrentPeriod();
-
-    if (scope === "account") {
-      const ref = getAdminDb().collection(USER_COLLECTION).doc(uid);
-      const snap = await ref.get();
-      if (!snap.exists) {
-        return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
-      }
-      await ref.update({ status });
-    } else {
-      const ref = getAdminDb().collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
-      const snap = await ref.get();
-      if (!snap.exists) {
-        return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
-      }
-      await ref.update({ status, updatedAt: Date.now() });
+    const ref = getAdminDb().collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
     }
+    await ref.update({ status, updatedAt: Date.now() });
 
     const account = (await getAdminDb().collection(USER_COLLECTION).doc(uid).get()).data() || {};
     await logActivity({
       userId: session.uid,
       role: "admin",
-      action: "account_updated",
+      action: "roster_updated",
       ip: getClientIp(request),
-      details: `將${rosterRoleLabel(role)}${scope === "account" ? "帳號" : "本期身分"} ${
-        account.account || uid
-      } 狀態設為「${status}」`,
+      details: `將${rosterRoleLabel(role)}本期身分 ${account.account || uid} 狀態設為「${status}」`,
     });
 
     return NextResponse.json({
@@ -443,54 +445,44 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
     }
 
-    if (uid === session.uid) {
+    // 只刪除「本期」名冊條目，帳號與其他學期資料保留（帳號刪除請用帳號工作表）
+    if (role === "admin" && uid === session.uid) {
       return NextResponse.json(
-        { success: false, message: "無法刪除自己使用的帳號" },
+        { success: false, message: "無法刪除自己的管理員身分" },
         { status: 400 }
       );
     }
 
-    const db = getAdminDb();
-    const ref = db.collection(USER_COLLECTION).doc(uid);
+    const period = await getCurrentPeriod();
+    const ref = getAdminDb().collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
     const snap = await ref.get();
     if (!snap.exists) {
       return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
     }
-    const target = snap.data() || {};
+    const entry = snap.data() || {};
 
     if (role === "admin" && (await countOtherActiveAdmins(uid)) === 0) {
       return NextResponse.json(
-        { success: false, message: "無法刪除最後一位管理員" },
+        { success: false, message: "無法刪除最後一位有效管理員" },
         { status: 400 }
       );
     }
 
     await ref.delete();
 
-    // 帳號刪除時一併清掉四張名冊中所有學年度學期的條目
-    const collections = ["rosterStudents", "rosterParents", "rosterStaff", "rosterAdmins"];
-    const snaps = await Promise.all(
-      collections.map((name) => db.collection(name).where("uid", "==", uid).get())
-    );
-    const batch = db.batch();
-    let deletes = 0;
-    for (const entrySnap of snaps) {
-      for (const doc of entrySnap.docs) {
-        batch.delete(doc.ref);
-        deletes += 1;
-      }
-    }
-    if (deletes > 0) await batch.commit();
-
+    const account = (await getAdminDb().collection(USER_COLLECTION).doc(uid).get()).data() || {};
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "roster_deleted",
       ip: getClientIp(request),
-      details: `刪除${rosterRoleLabel(role)} ${target.account || target.email || uid}`,
+      details: `刪除${rosterRoleLabel(role)} ${account.account || account.email || uid} 的本期名冊資料`,
     });
 
-    return NextResponse.json({ success: true, message: "已刪除" });
+    return NextResponse.json({
+      success: true,
+      message: `已刪除本期${rosterRoleLabel(role)}名冊資料`,
+    });
   } catch (error) {
     console.error("Roster delete error:", error);
     return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });

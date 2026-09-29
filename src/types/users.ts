@@ -101,10 +101,9 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
  * 模組決定：首頁卡片是否顯示、對應 API 是否放行（requireAdminModule）。
  */
 export const ADMIN_MODULES = [
-  { value: "roster", label: "使用者帳號管理" },
-  { value: "roles", label: "身分管理" },
-  { value: "settings", label: "系統設定" },
+  { value: "roster", label: "身分名冊管理" },
   { value: "account", label: "帳號、身分與安全管理" },
+  { value: "settings", label: "系統設定" },
   { value: "activity", label: "稽核紀錄" },
 ] as const;
 
@@ -114,6 +113,24 @@ export const ADMIN_MODULE_VALUES: AdminModule[] = ADMIN_MODULES.map((item) => it
 
 export function isAdminModule(value: unknown): value is AdminModule {
   return typeof value === "string" && ADMIN_MODULE_VALUES.includes(value as AdminModule);
+}
+
+/**
+ * 改版前的模組代碼／標籤 → 現行模組（僅舊資料與舊輸入相容）。
+ * `roles`（身分管理）已併入「身分名冊管理」，舊管理員的指派不會因此失權。
+ */
+const LEGACY_ADMIN_MODULES: Record<string, AdminModule> = {
+  roles: "roster",
+  身分管理: "roster",
+  使用者帳號管理: "roster",
+};
+
+/** 解析一個模組代碼或標籤（含舊值），無法辨識回 undefined */
+export function resolveAdminModule(token: string): AdminModule | undefined {
+  if (isAdminModule(token)) return token;
+  const byLabel = ADMIN_MODULES.find((item) => item.label === token)?.value;
+  if (byLabel) return byLabel;
+  return LEGACY_ADMIN_MODULES[token];
 }
 
 /** 管理員屬性：超級＝全開；一般＝僅指定功能模組 */
@@ -180,4 +197,24 @@ export interface AccountRecord {
   /** 每次重設密碼 +1，使舊 JWT 全數失效 */
   tokenVersion: number;
   createdAt: number;
+}
+
+/**
+ * 「帳號、身分與安全管理」工作表的一列（API 回傳格式，不含密碼）。
+ * 具備身分＝該帳號於「當期」四張身分名冊中存在條目（不論條目狀態）。
+ */
+export interface AccountSummary {
+  uid: string;
+  email: string;
+  account: string;
+  name: string;
+  status: AccountStatus;
+  /** 慣用身分（未設定＝登入時詢問） */
+  preferredRole?: UserRole;
+  /** 兩階段驗證方式原值（顯示請用 twoFactorLabel） */
+  twoFactor?: TwoFactorMethod;
+  lastLogin?: number;
+  loginCount?: number;
+  /** 具備身分（當期名冊有條目者，順序 ALL_ROLES） */
+  roles: UserRole[];
 }

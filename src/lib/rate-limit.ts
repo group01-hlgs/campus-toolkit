@@ -167,14 +167,18 @@ export const RATE = {
   ACCOUNT_UPDATE: { limit: 10, windowMs: 60_000 },
   /** 帳號與安全：設定兩階段驗證方式／重新產生 TOTP 密鑰 */
   TWO_FACTOR_SET: { limit: 10, windowMs: 60_000 },
-  /** 使用者帳號管理：讀取帳號清單 */
+  /** 帳號、身分與安全管理：讀取全帳號工作表 */
+  ACCOUNTS_LIST: { limit: 60, windowMs: 60_000 },
+  /** 帳號、身分與安全管理：新增／更新／狀態／刪除（含 bcrypt，額度從嚴） */
+  ACCOUNTS_MUTATE: { limit: 20, windowMs: 60_000 },
+  /** 身分名冊管理：讀取該身分名冊清單 */
   ROSTER_LIST: { limit: 60, windowMs: 60_000 },
-  /** 使用者帳號管理：單筆新增／更新／刪除（每筆都要 bcrypt，額度從嚴） */
+  /** 身分名冊管理：單筆新增／更新／刪除（每筆都要 bcrypt，額度從嚴） */
   ROSTER_MUTATE: { limit: 20, windowMs: 60_000 },
-  /** 使用者帳號管理：Excel 匯入（一次最多 900 列，每列都要 bcrypt） */
+  /** 身分名冊管理：Excel 匯入（一次最多 900 列，每列都要 bcrypt） */
   ROSTER_IMPORT: { limit: 5, windowMs: 60 * 60_000 },
-  /** 身分管理：讀取該期四種身分的啟用狀態 */
+  /** 身分名冊管理：讀取該期四種身分的啟用狀態 */
   ROLE_SETTINGS_GET: { limit: 60, windowMs: 60_000 },
-  /** 身分管理：啟用／停用身分、對齊學期 */
+  /** 身分名冊管理：啟用／停用身分、對齊學期 */
   ROLE_SETTINGS_MUTATE: { limit: 30, windowMs: 60_000 },
 } as const;

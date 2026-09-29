@@ -14,16 +14,18 @@ import {
   AccountRecord,
   AccountStatus,
   ACTIVE_STATUS,
-  ADMIN_MODULES,
   AdminModule,
   ADMIN_MODULE_VALUES,
+  resolveAdminModule,
   USER_COLLECTION,
   UserRole,
+  isAccountActive,
   isAccountStatus,
   isUserRole,
   lastLoginOf,
 } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
+import { getCurrentPeriod } from "@/lib/settings-server";
 import {
   ACCOUNT_FIELD_KEYS,
   ENTRY_DEFAULT_STATUS,
@@ -70,7 +72,11 @@ export function rosterEntryId(uid: string, period: SchoolPeriod): string {
  */
 function normalizeModules(value: unknown): string[] {
   if (Array.isArray(value)) {
-    return ADMIN_MODULE_VALUES.filter((module) => value.includes(module));
+    const resolved = value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => resolveAdminModule(item))
+      .filter((item): item is AdminModule => Boolean(item));
+    return ADMIN_MODULE_VALUES.filter((module) => resolved.includes(module));
   }
   if (typeof value !== "string") return [];
   const tokens = value
@@ -79,9 +85,7 @@ function normalizeModules(value: unknown): string[] {
     .filter(Boolean);
   const modules: string[] = [];
   for (const token of tokens) {
-    const byValue = ADMIN_MODULE_VALUES.find((module) => module === token);
-    const byLabel = ADMIN_MODULES.find((item) => item.label === token)?.value;
-    const module = byValue || byLabel;
+    const module = resolveAdminModule(token);
     if (module && !modules.includes(module)) modules.push(module);
   }
   return ADMIN_MODULE_VALUES.filter((module) => modules.includes(module));
@@ -161,11 +165,101 @@ export function validateRosterInput(
   return { ok: true, account: accountFields, roster: roster as RosterData, password };
 }
 
+export type AccountValidation =
+  | { ok: true; account: AccountFields; password: string | null }
+  | { ok: false; message: string };
+
+/**
+ * 驗證「帳號、身分與安全管理」工作表的帳號輸入（無名冊欄位）。
+ * 建立時密碼必填；更新時密碼留空代表不變更。
+ */
+export function validateAccountInput(
+  input: RosterInput,
+  options: { requirePassword: boolean }
+): AccountValidation {
+  const name = text(input.name, MAX_TEXT);
+  if (!name) return { ok: false, message: "請填寫姓名" };
+
+  const rawEmail = text(input.email, MAX_TEXT);
+  if (!rawEmail) return { ok: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE };
+  const email = normalizeEmail(rawEmail) || "";
+  if (!email) return { ok: false, message: EMAIL_FORMAT_MESSAGE };
+
+  const rawAccount = text(input.account, MAX_TEXT);
+  const account = rawAccount ? normalizeAccount(rawAccount) || "" : "";
+  if (rawAccount && !account) return { ok: false, message: ACCOUNT_FORMAT_MESSAGE };
+
+  const rawPassword = typeof input.password === "string" ? input.password : "";
+  let password: string | null = null;
+  if (rawPassword) {
+    if (!isStrongPassword(rawPassword)) {
+      return { ok: false, message: PASSWORD_REQUIREMENT_MESSAGE };
+    }
+    password = rawPassword;
+  } else if (options.requirePassword) {
+    return { ok: false, message: `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}` };
+  }
+
+  return { ok: true, account: { email, account, name }, password };
+}
+
 /** 查重索引：email/account 依使用者帳號；學號依「當期」的該身分名冊 */
 export interface RosterIndex {
   emails: Map<string, string>;
   accounts: Map<string, string>;
   studentIds: Map<string, string>;
+}
+
+/** 只查 email／account 的帳號查重索引（工作表新增帳號用） */
+export async function loadAccountIndex(excludeUid = ""): Promise<RosterIndex> {
+  const index: RosterIndex = {
+    emails: new Map(),
+    accounts: new Map(),
+    studentIds: new Map(),
+  };
+  const usersSnapshot = await getAdminDb().collection(USER_COLLECTION).get();
+  for (const doc of usersSnapshot.docs) {
+    if (doc.id === excludeUid) continue;
+    const data = doc.data();
+    const email = typeof data.email === "string" ? data.email : "";
+    const account = typeof data.account === "string" ? data.account : "";
+    if (email) index.emails.set(email, doc.id);
+    if (account) index.accounts.set(account, doc.id);
+  }
+  return index;
+}
+
+/**
+ * 以電子郵件或帳號找出現有使用者帳號（綁定既有帳號用）；查無回 null。
+ */
+export async function findAccountByKey(key: string): Promise<{
+  uid: string;
+  email: string;
+  account: string;
+  name: string;
+  status: AccountStatus;
+} | null> {
+  const db = getAdminDb();
+  const raw = text(key, MAX_TEXT);
+  if (!raw) return null;
+
+  const fields: ("email" | "account")[] = raw.includes("@") ? ["email", "account"] : ["account", "email"];
+  for (const field of fields) {
+    const value = field === "email" ? normalizeEmail(raw) : normalizeAccount(raw);
+    if (!value) continue;
+    const snap = await db.collection(USER_COLLECTION).where(field, "==", value).limit(1).get();
+    const doc = snap.docs[0];
+    if (!doc) continue;
+    const data = doc.data();
+    return {
+      uid: doc.id,
+      email: typeof data.email === "string" ? data.email : "",
+      account: typeof data.account === "string" ? data.account : "",
+      name: typeof data.name === "string" ? data.name : "",
+      status: isAccountStatus(data.status) ? data.status : ACTIVE_STATUS,
+    };
+  }
+  return null;
 }
 
 export async function loadRosterIndex(
@@ -419,8 +513,13 @@ export function toRosterMember(
   const target = member as unknown as Record<string, string | string[] | undefined>;
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     if (key === "modules") {
+      // 舊代碼（如 `roles`）一併對應到現行模組，清單顯示與表單預勾才會正確
       const modules = entry && Array.isArray(entry.modules) ? entry.modules : [];
-      if (modules.length > 0) target.modules = modules as string[];
+      const resolved = modules
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => resolveAdminModule(item))
+        .filter((item): item is AdminModule => Boolean(item));
+      if (resolved.length > 0) target.modules = resolved as string[];
       continue;
     }
     const value = str(entry, key);
@@ -439,10 +538,39 @@ export function isAccountFieldKey(key: RosterFieldKey): boolean {
   return (ACCOUNT_FIELD_KEYS as readonly string[]).includes(key);
 }
 
-/** 帳號可用的模組權限（超級＝全開） */
+/**
+ * 當期「其他有效管理員」人數：名冊條目有效 ＋ 使用者帳號有效。
+ * 用於擋停用／刪除最後一位管理員，避免把自己鎖在門外。
+ */
+export async function countOtherActiveAdmins(excludeUid: string): Promise<number> {
+  const db = getAdminDb();
+  const period = await getCurrentPeriod();
+  const snapshot = await db
+    .collection(rosterCollection("admin"))
+    .where("academicYear", "==", period.academicYear)
+    .where("semester", "==", period.semester)
+    .get();
+
+  const uids = snapshot.docs
+    .map((doc) => doc.data())
+    .filter((data) => isActiveEntry(data) && typeof data.uid === "string" && data.uid !== excludeUid)
+    .map((data) => data.uid as string);
+  if (uids.length === 0) return 0;
+
+  const docs = await db.getAll(
+    ...uids.map((uid) => db.collection(USER_COLLECTION).doc(uid))
+  );
+  return docs.filter((doc) => doc.exists && isAccountActive(doc.data())).length;
+}
+
+/** 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應） */
 export function adminModulesOf(entry: Record<string, unknown> | null | undefined): AdminModule[] {
   if (!entry) return [];
   if (entry.attribute === "超級") return ADMIN_MODULE_VALUES.slice();
   const modules = Array.isArray(entry.modules) ? entry.modules : [];
-  return ADMIN_MODULE_VALUES.filter((module) => modules.includes(module));
+  const resolved = modules
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => resolveAdminModule(item))
+    .filter((item): item is AdminModule => Boolean(item));
+  return ADMIN_MODULE_VALUES.filter((module) => resolved.includes(module));
 }
