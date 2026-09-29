@@ -8,7 +8,7 @@ import {
   AccountSummary,
   ALL_ROLES,
   ROLE_LABELS,
-  twoFactorLabel,
+  twoFactorShortLabel,
   UserRole,
 } from "@/types/users";
 import {
@@ -386,7 +386,7 @@ export default function AccountsPage() {
         item.account,
         item.status,
         item.preferredRole ? ROLE_LABELS[item.preferredRole] : "",
-        twoFactorLabel(item.twoFactor),
+        twoFactorShortLabel(item.twoFactor),
         item.roles.map((role) => ROLE_LABELS[role]).join(" "),
       ];
       return parts.some((value) => value.toLowerCase().includes(key));
@@ -586,14 +586,12 @@ export default function AccountsPage() {
           <table className="w-full text-sm text-left">
             <thead className="border-b border-themed">
               <tr className="text-t2">
-                <th className="px-3 py-2 font-medium whitespace-nowrap">姓名</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">電子郵件地址</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">帳號</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">姓名</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">電子郵件地址／帳號</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">慣用身分</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">兩階段驗證</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">最後登入</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">登入次數</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">登入記錄</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">具備身分</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
               </tr>
@@ -601,16 +599,13 @@ export default function AccountsPage() {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
                     {accounts.length === 0 ? "目前沒有帳號" : "沒有符合的資料"}
                   </td>
                 </tr>
               )}
               {paged.map((item) => (
                 <tr key={item.uid} className="border-b border-themed last:border-0 text-t1">
-                  <td className="px-3 py-2 whitespace-nowrap">{item.name || "—"}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{item.email || "—"}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{item.account || "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span
                       className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ${STATUS_STYLE[item.status]}`}
@@ -618,14 +613,21 @@ export default function AccountsPage() {
                       {item.status}
                     </span>
                   </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{item.name || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div>{item.email || "—"}</div>
+                    <div className="text-xs text-t2">{item.account || "—"}</div>
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {item.preferredRole ? ROLE_LABELS[item.preferredRole] : "—"}
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">{twoFactorLabel(item.twoFactor)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-t2">
-                    {formatDateTime(item.lastLogin)}
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {twoFactorShortLabel(item.twoFactor)}
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">{item.loginCount ?? 0}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div>{item.loginCount ?? 0} 次</div>
+                    <div className="text-xs text-t2">{formatDateTime(item.lastLogin)}</div>
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {item.roles.length
                       ? item.roles.map((role) => ROLE_LABELS[role]).join("、")

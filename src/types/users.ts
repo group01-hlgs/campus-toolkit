@@ -29,10 +29,10 @@ export function isUserRole(value: unknown): value is UserRole {
  * 選項文字與舊 GAS 站 account.html 一致：關閉 / 登入通知 / 電子郵件驗證碼 / 驗證碼APP。
  */
 export const TWO_FACTOR_METHODS = [
-  { value: "off", label: "關閉 - 高風險" },
-  { value: "email_notify", label: "電子郵件發送登入通知 - 中風險" },
-  { value: "email_otp", label: "電子郵件驗證碼 - 低風險" },
-  { value: "totp", label: "驗證碼APP - 低風險" },
+  { value: "off", label: "關閉 - 高風險", short: "未啟用" },
+  { value: "email_notify", label: "電子郵件發送登入通知 - 中風險", short: "登入通知" },
+  { value: "email_otp", label: "電子郵件驗證碼 - 低風險", short: "驗證信" },
+  { value: "totp", label: "驗證碼APP - 低風險", short: "驗證APP" },
 ] as const;
 
 export type TwoFactorMethod = (typeof TWO_FACTOR_METHODS)[number]["value"];
@@ -50,6 +50,12 @@ export function isTwoFactorMethod(value: unknown): value is TwoFactorMethod {
 export function twoFactorLabel(value: unknown): string {
   const method = isTwoFactorMethod(value) ? value : DEFAULT_TWO_FACTOR;
   return TWO_FACTOR_METHODS.find((item) => item.value === method)?.label || TWO_FACTOR_METHODS[0].label;
+}
+
+/** 清單用簡稱：未啟用／登入通知／驗證信／驗證APP */
+export function twoFactorShortLabel(value: unknown): string {
+  const method = isTwoFactorMethod(value) ? value : DEFAULT_TWO_FACTOR;
+  return TWO_FACTOR_METHODS.find((item) => item.value === method)?.short || TWO_FACTOR_METHODS[0].short;
 }
 
 /** 需要第二階段驗證才建立 session 的方式（登入通知不阻擋登入） */
