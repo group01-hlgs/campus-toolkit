@@ -47,19 +47,32 @@ interface BindTarget {
   roles: UserRole[];
 }
 
-/** 批次管理卡片的模式說明（新增模式依所選身分列出辨識鍵與必填欄位） */
-function batchHint(mode: RosterBatchMode, role: RosterRole): string {
+/** 批次管理卡片的模式說明（新增模式依所選身分列出辨識鍵與必填欄位），分點回傳 */
+function batchHint(mode: RosterBatchMode, role: RosterRole): string[] {
   if (mode === "create") {
     if (!isImportableRole(role)) {
-      return "家長身分不提供檔案匯入，請以「新增家長」表單建立。";
+      return ["家長身分不提供檔案匯入，請以「新增家長」表單建立。"];
     }
     const { identify, required, optional } = rosterBatchFieldHints(role);
-    return `辨識欄位：${identify}（兩者都填須指向同一帳號）；必填欄位：${required}；可選欄位（可留空）：${optional}。以辨識欄位找到既有帳號，同一帳號同期僅一筆；查無帳號之列略過，批次不建立帳號。單批最多 900 列。`;
+    return [
+      `辨識欄位：${identify}（兩者都填須指向同一帳號）`,
+      `必填欄位：${required}；可選欄位（可留空）：${optional}`,
+      "以辨識欄位找到既有帳號後建立本期名冊條目；同一帳號同期僅一筆，查無帳號之列略過，批次不建立帳號、不設密碼",
+      "單批最多 900 列",
+    ];
   }
   if (mode === "update") {
-    return "以「電子郵件地址或帳號」辨識該列（兩者都填須指向同一帳號）；必填欄位：姓名，未填之列略過；其餘本期名冊欄位空白＝不修改。電子郵件、帳號與密碼請至「使用者帳號管理」維護。";
+    return [
+      "辨識欄位：電子郵件地址或帳號（兩者都填須指向同一帳號）",
+      "必填欄位：姓名，未填之列略過；其餘本期名冊欄位空白＝不修改",
+      "只更新本期名冊條目；電子郵件、帳號與密碼請至「使用者帳號管理」維護",
+    ];
   }
-  return "以「電子郵件地址或帳號」辨識該列；將刪除該列本期的名冊條目，帳號與其他學期資料保留，刪除後無法復原。";
+  return [
+    "辨識欄位：電子郵件地址或帳號（兩者都填須指向同一帳號）",
+    "只刪除該列本期的名冊條目；帳號與其他學期資料保留",
+    "刪除後無法復原",
+  ];
 }
 
 /** 批次新增範例檔（存於 docs/，由 /api/admin/downloads 提供下載；目前僅學生） */
@@ -839,22 +852,25 @@ export default function RosterPage() {
               )}
             </div>
 
-            <p className="text-xs text-t3 mt-2">{batchHint(batchMode, batchRole)}</p>
-
-            {batchMode === "create" &&
-              BATCH_SAMPLE_FILES.filter((item) => item.role === batchRole).map((item) => (
-                <p className="text-xs text-t3 mt-2" key={item.href}>
-                  範例檔下載：
-                  <a
-                    href={encodeURI(item.href)}
-                    download
-                    className="text-t2 underline hover:text-t1"
-                  >
-                    {item.label}
-                  </a>
-                  ，可另存修改後再上傳（表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位）。
-                </p>
+            <ul className="text-xs text-t3 mt-2 list-disc pl-5 space-y-1">
+              {batchHint(batchMode, batchRole).map((item) => (
+                <li key={item}>{item}</li>
               ))}
+              {batchMode === "create" &&
+                BATCH_SAMPLE_FILES.filter((item) => item.role === batchRole).map((item) => (
+                  <li key={item.href}>
+                    範例檔下載：
+                    <a
+                      href={encodeURI(item.href)}
+                      download
+                      className="text-t2 underline hover:text-t1"
+                    >
+                      {item.label}
+                    </a>
+                    ，可另存修改後再上傳（表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位）
+                  </li>
+                ))}
+            </ul>
 
             {batchError && (
               <p className="text-sm text-danger mt-2" role="alert">
