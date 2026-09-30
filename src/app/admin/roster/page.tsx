@@ -73,8 +73,8 @@ function batchHint(mode: RosterBatchMode, role: RosterRole, strategy: RosterBatc
   if (mode === "update") {
     return [
       "辨識欄位：電子郵件地址或帳號（兩者都填須指向同一帳號）",
-      "必填欄位：姓名，未填之列略過；其餘本期名冊欄位空白＝不修改",
-      "只更新本期名冊條目；電子郵件、帳號與密碼請至「使用者帳號管理」維護",
+      "除辨識欄位外皆無必填：空白＝不修改，只更新有填值的欄位（含姓名）",
+      "本期無此身分名冊資料之列略過；電子郵件、帳號與密碼請至「使用者帳號管理」維護",
     ];
   }
   return [

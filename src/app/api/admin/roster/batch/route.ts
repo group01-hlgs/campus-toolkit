@@ -291,15 +291,14 @@ function planUpdate(
   const entry = context.entries.get(uid);
   if (!current || !entry) return skipRow(row, input, "本期無此身分名冊資料");
 
-  // 電子郵件與帳號是辨識鍵，批次不修改；姓名必填（未填＝略過該列）
+  // 電子郵件與帳號是辨識鍵，批次不修改；姓名與其他欄位皆可留空（空白＝不修改）
   const fileName = input.name ? input.name.trim() : "";
-  if (!fileName) return skipRow(row, input, "請填寫姓名");
 
-  // 以現有資料為底，檔案中非空白的名冊欄位覆蓋（空白＝不修改）
+  // 以現有資料為底，檔案中非空白的欄位覆蓋（空白＝不修改）
   const merged: Record<string, unknown> = {
     email: current.email,
     account: current.account,
-    name: fileName,
+    name: fileName || current.name,
   };
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     const value = input[key];
@@ -320,7 +319,7 @@ function planUpdate(
   const entryPatch: Record<string, unknown> = {};
 
   const prevName = typeof entry.name === "string" ? entry.name : String(entry.name ?? "");
-  if (fileName !== prevName) {
+  if (fileName && fileName !== prevName) {
     changes.push({ label: fieldLabel(role, "name"), from: prevName, to: fileName });
     entryPatch.name = fileName;
   }
