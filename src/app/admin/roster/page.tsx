@@ -86,7 +86,7 @@ function batchHint(mode: RosterBatchMode, role: RosterRole, strategy: RosterBatc
   ];
 }
 
-/** 批次範例檔（存於 docs/，由 /api/admin/downloads 提供下載；依模式與身分提供，目前僅學生） */
+/** 批次範例檔（存於 docs/，由 /api/admin/downloads 提供下載；依模式與身分提供） */
 const BATCH_SAMPLE_FILES: {
   mode: RosterBatchMode;
   role: RosterRole;
@@ -114,6 +114,14 @@ const BATCH_SAMPLE_FILES: {
     href: "/api/admin/downloads/範例_身分名冊管理_學生批次刪除.xlsx",
     label: "學生批次刪除範例",
     caption: "表頭為辨識欄位（電子郵件地址或帳號），用來指定要刪除的列",
+  },
+  {
+    mode: "create",
+    role: "staff",
+    href: "/api/admin/downloads/範例_身分名冊管理_教職員批次新增.xlsx",
+    label: "教職員批次新增範例",
+    caption:
+      "表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位；屬性限教師／兼導師／兼行政／職員，導師等兼任職務請填在職稱",
   },
 ];
 
