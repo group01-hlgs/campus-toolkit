@@ -238,12 +238,12 @@ export const ROLE_INFO_FIELDS: Record<UserRole, RoleInfoField[]> = {
 /** 帳號清單的表格欄位鍵（帳號／名冊欄位＋慣用身分） */
 export type RosterColumnKey = RosterFieldKey | "preferredRole";
 
-/** 帳號清單的表格欄位（不含密碼） */
+/**
+ * 名冊清單的「身分專屬」欄位（不含密碼）。
+ * 表格前三欄固定為「狀態」「姓名」「對應使用者（電子郵件地址／帳號）」，最後為「操作」。
+ */
 export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: string }[]> = {
   student: [
-    { key: "name", label: "姓名" },
-    { key: "email", label: "電子郵件地址" },
-    { key: "account", label: "帳號" },
     { key: "studentId", label: "學號" },
     { key: "grade", label: "年級" },
     { key: "classCode", label: "班級代碼" },
@@ -252,9 +252,6 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "rollNo", label: "班號" },
   ],
   parent: [
-    { key: "name", label: "姓名" },
-    { key: "email", label: "電子郵件地址" },
-    { key: "account", label: "帳號" },
     { key: "studentName", label: "學生姓名" },
     { key: "studentEmail", label: "學生電子郵件地址" },
     { key: "studentId", label: "學號" },
@@ -266,9 +263,6 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "relation", label: "關係" },
   ],
   staff: [
-    { key: "name", label: "姓名" },
-    { key: "email", label: "電子郵件地址" },
-    { key: "account", label: "帳號" },
     { key: "attribute", label: "屬性" },
     { key: "unit", label: "單位" },
     { key: "title", label: "職稱" },
@@ -276,9 +270,6 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "className", label: "班級名稱" },
   ],
   admin: [
-    { key: "name", label: "姓名" },
-    { key: "email", label: "電子郵件地址" },
-    { key: "account", label: "帳號" },
     { key: "attribute", label: "屬性" },
     { key: "modules", label: "指定功能模組" },
   ],

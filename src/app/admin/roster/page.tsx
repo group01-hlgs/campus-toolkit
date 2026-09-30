@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
 import {
@@ -133,13 +133,6 @@ const STATUS_STYLE: Record<AccountStatus, string> = {
   無效: "text-warning",
 };
 
-function formatDateTime(value?: number): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 /** 清單儲格值：該身分沒有這個欄位時顯示破折號 */
 function cellValue(member: RosterMember, key: RosterColumnKey): string {
   if (key === "preferredRole") {
@@ -239,6 +232,58 @@ export default function RosterPage() {
 
   function askConfirm(message: string, onConfirm: () => void, danger = false) {
     setConfirmRequest({ message, onConfirm, danger });
+  }
+
+  // 操作欄下拉選單（與「使用者帳號管理」一致）：記錄開啟的列與定位
+  const [menu, setMenu] = useState<{
+    uid: string;
+    right: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+
+  // 選單開啟時：點外部、按 Esc、捲動頁面都收合
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onPointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-roster-menu]")) return;
+      setMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
+
+  /** 依按鈕位置開啟操作選單；同一列再按一次即收合 */
+  function toggleMenu(event: ReactMouseEvent<HTMLButtonElement>, uid: string) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenu((prev) => {
+      if (prev?.uid === uid) return null;
+      const openUp = rect.bottom + 200 > window.innerHeight;
+      return {
+        uid,
+        right: Math.max(8, window.innerWidth - rect.right),
+        ...(openUp
+          ? { bottom: Math.max(8, window.innerHeight - rect.top + 4) }
+          : { top: rect.bottom + 4 }),
+      };
+    });
+  }
+
+  /** 選單項目共用：先收合選單再執行動作 */
+  function runMenuAction(action: () => void) {
+    setMenu(null);
+    action();
   }
 
   // 確認 modal：Esc 取消
@@ -740,6 +785,7 @@ export default function RosterPage() {
   }, [members, keyword]);
 
   const columns = ROSTER_COLUMNS[role];
+  const menuTarget = menu ? members.find((item) => item.uid === menu.uid) : null;
   // 家長不提供檔案匯入：新增模式下鎖住檔案選擇與上傳預覽
   const batchCreateBlocked = batchMode === "create" && !isImportableRole(batchRole);
   const actionButtons = (
@@ -1179,13 +1225,14 @@ export default function RosterPage() {
           <table className="w-full text-sm text-left">
             <thead className="border-b border-themed">
               <tr className="text-t2">
+                <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">姓名</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">對應使用者</th>
                 {columns.map((column) => (
                   <th key={column.key} className="px-3 py-2 font-medium whitespace-nowrap">
                     {column.label}
                   </th>
                 ))}
-                <th className="px-3 py-2 font-medium whitespace-nowrap">最後登入</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">本期狀態</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
               </tr>
             </thead>
@@ -1193,7 +1240,7 @@ export default function RosterPage() {
               {filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={columns.length + 3}
+                    colSpan={columns.length + 4}
                     className="px-3 py-6 text-center text-t3"
                   >
                     {members.length === 0 ? "目前沒有資料" : "沒有符合的資料"}
@@ -1202,50 +1249,49 @@ export default function RosterPage() {
               )}
               {filtered.map((member) => (
                 <tr key={member.uid} className="border-b border-themed last:border-0 text-t1">
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <span
+                      className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ${STATUS_STYLE[member.rosterStatus]}`}
+                    >
+                      {statusLabel(member.rosterStatus)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{member.name || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div>{member.email || "—"}</div>
+                    <div className="text-xs text-t2">{member.account || "—"}</div>
+                  </td>
                   {columns.map((column) => (
                     <td key={column.key} className="px-3 py-2 whitespace-nowrap">
                       {cellValue(member, column.key)}
                     </td>
                   ))}
-                  <td className="px-3 py-2 whitespace-nowrap text-t2">
-                    {formatDateTime(member.lastLogin)}
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <span
-                      className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs ${STATUS_STYLE[member.rosterStatus]}`}
-                    >
-                      本期：{statusLabel(member.rosterStatus)}
-                    </span>
-                  </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
                     <button
-                      onClick={() => openEdit(member)}
-                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2"
+                      type="button"
+                      data-roster-menu
+                      aria-haspopup="menu"
+                      aria-expanded={menu?.uid === member.uid}
+                      onClick={(event) => toggleMenu(event, member.uid)}
+                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer inline-flex items-center gap-1"
                     >
-                      編輯
-                    </button>
-                    {member.rosterStatus === "有效" ? (
-                      <button
-                        onClick={() => void handleSetStatus(member, "無效")}
-                        disabled={toggling}
-                        className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
+                      操作
+                      <svg
+                        className={`w-3 h-3 transition-transform ${
+                          menu?.uid === member.uid ? "rotate-180" : ""
+                        }`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        aria-hidden="true"
                       >
-                        停用本期
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => void handleSetStatus(member, "有效")}
-                        disabled={toggling}
-                        className="btn-theme rounded px-3 py-1 text-xs cursor-pointer mr-2 disabled:opacity-50"
-                      >
-                        啟用本期
-                      </button>
-                    )}
-                    <button
-                      onClick={() => void handleDelete(member)}
-                      className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
-                    >
-                      刪除
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                        />
+                      </svg>
                     </button>
                   </td>
                 </tr>
@@ -1254,6 +1300,53 @@ export default function RosterPage() {
           </table>
         )}
       </div>
+
+      {menu && menuTarget && (
+        <div
+          role="menu"
+          data-roster-menu
+          aria-label={`${menuTarget.name} 的操作`}
+          className="fixed z-40 min-w-[172px] rounded-lg border border-themed bg-card py-1 shadow-lg animate-fade-in"
+          style={{ top: menu.top, bottom: menu.bottom, right: menu.right }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            onClick={() => runMenuAction(() => openEdit(menuTarget))}
+          >
+            編輯
+          </button>
+          {menuTarget.rosterStatus === "有效" ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "無效"))}
+            >
+              停用本期
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "有效"))}
+            >
+              啟用本期
+            </button>
+          )}
+          <div className="my-1 border-t border-themed" />
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item is-danger"
+            onClick={() => runMenuAction(() => void handleDelete(menuTarget))}
+          >
+            刪除
+          </button>
+        </div>
+      )}
 
       <hr className="w-full max-w-5xl border-themed mb-4" />
 
