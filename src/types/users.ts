@@ -169,12 +169,25 @@ export function isAdminAttribute(value: unknown): value is AdminAttribute {
   return value === "超級" || value === "一般";
 }
 
-/** 教職員屬性 */
-export type StaffAttribute = "行政" | "教師";
-export const STAFF_ATTRIBUTES: StaffAttribute[] = ["行政", "教師"];
+/**
+ * 教職員屬性（互斥，不疊加）：
+ * 教師＝純教學；兼導師＝教師兼任導師；兼行政＝教師兼任行政（組長／主任等）或職員編制；
+ * 職員＝專任行政人員。要分辨誰是教師兼行政，看「單位」與「職稱」欄。
+ */
+export type StaffAttribute = "教師" | "兼導師" | "兼行政" | "職員";
+export const STAFF_ATTRIBUTES: StaffAttribute[] = ["教師", "兼導師", "兼行政", "職員"];
+
+/** 改版前只有「行政」「教師」兩值，舊資料一律對應到新制 */
+const LEGACY_STAFF_ATTRIBUTES: Record<string, StaffAttribute> = { 行政: "兼行政" };
 
 export function isStaffAttribute(value: unknown): value is StaffAttribute {
-  return value === "行政" || value === "教師";
+  return (STAFF_ATTRIBUTES as string[]).includes(value as string);
+}
+
+/** 讀寫教職員屬性：舊值轉新制、去除前後空白，其餘原樣保留（未知值照原樣顯示） */
+export function resolveStaffAttribute(value: unknown): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  return LEGACY_STAFF_ATTRIBUTES[text] ?? text;
 }
 
 /**

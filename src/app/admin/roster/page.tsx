@@ -29,8 +29,10 @@ import {
 import {
   ADMIN_MODULES,
   ROLE_LABELS,
+  STAFF_ATTRIBUTES,
   statusLabel,
   type AccountStatus,
+  type StaffAttribute,
   type UserRole,
 } from "@/types/users";
 import { logout } from "@/lib/session";
@@ -698,7 +700,7 @@ export default function RosterPage() {
     }
   }
 
-  /** 屬性欄位：教職員＝行政／教師；管理員＝一般／超級 */
+  /** 屬性欄位：教職員＝教師／兼導師／兼行政／職員；管理員＝一般／超級 */
   function renderAttributeSelect(field: RosterFieldDef) {
     const options =
       role === "admin"
@@ -709,8 +711,12 @@ export default function RosterPage() {
           ]
         : [
             { value: "", label: "請選擇屬性" },
-            { value: "行政", label: "行政" },
-            { value: "教師", label: "教師" },
+            ...STAFF_ATTRIBUTES.map((value) => ({ value, label: value })),
+            // 資料庫殘留的非標準值照原樣顯示，避免選單變成空白
+            ...(!STAFF_ATTRIBUTES.includes(form.attribute as StaffAttribute) &&
+            form.attribute
+              ? [{ value: form.attribute, label: form.attribute }]
+              : []),
           ];
     return (
       <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -729,6 +735,11 @@ export default function RosterPage() {
             </option>
           ))}
         </select>
+        {role === "staff" && (
+          <span className="text-xs text-t3 sm:max-w-64">
+            教師＝純教學；兼導師＝任導師；兼行政＝組長／主任等行政職或職員編制；職員＝專任行政人員。
+          </span>
+        )}
       </div>
     );
   }

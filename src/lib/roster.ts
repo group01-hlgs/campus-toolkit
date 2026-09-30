@@ -21,9 +21,12 @@ import {
   UserRole,
   isAccountActive,
   isAccountStatus,
+  isStaffAttribute,
   isUserRole,
   lastLoginOf,
   normalizeAccountStatus,
+  resolveStaffAttribute,
+  STAFF_ATTRIBUTES,
 } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
 import { getCurrentPeriod } from "@/lib/settings-server";
@@ -144,9 +147,12 @@ export function validateRosterInput(role: RosterRole, input: RosterInput): Roste
   }
 
   if (role === "staff") {
-    const attribute = text(input.attribute, MAX_SHORT);
-    if (attribute && attribute !== "行政" && attribute !== "教師") {
-      return { ok: false, message: "教職員屬性僅支援「行政」或「教師」" };
+    const attribute = resolveStaffAttribute(text(input.attribute, MAX_SHORT));
+    if (attribute && !isStaffAttribute(attribute)) {
+      return {
+        ok: false,
+        message: `教職員屬性僅支援「${STAFF_ATTRIBUTES.join("」「")}」`,
+      };
     }
     roster.attribute = attribute;
   }
@@ -512,7 +518,9 @@ export function toRosterMember(
       if (resolved.length > 0) target.modules = resolved as string[];
       continue;
     }
-    const value = str(entry, key);
+    const value = key === "attribute" && role === "staff"
+      ? resolveStaffAttribute(str(entry, key))
+      : str(entry, key);
     if (value) target[key] = value;
   }
   return member;
