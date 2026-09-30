@@ -84,12 +84,34 @@ function batchHint(mode: RosterBatchMode, role: RosterRole, strategy: RosterBatc
   ];
 }
 
-/** 批次新增範例檔（存於 docs/，由 /api/admin/downloads 提供下載；目前僅學生） */
-const BATCH_SAMPLE_FILES: { role: RosterRole; href: string; label: string }[] = [
+/** 批次範例檔（存於 docs/，由 /api/admin/downloads 提供下載；依模式與身分提供，目前僅學生） */
+const BATCH_SAMPLE_FILES: {
+  mode: RosterBatchMode;
+  role: RosterRole;
+  href: string;
+  label: string;
+  caption: string;
+}[] = [
   {
+    mode: "create",
     role: "student",
     href: "/api/admin/downloads/範例_身分名冊管理_學生批次新增.xlsx",
     label: "學生批次新增範例",
+    caption: "表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位",
+  },
+  {
+    mode: "update",
+    role: "student",
+    href: "/api/admin/downloads/範例_身分名冊管理_學生批次修改.xlsx",
+    label: "學生批次修改範例",
+    caption: "表頭為辨識欄位（電子郵件地址或帳號）與欲修改的欄位，留空表示不修改",
+  },
+  {
+    mode: "delete",
+    role: "student",
+    href: "/api/admin/downloads/範例_身分名冊管理_學生批次刪除.xlsx",
+    label: "學生批次刪除範例",
+    caption: "表頭為辨識欄位（電子郵件地址或帳號），用來指定要刪除的列",
   },
 ];
 
@@ -980,20 +1002,21 @@ export default function RosterPage() {
               {batchHint(batchMode, batchRole, batchStrategy).map((item) => (
                 <li key={item}>{item}</li>
               ))}
-              {batchMode === "create" &&
-                BATCH_SAMPLE_FILES.filter((item) => item.role === batchRole).map((item) => (
-                  <li key={item.href}>
-                    範例檔下載：
-                    <a
-                      href={encodeURI(item.href)}
-                      download
-                      className="text-t2 underline hover:text-t1"
-                    >
-                      {item.label}
-                    </a>
-                    ，可另存修改後再上傳（表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位）
-                  </li>
-                ))}
+              {BATCH_SAMPLE_FILES.filter(
+                (item) => item.role === batchRole && item.mode === batchMode
+              ).map((item) => (
+                <li key={item.href}>
+                  範例檔下載：
+                  <a
+                    href={encodeURI(item.href)}
+                    download
+                    className="text-t2 underline hover:text-t1"
+                  >
+                    {item.label}
+                  </a>
+                  ，可另存修改後再上傳（{item.caption}）
+                </li>
+              ))}
             </ul>
 
             {batchError && (
