@@ -228,12 +228,12 @@ function planCreate(
     return skipRow(row, input, `此帳號本期已具備${rosterRoleLabel(role)}身分`);
   }
 
-  // 帳號欄位一律以既有帳號為準（檔案只用來辨識，不改帳號層）
+  // 帳號欄位一律以既有帳號為準（檔案只用來辨識，不改帳號層）；姓名必填，未填＝該列略過
   const validation = validateRosterInput(role, {
     ...input,
     email: current.email,
     account: current.account,
-    name: input.name?.trim() || current.name,
+    name: input.name,
   });
   if (!validation.ok) return skipRow(row, input, validation.message);
 
@@ -286,14 +286,15 @@ function planUpdate(
   const entry = context.entries.get(uid);
   if (!current || !entry) return skipRow(row, input, "本期無此身分名冊資料");
 
-  // 電子郵件與帳號是辨識鍵，批次不修改；姓名為名冊展示資料，檔案有填才覆蓋
+  // 電子郵件與帳號是辨識鍵，批次不修改；姓名必填（未填＝略過該列）
   const fileName = input.name ? input.name.trim() : "";
+  if (!fileName) return skipRow(row, input, "請填寫姓名");
 
   // 以現有資料為底，檔案中非空白的名冊欄位覆蓋（空白＝不修改）
   const merged: Record<string, unknown> = {
     email: current.email,
     account: current.account,
-    name: fileName || current.name,
+    name: fileName,
   };
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     const value = input[key];
@@ -314,7 +315,7 @@ function planUpdate(
   const entryPatch: Record<string, unknown> = {};
 
   const prevName = typeof entry.name === "string" ? entry.name : String(entry.name ?? "");
-  if (fileName && fileName !== prevName) {
+  if (fileName !== prevName) {
     changes.push({ label: fieldLabel(role, "name"), from: prevName, to: fileName });
     entryPatch.name = fileName;
   }

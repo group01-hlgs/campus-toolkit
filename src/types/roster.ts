@@ -359,13 +359,13 @@ export function rosterImportHint(role: RosterRole): string {
   const identity = new Set<RosterFieldKey>(["email", "account"]);
   const labels = rosterImportFields(role)
     .filter((field) => !identity.has(field.key))
-    .map((field) => `${field.label}${field.required && field.key !== "name" ? "（必填）" : ""}`);
+    .map((field) => `${field.label}${field.required ? "（必填）" : ""}`);
   return [ROSTER_IDENTITY_LABEL, ...labels].join("、");
 }
 
 /**
  * 批次新增提示用：辨識鍵、必填與可選欄位名稱。
- * 電子郵件與帳號為辨識鍵（至少填一個）；姓名可留空（沿用既有帳號姓名）；
+ * 電子郵件與帳號為辨識鍵（至少填一個）；姓名必填（未填＝該列略過，不沿用既有帳號姓名）；
  * 管理員屬性必填、屬性為一般時另需指定功能模組。
  */
 export function rosterBatchFieldHints(role: RosterRole): {
@@ -376,7 +376,7 @@ export function rosterBatchFieldHints(role: RosterRole): {
   const identity = new Set<RosterFieldKey>(["email", "account"]);
   const required = new Set<RosterFieldKey>();
   for (const field of rosterImportFields(role)) {
-    if (field.required && !identity.has(field.key) && field.key !== "name") required.add(field.key);
+    if (field.required && !identity.has(field.key)) required.add(field.key);
   }
   if (role === "admin") {
     required.add("attribute");
