@@ -864,7 +864,7 @@ export default function RosterPage() {
 
         {batchOpen && (
           <div className="mt-3">
-            {/* 身分選擇：批次作業的對象身分（與下方名冊分頁各自獨立） */}
+            {/* 身分選擇：切換時同步帶動下方名冊分頁 */}
             <div className="flex flex-wrap items-center gap-3 mb-3">
               <label htmlFor="roster-batch-role" className="text-sm text-t2">
                 身分
@@ -876,6 +876,7 @@ export default function RosterPage() {
                   const next = e.target.value;
                   if (!isRosterRole(next)) return;
                   setBatchRole(next);
+                  setRole(next);
                   clearBatchSelection();
                 }}
                 className="input-theme rounded px-3 py-2 text-sm"
