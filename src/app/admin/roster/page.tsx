@@ -539,16 +539,17 @@ export default function RosterPage() {
     }
   }
 
-  async function handleDelete(member: RosterMember) {
+  function handleDelete(member: RosterMember) {
     const label = `${member.name}（${member.account || member.email}）`;
     const roleLabel = ROSTER_ROLES.find((item) => item.value === role)?.label ?? "身分";
-    if (
-      !window.confirm(
-        `確定刪除 ${label} 的本期${roleLabel}名冊資料？只刪除本期資料，帳號與其他學期資料保留（如需刪除帳號，請至「使用者帳號管理」）。`
-      )
-    ) {
-      return;
-    }
+    askConfirm(
+      `確定刪除 ${label} 的本期${roleLabel}名冊資料？只刪除本期資料，帳號與其他學期資料保留（如需刪除帳號，請至「使用者帳號管理」）。`,
+      () => void performDelete(member),
+      true
+    );
+  }
+
+  async function performDelete(member: RosterMember) {
     if (deleting) return;
     setDeleting(true);
     try {
@@ -670,7 +671,7 @@ export default function RosterPage() {
     askConfirm(
       question,
       () => void executeBatch(false),
-      batchMode === "create" && batchStrategy === "replace"
+      batchMode === "delete" || (batchMode === "create" && batchStrategy === "replace")
     );
   }
 
@@ -1384,9 +1385,9 @@ export default function RosterPage() {
             type="button"
             role="menuitem"
             className="menu-item is-danger"
-            onClick={() => runMenuAction(() => void handleDelete(menuTarget))}
+            onClick={() => runMenuAction(() => handleDelete(menuTarget))}
           >
-            刪除
+            刪除（無法復原）
           </button>
         </div>
       )}
@@ -1439,6 +1440,12 @@ export default function RosterPage() {
             <div>
               <h3 className="text-lg font-bold text-t1">確認操作</h3>
               <p className="text-sm text-t2 mt-2">{confirmRequest.message}</p>
+              {/* 危險操作統一警示：四種身分的刪除都無法復原 */}
+              {confirmRequest.danger && (
+                <p className="alert-danger mt-3 px-3 py-2 text-sm font-bold" role="alert">
+                  <span className="text-danger">刪除後無法復原</span>
+                </p>
+              )}
             </div>
             <div className="flex justify-end gap-3">
               <button
