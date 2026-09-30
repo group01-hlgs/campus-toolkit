@@ -232,7 +232,7 @@ export default function RosterPage() {
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
 
-  // 儲存成功提示 modal：完成時跳出，1 秒後自動消失
+  // 儲存成功提示 modal：完成時跳出，3 秒後自動消失
   const [successModal, setSuccessModal] = useState<string | null>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -480,14 +480,14 @@ export default function RosterPage() {
     return null;
   }
 
-  /** 儲存完成的成功訊息：跳出 modal，1 秒後自動消失（重複呼叫會重置計時） */
+  /** 儲存完成的成功訊息：跳出 modal，3 秒後自動消失（重複呼叫會重置計時） */
   function showSuccessModal(text: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current);
     setSuccessModal(text);
     successTimerRef.current = setTimeout(() => {
       setSuccessModal(null);
       successTimerRef.current = null;
-    }, 1000);
+    }, 3000);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -1466,7 +1466,7 @@ export default function RosterPage() {
         </div>
       )}
 
-      {/* 儲存成功 modal：完成時跳出，1 秒後自動消失 */}
+      {/* 儲存成功 modal：完成時跳出，3 秒後自動消失 */}
       {successModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
