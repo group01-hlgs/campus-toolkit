@@ -19,11 +19,13 @@ import {
   RosterBatchPreview,
   RosterBatchResult,
   RosterBatchRow,
+  RosterBatchStrategy,
   RosterFieldKey,
   RosterInput,
   RosterRole,
   isEmptyRosterInput,
   isImportableRole,
+  isRosterBatchStrategy,
   isRosterRole,
   rosterCollection,
   rosterImportFields,
@@ -209,13 +211,15 @@ function modulesText(codes: string[]): string {
  * 批次新增：只在「既有帳號」上建立本期名冊條目，不建立帳號、不處理密碼。
  * 辨識鍵＝電子郵件地址或帳號（至少一個，兩者都填須指向同一帳號）；
  * 帳號（uid）＋學年度＋學期才是名冊的唯一鍵；其餘欄位重複一律放行（管理員事後修改）。
+ * 追加模式遇同期已有條目則略過；覆蓋模式先清空同期條目，故同一列可直接重建。
  */
 function planCreate(
   role: RosterRole,
   row: number,
   input: RosterInput,
   context: BatchContext,
-  seen: Set<string>
+  seen: Set<string>,
+  strategy: RosterBatchStrategy
 ): PlannedRow {
   const resolved = resolveUid(input, context.index);
   if (!resolved.uid) return skipRow(row, input, resolved.error ?? "查無此帳號");
@@ -224,7 +228,8 @@ function planCreate(
 
   const current = context.byUid.get(uid);
   if (!current) return skipRow(row, input, "查無此帳號");
-  if (context.entries.has(uid)) {
+  // 追加模式：同期已有條目就略過；覆蓋模式先清空，同一列照常重建
+  if (strategy === "append" && context.entries.has(uid)) {
     return skipRow(row, input, `此帳號本期已具備${rosterRoleLabel(role)}身分`);
   }
 
@@ -378,7 +383,12 @@ async function planDelete(
   return { row, action: "delete", key: resolved.key, uid };
 }
 
-function buildPreview(mode: RosterBatchMode, planned: PlannedRow[]): RosterBatchPreview {
+function buildPreview(
+  mode: RosterBatchMode,
+  strategy: RosterBatchStrategy,
+  cleared: number,
+  planned: PlannedRow[]
+): RosterBatchPreview {
   const rows: RosterBatchRow[] = planned.map((item) => {
     if (item.action === "skip") {
       return { row: item.row, key: item.key, action: "skip", reason: item.reason };
@@ -392,6 +402,8 @@ function buildPreview(mode: RosterBatchMode, planned: PlannedRow[]): RosterBatch
     planned.filter((item) => item.action === action).length;
   return {
     mode,
+    strategy,
+    cleared,
     total: planned.length,
     created: count("create"),
     updated: count("update"),
@@ -401,17 +413,46 @@ function buildPreview(mode: RosterBatchMode, planned: PlannedRow[]): RosterBatch
   };
 }
 
+/**
+ * 覆蓋模式要先行刪除的 uid：本期該身分的全部條目。
+ * 管理員身分保留兩道防呆（自己的管理員身分、最後一位有效管理員），
+ * 檔案包含該人時仍會在下一輪以檔案資料覆寫重建。
+ */
+async function planReplaceDeletions(
+  role: RosterRole,
+  context: BatchContext,
+  sessionUid: string
+): Promise<string[]> {
+  const uids = [...context.entries.keys()];
+  if (role !== "admin" || uids.length === 0) return uids;
+
+  const keep = new Set<string>([sessionUid]);
+  for (const uid of uids) {
+    if (keep.has(uid)) continue;
+    if ((await countOtherActiveAdmins(uid)) === 0) keep.add(uid);
+  }
+  return uids.filter((uid) => !keep.has(uid));
+}
+
 async function executePlan(
   planned: PlannedRow[],
   role: RosterRole,
-  period: SchoolPeriod
+  period: SchoolPeriod,
+  clearUids: string[]
 ): Promise<RosterBatchResult> {
   const db = getAdminDb();
   const entries = db.collection(rosterCollection(role));
   const skipped: { row: number; reason: string }[] = [];
+  let cleared = 0;
   let created = 0;
   let updated = 0;
   let deleted = 0;
+
+  // 覆蓋：先清空同期既有條目，再依計畫建立
+  for (const uid of clearUids) {
+    await entries.doc(rosterEntryId(uid, period)).delete();
+    cleared += 1;
+  }
 
   for (const item of planned) {
     if (item.action === "skip") {
@@ -436,7 +477,7 @@ async function executePlan(
     }
   }
 
-  return { created, updated, deleted, skipped };
+  return { cleared, created, updated, deleted, skipped };
 }
 
 export async function POST(request: NextRequest) {
@@ -469,6 +510,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "批次作業模式無效" }, { status: 400 });
     }
     const dryRun = formData.get("dryRun") === "true";
+
+    // 寫入策略：僅「新增」模式有意義，缺省＝追加（其餘模式一律忽略）
+    const strategyRaw = formData.get("strategy");
+    const strategy: RosterBatchStrategy =
+      mode === "create" && isRosterBatchStrategy(strategyRaw) ? strategyRaw : "append";
 
     const roleValue = formData.get("role");
     const role = isRosterRole(roleValue) ? roleValue : null;
@@ -524,7 +570,7 @@ export async function POST(request: NextRequest) {
     const planned: PlannedRow[] = [];
     for (const { row, input } of dataRows) {
       if (mode === "create") {
-        planned.push(planCreate(role, row, input, context, seen));
+        planned.push(planCreate(role, row, input, context, seen, strategy));
       } else if (mode === "update") {
         planned.push(planUpdate(role, row, input, context, seen));
       } else {
@@ -532,25 +578,50 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 覆蓋：先算出要清空的既有條目（管理員身分有防呆保留）
+    const clearUids =
+      mode === "create" && strategy === "replace"
+        ? await planReplaceDeletions(role, context, session.uid)
+        : [];
+
     if (dryRun) {
-      return NextResponse.json({ success: true, dryRun: true, preview: buildPreview(mode, planned) });
+      return NextResponse.json({
+        success: true,
+        dryRun: true,
+        preview: buildPreview(mode, strategy, clearUids.length, planned),
+      });
     }
 
-    const result = await executePlan(planned, role, period);
+    // 覆蓋會刪掉檔案以外的資料：有任何略過列就要求先修正，避免清空後建不出來
+    const blocked = planned.find(
+      (item): item is PlannedSkip => item.action === "skip"
+    );
+    if (clearUids.length > 0 && blocked) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `覆蓋模式不允許略過列（第 ${blocked.row} 列：${blocked.reason}），請修正檔案後重新上傳`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const result = await executePlan(planned, role, period, clearUids);
     const label = ROSTER_BATCH_MODE_LABELS[mode];
+    const clearedText = result.cleared > 0 ? `覆蓋刪除 ${result.cleared} 筆、` : "";
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "roster_batch",
       ip: getClientIp(request),
-      details: `${rosterRoleLabel(role)}批次${label}：新增 ${result.created} 筆、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
+      details: `${rosterRoleLabel(role)}批次${label}：${clearedText}新增 ${result.created} 筆、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
     });
 
     return NextResponse.json({
       success: true,
       dryRun: false,
       result,
-      message: `批次作業完成：新增 ${result.created} 筆、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
+      message: `批次作業完成：${clearedText}新增 ${result.created} 筆、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
     });
   } catch (error) {
     console.error("Roster batch error:", error);

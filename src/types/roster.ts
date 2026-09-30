@@ -413,6 +413,26 @@ export const ROSTER_BATCH_MODE_LABELS: Record<RosterBatchMode, string> = {
   delete: "刪除",
 };
 
+/**
+ * 「新增」模式的寫入策略。
+ * append（追加，預設）＝在同期既有名冊之上繼續增加，已存在者略過；
+ * replace（覆蓋）＝先刪除同期既有的該身分名冊，再依檔案新增（檔案即完整名單）。
+ */
+export type RosterBatchStrategy = "append" | "replace";
+
+export const ROSTER_BATCH_STRATEGIES: {
+  value: RosterBatchStrategy;
+  label: string;
+  hint: string;
+}[] = [
+  { value: "append", label: "追加", hint: "在同期既有名冊之上繼續增加，已存在者略過" },
+  { value: "replace", label: "覆蓋", hint: "先刪除同期既有的該身分名冊，再依檔案新增" },
+];
+
+export function isRosterBatchStrategy(value: unknown): value is RosterBatchStrategy {
+  return value === "append" || value === "replace";
+}
+
 /** 預覽中單一欄位的變更內容（顯示用） */
 export interface RosterBatchChange {
   label: string;
@@ -434,6 +454,10 @@ export interface RosterBatchRow {
 
 export interface RosterBatchPreview {
   mode: RosterBatchMode;
+  /** 寫入策略（僅新增模式有值，其餘模式固定 append） */
+  strategy: RosterBatchStrategy;
+  /** 覆蓋模式先行刪除的同期既有筆數（追加模式固定 0） */
+  cleared: number;
   total: number;
   created: number;
   updated: number;
@@ -443,6 +467,8 @@ export interface RosterBatchPreview {
 }
 
 export interface RosterBatchResult {
+  /** 覆蓋模式先行刪除的同期既有筆數（追加模式固定 0） */
+  cleared: number;
   created: number;
   updated: number;
   deleted: number;

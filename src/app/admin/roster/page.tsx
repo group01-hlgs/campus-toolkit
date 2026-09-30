@@ -6,6 +6,7 @@ import { Settings, defaultSettings } from "@/types/settings";
 import {
   ROSTER_BATCH_MODES,
   ROSTER_BATCH_MODE_LABELS,
+  ROSTER_BATCH_STRATEGIES,
   ROSTER_COLUMNS,
   ROSTER_FIELDS,
   ROSTER_ROLES,
@@ -14,6 +15,7 @@ import {
   RosterBatchPreview,
   RosterBatchResult,
   RosterBatchRow,
+  RosterBatchStrategy,
   RosterColumnKey,
   RosterFieldDef,
   RosterFieldKey,
@@ -48,18 +50,25 @@ interface BindTarget {
 }
 
 /** 批次管理卡片的模式說明（新增模式依所選身分列出辨識鍵與必填欄位），分點回傳 */
-function batchHint(mode: RosterBatchMode, role: RosterRole): string[] {
+function batchHint(mode: RosterBatchMode, role: RosterRole, strategy: RosterBatchStrategy): string[] {
   if (mode === "create") {
     if (!isImportableRole(role)) {
       return ["家長身分不提供檔案匯入，請以「新增家長」表單建立。"];
     }
     const { identify, required, optional } = rosterBatchFieldHints(role);
-    return [
+    const points = [
       `辨識欄位：${identify}（兩者都填須指向同一帳號）`,
       `必填欄位：${required}；可選欄位（可留空）：${optional}`,
       "以辨識欄位找到既有帳號後建立本期名冊條目；同一帳號同期僅一筆，查無帳號之列略過，批次不建立帳號、不設密碼",
-      "單批最多 900 列",
+      "寫入方式「追加」＝在同期既有名冊之上繼續增加，已存在者略過",
+      "寫入方式「覆蓋」＝先刪除同期既有的該身分名冊，再依檔案新增（檔案即完整名單）",
+      "覆蓋時檔案每一列都須通過檢查：預覽有略過列時不可執行",
     ];
+    if (strategy === "replace" && role === "admin") {
+      points.push("管理員的覆蓋不刪除自己的管理員身分與最後一位有效管理員（檔案包含者仍會覆寫重建）");
+    }
+    points.push("單批最多 900 列");
+    return points;
   }
   if (mode === "update") {
     return [
@@ -212,6 +221,8 @@ export default function RosterPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchRole, setBatchRole] = useState<RosterRole>("student");
   const [batchMode, setBatchMode] = useState<RosterBatchMode>("create");
+  // 寫入策略（僅新增模式）：追加＝保留既有條目；覆蓋＝先清空本期該身分再新增
+  const [batchStrategy, setBatchStrategy] = useState<RosterBatchStrategy>("append");
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchBusy, setBatchBusy] = useState<"" | "preview" | "execute">("");
   const [batchPreview, setBatchPreview] = useState<RosterBatchPreview | null>(null);
@@ -537,8 +548,21 @@ export default function RosterPage() {
 
   function selectBatchMode(mode: RosterBatchMode) {
     setBatchMode(mode);
+    setBatchStrategy("append");
     clearBatchSelection();
   }
+
+  function selectBatchStrategy(strategy: RosterBatchStrategy) {
+    if (strategy === batchStrategy) return;
+    setBatchStrategy(strategy);
+    clearBatchSelection();
+  }
+
+  /** 覆蓋模式：有略過列時禁止執行（避免清空後建不出來），伺服端也會擋下 */
+  const replaceBlocked =
+    batchMode === "create" &&
+    batchStrategy === "replace" &&
+    (batchPreview?.skipped ?? 0) > 0;
 
   function runBatch(dryRun: boolean) {
     if (!batchFile || batchBusy) return;
@@ -546,15 +570,20 @@ export default function RosterPage() {
       void executeBatch(true);
       return;
     }
+    if (replaceBlocked) return;
     const roleLabel = ROSTER_ROLES.find((item) => item.value === batchRole)?.label ?? "身分";
     const question =
       batchMode === "delete"
         ? `確定執行批次刪除？共 ${
             batchPreview?.deleted ?? 0
           } 筆本期${roleLabel}名冊資料將被刪除，帳號與其他學期資料保留。`
-        : `確定執行批次「${ROSTER_BATCH_MODE_LABELS[batchMode]}」？共 ${
-            batchPreview?.total ?? 0
-          } 列。`;
+        : batchMode === "create" && batchStrategy === "replace"
+          ? `確定執行批次「新增（覆蓋）」？將先刪除本期既有 ${
+              batchPreview?.cleared ?? 0
+            } 筆${roleLabel}名冊，再依檔案新增 ${batchPreview?.created ?? 0} 筆。`
+          : `確定執行批次「${ROSTER_BATCH_MODE_LABELS[batchMode]}」？共 ${
+              batchPreview?.total ?? 0
+            } 列。`;
     askConfirm(question, () => void executeBatch(false));
   }
 
@@ -566,6 +595,7 @@ export default function RosterPage() {
       const body = new FormData();
       body.append("mode", batchMode);
       body.append("role", batchRole);
+      body.append("strategy", batchStrategy);
       body.append("dryRun", dryRun ? "true" : "false");
       body.append("file", batchFile);
       const res = await fetch("/api/admin/roster/batch", { method: "POST", body });
@@ -800,6 +830,35 @@ export default function RosterPage() {
               ))}
             </div>
 
+            {/* 寫入策略：僅新增模式，預設追加 */}
+            {batchMode === "create" && !batchCreateBlocked && (
+              <div className="flex flex-wrap items-center gap-4 mb-3">
+                <span className="text-sm text-t2">寫入方式</span>
+                {ROSTER_BATCH_STRATEGIES.map((item) => (
+                  <label
+                    key={item.value}
+                    className="flex items-center gap-2 text-sm text-t2 cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      name="roster-batch-strategy"
+                      value={item.value}
+                      checked={batchStrategy === item.value}
+                      onChange={() => selectBatchStrategy(item.value)}
+                      className="cursor-pointer"
+                    />
+                    <span>
+                      {item.label}
+                      {item.value === "append" ? "（預設）" : ""}
+                    </span>
+                  </label>
+                ))}
+                <span className="text-xs text-t3">
+                  {ROSTER_BATCH_STRATEGIES.find((item) => item.value === batchStrategy)?.hint}
+                </span>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-3">
               <input
                 ref={batchFileRef}
@@ -837,7 +896,8 @@ export default function RosterPage() {
                   <button
                     type="button"
                     onClick={() => void runBatch(false)}
-                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+                    disabled={replaceBlocked}
+                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
                   >
                     確認執行
                   </button>
@@ -853,7 +913,7 @@ export default function RosterPage() {
             </div>
 
             <ul className="text-xs text-t3 mt-2 list-disc pl-5 space-y-1">
-              {batchHint(batchMode, batchRole).map((item) => (
+              {batchHint(batchMode, batchRole, batchStrategy).map((item) => (
                 <li key={item}>{item}</li>
               ))}
               {batchMode === "create" &&
@@ -881,10 +941,15 @@ export default function RosterPage() {
             {batchPreview && (
               <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
                 <p className="font-bold text-t1 mb-2">
-                  預覽：新增 {batchPreview.created} 筆、更新 {batchPreview.updated} 筆、刪除{" "}
-                  {batchPreview.deleted} 筆、略過 {batchPreview.skipped} 筆（共{" "}
-                  {batchPreview.total} 列）
+                  {batchPreview.strategy === "replace"
+                    ? `預覽（覆蓋）：先刪除本期既有 ${batchPreview.cleared} 筆，再新增 ${batchPreview.created} 筆、更新 ${batchPreview.updated} 筆、刪除 ${batchPreview.deleted} 筆、略過 ${batchPreview.skipped} 筆（共 ${batchPreview.total} 列）`
+                    : `預覽：新增 ${batchPreview.created} 筆、更新 ${batchPreview.updated} 筆、刪除 ${batchPreview.deleted} 筆、略過 ${batchPreview.skipped} 筆（共 ${batchPreview.total} 列）`}
                 </p>
+                {replaceBlocked && (
+                  <p className="text-xs text-danger mb-2" role="alert">
+                    覆蓋模式不允許略過列：請先修正略過的列並重新上傳預覽，才能執行。
+                  </p>
+                )}
                 <ul className="max-h-64 overflow-y-auto space-y-1 text-t2">
                   {batchPreview.rows.map((item) => (
                     <li key={item.row}>{describeBatchRow(item)}</li>
@@ -896,7 +961,9 @@ export default function RosterPage() {
             {batchResult && (
               <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
                 <p className="font-bold text-t1 mb-2">
-                  批次作業完成：新增 {batchResult.created} 筆、更新 {batchResult.updated} 筆、刪除{" "}
+                  批次作業完成：
+                  {batchResult.cleared > 0 ? `覆蓋刪除 ${batchResult.cleared} 筆、` : ""}
+                  新增 {batchResult.created} 筆、更新 {batchResult.updated} 筆、刪除{" "}
                   {batchResult.deleted} 筆、略過 {batchResult.skipped.length} 筆
                 </p>
                 {batchResult.skipped.length > 0 && (
