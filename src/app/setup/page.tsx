@@ -51,8 +51,8 @@ export default function SetupPage() {
     setError("");
     setSuccess("");
 
-    if (!email || !account || !password) {
-      setError("請填寫完整資訊");
+    if (!password || (!email && !account)) {
+      setError("請填寫完整資訊（電子郵件地址與帳號至少填寫一個）");
       return;
     }
 
@@ -124,7 +124,7 @@ export default function SetupPage() {
 
         <div className="bg-card rounded-lg shadow p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-t2 mb-1">電子郵件 *</label>
+            <label className="block text-sm font-medium text-t2 mb-1">電子郵件</label>
             <input
               type="email"
               value={email}
@@ -135,7 +135,7 @@ export default function SetupPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-t2 mb-1">登入帳號 *</label>
+            <label className="block text-sm font-medium text-t2 mb-1">登入帳號</label>
             <input
               type="text"
               value={account}
@@ -143,6 +143,9 @@ export default function SetupPage() {
               className="w-full input-theme rounded px-3 py-2"
               placeholder="admin"
             />
+            <p className="text-xs text-t3 mt-1">
+              電子郵件與登入帳號至少填寫一個（登入識別用），另一欄可留空
+            </p>
           </div>
 
           <div>

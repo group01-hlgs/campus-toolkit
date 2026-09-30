@@ -107,6 +107,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 需收信的方式要求帳號有電子郵件（信箱可留空的帳號改用驗證碼APP）
+    const hasEmail = typeof userData.email === "string" && Boolean(userData.email);
+    if ((method === "email_otp" || method === "email_notify") && !hasEmail) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "此帳號尚無電子郵件地址，請先到「帳密管理」填寫信箱，或改用驗證碼APP",
+        },
+        { status: 400 }
+      );
+    }
+
     const secret =
       method === "totp" ? await ensureTotpSecret(userRef, userData) : readTwoFactorProfile(userData).totpSecret;
 

@@ -2,8 +2,8 @@ import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { hashPassword } from "@/lib/auth";
 import {
-  ACCOUNT_EMAIL_REQUIRED_MESSAGE,
   ACCOUNT_FORMAT_MESSAGE,
+  ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE,
   EMAIL_FORMAT_MESSAGE,
   isStrongPassword,
   normalizeAccount,
@@ -95,7 +95,7 @@ function normalizeModules(value: unknown): string[] {
 
 /**
  * 驗證並正規化一列資料，拆成「使用者帳號」與「名冊專屬欄位」兩段。
- * 帳號規則：電子郵件必填（登入識別）、帳號可留空、姓名必填；
+ * 帳號規則：電子郵件與帳號至少填一個（登入識別，另一欄可留空）、姓名必填；
  * 密碼與帳號管理屬「使用者帳號管理」，名冊不處理。
  * 名冊規則：學生學號必填；管理員屬性必填、屬性為一般時至少指定一個功能模組。
  */
@@ -105,10 +105,12 @@ export function validateRosterInput(role: RosterRole, input: RosterInput): Roste
 
   const rawEmail = text(input.email, MAX_TEXT);
   const rawAccount = text(input.account, MAX_TEXT);
-  if (!rawEmail) return { ok: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE };
+  if (!rawEmail && !rawAccount) {
+    return { ok: false, message: ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE };
+  }
 
-  const email = normalizeEmail(rawEmail) || "";
-  if (!email) return { ok: false, message: EMAIL_FORMAT_MESSAGE };
+  const email = rawEmail ? normalizeEmail(rawEmail) || "" : "";
+  if (rawEmail && !email) return { ok: false, message: EMAIL_FORMAT_MESSAGE };
 
   const account = rawAccount ? normalizeAccount(rawAccount) || "" : "";
   if (rawAccount && !account) return { ok: false, message: ACCOUNT_FORMAT_MESSAGE };
@@ -168,11 +170,14 @@ export function validateAccountInput(
   if (!name) return { ok: false, message: "請填寫姓名" };
 
   const rawEmail = text(input.email, MAX_TEXT);
-  if (!rawEmail) return { ok: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE };
-  const email = normalizeEmail(rawEmail) || "";
-  if (!email) return { ok: false, message: EMAIL_FORMAT_MESSAGE };
-
   const rawAccount = text(input.account, MAX_TEXT);
+  if (!rawEmail && !rawAccount) {
+    return { ok: false, message: ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE };
+  }
+
+  const email = rawEmail ? normalizeEmail(rawEmail) || "" : "";
+  if (rawEmail && !email) return { ok: false, message: EMAIL_FORMAT_MESSAGE };
+
   const account = rawAccount ? normalizeAccount(rawAccount) || "" : "";
   if (rawAccount && !account) return { ok: false, message: ACCOUNT_FORMAT_MESSAGE };
 

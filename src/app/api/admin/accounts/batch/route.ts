@@ -250,6 +250,9 @@ function resolveUid(
   const key = rowKey(fields);
   const emailKey = fields.email ? normalizeEmail(fields.email) : "";
   const accountKey = fields.account ? normalizeAccount(fields.account) : "";
+  if (!emailKey && !accountKey) {
+    return { key, error: "請填寫電子郵件地址或帳號以辨識資料" };
+  }
   const byEmail = emailKey ? index.emails.get(emailKey) : undefined;
   const byAccount = accountKey ? index.accounts.get(accountKey) : undefined;
   if (byEmail && byAccount && byEmail !== byAccount) {

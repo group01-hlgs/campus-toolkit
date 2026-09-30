@@ -5,7 +5,14 @@ import { requireRole, toAuthResponse } from "@/lib/dal";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { normalizeEmail, normalizeAccount, isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
+import {
+  normalizeEmail,
+  normalizeAccount,
+  isStrongPassword,
+  PASSWORD_REQUIREMENT_MESSAGE,
+  EMAIL_FORMAT_MESSAGE,
+  ACCOUNT_FORMAT_MESSAGE,
+} from "@/lib/validation";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { buildAccountRecord, buildRosterEntry, rosterEntryId } from "@/lib/roster";
 import { ADMIN_MODULE_VALUES, USER_COLLECTION } from "@/types/users";
@@ -80,11 +87,20 @@ export async function POST(request: NextRequest) {
     const normName =
       String(typeof name === "string" ? name : (displayName ?? "")).slice(0, 64);
 
-    const normEmail = normalizeEmail(email);
-    const normAccount = normalizeAccount(account);
-    if (!normEmail || !normAccount || !password || !normName) {
+    const rawEmail = typeof email === "string" ? email.trim() : "";
+    const rawAccount = typeof account === "string" ? account.trim() : "";
+    const normEmail = rawEmail ? normalizeEmail(rawEmail) : null;
+    const normAccount = rawAccount ? normalizeAccount(rawAccount) : null;
+    if (rawEmail && !normEmail) {
+      return NextResponse.json({ success: false, message: EMAIL_FORMAT_MESSAGE }, { status: 400 });
+    }
+    if (rawAccount && !normAccount) {
+      return NextResponse.json({ success: false, message: ACCOUNT_FORMAT_MESSAGE }, { status: 400 });
+    }
+    // 電子郵件與帳號至少填一個（登入識別用），姓名與密碼必填
+    if ((!normEmail && !normAccount) || !password || !normName) {
       return NextResponse.json(
-        { success: false, message: "請填寫完整資訊" },
+        { success: false, message: "請填寫完整資訊（電子郵件地址與帳號至少填寫一個）" },
         { status: 400 }
       );
     }
@@ -95,26 +111,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const emailSnapshot = await usersRef.where("email", "==", normEmail).limit(1).get();
-    if (!emailSnapshot.empty) {
-      return NextResponse.json(
-        { success: false, message: "此電子郵件已被使用" },
-        { status: 409 }
-      );
+    if (normEmail) {
+      const emailSnapshot = await usersRef.where("email", "==", normEmail).limit(1).get();
+      if (!emailSnapshot.empty) {
+        return NextResponse.json(
+          { success: false, message: "此電子郵件已被使用" },
+          { status: 409 }
+        );
+      }
     }
 
-    const accountSnapshot = await usersRef.where("account", "==", normAccount).limit(1).get();
-    if (!accountSnapshot.empty) {
-      return NextResponse.json(
-        { success: false, message: "此帳號已被使用" },
-        { status: 409 }
-      );
+    if (normAccount) {
+      const accountSnapshot = await usersRef.where("account", "==", normAccount).limit(1).get();
+      if (!accountSnapshot.empty) {
+        return NextResponse.json(
+          { success: false, message: "此帳號已被使用" },
+          { status: 409 }
+        );
+      }
     }
 
     // costFactor 不接受 request body 指定：固定使用預設 12，避免被降為弱成本雜湊
     const passwordHash = await hashPassword(password);
     const newAdmin = buildAccountRecord(
-      { email: normEmail, account: normAccount, name: normName },
+      { email: normEmail || "", account: normAccount || "", name: normName },
       passwordHash
     );
 
@@ -156,7 +176,7 @@ export async function POST(request: NextRequest) {
           "admin",
           period,
           { attribute: "超級", modules: ADMIN_MODULE_VALUES.slice() },
-          { email: normEmail, name: normName }
+          { email: normEmail || "", name: normName }
         )
       );
 

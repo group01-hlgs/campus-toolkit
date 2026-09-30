@@ -47,19 +47,19 @@ interface BindTarget {
   roles: UserRole[];
 }
 
-/** 批次管理卡片的模式說明（新增模式依所選身分列出必填欄位） */
+/** 批次管理卡片的模式說明（新增模式依所選身分列出辨識鍵與必填欄位） */
 function batchHint(mode: RosterBatchMode, role: RosterRole): string {
   if (mode === "create") {
     if (!isImportableRole(role)) {
       return "家長身分不提供檔案匯入，請以「新增家長」表單建立。";
     }
-    const { required, optional } = rosterBatchFieldHints(role);
-    return `必填欄位：${required}；可選欄位（可留空）：${optional}。以電子郵件地址辨識既有帳號，同一學期同一身分僅一封信箱；查無帳號之列略過，批次不建立帳號。單批最多 900 列。`;
+    const { identify, required, optional } = rosterBatchFieldHints(role);
+    return `辨識欄位：${identify}（兩者都填須指向同一帳號）；必填欄位：${required}；可選欄位（可留空）：${optional}。以辨識欄位找到既有帳號，同一帳號同期僅一筆；查無帳號之列略過，批次不建立帳號。單批最多 900 列。`;
   }
   if (mode === "update") {
-    return "以「電子郵件地址」辨識該列；只更新本期名冊欄位（含姓名），空白欄位＝不修改。電子郵件、帳號與密碼請至「使用者帳號管理」維護。";
+    return "以「電子郵件地址或帳號」辨識該列（兩者都填須指向同一帳號）；只更新本期名冊欄位（含姓名），空白欄位＝不修改。電子郵件、帳號與密碼請至「使用者帳號管理」維護。";
   }
-  return "以「電子郵件地址」辨識該列；將刪除該列本期的名冊條目，帳號與其他學期資料保留，刪除後無法復原。";
+  return "以「電子郵件地址或帳號」辨識該列；將刪除該列本期的名冊條目，帳號與其他學期資料保留，刪除後無法復原。";
 }
 
 /** 批次新增範例檔（存於 docs/，由 /api/admin/downloads 提供下載；目前僅學生） */
@@ -852,7 +852,7 @@ export default function RosterPage() {
                   >
                     {item.label}
                   </a>
-                  ，可另存修改後再上傳（表頭為電子郵件地址、姓名與該身分的名冊欄位）。
+                  ，可另存修改後再上傳（表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位）。
                 </p>
               ))}
 
@@ -1007,7 +1007,7 @@ export default function RosterPage() {
                   <p className="font-bold">
                     {bindTarget.name}（{bindTarget.account || bindTarget.email}）
                   </p>
-                  <p className="text-t2 mt-1">電子郵件：{bindTarget.email}</p>
+                  <p className="text-t2 mt-1">電子郵件：{bindTarget.email || "（無，以帳號登入）"}</p>
                   <p className="text-t2 mt-1">
                     本期已具備身分：
                     {bindTarget.roles.length

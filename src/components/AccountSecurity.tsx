@@ -11,7 +11,7 @@ import {
 import { ROLE_INFO_FIELDS } from "@/types/roster";
 import { fetchSession, logout } from "@/lib/session";
 import {
-  ACCOUNT_EMAIL_REQUIRED_MESSAGE,
+  ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE,
   ACCOUNT_FORMAT_MESSAGE,
   EMAIL_FORMAT_MESSAGE,
   isStrongPassword,
@@ -48,6 +48,9 @@ interface AccountProfile {
 }
 
 type Flash = { type: "success" | "error"; text: string } | null;
+
+/** 需要收信的兩階段驗證方式：帳號沒有電子郵件地址時不可選 */
+const REQUIRES_EMAIL_METHODS = ["email_otp", "email_notify"];
 
 /**
  * 即時查重狀態：idle（值未變動／不需查）｜checking 查詢中
@@ -212,9 +215,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const loaded = Boolean(profile);
   // 進頁載入期間：帳號資料或系統設定任一未到齊，畫面由遮罩擋住、送出鈕同步停用
   const loading = loadingProfile || loadingSettings;
-  // 電子郵件必填（多身分以電子郵件偵測），帳號可留空
-  const emailEmpty = loaded && !emailValue;
-  // 格式錯誤：電子郵件空白交由「必填」規則判定，不重複報錯
+  // 身分識別：電子郵件與帳號至少填一個（登入識別用），另一欄可留空
+  const identifierEmpty = loaded && !emailValue && !accountValue;
+  // 格式錯誤：空白交由「至少填一個」規則判定，不重複報錯
   const emailFormatInvalid = Boolean(emailValue) && !isValidEmail(emailValue);
   const accountFormatInvalid = Boolean(accountValue) && !isValidAccount(accountValue);
   // 是否與已存值不同
@@ -229,12 +232,12 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const accountTaken = accountChanged && accountDup === "taken";
   // 有阻斷性問題時不可送出（說明文字即時顯示在各欄位下方）
   const accountBlocked =
-    emailEmpty ||
+    identifierEmpty ||
     emailFormatInvalid ||
     accountFormatInvalid ||
     emailTaken ||
     accountTaken;
-  const emailInputInvalid = emailEmpty || emailFormatInvalid || emailTaken;
+  const emailInputInvalid = emailFormatInvalid || emailTaken;
   const accountInputInvalid = accountFormatInvalid || accountTaken;
 
   // 即時查重：輸入停止 450ms 後，對「已修改且格式正確」的欄位
@@ -332,9 +335,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     e.preventDefault();
     setAccountFlash(null);
 
-    // 身分識別欄位：電子郵件必填；格式與同身分查重即時把關
-    if (emailEmpty) {
-      setAccountFlash({ type: "error", text: ACCOUNT_EMAIL_REQUIRED_MESSAGE });
+    // 身分識別欄位：電子郵件與帳號至少填一個；格式與同身分查重即時把關
+    if (identifierEmpty) {
+      setAccountFlash({ type: "error", text: ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE });
       return;
     }
     if (emailFormatInvalid) {
@@ -681,9 +684,9 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           autoComplete="email"
         />
         <div className="mb-4 space-y-1">
-          <p className="text-xs text-t3">必填；電子郵件若為 Gmail，可以透過 Google 登入</p>
-          {emailEmpty && (
-            <p className="text-xs text-danger font-medium">{ACCOUNT_EMAIL_REQUIRED_MESSAGE}</p>
+          <p className="text-xs text-t3">可留空（與帳號至少填一個）；電子郵件若為 Gmail，可以透過 Google 登入</p>
+          {identifierEmpty && (
+            <p className="text-xs text-danger font-medium">{ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE}</p>
           )}
           {emailNotice && <p className={`text-xs ${emailNotice.className}`}>{emailNotice.text}</p>}
           {emailFeedback && <p className={`text-xs ${emailFeedback.className}`}>{emailFeedback.text}</p>}
@@ -699,7 +702,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           autoComplete="username"
         />
         <div className="mb-4 space-y-1">
-          <p className="text-xs text-t3">可留空；限 2-64 字元的小寫英文、數字與 . _ @ -</p>
+          <p className="text-xs text-t3">可留空（與電子郵件至少填一個）；限 2-64 字元的小寫英文、數字與 . _ @ -</p>
           {accountFeedback && <p className={`text-xs ${accountFeedback.className}`}>{accountFeedback.text}</p>}
         </div>
 
@@ -807,14 +810,20 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
           className="w-full input-theme rounded px-4 py-2 mb-2"
         >
           {TWO_FACTOR_METHODS.map((method) => (
-            <option key={method.value} value={method.value}>
+            <option
+              key={method.value}
+              value={method.value}
+              disabled={REQUIRES_EMAIL_METHODS.includes(method.value) && !emailValue}
+            >
               {method.label}
             </option>
           ))}
         </select>
         <p className="text-xs text-t3 mb-4">
           {twoFactor === "email_otp" && profile
-            ? `驗證碼將寄送至 ${profile.email || "您的電子郵件地址"}`
+            ? profile.email
+              ? `驗證碼將寄送至 ${profile.email}`
+              : "此帳號尚無電子郵件地址，請先到「帳密管理」填寫信箱"
             : twoFactor === "email_notify"
               ? "每次登入成功後寄送通知信，不影響登入流程"
               : twoFactor === "totp"

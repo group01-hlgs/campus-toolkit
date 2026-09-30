@@ -15,7 +15,7 @@ import { getRosterEntry, isActiveEntry, syncEntryIdentity } from "@/lib/roster";
 import { buildOtpauthUrl } from "@/lib/totp";
 import { readTwoFactorProfile } from "@/lib/two-factor";
 import {
-  ACCOUNT_EMAIL_REQUIRED_MESSAGE,
+  ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE,
   normalizeAccount,
   normalizeEmail,
 } from "@/lib/validation";
@@ -240,7 +240,7 @@ export async function PUT(request: NextRequest) {
     const updateData: Record<string, unknown> = {};
 
     if (body.email !== undefined) {
-      // 空字串＝清除電子郵件地址；電子郵件為必填，會於下方統一擋下
+      // 空字串＝清除電子郵件地址；與帳號至少填一個，會於下方統一擋下
       const raw = typeof body.email === "string" ? body.email.trim() : "";
       let email = "";
       if (raw) {
@@ -285,7 +285,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (body.account !== undefined) {
-      // 空字串＝清除帳號（帳號可留空；電子郵件仍必填）
+      // 空字串＝清除帳號（電子郵件與帳號至少填一個）
       const raw = typeof body.account === "string" ? body.account.trim() : "";
       let account = "";
       if (raw) {
@@ -325,12 +325,14 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // 電子郵件必填（帳密登入、密碼重設、Google 登入與多身分偵測都仰賴它），帳號可留空
+    // 身分識別：電子郵件與帳號至少填一個（登入識別用），另一欄可留空
     const finalEmail =
       typeof updateData.email === "string" ? updateData.email : currentEmail;
-    if (!finalEmail) {
+    const finalAccount =
+      typeof updateData.account === "string" ? updateData.account : currentAccount;
+    if (!finalEmail && !finalAccount) {
       return NextResponse.json(
-        { success: false, message: ACCOUNT_EMAIL_REQUIRED_MESSAGE },
+        { success: false, message: ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE },
         { status: 400 }
       );
     }

@@ -125,7 +125,7 @@ export interface RosterEntry {
 export interface RosterFieldDef {
   key: RosterFieldKey;
   label: string;
-  /** 表單必填（電子郵件必填、帳號可留空） */
+  /** 表單單一欄位必填（姓名、學號等）；電子郵件與帳號是辨識鍵，兩者至少填一個 */
   required?: boolean;
   /** 匯入檔案（.xlsx）標題列的別名，比對時忽略大小寫與前後空白 */
   aliases: string[];
@@ -138,7 +138,7 @@ const NAME_ALIASES = ["姓名", "name"];
 /** 各身分的表單欄位，順序即表單與匯入比對的順序（前四項為帳號欄位） */
 export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   student: [
-    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "email", label: "電子郵件地址", aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "studentId", label: "學號", required: true, aliases: ["學號", "studentid", "student id"] },
@@ -149,7 +149,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "rollNo", label: "班號", aliases: ["班號", "rollno", "roll no", "number"] },
   ],
   parent: [
-    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "email", label: "電子郵件地址", aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     {
@@ -171,7 +171,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "relation", label: "關係", aliases: ["關係", "relation", "親屬關係"] },
   ],
   staff: [
-    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "email", label: "電子郵件地址", aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
@@ -181,7 +181,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "className", label: "班級名稱", aliases: ["班級名稱", "班級", "class"] },
   ],
   admin: [
-    { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
+    { key: "email", label: "電子郵件地址", aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
@@ -340,33 +340,43 @@ export function adminModuleLabels(values: unknown): string {
 }
 
 /**
- * 匯入檔案（Excel／CSV）可辨識的欄位：電子郵件地址、姓名＋該身分的名冊專屬欄位。
- * 帳號與密碼屬「使用者帳號」，不屬名冊，故不出現在匯入欄位。
+ * 匯入檔案（Excel／CSV）可辨識的欄位：電子郵件地址、帳號、姓名＋該身分的名冊專屬欄位。
+ * 電子郵件與帳號是「辨識鍵」（兩者至少填一個）；密碼屬「使用者帳號」，不出現在匯入欄位。
  */
 export function rosterImportFields(role: RosterRole): RosterFieldDef[] {
   const fields = ROSTER_FIELDS[role];
-  const wanted: RosterFieldKey[] = ["email", "name", ...ROSTER_ENTRY_FIELDS[role]];
+  const wanted: RosterFieldKey[] = ["email", "account", "name", ...ROSTER_ENTRY_FIELDS[role]];
   return wanted
     .map((key) => fields.find((field) => field.key === key))
     .filter((field): field is RosterFieldDef => Boolean(field));
 }
 
+/** 辨識鍵說明：電子郵件地址與帳號至少填一個（登入識別），兩者都填須指向同一帳號 */
+export const ROSTER_IDENTITY_LABEL = "電子郵件地址或帳號（至少填一個）";
+
 /** 匯入檔案的格式說明（匯入失敗時列出所有可辨識的標題列） */
 export function rosterImportHint(role: RosterRole): string {
-  return rosterImportFields(role)
-    .map((field) => `${field.label}${field.required && field.key !== "name" ? "（必填）" : ""}`)
-    .join("、");
+  const identity = new Set<RosterFieldKey>(["email", "account"]);
+  const labels = rosterImportFields(role)
+    .filter((field) => !identity.has(field.key))
+    .map((field) => `${field.label}${field.required && field.key !== "name" ? "（必填）" : ""}`);
+  return [ROSTER_IDENTITY_LABEL, ...labels].join("、");
 }
 
 /**
- * 批次新增提示用：列出該身分的必填與可選欄位名稱。
- * 電子郵件地址為辨識鍵（同一學期同一身分唯一）；姓名可留空（沿用既有帳號姓名）；
+ * 批次新增提示用：辨識鍵、必填與可選欄位名稱。
+ * 電子郵件與帳號為辨識鍵（至少填一個）；姓名可留空（沿用既有帳號姓名）；
  * 管理員屬性必填、屬性為一般時另需指定功能模組。
  */
-export function rosterBatchFieldHints(role: RosterRole): { required: string; optional: string } {
-  const required = new Set<RosterFieldKey>(["email"]);
+export function rosterBatchFieldHints(role: RosterRole): {
+  identify: string;
+  required: string;
+  optional: string;
+} {
+  const identity = new Set<RosterFieldKey>(["email", "account"]);
+  const required = new Set<RosterFieldKey>();
   for (const field of rosterImportFields(role)) {
-    if (field.required && field.key !== "name") required.add(field.key);
+    if (field.required && !identity.has(field.key) && field.key !== "name") required.add(field.key);
   }
   if (role === "admin") {
     required.add("attribute");
@@ -378,10 +388,14 @@ export function rosterBatchFieldHints(role: RosterRole): { required: string; opt
     .map((field) => (field.key === "modules" ? `${field.label}（屬性為一般時）` : field.label));
 
   const optionalLabels = rosterImportFields(role)
-    .filter((field) => !required.has(field.key))
+    .filter((field) => !required.has(field.key) && !identity.has(field.key))
     .map((field) => field.label);
 
-  return { required: requiredLabels.join("、"), optional: optionalLabels.join("、") || "無" };
+  return {
+    identify: ROSTER_IDENTITY_LABEL,
+    required: requiredLabels.join("、") || "無",
+    optional: optionalLabels.join("、") || "無",
+  };
 }
 
 /** 「身分名冊管理」批次作業的三種模式（上傳試算表） */

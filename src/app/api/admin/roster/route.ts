@@ -172,9 +172,11 @@ export async function POST(request: NextRequest) {
     }
     const accountData = accountSnap.data() || {};
     const email = typeof accountData.email === "string" ? accountData.email : "";
+    const account = typeof accountData.account === "string" ? accountData.account : "";
     const name = typeof accountData.name === "string" ? accountData.name : "";
 
-    const result = validateRosterInput(role, { ...input, email, name });
+    // 帳號欄位一律以既有帳號為準（表單只用來辨識，不改帳號層）
+    const result = validateRosterInput(role, { ...input, email, account, name });
     if (!result.ok) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }

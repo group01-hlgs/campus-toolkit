@@ -19,8 +19,8 @@ import {
   UserRole,
 } from "@/types/users";
 import {
-  ACCOUNT_EMAIL_REQUIRED_MESSAGE,
   ACCOUNT_FORMAT_MESSAGE,
+  ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE,
   EMAIL_FORMAT_MESSAGE,
   isStrongPassword,
   isValidAccount,
@@ -64,8 +64,8 @@ interface AccountForm {
 const EMPTY_FORM: AccountForm = { email: "", account: "", name: "", password: "" };
 
 const BATCH_HINTS: Record<AccountBatchMode, string> = {
-  create: "必填欄位：電子郵件地址、姓名、密碼；可選：帳號、慣用身分（學生／家長／教職員／管理員）。單批最多 900 列。",
-  update: "以「電子郵件地址」或「帳號」辨識該列（兩者都填須為同一帳號）；可更新：姓名、帳號、慣用身分、狀態，空白欄位＝不修改。不支援批次修改電子郵件地址與密碼。",
+  create: "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼；可選：慣用身分（學生／家長／教職員／管理員）。單批最多 900 列。",
+  update: "以「電子郵件地址」或「帳號」辨識該列（兩者都填須指向同一帳號）；可更新：姓名、帳號、慣用身分、狀態，空白欄位＝不修改。不支援批次修改電子郵件地址與密碼。",
   delete: "以「電子郵件地址」或「帳號」辨識該列；將刪除帳號與其所有學期的名冊條目，刪除後無法復原。",
 };
 
@@ -347,9 +347,11 @@ export default function AccountsPage() {
   /** 與伺服器 /api/admin/accounts 的規則一致 */
   function validateForm(): string | null {
     if (!form.name.trim()) return "請填寫姓名";
-    if (!form.email.trim()) return ACCOUNT_EMAIL_REQUIRED_MESSAGE;
-    if (!isValidEmail(form.email.trim())) return EMAIL_FORMAT_MESSAGE;
-    if (form.account.trim() && !isValidAccount(form.account.trim())) {
+    const hasEmail = Boolean(form.email.trim());
+    const hasAccount = Boolean(form.account.trim());
+    if (!hasEmail && !hasAccount) return ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE;
+    if (hasEmail && !isValidEmail(form.email.trim())) return EMAIL_FORMAT_MESSAGE;
+    if (hasAccount && !isValidAccount(form.account.trim())) {
       return ACCOUNT_FORMAT_MESSAGE;
     }
     if (form.password) {
@@ -856,9 +858,7 @@ export default function AccountsPage() {
               />
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-              <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
-                電子郵件地址<span className="text-t1">*</span>
-              </label>
+              <label className="text-t2 sm:w-40 shrink-0">電子郵件地址</label>
               <input
                 type="email"
                 value={form.email}
@@ -913,7 +913,7 @@ export default function AccountsPage() {
               </select>
             </div>
             <p className="text-xs text-t3">
-              {ACCOUNT_EMAIL_REQUIRED_MESSAGE}（登入識別與多身分偵測都仰賴它）；同一組帳號具備多個身分時，
+              電子郵件地址與帳號至少填寫一個（登入識別用，另一欄可留空）；同一組帳號具備多個身分時，
               登入依慣用身分決定預設身分。建立帳號後，請至「身分名冊管理」指定身分。
             </p>
           </div>

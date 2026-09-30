@@ -183,9 +183,9 @@ export function isStaffAttribute(value: unknown): value is StaffAttribute {
  * 班級、學號等名冊資料不在此，存於四張身分名冊（隨學年度、學期變動）。
  */
 export interface AccountRecord {
-  /** 電子郵件地址：必填、全站唯一（登入識別＋2FA 收信） */
+  /** 電子郵件地址：選填、有值即全站唯一（登入識別＋2FA 收信）；與帳號至少填一個 */
   email: string;
-  /** 帳號：選填、全站唯一（登入識別） */
+  /** 帳號：選填、全站唯一（登入識別）；與電子郵件至少填一個 */
   account: string;
   /** 密碼雜湊（bcrypt）：密碼只在這一層，名冊不存密碼 */
   passwordHash: string;

@@ -7,7 +7,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { normalizeEmail } from "@/lib/validation";
+import { normalizeAccount, normalizeEmail } from "@/lib/validation";
 import { ADMIN_MODULES, USER_COLLECTION } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
 import {
@@ -109,11 +109,12 @@ function parseSpreadsheet(
 interface AccountSnapshot {
   uid: string;
   email: string;
+  account: string;
   name: string;
 }
 
 interface BatchContext {
-  /** email → uid（名冊批次的唯一辨識鍵） */
+  /** email／account → uid（名冊批次的辨識索引） */
   index: RosterIndex;
   byUid: Map<string, AccountSnapshot>;
   /** 目前學年度學期的該身分名冊條目（以 uid 為鍵） */
@@ -125,7 +126,7 @@ async function loadBatchContext(
   period: SchoolPeriod
 ): Promise<BatchContext> {
   const db = getAdminDb();
-  // 名冊批次只以電子郵件地址辨識既有帳號（帳號、密碼屬使用者帳號管理，本流程不碰）
+  // 名冊批次以電子郵件地址或帳號辨識既有帳號（密碼屬使用者帳號管理，本流程不碰）
   const index: RosterIndex = { emails: new Map(), accounts: new Map(), studentIds: new Map() };
   const byUid = new Map<string, AccountSnapshot>();
 
@@ -133,10 +134,13 @@ async function loadBatchContext(
   for (const doc of usersSnapshot.docs) {
     const data = doc.data();
     const email = typeof data.email === "string" ? data.email : "";
+    const account = typeof data.account === "string" ? data.account : "";
     if (email) index.emails.set(email, doc.id);
+    if (account) index.accounts.set(account, doc.id);
     byUid.set(doc.id, {
       uid: doc.id,
       email,
+      account,
       name: typeof data.name === "string" ? data.name : "",
     });
   }
@@ -180,9 +184,9 @@ interface PlannedSkip {
 
 type PlannedRow = PlannedCreate | PlannedUpdate | PlannedDelete | PlannedSkip;
 
-/** 同一學期的唯一值＝電子郵件地址，預覽清單也以它顯示該列 */
+/** 辨識鍵（預覽清單顯示）：電子郵件地址優先，否則帳號 */
 function rowKey(input: RosterInput): string {
-  return input.email || "（空白）";
+  return input.email || input.account || "（空白）";
 }
 
 function skipRow(row: number, input: RosterInput, reason: string): PlannedSkip {
@@ -203,7 +207,8 @@ function modulesText(codes: string[]): string {
 
 /**
  * 批次新增：只在「既有帳號」上建立本期名冊條目，不建立帳號、不處理密碼。
- * 同一學期同一身分的唯一值＝電子郵件地址；其餘欄位重複一律放行（管理員事後修改）。
+ * 辨識鍵＝電子郵件地址或帳號（至少一個，兩者都填須指向同一帳號）；
+ * 帳號（uid）＋學年度＋學期才是名冊的唯一鍵；其餘欄位重複一律放行（管理員事後修改）。
  */
 function planCreate(
   role: RosterRole,
@@ -223,9 +228,11 @@ function planCreate(
     return skipRow(row, input, `此帳號本期已具備${rosterRoleLabel(role)}身分`);
   }
 
+  // 帳號欄位一律以既有帳號為準（檔案只用來辨識，不改帳號層）
   const validation = validateRosterInput(role, {
     ...input,
     email: current.email,
+    account: current.account,
     name: input.name?.trim() || current.name,
   });
   if (!validation.ok) return skipRow(row, input, validation.message);
@@ -234,7 +241,7 @@ function planCreate(
   return {
     row,
     action: "create",
-    key: current.email,
+    key: current.email || current.account,
     uid,
     email: current.email,
     name: validation.account.name,
@@ -242,15 +249,23 @@ function planCreate(
   };
 }
 
-/** 修改／刪除／新增共用的辨識：以電子郵件地址找既有帳號 */
+/** 修改／刪除／新增共用的辨識：電子郵件地址與帳號都填時必須指向同一帳號 */
 function resolveUid(
   input: RosterInput,
   index: RosterIndex
 ): { uid?: string; error?: string; key: string } {
   const key = rowKey(input);
   const emailKey = input.email ? normalizeEmail(input.email) : "";
-  if (!emailKey) return { key, error: "請填寫電子郵件地址以辨識資料" };
-  const uid = index.emails.get(emailKey);
+  const accountKey = input.account ? normalizeAccount(input.account) : "";
+  if (!emailKey && !accountKey) {
+    return { key, error: "請填寫電子郵件地址或帳號以辨識資料" };
+  }
+  const byEmail = emailKey ? index.emails.get(emailKey) : undefined;
+  const byAccount = accountKey ? index.accounts.get(accountKey) : undefined;
+  if (byEmail && byAccount && byEmail !== byAccount) {
+    return { key, error: "電子郵件與帳號對應到不同帳號" };
+  }
+  const uid = byEmail ?? byAccount;
   if (!uid) return { key, error: "查無此帳號" };
   return { uid, key };
 }
@@ -271,12 +286,13 @@ function planUpdate(
   const entry = context.entries.get(uid);
   if (!current || !entry) return skipRow(row, input, "本期無此身分名冊資料");
 
-  // 電子郵件地址是辨識鍵，批次不修改；姓名為名冊展示資料，檔案有填才覆蓋
+  // 電子郵件與帳號是辨識鍵，批次不修改；姓名為名冊展示資料，檔案有填才覆蓋
   const fileName = input.name ? input.name.trim() : "";
 
   // 以現有資料為底，檔案中非空白的名冊欄位覆蓋（空白＝不修改）
   const merged: Record<string, unknown> = {
     email: current.email,
+    account: current.account,
     name: fileName || current.name,
   };
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
