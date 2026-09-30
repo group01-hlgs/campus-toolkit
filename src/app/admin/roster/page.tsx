@@ -61,7 +61,7 @@ function batchHint(mode: RosterBatchMode, role: RosterRole, strategy: RosterBatc
       `必填欄位：${required}；可選欄位（可留空）：${optional}`,
       "以辨識欄位找到既有帳號後建立本期名冊條目；同一帳號同期僅一筆，查無帳號之列略過，批次不建立帳號、不設密碼",
       "寫入方式「預設」＝在同期既有名冊之上繼續增加，已存在者略過",
-      "寫入方式「覆蓋」＝先刪除同期既有的該身分名冊，再依檔案新增（檔案即完整名單）",
+      "寫入方式「覆蓋」＝先刪除同期既有的該身分名冊，再依檔案新增（檔案即完整名單），刪除後無法復原",
       "覆蓋時檔案每一列都須通過檢查：預覽有略過列時不可執行",
     ];
     if (strategy === "replace" && role === "admin") {
@@ -230,14 +230,15 @@ export default function RosterPage() {
   const [batchError, setBatchError] = useState("");
   const batchFileRef = useRef<HTMLInputElement>(null);
 
-  // 確認對話 modal：取代原生 confirm，樣式跟隨主題
+  // 確認對話 modal：取代原生 confirm，樣式跟隨主題（danger＝破壞性操作以紅色確認鈕）
   const [confirmRequest, setConfirmRequest] = useState<{
     message: string;
     onConfirm: () => void;
+    danger?: boolean;
   } | null>(null);
 
-  function askConfirm(message: string, onConfirm: () => void) {
-    setConfirmRequest({ message, onConfirm });
+  function askConfirm(message: string, onConfirm: () => void, danger = false) {
+    setConfirmRequest({ message, onConfirm, danger });
   }
 
   // 確認 modal：Esc 取消
@@ -563,6 +564,9 @@ export default function RosterPage() {
     batchMode === "create" &&
     batchStrategy === "replace" &&
     (batchPreview?.skipped ?? 0) > 0;
+  /** 覆蓋模式已完成預覽，等待使用者確認執行 */
+  const replacePending =
+    batchMode === "create" && batchStrategy === "replace" && Boolean(batchPreview);
 
   function runBatch(dryRun: boolean) {
     if (!batchFile || batchBusy) return;
@@ -578,13 +582,19 @@ export default function RosterPage() {
             batchPreview?.deleted ?? 0
           } 筆本期${roleLabel}名冊資料將被刪除，帳號與其他學期資料保留。`
         : batchMode === "create" && batchStrategy === "replace"
-          ? `確定執行批次「新增（覆蓋）」？將先刪除本期既有 ${
+          ? `確定執行「新增（覆蓋）」？將先刪除本期既有 ${
               batchPreview?.cleared ?? 0
-            } 筆${roleLabel}名冊，再依檔案新增 ${batchPreview?.created ?? 0} 筆。`
+            } 筆${roleLabel}名冊，再依檔案新增 ${
+              batchPreview?.created ?? 0
+            } 筆；不在檔案內的資料會一併刪除，刪除後無法復原。`
           : `確定執行批次「${ROSTER_BATCH_MODE_LABELS[batchMode]}」？共 ${
               batchPreview?.total ?? 0
             } 列。`;
-    askConfirm(question, () => void executeBatch(false));
+    askConfirm(
+      question,
+      () => void executeBatch(false),
+      batchMode === "create" && batchStrategy === "replace"
+    );
   }
 
   async function executeBatch(dryRun: boolean) {
@@ -856,6 +866,15 @@ export default function RosterPage() {
               </div>
             )}
 
+            {/* 覆蓋警語：選到覆蓋就先提醒破壞性 */}
+            {batchMode === "create" &&
+              !batchCreateBlocked &&
+              batchStrategy === "replace" && (
+                <p className="text-sm text-danger font-medium mb-3" role="alert">
+                  警語：覆蓋會刪除同期既有的全部該身分名冊（不在檔案內者會一併刪除），刪除後無法復原。
+                </p>
+              )}
+
             <div className="flex flex-wrap items-center gap-3">
               <input
                 ref={batchFileRef}
@@ -894,9 +913,11 @@ export default function RosterPage() {
                     type="button"
                     onClick={() => void runBatch(false)}
                     disabled={replaceBlocked}
-                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                    className={`rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50 ${
+                      replacePending ? "btn-danger" : "btn-theme"
+                    }`}
                   >
-                    確認執行
+                    {replacePending ? "確認覆蓋" : "確認執行"}
                   </button>
                   <button
                     type="button"
@@ -942,6 +963,11 @@ export default function RosterPage() {
                     ? `預覽（覆蓋）：先刪除本期既有 ${batchPreview.cleared} 筆，再新增 ${batchPreview.created} 筆、更新 ${batchPreview.updated} 筆、刪除 ${batchPreview.deleted} 筆、略過 ${batchPreview.skipped} 筆（共 ${batchPreview.total} 列）`
                     : `預覽：新增 ${batchPreview.created} 筆、更新 ${batchPreview.updated} 筆、刪除 ${batchPreview.deleted} 筆、略過 ${batchPreview.skipped} 筆（共 ${batchPreview.total} 列）`}
                 </p>
+                {batchPreview.strategy === "replace" && (
+                  <p className="text-xs text-danger font-medium mb-2" role="alert">
+                    警語：執行後將刪除本期既有 {batchPreview.cleared} 筆資料，不在檔案內的資料會一併刪除，無法復原。
+                  </p>
+                )}
                 {replaceBlocked && (
                   <p className="text-xs text-danger mb-2" role="alert">
                     覆蓋模式不允許略過列：請先修正略過的列並重新上傳預覽，才能執行。
@@ -1293,7 +1319,9 @@ export default function RosterPage() {
                   setConfirmRequest(null);
                   onConfirm();
                 }}
-                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+                className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
+                  confirmRequest.danger ? "btn-danger" : "btn-theme"
+                }`}
               >
                 確認
               </button>
