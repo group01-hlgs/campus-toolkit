@@ -29,12 +29,15 @@ export async function GET(
   { params }: { params: Promise<{ file: string }> }
 ) {
   try {
-    const { denial } = await requireAdminModule("users");
-    if (denial) return toAuthResponse(denial);
-
     const { file } = await params;
     const name = decodeSafe(file);
     if (!SAMPLE_PATTERN.test(name)) return notFound();
+
+    // 權限依範例所屬功能分流：名冊範例給「身分名冊管理」，其餘給「使用者帳號管理」
+    const { denial } = await requireAdminModule(
+      name.startsWith("範例_身分名冊") ? "roster" : "users"
+    );
+    if (denial) return toAuthResponse(denial);
 
     const docsDir = path.resolve(process.cwd(), "docs");
     const fullPath = path.resolve(docsDir, name);

@@ -46,14 +46,9 @@ export function rosterCollection(role: UserRole): string {
 }
 
 /** 屬於「使用者帳號」的表單欄位（無學年度學期，寫入 users） */
-export type AccountFieldKey = "email" | "account" | "password" | "name";
+export type AccountFieldKey = "email" | "account" | "name";
 
-export const ACCOUNT_FIELD_KEYS: readonly AccountFieldKey[] = [
-  "email",
-  "account",
-  "password",
-  "name",
-];
+export const ACCOUNT_FIELD_KEYS: readonly AccountFieldKey[] = ["email", "account", "name"];
 
 /** 各表專屬的名冊欄位鍵 */
 export type EntryFieldKey =
@@ -71,7 +66,7 @@ export type EntryFieldKey =
   | "title"
   | "modules";
 
-/** 表單／匯入／清單共用的欄位鍵（password 只在表單與匯入出現，不會出現在清單） */
+/** 表單／匯入／清單共用的欄位鍵（帳號欄位屬使用者帳號層，名冊只存電子郵件與姓名的展示副本） */
 export type RosterFieldKey = AccountFieldKey | EntryFieldKey;
 
 /** 各身分在名冊的專屬欄位（順序即表單與清單顯示順序） */
@@ -138,7 +133,6 @@ export interface RosterFieldDef {
 
 const EMAIL_ALIASES = ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail"];
 const ACCOUNT_ALIASES = ["帳號", "account"];
-const PASSWORD_ALIASES = ["密碼", "password"];
 const NAME_ALIASES = ["姓名", "name"];
 
 /** 各身分的表單欄位，順序即表單與匯入比對的順序（前四項為帳號欄位） */
@@ -146,7 +140,6 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   student: [
     { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
-    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "studentId", label: "學號", required: true, aliases: ["學號", "studentid", "student id"] },
     { key: "grade", label: "年級", aliases: ["年級", "grade", "年"] },
@@ -158,7 +151,6 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   parent: [
     { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
-    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     {
       key: "studentName",
@@ -181,7 +173,6 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   staff: [
     { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
-    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
     { key: "unit", label: "單位", aliases: ["單位", "部門", "unit", "department"] },
@@ -192,7 +183,6 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
   admin: [
     { key: "email", label: "電子郵件地址", required: true, aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
-    { key: "password", label: "密碼", aliases: PASSWORD_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
     {
@@ -297,6 +287,12 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
 /** 匯入時每一列的原始輸入（欄位值一律是字串，空白代表未填） */
 export type RosterInput = Partial<Record<RosterFieldKey, string>>;
 
+/**
+ * 「使用者帳號管理」的輸入：帳號欄位＋密碼。
+ * 密碼只屬於帳號層，名冊欄位與名冊匯入（RosterInput）一律不含密碼。
+ */
+export type AccountInput = Partial<Record<RosterFieldKey | "password", string>>;
+
 /** 帳號清單一列（API 回傳格式，帳號欄位平鋪、不含密碼；名冊欄位為目前學年度學期） */
 export interface RosterMember {
   uid: string;
@@ -343,35 +339,46 @@ export function adminModuleLabels(values: unknown): string {
     .join("、");
 }
 
+/**
+ * 匯入檔案（Excel／CSV）可辨識的欄位：電子郵件地址、姓名＋該身分的名冊專屬欄位。
+ * 帳號與密碼屬「使用者帳號」，不屬名冊，故不出現在匯入欄位。
+ */
+export function rosterImportFields(role: RosterRole): RosterFieldDef[] {
+  const fields = ROSTER_FIELDS[role];
+  const wanted: RosterFieldKey[] = ["email", "name", ...ROSTER_ENTRY_FIELDS[role]];
+  return wanted
+    .map((key) => fields.find((field) => field.key === key))
+    .filter((field): field is RosterFieldDef => Boolean(field));
+}
+
 /** 匯入檔案的格式說明（匯入失敗時列出所有可辨識的標題列） */
 export function rosterImportHint(role: RosterRole): string {
-  return ROSTER_FIELDS[role]
-    .filter((field) => field.key !== "password")
-    .map((field) => `${field.label}${field.required ? "（必填）" : ""}`)
+  return rosterImportFields(role)
+    .map((field) => `${field.label}${field.required && field.key !== "name" ? "（必填）" : ""}`)
     .join("、");
 }
 
 /**
  * 批次新增提示用：列出該身分的必填與可選欄位名稱。
- * 電子郵件地址、姓名、密碼一律必填；管理員屬性必填、屬性為一般時另需指定功能模組。
+ * 電子郵件地址為辨識鍵（同一學期同一身分唯一）；姓名可留空（沿用既有帳號姓名）；
+ * 管理員屬性必填、屬性為一般時另需指定功能模組。
  */
 export function rosterBatchFieldHints(role: RosterRole): { required: string; optional: string } {
-  const required = new Set<RosterFieldKey>(["email", "name"]);
-  for (const field of ROSTER_FIELDS[role]) {
-    if (field.required) required.add(field.key);
+  const required = new Set<RosterFieldKey>(["email"]);
+  for (const field of rosterImportFields(role)) {
+    if (field.required && field.key !== "name") required.add(field.key);
   }
   if (role === "admin") {
     required.add("attribute");
     required.add("modules");
   }
 
-  const requiredLabels = ROSTER_FIELDS[role]
+  const requiredLabels = rosterImportFields(role)
     .filter((field) => required.has(field.key))
     .map((field) => (field.key === "modules" ? `${field.label}（屬性為一般時）` : field.label));
-  requiredLabels.push("密碼");
 
-  const optionalLabels = ROSTER_FIELDS[role]
-    .filter((field) => !required.has(field.key) && field.key !== "password")
+  const optionalLabels = rosterImportFields(role)
+    .filter((field) => !required.has(field.key))
     .map((field) => field.label);
 
   return { required: requiredLabels.join("、"), optional: optionalLabels.join("、") || "無" };

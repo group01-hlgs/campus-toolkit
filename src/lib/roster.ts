@@ -29,6 +29,7 @@ import { SchoolPeriod } from "@/types/settings";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import {
   ACCOUNT_FIELD_KEYS,
+  AccountInput,
   ENTRY_DEFAULT_STATUS,
   ROSTER_ENTRY_FIELDS,
   RosterEntry,
@@ -52,7 +53,7 @@ export interface AccountFields {
 export type RosterData = Partial<Record<RosterFieldKey, string | string[]>>;
 
 export type RosterValidation =
-  | { ok: true; account: AccountFields; roster: RosterData; password: string | null }
+  | { ok: true; account: AccountFields; roster: RosterData }
   | { ok: false; message: string };
 
 const MAX_TEXT = 64;
@@ -95,14 +96,10 @@ function normalizeModules(value: unknown): string[] {
 /**
  * 驗證並正規化一列資料，拆成「使用者帳號」與「名冊專屬欄位」兩段。
  * 帳號規則：電子郵件必填（登入識別）、帳號可留空、姓名必填；
- * 密碼建立時必填、更新時留空代表不變更，兩者都要過強度規則。
+ * 密碼與帳號管理屬「使用者帳號管理」，名冊不處理。
  * 名冊規則：學生學號必填；管理員屬性必填、屬性為一般時至少指定一個功能模組。
  */
-export function validateRosterInput(
-  role: RosterRole,
-  input: RosterInput,
-  options: { requirePassword: boolean }
-): RosterValidation {
+export function validateRosterInput(role: RosterRole, input: RosterInput): RosterValidation {
   const name = text(input.name, MAX_TEXT);
   if (!name) return { ok: false, message: "請填寫姓名" };
 
@@ -115,17 +112,6 @@ export function validateRosterInput(
 
   const account = rawAccount ? normalizeAccount(rawAccount) || "" : "";
   if (rawAccount && !account) return { ok: false, message: ACCOUNT_FORMAT_MESSAGE };
-
-  const rawPassword = typeof input.password === "string" ? input.password : "";
-  let password: string | null = null;
-  if (rawPassword) {
-    if (!isStrongPassword(rawPassword)) {
-      return { ok: false, message: PASSWORD_REQUIREMENT_MESSAGE };
-    }
-    password = rawPassword;
-  } else if (options.requirePassword) {
-    return { ok: false, message: `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}` };
-  }
 
   const accountFields: AccountFields = { email, account, name };
   const roster: Record<string, unknown> = {};
@@ -163,7 +149,7 @@ export function validateRosterInput(
     roster.attribute = attribute;
   }
 
-  return { ok: true, account: accountFields, roster: roster as RosterData, password };
+  return { ok: true, account: accountFields, roster: roster as RosterData };
 }
 
 export type AccountValidation =
@@ -175,7 +161,7 @@ export type AccountValidation =
  * 建立時密碼必填；更新時密碼留空代表不變更。
  */
 export function validateAccountInput(
-  input: RosterInput,
+  input: AccountInput,
   options: { requirePassword: boolean }
 ): AccountValidation {
   const name = text(input.name, MAX_TEXT);

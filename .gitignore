@@ -18,6 +18,9 @@ dist/
 .DS_Store
 *.pem
 
+# Excel 暫存鎖定檔（docs/範例_*.xlsx 開啟中產生的 ~$ 檔）
+~$*.xlsx
+
 # 備份（scripts/reset-users-roster.mjs 匯出的 Firestore 資料）
 backups/
 

@@ -7,7 +7,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { normalizeAccount, normalizeEmail } from "@/lib/validation";
+import { normalizeEmail } from "@/lib/validation";
 import { ADMIN_MODULES, USER_COLLECTION } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
 import {
@@ -26,25 +26,22 @@ import {
   isImportableRole,
   isRosterRole,
   rosterCollection,
+  rosterImportFields,
   rosterImportHint,
   rosterRoleLabel,
 } from "@/types/roster";
 import {
-  AccountFields,
   RosterData,
   RosterIndex,
   adminModulesOf,
-  buildAccountRecord,
   buildRosterEntry,
-  checkRosterConflict,
   countOtherActiveAdmins,
-  hashRosterPassword,
   loadPeriodEntries,
   rosterEntryId,
   validateRosterInput,
 } from "@/lib/roster";
 
-/** 每列都要跑一次 bcrypt（成本 12 約 0.23 秒）＋ Firestore 寫入，900 列約 250 秒，與函式執行上限一起控管 */
+/** Firestore 寫入與 900 列上限一起控管 */
 export const maxDuration = 300;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 900;
@@ -58,7 +55,8 @@ function normalizeHeader(value: string): string {
 
 function buildAliasMap(role: RosterRole): Map<string, RosterFieldKey> {
   const map = new Map<string, RosterFieldKey>();
-  for (const field of ROSTER_FIELDS[role]) {
+  // 匯入只認電子郵件、姓名與該身分的名冊欄位；帳號與密碼屬使用者帳號，不屬名冊
+  for (const field of rosterImportFields(role)) {
     map.set(normalizeHeader(field.label), field.key);
     for (const alias of field.aliases) map.set(normalizeHeader(alias), field.key);
   }
@@ -111,12 +109,11 @@ function parseSpreadsheet(
 interface AccountSnapshot {
   uid: string;
   email: string;
-  account: string;
   name: string;
 }
 
 interface BatchContext {
-  /** email／account → uid；studentId → uid（當期該身分） */
+  /** email → uid（名冊批次的唯一辨識鍵） */
   index: RosterIndex;
   byUid: Map<string, AccountSnapshot>;
   /** 目前學年度學期的該身分名冊條目（以 uid 為鍵） */
@@ -128,6 +125,7 @@ async function loadBatchContext(
   period: SchoolPeriod
 ): Promise<BatchContext> {
   const db = getAdminDb();
+  // 名冊批次只以電子郵件地址辨識既有帳號（帳號、密碼屬使用者帳號管理，本流程不碰）
   const index: RosterIndex = { emails: new Map(), accounts: new Map(), studentIds: new Map() };
   const byUid = new Map<string, AccountSnapshot>();
 
@@ -135,25 +133,15 @@ async function loadBatchContext(
   for (const doc of usersSnapshot.docs) {
     const data = doc.data();
     const email = typeof data.email === "string" ? data.email : "";
-    const account = typeof data.account === "string" ? data.account : "";
     if (email) index.emails.set(email, doc.id);
-    if (account) index.accounts.set(account, doc.id);
     byUid.set(doc.id, {
       uid: doc.id,
       email,
-      account,
       name: typeof data.name === "string" ? data.name : "",
     });
   }
 
   const entries = await loadPeriodEntries(period, role);
-  if (ROSTER_ENTRY_FIELDS[role].includes("studentId")) {
-    for (const [uid, entry] of entries) {
-      const studentId = typeof entry.studentId === "string" ? entry.studentId : "";
-      if (studentId) index.studentIds.set(studentId, uid);
-    }
-  }
-
   return { index, byUid, entries };
 }
 
@@ -161,8 +149,9 @@ interface PlannedCreate {
   row: number;
   action: "create";
   key: string;
-  account: AccountFields;
-  password: string;
+  uid: string;
+  email: string;
+  name: string;
   roster: RosterData;
 }
 
@@ -191,8 +180,9 @@ interface PlannedSkip {
 
 type PlannedRow = PlannedCreate | PlannedUpdate | PlannedDelete | PlannedSkip;
 
+/** 同一學期的唯一值＝電子郵件地址，預覽清單也以它顯示該列 */
 function rowKey(input: RosterInput): string {
-  return input.email || input.account || "（空白）";
+  return input.email || "（空白）";
 }
 
 function skipRow(row: number, input: RosterInput, reason: string): PlannedSkip {
@@ -211,50 +201,56 @@ function modulesText(codes: string[]): string {
     .join("、");
 }
 
+/**
+ * 批次新增：只在「既有帳號」上建立本期名冊條目，不建立帳號、不處理密碼。
+ * 同一學期同一身分的唯一值＝電子郵件地址；其餘欄位重複一律放行（管理員事後修改）。
+ */
 function planCreate(
   role: RosterRole,
   row: number,
   input: RosterInput,
-  index: RosterIndex
+  context: BatchContext,
+  seen: Set<string>
 ): PlannedRow {
-  const validation = validateRosterInput(role, input, { requirePassword: true });
+  const resolved = resolveUid(input, context.index);
+  if (!resolved.uid) return skipRow(row, input, resolved.error ?? "查無此帳號");
+  const uid = resolved.uid;
+  if (seen.has(uid)) return skipRow(row, input, "檔案中重複對應到同一名冊資料");
+
+  const current = context.byUid.get(uid);
+  if (!current) return skipRow(row, input, "查無此帳號");
+  if (context.entries.has(uid)) {
+    return skipRow(row, input, `此帳號本期已具備${rosterRoleLabel(role)}身分`);
+  }
+
+  const validation = validateRosterInput(role, {
+    ...input,
+    email: current.email,
+    name: input.name?.trim() || current.name,
+  });
   if (!validation.ok) return skipRow(row, input, validation.message);
 
-  const conflict = checkRosterConflict(validation.account, validation.roster, index);
-  if (conflict) return skipRow(row, input, conflict);
-
-  if (validation.account.email) index.emails.set(validation.account.email, `row:${row}`);
-  if (validation.account.account) index.accounts.set(validation.account.account, `row:${row}`);
-  const studentId = validation.roster.studentId;
-  if (typeof studentId === "string" && studentId) index.studentIds.set(studentId, `row:${row}`);
-
+  seen.add(uid);
   return {
     row,
     action: "create",
-    key: validation.account.account || validation.account.email,
-    account: validation.account,
-    password: validation.password as string,
+    key: current.email,
+    uid,
+    email: current.email,
+    name: validation.account.name,
     roster: validation.roster,
   };
 }
 
-/** 修改／刪除共用的辨識：電子郵件地址與帳號都填時必須指向同一帳號 */
+/** 修改／刪除／新增共用的辨識：以電子郵件地址找既有帳號 */
 function resolveUid(
   input: RosterInput,
   index: RosterIndex
 ): { uid?: string; error?: string; key: string } {
   const key = rowKey(input);
   const emailKey = input.email ? normalizeEmail(input.email) : "";
-  const accountKey = input.account ? normalizeAccount(input.account) : "";
-  if (!emailKey && !accountKey) {
-    return { key, error: "請填寫電子郵件地址或帳號以辨識資料" };
-  }
-  const byEmail = emailKey ? index.emails.get(emailKey) : undefined;
-  const byAccount = accountKey ? index.accounts.get(accountKey) : undefined;
-  if (byEmail && byAccount && byEmail !== byAccount) {
-    return { key, error: "電子郵件與帳號對應到不同帳號" };
-  }
-  const uid = byEmail ?? byAccount;
+  if (!emailKey) return { key, error: "請填寫電子郵件地址以辨識資料" };
+  const uid = index.emails.get(emailKey);
   if (!uid) return { key, error: "查無此帳號" };
   return { uid, key };
 }
@@ -275,21 +271,13 @@ function planUpdate(
   const entry = context.entries.get(uid);
   if (!current || !entry) return skipRow(row, input, "本期無此身分名冊資料");
 
-  // 電子郵件／帳號／姓名屬帳號層，於「使用者帳號管理」維護，批次不修改
-  const emailKey = input.email ? normalizeEmail(input.email) : "";
-  const accountKey = input.account ? normalizeAccount(input.account) : "";
-  if (emailKey && emailKey !== current.email) {
-    return skipRow(row, input, "電子郵件與現有帳號不符（批次不支援修改電子郵件地址）");
-  }
-  if (accountKey && accountKey !== current.account) {
-    return skipRow(row, input, "帳號與現有帳號不符（批次不支援修改帳號）");
-  }
+  // 電子郵件地址是辨識鍵，批次不修改；姓名為名冊展示資料，檔案有填才覆蓋
+  const fileName = input.name ? input.name.trim() : "";
 
   // 以現有資料為底，檔案中非空白的名冊欄位覆蓋（空白＝不修改）
   const merged: Record<string, unknown> = {
     email: current.email,
-    account: current.account,
-    name: current.name,
+    name: fileName || current.name,
   };
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     const value = input[key];
@@ -301,20 +289,20 @@ function planUpdate(
     merged[key] = key === "modules" && Array.isArray(prev) ? prev.join(",") : String(prev ?? "");
   }
 
-  const validation = validateRosterInput(role, merged as RosterInput, {
-    requirePassword: false,
-  });
+  const validation = validateRosterInput(role, merged as RosterInput);
   if (!validation.ok) return skipRow(row, input, validation.message);
 
   const roster = validation.roster;
-  const studentId = typeof roster.studentId === "string" ? roster.studentId : "";
-  if (studentId) {
-    const holder = context.index.studentIds.get(studentId);
-    if (holder && holder !== uid) return skipRow(row, input, "此學號已被使用");
-  }
 
   const changes: RosterBatchChange[] = [];
   const entryPatch: Record<string, unknown> = {};
+
+  const prevName = typeof entry.name === "string" ? entry.name : String(entry.name ?? "");
+  if (fileName && fileName !== prevName) {
+    changes.push({ label: fieldLabel(role, "name"), from: prevName, to: fileName });
+    entryPatch.name = fileName;
+  }
+
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     const nextModules =
       key === "modules" && Array.isArray(roster.modules) ? (roster.modules as string[]) : null;
@@ -402,7 +390,6 @@ async function executePlan(
   period: SchoolPeriod
 ): Promise<RosterBatchResult> {
   const db = getAdminDb();
-  const users = db.collection(USER_COLLECTION);
   const entries = db.collection(rosterCollection(role));
   const skipped: { row: number; reason: string }[] = [];
   let created = 0;
@@ -413,17 +400,13 @@ async function executePlan(
     if (item.action === "skip") {
       skipped.push({ row: item.row, reason: item.reason });
     } else if (item.action === "create") {
-      const record = buildAccountRecord(
-        item.account,
-        await hashRosterPassword(item.password)
-      );
-      const docRef = await users.add(record);
+      // 只建立名冊條目：帳號與密碼一律不動
       await entries
-        .doc(rosterEntryId(docRef.id, period))
+        .doc(rosterEntryId(item.uid, period))
         .set(
-          buildRosterEntry(docRef.id, role, period, item.roster, {
-            email: item.account.email,
-            name: item.account.name,
+          buildRosterEntry(item.uid, role, period, item.roster, {
+            email: item.email,
+            name: item.name,
           })
         );
       created += 1;
@@ -524,7 +507,7 @@ export async function POST(request: NextRequest) {
     const planned: PlannedRow[] = [];
     for (const { row, input } of dataRows) {
       if (mode === "create") {
-        planned.push(planCreate(role, row, input, context.index));
+        planned.push(planCreate(role, row, input, context, seen));
       } else if (mode === "update") {
         planned.push(planUpdate(role, row, input, context, seen));
       } else {

@@ -25,7 +25,7 @@ import {
   normalizeAccountStatus,
   statusLabel,
 } from "@/types/users";
-import { RosterInput } from "@/types/roster";
+import { AccountInput, RosterInput } from "@/types/roster";
 import {
   AccountFields,
   RosterIndex,
@@ -210,7 +210,7 @@ function skipRow(row: number, fields: BatchFields, reason: string): PlannedSkip 
 }
 
 function planCreate(row: number, fields: BatchFields, index: RosterIndex): PlannedRow {
-  const input: RosterInput = {};
+  const input: AccountInput = {};
   if (fields.email) input.email = fields.email;
   if (fields.account) input.account = fields.account;
   if (fields.name) input.name = fields.name;

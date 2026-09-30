@@ -22,13 +22,11 @@ import {
   RosterRole,
 } from "@/types/roster";
 import {
-  buildAccountRecord,
   buildRosterEntry,
   checkRosterConflict,
   countOtherActiveAdmins,
   findAccountByKey,
   getRosterEntry,
-  hashRosterPassword,
   loadRosterIndex,
   rosterEntryId,
   syncEntryIdentity,
@@ -40,7 +38,6 @@ function parseRosterBody(body: Record<string, unknown>): {
   role: RosterRole | null;
   uid: string;
   input: RosterInput;
-  mode: "create" | "bind";
 } {
   const role = isRosterRole(body.role) ? body.role : null;
   const uid = typeof body.uid === "string" ? body.uid : "";
@@ -49,12 +46,7 @@ function parseRosterBody(body: Record<string, unknown>): {
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as RosterInput)
       : {};
-  return {
-    role,
-    uid,
-    input,
-    mode: body.mode === "bind" ? "bind" : "create",
-  };
+  return { role, uid, input };
 }
 
 export async function GET(request: NextRequest) {
@@ -141,6 +133,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * POST：在「既有帳號」上建立本期名冊條目（綁定）。
+ * 帳號與密碼屬「使用者帳號管理」，本 API 不建立帳號、不處理密碼。
+ */
 export async function POST(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -158,110 +154,61 @@ export async function POST(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { role, uid, input, mode } = parseRosterBody(body);
+    const { role, uid, input } = parseRosterBody(body);
     if (!role) {
       return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
+    }
+    if (!uid) {
+      return NextResponse.json({ success: false, message: "請先查詢要綁定的帳號" }, { status: 400 });
     }
 
     const period = await getCurrentPeriod();
 
-    // 綁定既有帳號：一個帳號最多四種身分（同身分同週期唯一），故只建立名冊條目
-    if (mode === "bind") {
-      if (!uid) {
-        return NextResponse.json({ success: false, message: "請先查詢要綁定的帳號" }, { status: 400 });
-      }
-      const db = getAdminDb();
-      const accountSnap = await db.collection(USER_COLLECTION).doc(uid).get();
-      if (!accountSnap.exists) {
-        return NextResponse.json({ success: false, message: "查無此帳號" }, { status: 404 });
-      }
-      const accountData = accountSnap.data() || {};
-      const email = typeof accountData.email === "string" ? accountData.email : "";
-      const name = typeof accountData.name === "string" ? accountData.name : "";
-
-      const result = validateRosterInput(
-        role,
-        { ...input, email, name },
-        { requirePassword: false }
-      );
-      if (!result.ok) {
-        return NextResponse.json({ success: false, message: result.message }, { status: 400 });
-      }
-
-      const entryRef = db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
-      if ((await entryRef.get()).exists) {
-        return NextResponse.json(
-          { success: false, message: `此帳號本期已具備${rosterRoleLabel(role)}身分` },
-          { status: 409 }
-        );
-      }
-
-      // 電子郵件／帳號屬既有帳號，只檢查該身分專屬欄位（如學號）是否衝突
-      const index = await loadRosterIndex(role, period, uid);
-      const conflict = checkRosterConflict(result.account, result.roster, index);
-      if (conflict) {
-        return NextResponse.json({ success: false, message: conflict }, { status: 409 });
-      }
-
-      await entryRef.set(
-        buildRosterEntry(uid, role, period, result.roster, { email, name })
-      );
-
-      await logActivity({
-        userId: session.uid,
-        role: "admin",
-        action: "roster_created",
-        ip: getClientIp(request),
-        details: `將${rosterRoleLabel(role)}身分綁定至既有帳號 ${accountData.account || email}（${name}）`,
-      });
-
-      return NextResponse.json({
-        success: true,
-        uid,
-        message: `${rosterRoleLabel(role)}已建立`,
-      });
+    // 一個帳號最多四種身分（同身分同週期唯一），故只建立名冊條目
+    const db = getAdminDb();
+    const accountSnap = await db.collection(USER_COLLECTION).doc(uid).get();
+    if (!accountSnap.exists) {
+      return NextResponse.json({ success: false, message: "查無此帳號" }, { status: 404 });
     }
+    const accountData = accountSnap.data() || {};
+    const email = typeof accountData.email === "string" ? accountData.email : "";
+    const name = typeof accountData.name === "string" ? accountData.name : "";
 
-    const result = validateRosterInput(role, input, { requirePassword: true });
+    const result = validateRosterInput(role, { ...input, email, name });
     if (!result.ok) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }
 
-    const index = await loadRosterIndex(role, period);
+    const entryRef = db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
+    if ((await entryRef.get()).exists) {
+      return NextResponse.json(
+        { success: false, message: `此帳號本期已具備${rosterRoleLabel(role)}身分` },
+        { status: 409 }
+      );
+    }
+
+    // 電子郵件／帳號屬既有帳號，只檢查該身分專屬欄位（如學號）是否衝突
+    const index = await loadRosterIndex(role, period, uid);
     const conflict = checkRosterConflict(result.account, result.roster, index);
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    const db = getAdminDb();
-    const accountRecord = buildAccountRecord(
-      result.account,
-      await hashRosterPassword(result.password as string)
+    await entryRef.set(
+      buildRosterEntry(uid, role, period, result.roster, { email, name })
     );
-    const docRef = await db.collection(USER_COLLECTION).add(accountRecord);
-
-    // 建立「當期」該身分的名冊條目（四表各一，doc id 依 uid＋學年度＋學期）
-    await db
-      .collection(rosterCollection(role))
-      .doc(rosterEntryId(docRef.id, period))
-      .set(
-        buildRosterEntry(docRef.id, role, period, result.roster, {
-          email: result.account.email,
-          name: result.account.name,
-        })
-      );
 
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "roster_created",
       ip: getClientIp(request),
-      details: `建立${rosterRoleLabel(role)} ${result.account.account || result.account.email}（${result.account.name}）`,
+      details: `將${rosterRoleLabel(role)}身分綁定至既有帳號 ${accountData.account || email}（${name}）`,
     });
 
     return NextResponse.json({
       success: true,
-      uid: docRef.id,
+      uid,
       message: `${rosterRoleLabel(role)}已建立`,
     });
   } catch (error) {
@@ -292,7 +239,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
     }
 
-    const result = validateRosterInput(role, input, { requirePassword: false });
+    const result = validateRosterInput(role, input);
     if (!result.ok) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }

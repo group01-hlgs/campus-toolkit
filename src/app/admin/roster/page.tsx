@@ -31,19 +31,9 @@ import {
   type AccountStatus,
   type UserRole,
 } from "@/types/users";
-import {
-  ACCOUNT_EMAIL_REQUIRED_MESSAGE,
-  ACCOUNT_FORMAT_MESSAGE,
-  EMAIL_FORMAT_MESSAGE,
-  isStrongPassword,
-  isValidAccount,
-  isValidEmail,
-  PASSWORD_REQUIREMENT_MESSAGE,
-} from "@/lib/validation";
 import { logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
-import PasswordToggleButton from "@/components/PasswordToggleButton";
 import RoleEnablePanel from "@/components/RoleEnablePanel";
 
 type Flash = { type: "success" | "error"; text: string } | null;
@@ -64,13 +54,22 @@ function batchHint(mode: RosterBatchMode, role: RosterRole): string {
       return "家長身分不提供檔案匯入，請以「新增家長」表單建立。";
     }
     const { required, optional } = rosterBatchFieldHints(role);
-    return `必填欄位：${required}；可選欄位（可留空）：${optional}。單批最多 900 列。`;
+    return `必填欄位：${required}；可選欄位（可留空）：${optional}。以電子郵件地址辨識既有帳號，同一學期同一身分僅一封信箱；查無帳號之列略過，批次不建立帳號。單批最多 900 列。`;
   }
   if (mode === "update") {
-    return "以「電子郵件地址」或「帳號」辨識該列（兩者都填須為同一帳號）；只更新本期名冊欄位，空白欄位＝不修改。姓名、電子郵件、帳號請至「使用者帳號管理」維護。";
+    return "以「電子郵件地址」辨識該列；只更新本期名冊欄位（含姓名），空白欄位＝不修改。電子郵件、帳號與密碼請至「使用者帳號管理」維護。";
   }
-  return "以「電子郵件地址」或「帳號」辨識該列；將刪除該列本期的名冊條目，帳號與其他學期資料保留，刪除後無法復原。";
+  return "以「電子郵件地址」辨識該列；將刪除該列本期的名冊條目，帳號與其他學期資料保留，刪除後無法復原。";
 }
+
+/** 批次新增範例檔（存於 docs/，由 /api/admin/downloads 提供下載；目前僅學生） */
+const BATCH_SAMPLE_FILES: { role: RosterRole; href: string; label: string }[] = [
+  {
+    role: "student",
+    href: "/api/admin/downloads/範例_身分名冊管理_學生批次新增.xlsx",
+    label: "學生批次新增範例",
+  },
+];
 
 const BATCH_ACTION_LABELS: Record<RosterBatchRow["action"], string> = {
   create: "新增",
@@ -176,8 +175,7 @@ export default function RosterPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingUid, setEditingUid] = useState("");
   const [form, setForm] = useState<Record<RosterFieldKey, string>>(EMPTY_FORM);
-  // 新增時的帳號來源：建立新帳號（含密碼）／綁定既有帳號（一個帳號最多四種身分）
-  const [formMode, setFormMode] = useState<"create" | "bind">("create");
+  // 新增＝綁定既有帳號（一個帳號最多四種身分）；帳號與密碼屬「使用者帳號管理」
   const [bindKey, setBindKey] = useState("");
   const [bindTarget, setBindTarget] = useState<BindTarget | null>(null);
   const [bindLoading, setBindLoading] = useState(false);
@@ -186,7 +184,6 @@ export default function RosterPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
   // 儲存成功提示 modal：完成時跳出，1 秒後自動消失
   const [successModal, setSuccessModal] = useState<string | null>(null);
@@ -273,23 +270,19 @@ export default function RosterPage() {
     setFormOpen(false);
     setEditingUid("");
     setForm(EMPTY_FORM);
-    setFormMode("create");
     setBindKey("");
     setBindTarget(null);
     setBindError("");
     setFormError("");
-    setShowPassword(false);
   }
 
   function openCreate() {
     setForm(EMPTY_FORM);
-    setFormMode("create");
     setBindKey("");
     setBindTarget(null);
     setBindError("");
     setEditingUid("");
     setFormError("");
-    setShowPassword(false);
     setFormOpen(true);
   }
 
@@ -297,7 +290,6 @@ export default function RosterPage() {
     const next = { ...EMPTY_FORM };
     const record = member as unknown as Record<string, unknown>;
     for (const field of ROSTER_FIELDS[role]) {
-      if (field.key === "password") continue;
       if (field.key === "modules") {
         next.modules = (member.modules ?? []).join(",");
         continue;
@@ -306,13 +298,11 @@ export default function RosterPage() {
       next[field.key] = typeof value === "string" ? value : "";
     }
     setForm(next);
-    setFormMode("create");
     setBindKey("");
     setBindTarget(null);
     setBindError("");
     setEditingUid(member.uid);
     setFormError("");
-    setShowPassword(false);
     setFormOpen(true);
   }
 
@@ -388,19 +378,6 @@ export default function RosterPage() {
     return null;
   }
 
-  /** 帳號欄位驗證（僅「建立新帳號」時檢查），與伺服器 /api/admin/roster 的規則一致 */
-  function validateAccountFields(): string | null {
-    if (!form.name.trim()) return "請填寫姓名";
-    const hasEmail = Boolean(form.email.trim());
-    const hasAccount = Boolean(form.account.trim());
-    if (!hasEmail) return ACCOUNT_EMAIL_REQUIRED_MESSAGE;
-    if (!isValidEmail(form.email.trim())) return EMAIL_FORMAT_MESSAGE;
-    if (hasAccount && !isValidAccount(form.account.trim())) return ACCOUNT_FORMAT_MESSAGE;
-    if (form.password && !isStrongPassword(form.password)) return PASSWORD_REQUIREMENT_MESSAGE;
-    if (!form.password) return `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}`;
-    return null;
-  }
-
   /** 儲存完成的成功訊息：跳出 modal，1 秒後自動消失（重複呼叫會重置計時） */
   function showSuccessModal(text: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current);
@@ -416,21 +393,16 @@ export default function RosterPage() {
     if (saving) return;
     const roleLabel = ROSTER_ROLES.find((item) => item.value === role)?.label ?? "身分";
     const isEdit = Boolean(editingUid);
-    const isBind = !isEdit && formMode === "bind";
 
     let message: string | null;
-    if (isBind) {
-      if (!bindTarget) {
-        message = "請先查詢要綁定的帳號";
-      } else if (bindTarget.roles.includes(role)) {
-        message = `此帳號本期已具備${roleLabel}身分`;
-      } else {
-        message = validateRosterFields();
-      }
-    } else if (isEdit) {
+    if (isEdit) {
       message = validateRosterFields();
+    } else if (!bindTarget) {
+      message = "請先查詢要綁定的帳號";
+    } else if (bindTarget.roles.includes(role)) {
+      message = `此帳號本期已具備${roleLabel}身分`;
     } else {
-      message = validateAccountFields() ?? validateRosterFields();
+      message = validateRosterFields();
     }
     if (message) {
       setFormError(message);
@@ -443,9 +415,7 @@ export default function RosterPage() {
       const input: RosterInput = { ...form };
       const body: Record<string, unknown> = isEdit
         ? { role, uid: editingUid, input }
-        : isBind
-          ? { role, mode: "bind", uid: bindTarget!.uid, input }
-          : { role, input };
+        : { role, uid: bindTarget!.uid, input };
       const res = await fetch("/api/admin/roster", {
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -671,12 +641,10 @@ export default function RosterPage() {
     );
   }
 
-  /** 單一表單欄位：密碼欄附顯示切換，屬性／模組為特殊控制項，其餘為文字／電子郵件輸入 */
+  /** 單一表單欄位：屬性／模組為特殊控制項，其餘為文字／電子郵件輸入 */
   function renderField(field: RosterFieldDef) {
     if (field.key === "attribute") return renderAttributeSelect(field);
     if (field.key === "modules") return renderModules();
-    // 編輯時不改密碼（密碼屬帳號層，於「使用者帳號管理」重設）
-    if (field.key === "password" && editingUid) return null;
     // 編輯時帳號欄位唯讀：姓名／信箱／帳號屬帳號層
     const readOnly = Boolean(editingUid) && isAccountField(field.key);
     return (
@@ -685,32 +653,14 @@ export default function RosterPage() {
           {field.label}
           {field.required && !readOnly && <span className="text-t1">*</span>}
         </label>
-        {field.key === "password" ? (
-          <div className="relative flex-1">
-            <input
-              type={showPassword ? "text" : "password"}
-              value={form.password}
-              onChange={(e) => handleField("password", e.target.value)}
-              autoComplete="new-password"
-              placeholder="至少 8 碼，需含大寫、小寫與數字"
-              className="w-full input-theme rounded px-3 py-2 pr-10"
-            />
-            <PasswordToggleButton
-              visible={showPassword}
-              onToggle={() => setShowPassword((prev) => !prev)}
-              label="顯示密碼"
-            />
-          </div>
-        ) : (
-          <input
-            type={field.key === "email" || field.key === "studentEmail" ? "email" : "text"}
-            value={form[field.key] ?? ""}
-            onChange={(e) => handleField(field.key, e.target.value)}
-            readOnly={readOnly}
-            autoComplete="off"
-            className={`flex-1 input-theme rounded px-3 py-2 ${readOnly ? "opacity-75" : ""}`}
-          />
-        )}
+        <input
+          type={field.key === "email" || field.key === "studentEmail" ? "email" : "text"}
+          value={form[field.key] ?? ""}
+          onChange={(e) => handleField(field.key, e.target.value)}
+          readOnly={readOnly}
+          autoComplete="off"
+          className={`flex-1 input-theme rounded px-3 py-2 ${readOnly ? "opacity-75" : ""}`}
+        />
       </div>
     );
   }
@@ -891,6 +841,21 @@ export default function RosterPage() {
 
             <p className="text-xs text-t3 mt-2">{batchHint(batchMode, batchRole)}</p>
 
+            {batchMode === "create" &&
+              BATCH_SAMPLE_FILES.filter((item) => item.role === batchRole).map((item) => (
+                <p className="text-xs text-t3 mt-2" key={item.href}>
+                  範例檔下載：
+                  <a
+                    href={encodeURI(item.href)}
+                    download
+                    className="text-t2 underline hover:text-t1"
+                  >
+                    {item.label}
+                  </a>
+                  ，可另存修改後再上傳（表頭為電子郵件地址、姓名與該身分的名冊欄位）。
+                </p>
+              ))}
+
             {batchError && (
               <p className="text-sm text-danger mt-2" role="alert">
                 {batchError}
@@ -995,56 +960,19 @@ export default function RosterPage() {
             </button>
           </div>
 
-          {/* 新增：帳號來源（建立新帳號／綁定既有帳號） */}
-          {!editingUid && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
-              <label className="text-t2 sm:w-40 shrink-0">帳號來源</label>
-              <div className="flex flex-wrap gap-x-5 gap-y-2">
-                <label className="flex items-center gap-1.5 text-sm text-t1 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="accountSource"
-                    checked={formMode === "create"}
-                    onChange={() => {
-                      setFormMode("create");
-                      setBindTarget(null);
-                      setBindError("");
-                      setFormError("");
-                    }}
-                    className="accent-current"
-                  />
-                  建立新帳號
-                </label>
-                <label className="flex items-center gap-1.5 text-sm text-t1 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="accountSource"
-                    checked={formMode === "bind"}
-                    onChange={() => {
-                      setFormMode("bind");
-                      setFormError("");
-                    }}
-                    className="accent-current"
-                  />
-                  綁定既有帳號
-                </label>
-              </div>
-            </div>
-          )}
-
           {editingUid ? (
             <div className="space-y-4">
               <p className="text-sm font-bold text-t2 border-b border-themed pb-1">
                 帳號資料（唯讀）
               </p>
               {ROSTER_FIELDS[role]
-                .filter((field) => isAccountField(field.key) && field.key !== "password")
+                .filter((field) => isAccountField(field.key))
                 .map(renderField)}
               <p className="text-xs text-t3">
                 姓名、電子郵件、帳號（含密碼、慣用身分與帳號狀態）請至「使用者帳號管理」維護。
               </p>
             </div>
-          ) : formMode === "bind" ? (
+          ) : (
             <div className="space-y-4">
               <p className="text-sm font-bold text-t2 border-b border-themed pb-1">
                 綁定既有帳號
@@ -1094,19 +1022,8 @@ export default function RosterPage() {
                 </p>
               )}
               <p className="text-xs text-t3">
-                一個帳號最多具備四種身分（同身分同期間僅一筆）；此模式不建立新帳號，密碼與帳號狀態維持不變。
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm font-bold text-t2 border-b border-themed pb-1">
-                帳號資料（建立新帳號）
-              </p>
-              {ROSTER_FIELDS[role]
-                .filter((field) => isAccountField(field.key))
-                .map(renderField)}
-              <p className="text-xs text-t3">
-                要讓同一人具備其他身分時，請改用「綁定既有帳號」，不要重複建立帳號。
+                一個帳號最多具備四種身分（同身分同期間僅一筆）；本頁只建立名冊條目，
+                不建立帳號、不處理密碼——帳號請先至「使用者帳號管理」建立。
               </p>
             </div>
           )}
