@@ -211,7 +211,7 @@ function modulesText(codes: string[]): string {
  * 批次新增：只在「既有帳號」上建立本期名冊條目，不建立帳號、不處理密碼。
  * 辨識鍵＝電子郵件地址或帳號（至少一個，兩者都填須指向同一帳號）；
  * 帳號（uid）＋學年度＋學期才是名冊的唯一鍵；其餘欄位重複一律放行（管理員事後修改）。
- * 追加模式遇同期已有條目則略過；覆蓋模式先清空同期條目，故同一列可直接重建。
+ * 預設模式遇同期已有條目則略過；覆蓋模式先清空同期條目，故同一列可直接重建。
  */
 function planCreate(
   role: RosterRole,
@@ -228,7 +228,7 @@ function planCreate(
 
   const current = context.byUid.get(uid);
   if (!current) return skipRow(row, input, "查無此帳號");
-  // 追加模式：同期已有條目就略過；覆蓋模式先清空，同一列照常重建
+  // 預設模式：同期已有條目就略過；覆蓋模式先清空，同一列照常重建
   if (strategy === "append" && context.entries.has(uid)) {
     return skipRow(row, input, `此帳號本期已具備${rosterRoleLabel(role)}身分`);
   }
@@ -511,7 +511,7 @@ export async function POST(request: NextRequest) {
     }
     const dryRun = formData.get("dryRun") === "true";
 
-    // 寫入策略：僅「新增」模式有意義，缺省＝追加（其餘模式一律忽略）
+    // 寫入策略：僅「新增」模式有意義，缺省＝預設（其餘模式一律忽略）
     const strategyRaw = formData.get("strategy");
     const strategy: RosterBatchStrategy =
       mode === "create" && isRosterBatchStrategy(strategyRaw) ? strategyRaw : "append";
