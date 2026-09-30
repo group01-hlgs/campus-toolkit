@@ -60,7 +60,7 @@ function batchHint(mode: RosterBatchMode, role: RosterRole, strategy: RosterBatc
       `辨識欄位：${identify}（兩者都填須指向同一帳號）`,
       `必填欄位：${required}；可選欄位（可留空）：${optional}`,
       "以辨識欄位找到既有帳號後建立本期名冊條目；同一帳號同期僅一筆，查無帳號之列略過，批次不建立帳號、不設密碼",
-      "寫入方式「預設」＝在同期既有名冊之上繼續增加，已存在者略過",
+      "寫入方式「追加」＝在同期既有名冊之上繼續增加，已存在者略過",
       "寫入方式「覆蓋」＝先刪除同期既有的該身分名冊，再依檔案新增（檔案即完整名單），刪除後無法復原",
       "覆蓋時檔案每一列都須通過檢查：預覽有略過列時不可執行",
     ];
@@ -221,7 +221,7 @@ export default function RosterPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchRole, setBatchRole] = useState<RosterRole>("student");
   const [batchMode, setBatchMode] = useState<RosterBatchMode>("create");
-  // 寫入策略（僅新增模式）：預設＝保留既有條目；覆蓋＝先清空本期該身分再新增
+  // 寫入策略（僅新增模式）：追加＝保留既有條目；覆蓋＝先清空本期該身分再新增
   const [batchStrategy, setBatchStrategy] = useState<RosterBatchStrategy>("append");
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchBusy, setBatchBusy] = useState<"" | "preview" | "execute">("");
@@ -840,7 +840,7 @@ export default function RosterPage() {
               ))}
             </div>
 
-            {/* 寫入策略：僅新增模式，預設＝保留既有條目 */}
+            {/* 寫入策略：僅新增模式，追加＝保留既有條目 */}
             {batchMode === "create" && !batchCreateBlocked && (
               <div className="flex flex-wrap items-center gap-4 mb-3">
                 <span className="text-sm text-t2">寫入方式</span>
