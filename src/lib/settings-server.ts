@@ -16,6 +16,7 @@ let identityCache: {
 } | null = null;
 let emailChangeCache: { allowed: boolean; at: number } | null = null;
 let periodCache: { value: SchoolPeriod; at: number } | null = null;
+let oauthCache: { enabled: boolean; at: number } | null = null;
 
 /** 設定儲存後呼叫，讓閒置逾時與系統啟用狀態快取立即失效 */
 export function invalidateSettingsCache(): void {
@@ -24,6 +25,7 @@ export function invalidateSettingsCache(): void {
   identityCache = null;
   emailChangeCache = null;
   periodCache = null;
+  oauthCache = null;
 }
 
 /**
@@ -50,6 +52,35 @@ export async function isSystemEnabled(): Promise<boolean> {
     console.error("System enabled settings read error:", error);
     if (enabledCache) return enabledCache.enabled;
     return defaultSettings.systemEnabled;
+  }
+}
+
+/**
+ * 讀取 settings.oauthEnabled（是否啟用 Google OAuth 登入）。
+ * 啟用時首頁才顯示 Google 登入入口，且 Google 登入免兩階段驗證（由 Google 把關）；
+ * 帳密登入不受此開關影響，仍照常檢查使用者設定的兩階段驗證。
+ * 讀失敗時回退上次值或預設值（預設停用，fail-closed）。
+ */
+export async function isGoogleOAuthEnabled(): Promise<boolean> {
+  const now = Date.now();
+  if (oauthCache && now - oauthCache.at < CACHE_TTL_MS) return oauthCache.enabled;
+
+  try {
+    const snap = await getAdminDb()
+      .collection(SETTINGS_COLLECTION)
+      .doc(SETTINGS_DOC_ID)
+      .get();
+    const raw = snap.exists
+      ? (snap.data() as Record<string, unknown> | undefined)?.oauthEnabled
+      : undefined;
+    const enabled =
+      typeof raw === "boolean" ? raw : defaultSettings.oauthEnabled;
+    oauthCache = { enabled, at: now };
+    return enabled;
+  } catch (error) {
+    console.error("Google OAuth settings read error:", error);
+    if (oauthCache) return oauthCache.enabled;
+    return defaultSettings.oauthEnabled;
   }
 }
 

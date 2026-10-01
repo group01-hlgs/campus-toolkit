@@ -28,6 +28,8 @@ const PUBLIC_SETTINGS_KEYS: (keyof Settings)[] = [
   "sessionTimeout",
   // 「帳號、身分與安全管理」頁需顯示「是否開放變更電子郵件」提示
   "emailChangeAllowed",
+  // 未登入的首頁需依此決定是否顯示 Google 登入入口
+  "oauthEnabled",
 ];
 
 function pickPublicSettings(settings: Settings): Partial<Settings> {

@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase-admin";
-import {
-  createSession,
-  setPending2FACookie,
-  setPendingRoleCookie,
-} from "@/lib/server-session";
+import { createSession, setPendingRoleCookie } from "@/lib/server-session";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
-import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
-import {
-  maskEmail,
-  readTwoFactorProfile,
-  sendEmailOtp,
-  sendLoginNotification,
-} from "@/lib/two-factor";
+import { getCurrentPeriod, isGoogleOAuthEnabled, isSystemEnabled } from "@/lib/settings-server";
+import { readTwoFactorProfile, sendLoginNotification } from "@/lib/two-factor";
 import { isAccountActive, UserRole } from "@/types/users";
 import {
   detectRoleCandidates,
@@ -44,6 +35,15 @@ export async function POST(request: NextRequest) {
     }
 
     const systemEnabled = await isSystemEnabled();
+
+    // 系統設定「啟用 Google OAuth」關閉時，入口不顯示且伺服端直接拒絕
+    const oauthEnabled = await isGoogleOAuthEnabled();
+    if (!oauthEnabled) {
+      return NextResponse.json(
+        { success: false, message: "系統未啟用 Google 登入" },
+        { status: 403 }
+      );
+    }
 
     // 本機驗證 Firebase ID token（signInWithPopup 產生），不打 identitytoolkit
     let email: string | undefined;
@@ -152,59 +152,12 @@ export async function POST(request: NextRequest) {
     const primaryEmail = typeof data.email === "string" ? data.email : "";
     const primaryAccount = typeof data.account === "string" ? data.account : "";
 
-    // 兩階段驗證：登入時驗證一次，與要進入的身分無關
+    // 兩階段驗證：Google 登入一律不執行第二階段，安全把關交給 Google。
+    // 啟用 Google OAuth 時本路由放行且免 2FA；未啟用時本路由已在上方直接拒絕，
+    // 兩種情況都不會中斷在 2FA。帳密登入不受此開關影響，仍照常檢查
+    // 使用者設定的兩階段驗證（見 /api/auth/login）。
+    // twoFactorMethod 僅供後續 email_notify 登入通知與登入方式紀錄使用。
     const { method: twoFactorMethod } = readTwoFactorProfile(data);
-
-    if (twoFactorMethod === "email_otp" || twoFactorMethod === "totp") {
-      const otpState =
-        twoFactorMethod === "email_otp"
-          ? await sendEmailOtp({
-              ref: hit.ref,
-              data,
-              email: primaryEmail,
-              displayName,
-              account: primaryAccount,
-              role: primary.role,
-            })
-          : "sent";
-
-      if (otpState !== "smtp") {
-        await setPending2FACookie({
-          uid: hit.id,
-          email: primaryEmail,
-          account: primaryAccount,
-          displayName,
-          role: primary.role,
-          candidates,
-          preferred,
-          method: twoFactorMethod,
-          via: "google",
-        });
-        await logActivity({
-          userId: hit.id,
-          role: primary.role,
-          action: twoFactorMethod === "email_otp" ? "email_otp_sent" : "login",
-          ip,
-          details:
-            twoFactorMethod === "email_otp"
-              ? "Google 登入請求 Email OTP，已寄出驗證碼"
-              : "Google 帳號驗證通過，等待 TOTP 驗證",
-        });
-        return NextResponse.json({
-          success: true,
-          requires2FA: twoFactorMethod,
-          maskedEmail: maskEmail(primaryEmail),
-        });
-      }
-
-      await logActivity({
-        userId: hit.id,
-        role: primary.role,
-        action: "login",
-        ip,
-        details: "Email OTP 無法寄出，略過兩階段驗證直接登入",
-      });
-    }
 
     // 多身分且未設定慣用身分：Google 驗證已通過，登入視為成功，交由選擇身分專頁決定
     if (!preferred && candidates.length > 1) {
