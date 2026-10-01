@@ -100,7 +100,7 @@ function normalizeModules(value: unknown): string[] {
  * 驗證並正規化一列資料，拆成「使用者帳號」與「名冊專屬欄位」兩段。
  * 帳號規則：電子郵件與帳號至少填一個（登入識別，另一欄可留空）、姓名必填；
  * 密碼與帳號管理屬「使用者帳號管理」，名冊不處理。
- * 名冊規則：學生學號必填；管理員屬性必填、屬性為一般時至少指定一個功能模組。
+ * 名冊規則：學生學號必填；管理員屬性必填、指定功能模組選填（未指定＝無可用功能模組）。
  */
 export function validateRosterInput(role: RosterRole, input: RosterInput): RosterValidation {
   const name = text(input.name, MAX_TEXT);
@@ -139,10 +139,8 @@ export function validateRosterInput(role: RosterRole, input: RosterInput): Roste
       return { ok: false, message: "請選擇管理員屬性（一般／超級）" };
     }
     roster.attribute = attribute;
+    // 指定功能模組選填：一般管理員未指定＝該帳號暫無可用功能模組；超級管理員固定全開
     const modules = normalizeModules(input.modules);
-    if (attribute === "一般" && modules.length === 0) {
-      return { ok: false, message: "一般管理員請至少指定一個功能模組" };
-    }
     roster.modules = attribute === "超級" ? ADMIN_MODULE_VALUES.slice() : modules;
   }
 

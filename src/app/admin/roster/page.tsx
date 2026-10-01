@@ -473,9 +473,7 @@ export default function RosterPage() {
       if (form.attribute !== "一般" && form.attribute !== "超級") {
         return "請選擇管理員屬性（一般／超級）";
       }
-      if (form.attribute === "一般" && !form.modules.trim()) {
-        return "一般管理員請至少指定一個功能模組";
-      }
+      // 指定功能模組為可選欄位，未指定＝該一般管理員暫無可用功能模組
     }
     return null;
   }
@@ -753,7 +751,7 @@ export default function RosterPage() {
     );
   }
 
-  /** 指定功能模組：一般管理員勾選可使用的功能；超級管理員全開、不需勾選 */
+  /** 指定功能模組（可選）：一般管理員勾選可使用的功能；超級管理員全開、不需勾選 */
   function renderModules() {
     const isSuper = form.attribute === "超級";
     const selected = form.modules
@@ -776,6 +774,9 @@ export default function RosterPage() {
               {module.label}
             </label>
           ))}
+          <span className="w-full text-xs text-t3">
+            可選欄位：不勾選也能儲存，但該一般管理員將沒有可使用的功能模組；超級管理員固定全開。
+          </span>
         </div>
       </div>
     );

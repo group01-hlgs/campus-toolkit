@@ -357,7 +357,7 @@ export function rosterImportHint(role: RosterRole): string {
 /**
  * 批次新增提示用：辨識鍵、必填與可選欄位名稱。
  * 電子郵件與帳號為辨識鍵（至少填一個）；姓名必填（未填＝該列略過，不沿用既有帳號姓名）；
- * 管理員屬性必填、屬性為一般時另需指定功能模組。
+ * 管理員屬性必填、指定功能模組選填。
  */
 export function rosterBatchFieldHints(role: RosterRole): {
   identify: string;
@@ -371,12 +371,11 @@ export function rosterBatchFieldHints(role: RosterRole): {
   }
   if (role === "admin") {
     required.add("attribute");
-    required.add("modules");
   }
 
   const requiredLabels = rosterImportFields(role)
     .filter((field) => required.has(field.key))
-    .map((field) => (field.key === "modules" ? `${field.label}（屬性為一般時）` : field.label));
+    .map((field) => field.label);
 
   const optionalLabels = rosterImportFields(role)
     .filter((field) => !required.has(field.key) && !identity.has(field.key))
