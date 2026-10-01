@@ -139,9 +139,9 @@ export function validateRosterInput(role: RosterRole, input: RosterInput): Roste
       return { ok: false, message: "請選擇管理員屬性（一般／超級）" };
     }
     roster.attribute = attribute;
-    // 指定功能模組選填：一般管理員未指定＝該帳號暫無可用功能模組；超級管理員固定全開
-    const modules = normalizeModules(input.modules);
-    roster.modules = attribute === "超級" ? ADMIN_MODULE_VALUES.slice() : modules;
+    // 指定功能模組選填：只存使用者實際提供的內容，不自動補值；
+    // 超級管理員的「全開」由屬性決定，與此欄位存什麼無關
+    roster.modules = normalizeModules(input.modules);
   }
 
   if (role === "staff") {
@@ -365,8 +365,9 @@ export function buildRosterEntry(
     const value = roster[key];
     data[key] = typeof value === "undefined" ? "" : value;
   }
+  // 管理員模組只存實際提供值：缺漏＝空陣列，不代為補上（超級＝全開由 attribute 決定）
   if (role === "admin" && !Array.isArray(data.modules)) {
-    data.modules = ADMIN_MODULE_VALUES.slice();
+    data.modules = [];
   }
   return data as unknown as RosterEntry;
 }
@@ -508,11 +509,7 @@ export function toRosterMember(
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     if (key === "modules") {
       // 舊代碼（如 `roles`）一併對應到現行模組，清單顯示與表單預勾才會正確
-      const modules = entry && Array.isArray(entry.modules) ? entry.modules : [];
-      const resolved = modules
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => resolveAdminModule(item))
-        .filter((item): item is AdminModule => Boolean(item));
+      const resolved = storedAdminModules(entry);
       if (resolved.length > 0) target.modules = resolved as string[];
       continue;
     }
@@ -573,14 +570,24 @@ export async function accountStatusGuard(uid: string, sessionUid: string): Promi
   return null;
 }
 
-/** 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應） */
-export function adminModulesOf(entry: Record<string, unknown> | null | undefined): AdminModule[] {
-  if (!entry) return [];
-  if (entry.attribute === "超級") return ADMIN_MODULE_VALUES.slice();
-  const modules = Array.isArray(entry.modules) ? entry.modules : [];
+/**
+ * 名冊條目「實際存的」功能模組代碼（只回條目內容，不做超級＝全開的推導；
+ * 舊代碼如 `roles` 一併對應到現行模組）。
+ */
+export function storedAdminModules(
+  entry: Record<string, unknown> | null | undefined
+): AdminModule[] {
+  const modules = entry && Array.isArray(entry.modules) ? entry.modules : [];
   const resolved = modules
     .filter((item): item is string => typeof item === "string")
     .map((item) => resolveAdminModule(item))
     .filter((item): item is AdminModule => Boolean(item));
   return ADMIN_MODULE_VALUES.filter((module) => resolved.includes(module));
+}
+
+/** 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應） */
+export function adminModulesOf(entry: Record<string, unknown> | null | undefined): AdminModule[] {
+  if (!entry) return [];
+  if (entry.attribute === "超級") return ADMIN_MODULE_VALUES.slice();
+  return storedAdminModules(entry);
 }

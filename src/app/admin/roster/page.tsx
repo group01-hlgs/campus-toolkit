@@ -172,13 +172,14 @@ function cellValue(member: RosterMember, key: RosterColumnKey): string {
     return ROLE_LABELS[member.preferredRole] || member.preferredRole;
   }
   if (key === "modules") {
+    // 超級＝全開由屬性決定，與欄位內容無關（欄位可能為空值）
+    if (member.attribute === "超級") return "超級（全部）";
     const modules = member.modules ?? [];
     if (modules.length === 0) return "—";
-    const attribute = member.attribute === "超級" ? "超級" : "";
     const labels = ADMIN_MODULES.filter((item) => modules.includes(item.value)).map(
       (item) => item.label
     );
-    return attribute ? `${attribute}（全部）` : labels.join("、") || "—";
+    return labels.join("、") || "—";
   }
   const record = member as unknown as Record<string, string | undefined>;
   return record[key] || "—";
@@ -393,7 +394,9 @@ export default function RosterPage() {
     const record = member as unknown as Record<string, unknown>;
     for (const field of ROSTER_FIELDS[role]) {
       if (field.key === "modules") {
-        next.modules = (member.modules ?? []).join(",");
+        // 超級＝全開，儲存值多為系統預設（非使用者勾選），不帶入表單；
+        // 使用者未重新勾選即視為未提供，儲存為空值
+        next.modules = record.attribute === "超級" ? "" : (member.modules ?? []).join(",");
         continue;
       }
       const value = record[field.key];
@@ -775,7 +778,8 @@ export default function RosterPage() {
             </label>
           ))}
           <span className="w-full text-xs text-t3">
-            可選欄位：不勾選也能儲存，但該一般管理員將沒有可使用的功能模組；超級管理員固定全開。
+            可選欄位：只記錄您實際勾選的內容，未勾選也能儲存（該一般管理員將沒有可用功能模組）；
+            超級管理員＝全開，由屬性判定、不看此欄位。
           </span>
         </div>
       </div>

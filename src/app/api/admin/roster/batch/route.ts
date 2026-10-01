@@ -35,11 +35,11 @@ import {
 import {
   RosterData,
   RosterIndex,
-  adminModulesOf,
   buildRosterEntry,
   countOtherActiveAdmins,
   loadPeriodEntries,
   rosterEntryId,
+  storedAdminModules,
   validateRosterInput,
 } from "@/lib/roster";
 
@@ -327,7 +327,8 @@ function planUpdate(
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     const nextModules =
       key === "modules" && Array.isArray(roster.modules) ? (roster.modules as string[]) : null;
-    const prevModules = key === "modules" ? adminModulesOf(entry) : null;
+    // 比對「實際存的」模組（不套用超級＝全開），空白欄位沿用原值才不會誤報變更
+    const prevModules = key === "modules" ? storedAdminModules(entry) : null;
     const label = fieldLabel(role, key);
     if (nextModules && prevModules) {
       const nextText = modulesText(nextModules);
