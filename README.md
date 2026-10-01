@@ -1,6 +1,12 @@
 # 數位校園工具箱
 
-整合校園資訊、身分入口與管理功能的校園工具平台。以角色（學生／家長／教職員／管理員）分流首頁，支援帳號密碼與 Google 登入、CSS 主題切換、管理後台與排行榜等。
+整合校園資訊、身分入口與管理功能的校園工具平台。以角色（學生／家長／教職員／管理員）分流首頁，支援帳號密碼與 Google 登入、CSS 主題切換、管理後台與排行榜等，並具備：
+
+- **兩步驟驗證**（TOTP 通行碼 + Email 驗證碼）
+- **忘記密碼信件**（SMTP 寄送重設連結）
+- **身分名冊／使用者帳號批次作業**（Excel 匯入、匯出與範本下載）
+- **操作紀錄**（管理後台可查核帳號與設定異動）
+- **贊助廣告開關**（管理後台可一鍵關閉，預設關閉）
 
 歡迎感興趣的使用者 fork 自架。請先完成下方「環境變數」與「首次啟動」流程，缺金鑰無法運作。
 
@@ -20,6 +26,7 @@
 
 1. 開啟本專案頁面，按 **Fork**，選自己的 GitHub 帳號。
 2. 在電腦上把 fork 出來的 repo clone 下來，執行 `npm install`。
+   （macOS／Linux 用 `cp .env.example .env.local`；Windows 命令提示字元請用 `copy .env.example .env.local`。）
 
 ### 第 3 步：去 Firebase 開一間「虛擬機房」
 
@@ -28,6 +35,7 @@
 3. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
 4. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。
 5. 把 Firestore 安全規則設成本 repo 的 `firestore.rules`（預設不給瀏覽器直接讀寫，比較安全）。
+   ⚠️ 本 repo 的 `.firebaserc` 還綁著原作者的專案 ID，執行 `firebase deploy` 前請先改成你的專案，或直接在 Console 貼上規則（見下方「Firebase 專案設定」第 5 點）。
 
 ### 第 4 步：填環境變數（把第 3 步拿到的東西貼進去）
 
@@ -41,6 +49,7 @@ cp .env.example .env.local
 - `SESSION_SECRET`（亂數字串，可用 `openssl rand -base64 32`）
 - `FIREBASE_SERVICE_ACCOUNT_KEY`（第 3 步下載的私鑰，整段 JSON 貼上）
 - `ALLOW_BOOTSTRAP_ADMIN=true`（**只**為了建立第一個管理員，之後要改回 false）
+- `SMTP_*` + `APP_BASE_URL`（**建議**：不填的話「忘記密碼」與 Email 驗證碼信件無法寄出，其他功能不受影響）
 
 欄位細節見下方「環境變數」。
 
@@ -99,7 +108,7 @@ npm run dev
 
 ## 需求
 
-- Node.js 20+（建議 LTS）
+- Node.js 20.9+（建議 LTS；Next.js 16 的最低要求）
 - npm
 - 一組自己的 [Firebase](https://console.firebase.google.com/) 專案
 - （上線）Vercel 帳號
@@ -110,7 +119,7 @@ npm run dev
 # 1. 安裝依賴
 npm install
 
-# 2. 建立環境變數
+# 2. 建立環境變數（Windows 命令提示字元改用 copy .env.example .env.local）
 cp .env.example .env.local
 # 編輯 .env.local，欄位說明見下一節
 
@@ -145,6 +154,25 @@ npm run dev
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | 是 | Firebase 服務帳號金鑰。Console → 專案設定 → 服務帳號 → 產生新的私鑰；可貼**整段 JSON 字串**或其 **base64** |
 | `ALLOW_BOOTSTRAP_ADMIN` | 首次啟動 | 僅在建立「第一個管理員」時設為 `true`，建完請改回 `false` |
 
+### 寄信 SMTP（忘記密碼、Email 驗證碼用）
+
+不填也能登入與使用主要功能，但**「忘記密碼」會直接回 503**、Email 驗證碼信寄不出去。設定步驟（以學校 Google Workspace 專用信箱為例）見 [`.env.example`](.env.example) 內的詳細註解。
+
+| 變數 | 必填 | 說明 |
+|------|------|------|
+| `SMTP_HOST` | 建議 | SMTP 位址，Gmail 為 `smtp.gmail.com` |
+| `SMTP_PORT` | 否 | 預設 `465`（`SMTP_SECURE=true` 時）或 `587` |
+| `SMTP_USER` | 建議 | 寄信帳號 |
+| `SMTP_PASS` | 建議 | 應用程式密碼（**不可**用一般登入密碼，Google 已停用基本驗證） |
+| `SMTP_FROM` | 否 | 寄件者顯示名稱與地址，例：`數位校園工具箱 <noreply@school.edu.tw>` |
+
+### 其他
+
+| 變數 | 必填 | 說明 |
+|------|------|------|
+| `APP_BASE_URL` | 正式環境建議 | 站台對外網址，用於信件中的重設連結。未設定時改用請求來源，Host 遭偽造可能使連結指向攻擊者網域 |
+| `TRUST_PROXY` | 否 | 僅在可信反向代理／平台（如 Vercel，自動 `VERCEL=1`）覆寫 forwarding header 時設 `true`；直接 `next start` 暴露請維持不設 |
+
 ## Firebase 專案設定
 
 1. **建立專案**：Firebase Console 新增專案（Analytics 可關）。
@@ -157,7 +185,7 @@ npm run dev
    firebase deploy --only firestore:rules
    ```
 
-   或在 Firebase Console → Firestore → 規則 貼上相同內容後發布。
+   ⚠️ 執行前請先確認 `.firebaserc` 的 `default` 已改成**你自己的** Firebase 專案 ID（fork 後仍是原作者的 `campus-toolkit-e77e4`，不改會因無權限而失敗）。也可以不裝 Firebase CLI，直接在 Console → Firestore → 規則 貼上相同內容後發布。
 
 ## 首次啟動（建立管理員）
 
@@ -182,7 +210,8 @@ node scripts/reset-users-roster.mjs
 | `npm run dev` | 開發伺服器（會先更新 `src/version.json`） |
 | `npm run build` | 生產建置 |
 | `npm start` | 執行生產建置 |
-| `npm run lint` | Lint |
+| `npm run lint` | ESLint 檢查 + TypeScript 型別檢查（`tsc --noEmit`） |
+| `npm run typecheck` | 只跑 TypeScript 型別檢查 |
 
 ## 專案結構
 
@@ -193,7 +222,7 @@ campus-toolkit/
 │   └── version.js          # 依 git commit 數更新 version.json
 ├── src/
 │   ├── app/                # App Router 頁面與 API
-│   │   ├── api/            # REST API（auth、admin、seed、排行榜…）
+│   │   ├── api/            # REST API（auth、admin、account、settings、排行榜…）
 │   │   ├── admin/          # 管理後台
 │   │   ├── student|parent|staff/  # 各角色首頁與帳號頁
 │   │   └── setup/          # 首次建立管理員
@@ -203,7 +232,7 @@ campus-toolkit/
 │   ├── styles/             # 全域樣式與主題 CSS 變數
 │   ├── types/              # TypeScript 型別
 │   └── proxy.ts            # 路由保護（角色頁 Session 檢查）
-├── docs/                   # 規劃與規格文件
+├── docs/                   # 資料模型與身分名冊／帳號批次範例檔（xlsx）
 ├── firestore.rules         # Firestore 安全規則（預設全拒絕）
 ├── next.config.ts          # CSP／安全標頭等
 └── .env.example            # 環境變數範本
@@ -214,7 +243,7 @@ campus-toolkit/
 1. Import Git Repo 至 Vercel。
 2. 在專案 **Environment Variables** 加入與 `.env.local` 相同的變數（機密變數勿用 `NEXT_PUBLIC_`）。
 3. Deploy。Framework 預設 Next.js 即可。
-4. 上線後網域會自動出現在 Firebase Authentication → 設定 → **授權的網域**；若用自訂網域登入失敗，請在此補上。
+4. **授權網域不會自動加入**：若 Google 登入被擋，請到 Firebase Authentication → 設定 → **授權的網域** 手動加上你的網址（Vercel 的 `*.vercel.app` 與自訂網域都要補）。
 
 ## 安全注意事項
 
@@ -224,10 +253,26 @@ campus-toolkit/
 - Firestore 規則維持伺服端全權管理；勿對客戶端開放讀寫，除非你清楚資料面風險。
 - 管理員首任建立後務必關閉 `ALLOW_BOOTSTRAP_ADMIN`。
 
+## 關於廣告（AdSense）
+
+全站廣告區預設**關閉**。要開啟或關閉：管理後台 → **系統設定 → 外觀與顯示 → 贊助廣告**（僅超級管理員可改），改完立即生效，不需重新部署。
+
+- **想完全不放廣告**：維持預設「隱藏」即可，AdSense script 根本不會載入。
+- **想放自己的廣告**：程式碼中的廣告帳號硬編在 [`src/components/AdSense.tsx`](src/components/AdSense.tsx)（`ca-pub-...` 與版位 `slot`），`public/ads.txt` 也指向同一帳號。請把這兩處改成你自己的 AdSense 帳號與版位，再把開關打開；若未更換就開啟，刊登的是**原作者**的廣告帳號。
+
+## 貢獻與開發流程
+
+歡迎送 Pull Request。本專案的 commit 規範如下（詳見 [`AGENTS.md`](AGENTS.md)）：
+
+1. `npm run lint`（ESLint + tsc）確認通過。
+2. `node scripts/version.js` — 依 commit 數將版本號 +1，寫入 `src/version.json`。
+3. commit，訊息結尾附上版本號，例：`…（版本號更新至 0.232）`。
+4. `git push`。
+
 ## 文件
 
-- [`docs/PLANNING.md`](docs/PLANNING.md) — 主題與資安規劃
-- [`docs/`](docs/) — 網站規劃、主程式／模組架構與資安規格書
+- [`docs/資料模型.md`](docs/資料模型.md) — 資料模型
+- [`docs/`](docs/) — 身分名冊／使用者帳號批次範例檔（xlsx）與版面截圖
 
 ## 授權
 
