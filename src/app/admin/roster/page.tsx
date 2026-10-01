@@ -62,9 +62,9 @@ function batchHint(mode: RosterBatchMode, role: RosterRole, strategy: RosterBatc
     const points = [
       `辨識欄位：${identify}（兩者都填須指向同一帳號）`,
       `必填欄位：${required}；可選欄位（可留空）：${optional}`,
-      "以辨識欄位找到既有帳號後建立本期名冊條目；同一帳號同期僅一筆，查無帳號之列略過，批次不建立帳號、不設密碼",
-      "寫入方式「追加」＝在同期既有名冊之上繼續增加，已存在者略過",
-      "寫入方式「覆蓋」＝先刪除同期既有的該身分名冊，再依檔案新增（檔案即完整名單），刪除後無法復原",
+      "以辨識欄位找到既有帳號後建立本期名冊條目；同一帳號同一學期僅一筆，查無帳號之列略過，批次不建立帳號、不設密碼",
+      "寫入方式「追加」＝在同一學期既有名冊之上繼續增加，已存在者略過",
+      "寫入方式「覆蓋」＝先刪除同一學期既有的該身分名冊，再依檔案新增（檔案即完整名單），刪除後無法復原",
       "覆蓋時檔案每一列都須通過檢查：預覽有略過列時不可執行",
     ];
     if (strategy === "replace" && role === "admin") {
@@ -1006,7 +1006,7 @@ export default function RosterPage() {
               !batchCreateBlocked &&
               batchStrategy === "replace" && (
                 <p className="text-sm text-danger font-medium mb-3" role="alert">
-                  警語：覆蓋會刪除同期既有的全部該身分名冊（不在檔案內者會一併刪除），刪除後無法復原。
+                  警語：覆蓋會刪除同一學期既有的全部該身分名冊（不在檔案內者會一併刪除），刪除後無法復原。
                 </p>
               )}
 
@@ -1264,7 +1264,7 @@ export default function RosterPage() {
                 </p>
               )}
               <p className="text-xs text-t3">
-                一個帳號最多具備四種身分（同身分同期間僅一筆）；本頁只建立名冊條目，
+                一個帳號最多具備四種身分（同身分同一學期僅一筆）；本頁只建立名冊條目，
                 不建立帳號、不處理密碼——帳號請先至「使用者帳號管理」建立。
               </p>
             </div>
