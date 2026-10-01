@@ -8,9 +8,37 @@
 - **操作紀錄**（管理後台可查核帳號與設定異動）
 - **贊助廣告開關**（管理後台可一鍵關閉，預設關閉）
 
-歡迎感興趣的使用者 fork 自架。請先完成下方「環境變數」與「首次啟動」流程，缺金鑰無法運作。
+歡迎感興趣的使用者 fork 自架。**不想打指令就按下方「一鍵部署」**；想自己動手，請先完成「環境變數」與「首次啟動」流程，缺金鑰無法運作。
 
-## 架設流程總覽（給第一次自架的人）
+## 一鍵部署（給不想碰終端機的人）
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit&env=NEXT_PUBLIC_FIREBASE_API_KEY,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,NEXT_PUBLIC_FIREBASE_PROJECT_ID,NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,NEXT_PUBLIC_FIREBASE_APP_ID,SESSION_SECRET,FIREBASE_SERVICE_ACCOUNT_KEY,ALLOW_BOOTSTRAP_ADMIN&envDefaults=%7B%22ALLOW_BOOTSTRAP_ADMIN%22%3A%22true%22%7D&envDescription=%E5%A1%AB%E5%85%A5%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%20Firebase%20Web%20%E8%A8%AD%E5%AE%9A%E8%88%87%E9%87%91%E9%91%B0%EF%BC%9BALLOW_BOOTSTRAP_ADMIN%20%E4%BF%9D%E6%8C%81%20true%20%E4%BB%A5%E4%BE%BF%E7%A8%8D%E5%BE%8C%E5%BB%BA%E7%AB%8B%E9%A6%96%E4%BD%8D%E7%AE%A1%E7%90%86%E5%93%A1%EF%BC%8C%E5%BB%BA%E5%AE%8C%E8%AB%8B%E5%9B%9E%20Vercel%20%E6%94%B9%E7%82%BA%20false%E3%80%82%E6%AC%84%E4%BD%8D%E8%AA%AA%E6%98%8E%E8%88%87%E5%8F%96%E5%BE%97%E6%96%B9%E5%BC%8F%E8%A6%8B%20README%E3%80%8C%E7%92%B0%E5%A2%83%E8%AE%8A%E6%95%B8%E3%80%8D%E4%B8%80%E7%AF%80%E3%80%82&envLink=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit%2Fblob%2Fmain%2FREADME.md&project-name=campus-toolkit&repository-name=campus-toolkit)
+
+按下去之後，Vercel 會**自動把程式碼複製到你的 GitHub 帳號**、開好專案，並出現一張表單要你貼 9 個環境變數（欄位說明與取得方式就在表單旁，連到本 README）。填完按 Deploy 就上線了。
+
+**這條路砍掉了**：Fork、clone、`npm install`、`cp .env.example`、編輯 `.env.local`、`npm run dev`、Vercel Import、手動抄環境變數到 Vercel —— 終端機一行指令都不用打。
+
+### 按按鈕之前：先備妥 Firebase（沒辦法省）
+
+按鈕只負責「搬程式＋上線」，**Firebase 那間機房還是得自己開**，因為表單要填的值都出自那裡。照下方「架設流程總覽」的**第 1 步**與**第 3 步**做完（約 10 分鐘），手上有這 9 個值就能按：
+
+- 6 個 `NEXT_PUBLIC_*`（Firebase Web 應用程式設定）
+- `SESSION_SECRET`（一行 `openssl rand -base64 32` 產生）
+- `FIREBASE_SERVICE_ACCOUNT_KEY`（服務帳號私鑰，整段 JSON）
+- `ALLOW_BOOTSTRAP_ADMIN`（已預填 `true`，不用動）
+
+### 按按鈕之後：還有 4 件事
+
+1. **建首位管理員**：開你的網址 `/setup`（線上直接建，不需要本機）。建完登入。
+2. **立刻關掉建管開關**：Vercel 專案 → Settings → Environment Variables → 把 `ALLOW_BOOTSTRAP_ADMIN` 改為 `false` → Redeploy。**這步不要拖**，否則任何人開你的網址 `/setup` 都能搶建管理員。
+3. **Firebase 授權網域**：Firebase Console → Authentication → 設定 → 授權的網域，加上你的 Vercel 網址，否則 Google 登入會被擋。
+4. **Firestore 規則**：把本 repo 的 `firestore.rules` 貼進 Firebase Console → Firestore → 規則 後發布（見「Firebase 專案設定」第 5 點）。
+
+其餘（SMTP 寄信、`APP_BASE_URL`、`TRUST_PROXY`）都是選填，之後隨時到 Vercel 的 Environment Variables 補即可。
+
+> 想在本機跑、想改程式碼、或想先測過再上線？往下看完整的手動流程。
+
+## 架設流程總覽（手動路徑，給第一次自架的人）
 
 把整件事想成「辦好帳號 → 把程式搬回家 → 填設定 → 開張 → 上線」，大約是這樣：
 
@@ -22,7 +50,11 @@
 | [Firebase](https://console.firebase.google.com/) | 當「資料庫＋Google 登入」的後台；所有帳號、設定都存在這裡 |
 | [Vercel](https://vercel.com/) | 當「網站主機」；把 GitHub 上的程式自動架成網站（只在本機跑的話可以先跳過） |
 
+走「一鍵部署」也一樣要開這 3 個帳號 —— 差別只在第 2、4、7 步由 Vercel 代勞。
+
 ### 第 2 步：把程式搬到自己名下
+
+> 走上方「一鍵部署」的話，**這步整個跳過**（Vercel 會自動把程式複製到你帳號）。
 
 1. 開啟本專案頁面，按 **Fork**，選自己的 GitHub 帳號。
 2. 在電腦上把 fork 出來的 repo clone 下來，執行 `npm install`。
@@ -68,12 +100,16 @@ npm run dev
 
 ### 第 7 步：上線到 Vercel
 
+> 不想手動 Import 的話，回到上方「一鍵部署」按鈕即可，Vercel 會接手這一步（含環境變數表單）。
+
 1. 回 GitHub，到 Vercel **Import** 你 fork 的 repo。
 2. 把 `.env.local` 裡的變數全部抄到 Vercel 的 Environment Variables。
 3. Deploy，拿到網址就能開玩。  
    （若 Google 登入被擋，去 Firebase → Authentication → 設定 → **授權的網域** 加上你的網址。）
 
 ### 一張圖看完
+
+手動路徑：
 
 ```text
 開 3 個帳號 ── Fork 到 GitHub ── clone + npm install
@@ -90,6 +126,21 @@ npm run dev
                                          │
                                          ▼
                               Vercel Import → 填環境變數 → 上線
+```
+
+一鍵部署路徑（第 2、4、5、7 步合而為一）：
+
+```text
+開 3 個帳號 ── Firebase 建專案（第 1、3 步）
+                    │
+                    ▼
+            按 Deploy to Vercel → 貼 9 個環境變數 → Deploy
+                    │
+                    ▼
+            網址 /setup 建管理員 → 關 ALLOW_BOOTSTRAP_ADMIN
+                    │
+                    ▼
+            Firebase 授權網域 + Firestore 規則 → 完成
 ```
 
 以下為較細的技術說明與指令。
@@ -240,10 +291,13 @@ campus-toolkit/
 
 ## 部署（Vercel）
 
+兩條路都可以：上方「一鍵部署」按鈕（Vercel 代勞前三項），或手動：
+
 1. Import Git Repo 至 Vercel。
 2. 在專案 **Environment Variables** 加入與 `.env.local` 相同的變數（機密變數勿用 `NEXT_PUBLIC_`）。
 3. Deploy。Framework 預設 Next.js 即可。
 4. **授權網域不會自動加入**：若 Google 登入被擋，請到 Firebase Authentication → 設定 → **授權的網域** 手動加上你的網址（Vercel 的 `*.vercel.app` 與自訂網域都要補）。
+5. 若是用按鈕部署：建完首位管理員後，把 `ALLOW_BOOTSTRAP_ADMIN` 改回 `false` 並 Redeploy。
 
 ## 安全注意事項
 
