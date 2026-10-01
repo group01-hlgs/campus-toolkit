@@ -124,6 +124,42 @@ const BATCH_SAMPLE_FILES: {
     caption:
       "表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位；屬性限教師／兼導師／兼行政／職員，導師等兼任職務請填在職稱",
   },
+  {
+    mode: "update",
+    role: "staff",
+    href: "/api/admin/downloads/範例_身分名冊管理_教職員批次修改.xlsx",
+    label: "教職員批次修改範例",
+    caption: "表頭為辨識欄位（電子郵件地址或帳號）與欲修改的欄位，留空表示不修改",
+  },
+  {
+    mode: "delete",
+    role: "staff",
+    href: "/api/admin/downloads/範例_身分名冊管理_教職員批次刪除.xlsx",
+    label: "教職員批次刪除範例",
+    caption: "表頭為辨識欄位（電子郵件地址或帳號），用來指定要刪除的列",
+  },
+  {
+    mode: "create",
+    role: "admin",
+    href: "/api/admin/downloads/範例_身分名冊管理_管理員批次新增.xlsx",
+    label: "管理員批次新增範例",
+    caption:
+      "表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位；屬性限一般／超級（必填），指定功能模組選填、超級管理員不需填",
+  },
+  {
+    mode: "update",
+    role: "admin",
+    href: "/api/admin/downloads/範例_身分名冊管理_管理員批次修改.xlsx",
+    label: "管理員批次修改範例",
+    caption: "表頭為辨識欄位（電子郵件地址或帳號）與欲修改的欄位，留空表示不修改",
+  },
+  {
+    mode: "delete",
+    role: "admin",
+    href: "/api/admin/downloads/範例_身分名冊管理_管理員批次刪除.xlsx",
+    label: "管理員批次刪除範例",
+    caption: "表頭為辨識欄位（電子郵件地址或帳號），用來指定要刪除的列",
+  },
 ];
 
 const BATCH_ACTION_LABELS: Record<RosterBatchRow["action"], string> = {
