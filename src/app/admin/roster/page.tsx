@@ -778,7 +778,7 @@ export default function RosterPage() {
             </label>
           ))}
           <span className="w-full text-xs text-t3">
-            可選欄位：只記錄您實際勾選的內容，未勾選也能儲存（該一般管理員將沒有可用功能模組）；
+            可選欄位：只記錄您實際勾選的內容，未勾選也能儲存；「系統設定」是每位管理員都有的基本模組、與此欄位無關；
             超級管理員＝全開，由屬性判定、不看此欄位。
           </span>
         </div>

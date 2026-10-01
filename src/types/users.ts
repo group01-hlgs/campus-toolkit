@@ -123,7 +123,8 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
 /**
  * 管理員可指定的功能模組（超級＝全開；一般＝僅被指定的模組）。
  * 模組決定：首頁卡片是否顯示、對應 API 是否放行（requireAdminModule）。
- * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示。
+ * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示；
+ * 另見 BASE_ADMIN_MODULES（系統設定）＝不需指派的基本模組，每位管理員皆有。
  */
 export const ADMIN_MODULES = [
   { value: "users", label: "使用者帳號管理" },
@@ -135,6 +136,13 @@ export const ADMIN_MODULES = [
 export type AdminModule = (typeof ADMIN_MODULES)[number]["value"];
 
 export const ADMIN_MODULE_VALUES: AdminModule[] = ADMIN_MODULES.map((item) => item.value);
+
+/**
+ * 管理員的「基本模組」：不需指派、每位管理員（含一般屬性）一律具備，
+ * 首頁固定顯示、對應 API 一律放行。
+ * 「系統設定」是每個身分都有的入口；一般管理員在其中的實際可用功能日後再收斂。
+ */
+export const BASE_ADMIN_MODULES: AdminModule[] = ["settings"];
 
 export function isAdminModule(value: unknown): value is AdminModule {
   return typeof value === "string" && ADMIN_MODULE_VALUES.includes(value as AdminModule);

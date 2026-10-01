@@ -16,6 +16,7 @@ import {
   ACTIVE_STATUS,
   AdminModule,
   ADMIN_MODULE_VALUES,
+  BASE_ADMIN_MODULES,
   resolveAdminModule,
   USER_COLLECTION,
   UserRole,
@@ -585,9 +586,17 @@ export function storedAdminModules(
   return ADMIN_MODULE_VALUES.filter((module) => resolved.includes(module));
 }
 
-/** 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應） */
+/**
+ * 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應）。
+ * 基本模組（系統設定）不需指派、一律授予；無名冊條目＝無權限。
+ */
 export function adminModulesOf(entry: Record<string, unknown> | null | undefined): AdminModule[] {
   if (!entry) return [];
-  if (entry.attribute === "超級") return ADMIN_MODULE_VALUES.slice();
-  return storedAdminModules(entry);
+  const granted = new Set<AdminModule>(BASE_ADMIN_MODULES);
+  if (entry.attribute === "超級") {
+    for (const module of ADMIN_MODULE_VALUES) granted.add(module);
+  } else {
+    for (const module of storedAdminModules(entry)) granted.add(module);
+  }
+  return ADMIN_MODULE_VALUES.filter((module) => granted.has(module));
 }
