@@ -1378,7 +1378,7 @@ export default function RosterPage() {
               className="menu-item"
               onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "無效"))}
             >
-              停用本期
+              停用
             </button>
           ) : (
             <button
@@ -1387,7 +1387,7 @@ export default function RosterPage() {
               className="menu-item"
               onClick={() => runMenuAction(() => void handleSetStatus(menuTarget, "有效"))}
             >
-              啟用本期
+              啟用
             </button>
           )}
           <div className="my-1 border-t border-themed" />
