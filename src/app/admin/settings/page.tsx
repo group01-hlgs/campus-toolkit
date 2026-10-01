@@ -152,6 +152,8 @@ export default function SettingsPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [loading, setLoading] = useState(true);
+  // 是否可設定：僅超級管理員；一般管理員與其他身分只有入口、頁內無可用設定項目
+  const [manageable, setManageable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMessage, setModalMessage] = useState("");
@@ -166,6 +168,7 @@ export default function SettingsPage() {
       if (res.ok) {
         const data = await res.json();
         if (data?.success && data.settings) {
+          setManageable(Boolean(data.manageable));
           const mergedSettings = { ...defaultSettings, ...data.settings };
           setSettings(mergedSettings);
 
@@ -189,6 +192,7 @@ export default function SettingsPage() {
   }
 
   async function handleSave() {
+    if (!manageable || saving) return;
     setSaving(true);
     try {
       const res = await fetch("/api/settings", {
@@ -282,13 +286,15 @@ export default function SettingsPage() {
 
       {/* 操作按鈕 */}
       <div className="w-full max-w-2xl flex justify-end gap-3 mb-4">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-        >
-          {saving ? "儲存中..." : "儲存設定"}
-        </button>
+        {manageable && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            {saving ? "儲存中..." : "儲存設定"}
+          </button>
+        )}
         <button
           onClick={handleBack}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -305,63 +311,74 @@ export default function SettingsPage() {
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 
-      {/* 設定分組卡片 */}
-      <div className="w-full max-w-2xl space-y-4 mb-8">
-        {settingGroups.map((group) => (
-          <div key={group.title} className="border border-themed rounded-lg p-5 bg-card">
-            {/* 分組標題 */}
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-t3">{group.icon}</span>
-              <h3 className="text-lg font-bold text-t1">{group.title}</h3>
-            </div>
+      {/* 設定分組卡片：僅超級管理員可設定，其餘顯示「尚無可用設定項目」 */}
+      {manageable ? (
+        <div className="w-full max-w-2xl space-y-4 mb-8">
+          {settingGroups.map((group) => (
+            <div key={group.title} className="border border-themed rounded-lg p-5 bg-card">
+              {/* 分組標題 */}
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-t3">{group.icon}</span>
+                <h3 className="text-lg font-bold text-t1">{group.title}</h3>
+              </div>
 
-            {/* 欄位列表 */}
-            <div className="space-y-4">
-              {group.fields.map((field) => (
-                <div key={field.id} className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <label className="text-t2 sm:w-48 shrink-0 flex items-center gap-1.5">
-                    <span>{field.label}</span>
-                    {field.help && <HelpTooltip text={field.help} />}
-                  </label>
-                  {field.type === "select" ? (
-                    <select
-                      value={getFieldValue(field.id)}
-                      onChange={(e) => handleChange(field.id, e.target.value)}
-                      className="flex-1 input-theme rounded px-3 py-2"
-                    >
-                      {field.options?.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type={field.type}
-                      value={String(settings[field.id])}
-                      onChange={(e) => handleChange(field.id, e.target.value)}
-                      placeholder={field.placeholder}
-                      className="flex-1 input-theme rounded px-3 py-2"
-                    />
-                  )}
-                </div>
-              ))}
+              {/* 欄位列表 */}
+              <div className="space-y-4">
+                {group.fields.map((field) => (
+                  <div key={field.id} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <label className="text-t2 sm:w-48 shrink-0 flex items-center gap-1.5">
+                      <span>{field.label}</span>
+                      {field.help && <HelpTooltip text={field.help} />}
+                    </label>
+                    {field.type === "select" ? (
+                      <select
+                        value={getFieldValue(field.id)}
+                        onChange={(e) => handleChange(field.id, e.target.value)}
+                        className="flex-1 input-theme rounded px-3 py-2"
+                      >
+                        {field.options?.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type}
+                        value={String(settings[field.id])}
+                        onChange={(e) => handleChange(field.id, e.target.value)}
+                        placeholder={field.placeholder}
+                        className="flex-1 input-theme rounded px-3 py-2"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="w-full max-w-2xl border border-themed rounded-lg p-8 bg-card text-center space-y-2 mb-8">
+          <p className="text-lg font-bold text-t1">尚無可用設定項目</p>
+          <p className="text-sm text-t2">
+            此帳號目前沒有可使用的系統設定項目；如需調整系統設定，請洽超級管理員。
+          </p>
+        </div>
+      )}
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 
       {/* 底部操作按鈕 */}
       <div className="w-full max-w-2xl flex justify-start gap-3 mb-8">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-        >
-          {saving ? "儲存中..." : "儲存設定"}
-        </button>
+        {manageable && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            {saving ? "儲存中..." : "儲存設定"}
+          </button>
+        )}
         <button
           onClick={handleBack}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"

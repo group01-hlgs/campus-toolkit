@@ -119,3 +119,31 @@ export async function requireAdminModule(module: AdminModule): Promise<
   }
   return result;
 }
+
+/**
+ * 「系統設定」的可設定判定：**僅超級管理員**。
+ * 「系統設定」是每位管理員的基本入口（首頁固定顯示），但實際可讀寫的設定項目僅超級可用；
+ * 一般管理員與其他身分只有入口、頁內顯示「尚無可用設定項目」。
+ */
+export async function hasSettingsManage(session: SessionPayload): Promise<boolean> {
+  if (session.role !== "admin") return false;
+  try {
+    const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
+    const attribute = entry && typeof entry.attribute === "string" ? entry.attribute : "";
+    return attribute === "超級";
+  } catch {
+    // fail-closed：讀不到屬性一律視為不可設定
+    return false;
+  }
+}
+
+export async function requireSettingsManage(): Promise<
+  { session: SessionPayload; denial: null } | { session: null; denial: AuthDenial }
+> {
+  const result = await requireRole("admin");
+  if (result.denial) return result;
+  if (!(await hasSettingsManage(result.session))) {
+    return { session: null, denial: { status: 403, message: "僅超級管理員可修改系統設定" } };
+  }
+  return result;
+}

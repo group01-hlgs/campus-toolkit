@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { hasAdminModule, requireAdminModule, toAuthResponse, verifySession } from "@/lib/dal";
+import {
+  hasSettingsManage,
+  requireSettingsManage,
+  toAuthResponse,
+  verifySession,
+} from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
@@ -71,8 +76,9 @@ export async function GET(request: NextRequest) {
 
     const noStore = { "Cache-Control": "no-store" };
     const session = await verifySession();
-    // 完整設定（含聯絡人等僅管理可見欄位）需具備「系統設定」功能模組
-    const fullAccess = session ? await hasAdminModule(session, "settings") : false;
+    // 完整設定（含聯絡人等僅管理可見欄位）僅超級管理員可讀；
+    // manageable 供「系統設定」頁判斷是否顯示設定表單（一般管理員＝只有入口、頁內無可用項目）
+    const manageable = session ? await hasSettingsManage(session) : false;
 
     const snap = await getAdminDb()
       .collection(SETTINGS_DOC.collection)
@@ -83,7 +89,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        settings: fullAccess ? settings : pickPublicSettings(settings),
+        settings: manageable ? settings : pickPublicSettings(settings),
+        manageable,
       },
       { headers: noStore }
     );
@@ -92,6 +99,7 @@ export async function GET(request: NextRequest) {
       {
         success: true,
         settings: pickPublicSettings(defaultSettings),
+        manageable: false,
       },
       { headers: { "Cache-Control": "no-store" } }
     );
@@ -111,7 +119,8 @@ export async function PUT(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("settings");
+    // 系統設定的寫入僅超級管理員（頁面對一般管理員不顯示設定表單）
+    const { session, denial } = await requireSettingsManage();
     if (denial) return toAuthResponse(denial);
 
     const raw = await request.json().catch(() => null);

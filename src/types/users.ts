@@ -139,7 +139,7 @@ export const ADMIN_MODULE_VALUES: AdminModule[] = ADMIN_MODULES.map((item) => it
 
 /**
  * 管理員的「基本模組」：不需指派、每位管理員（含一般屬性）一律具備，
- * 首頁固定顯示、對應 API 一律放行。
+ * 用途＝首頁固定顯示該入口（系統設定的讀寫另由超級管理員判定，見 hasSettingsManage）。
  * 「系統設定」是每個身分都有的入口；一般管理員在其中的實際可用功能日後再收斂。
  */
 export const BASE_ADMIN_MODULES: AdminModule[] = ["settings"];

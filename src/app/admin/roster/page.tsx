@@ -28,6 +28,7 @@ import {
 } from "@/types/roster";
 import {
   ADMIN_MODULES,
+  BASE_ADMIN_MODULES,
   ROLE_LABELS,
   STAFF_ATTRIBUTES,
   statusLabel,
@@ -761,11 +762,15 @@ export default function RosterPage() {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
+    // 基本模組（系統設定）不列入指派：入口對每位管理員顯示，可用功能僅超級管理員
+    const assignable = ADMIN_MODULES.filter(
+      (module) => !(BASE_ADMIN_MODULES as readonly string[]).includes(module.value)
+    );
     return (
       <div className="flex flex-col sm:flex-row sm:items-start gap-2">
         <label className="text-t2 sm:w-40 shrink-0">指定功能模組</label>
         <div className="flex-1 flex flex-wrap gap-x-4 gap-y-2">
-          {ADMIN_MODULES.map((module) => (
+          {assignable.map((module) => (
             <label key={module.value} className="flex items-center gap-1.5 text-sm text-t1">
               <input
                 type="checkbox"
@@ -778,7 +783,7 @@ export default function RosterPage() {
             </label>
           ))}
           <span className="w-full text-xs text-t3">
-            可選欄位：只記錄您實際勾選的內容，未勾選也能儲存；「系統設定」是每位管理員都有的基本模組、與此欄位無關；
+            可選欄位：只記錄您實際勾選的內容，未勾選也能儲存；「系統設定」入口一律顯示、但可用功能僅超級管理員，故不列入指派；
             超級管理員＝全開，由屬性判定、不看此欄位。
           </span>
         </div>
