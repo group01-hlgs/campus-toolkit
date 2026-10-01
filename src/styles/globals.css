@@ -37,10 +37,13 @@
   --transition: 0.2s ease;
 }
 
-/* 全域鎖定水平捲動：任何元素（含固定定位、廣告）都不該讓頁面被左右滑出空白邊界 */
+/* 全域鎖定水平捲動：任何元素（含固定定位、廣告）都不該讓頁面被左右滑出空白邊界。
+   用 clip 而非 hidden：hidden 會讓同軸的 overflow-y 由 visible 強制算成 auto，
+   把 <body> 變成第二個捲軸容器，頁面就會同時長出「瀏覽器」與「body」兩條捲軸；
+   clip 只裁切、不建立捲軸容器，overflow-y 得以維持 visible，捲軸只會有瀏覽器那一條。 */
 html,
 body {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
