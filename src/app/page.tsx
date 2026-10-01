@@ -368,24 +368,10 @@ export default function Home() {
     );
   }
 
-  if (!settings.systemEnabled) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-page px-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">系統目前暫停服務</h1>
-          <p className="text-t3">請稍後再試</p>
-        </div>
-
-        {/* 廣告區域 */}
-        {settings.sponsorAdEnabled && (
-          <div className="w-full max-w-md mt-6">
-            <AdSense />
-          </div>
-        )}
-      </div>
-    );
-  }
-
+  // 系統停用（維護模式）不在此換掉整張登入卡：
+  // 伺服器端（dal.verifySession、login/2fa/google 的 adminsOnly）已只放行管理員，
+  // 若連登入表單都隱藏，管理員就再也進不來、無法把開關打開（自爆按鈕）。
+  // 因此首頁一律保留登入入口，僅在表單上方加一行文字提醒。
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-page px-4 pt-[20px]">
       <HomepageCornerWrench />
@@ -399,6 +385,14 @@ export default function Home() {
       </div>
 
       <hr className="w-full max-w-md border-themed mb-6" />
+
+      {/* 系統停用提醒：僅提示、不阻擋登入，讓管理員仍可登入後到「系統設定」重新啟用 */}
+      {!settings.systemEnabled && (
+        <div className="w-full max-w-md border border-themed rounded-lg bg-card px-4 py-3 mb-4 text-center">
+          <p className="text-t1 font-medium">系統目前暫停服務</p>
+          <p className="text-t2 text-sm mt-1">目前僅有管理員登入後可以使用</p>
+        </div>
+      )}
 
       {/* 登入表單 */}
       <div className="w-full max-w-md border border-themed rounded-lg p-8">
