@@ -18,6 +18,7 @@ import {
   ADMIN_MODULE_VALUES,
   BASE_ADMIN_MODULES,
   resolveAdminModule,
+  SUPER_ONLY_ADMIN_MODULES,
   USER_COLLECTION,
   UserRole,
   isAccountActive,
@@ -588,7 +589,8 @@ export function storedAdminModules(
 
 /**
  * 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應）。
- * 基本模組（系統設定）不需指派、一律授予；無名冊條目＝無權限。
+ * 基本模組（系統設定）不需指派、一律授予；超級專屬模組（學校基本設定）僅超級可得；
+ * 無名冊條目＝無權限。
  */
 export function adminModulesOf(entry: Record<string, unknown> | null | undefined): AdminModule[] {
   if (!entry) return [];
@@ -597,6 +599,8 @@ export function adminModulesOf(entry: Record<string, unknown> | null | undefined
     for (const module of ADMIN_MODULE_VALUES) granted.add(module);
   } else {
     for (const module of storedAdminModules(entry)) granted.add(module);
+    // 超級專屬模組（學校基本設定）：舊資料／批次匯入存了也不授予
+    for (const module of SUPER_ONLY_ADMIN_MODULES) granted.delete(module);
   }
   return ADMIN_MODULE_VALUES.filter((module) => granted.has(module));
 }

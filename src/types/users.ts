@@ -124,12 +124,14 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
  * 管理員可指定的功能模組（超級＝全開；一般＝僅被指定的模組）。
  * 模組決定：首頁卡片是否顯示、對應 API 是否放行（requireAdminModule）。
  * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示；
- * 另見 BASE_ADMIN_MODULES（系統設定）＝不需指派的基本模組，每位管理員皆有。
+ * 另見 BASE_ADMIN_MODULES（系統設定）＝不需指派的基本模組，每位管理員皆有；
+ * SUPER_ONLY_ADMIN_MODULES（學校基本設定）＝僅超級管理員可用，不開放指派。
  */
 export const ADMIN_MODULES = [
   { value: "users", label: "使用者帳號管理" },
   { value: "roster", label: "身分名冊管理" },
   { value: "settings", label: "系統設定" },
+  { value: "schoolSettings", label: "學校基本設定" },
   { value: "activity", label: "稽核紀錄" },
 ] as const;
 
@@ -143,6 +145,13 @@ export const ADMIN_MODULE_VALUES: AdminModule[] = ADMIN_MODULES.map((item) => it
  * 「系統設定」是每個身分都有的入口；一般管理員在其中的實際可用功能日後再收斂。
  */
 export const BASE_ADMIN_MODULES: AdminModule[] = ["settings"];
+
+/**
+ * 「僅超級管理員」的功能模組：不列入一般管理員的可指派清單（名冊表單不顯示勾選），
+ * 即使名冊存有該代碼也不授予（adminModulesOf 一律剝除）。
+ * 超級管理員由 `attribute` 判定、本來就全開，故此清單只影響一般管理員。
+ */
+export const SUPER_ONLY_ADMIN_MODULES: AdminModule[] = ["schoolSettings"];
 
 export function isAdminModule(value: unknown): value is AdminModule {
   return typeof value === "string" && ADMIN_MODULE_VALUES.includes(value as AdminModule);
