@@ -36,6 +36,41 @@
 
 其餘（SMTP 寄信、`APP_BASE_URL`、`TRUST_PROXY`）都是選填，之後隨時到 Vercel 的 Environment Variables 補即可。
 
+### 出狀況了？三種常見問題與修法
+
+這三種都是實際跑一鍵部署會遇到的。先認症狀，再照修法走。
+
+#### ① 複製程式時說「repo 已存在」
+
+```text
+A repository named "campus-toolkit" already exists. Choose a different name.
+```
+
+**原因**：你的 GitHub 上已經有同名 repo —— 多半是先前 fork 過，或按鈕流程做到一半中斷、再按一次時殘留下來的。
+
+**修法**：回到表單最上方的 **Repository Name** 欄，改成別的名字（例如 `campus-toolkit-school`）；`Project Name` 若也顯示重複，一併改掉。改完再按 Deploy，不會影響任何設定。
+
+#### ② 按下 Deploy 後畫面變成 404
+
+```text
+https://vercel.com/%2Fnew%2Fcontinue%3FloginReturn%3D...
+```
+
+**原因**：走 GitHub 登入回跳時，流程的狀態掉了。**重新整理救不回來**（會一直卡在同一頁）。
+
+**修法**：**再按一次本 README 的「Deploy with Vercel」按鈕**。此時你已經登入，會直接回到表單，不必重走登入流程。
+
+#### ③ 網站上線了，但同事看到的是 Vercel 登入頁
+
+**原因**：Vercel 給專案兩種網址，開放程度不同：
+
+| 網址長相 | 誰看得到 |
+|---|---|
+| `你的專案名.vercel.app` | **所有人** —— 這才是正式網址 |
+| `你的專案名-xxxxxxx-團隊.vercel.app` | 只有團隊成員；外人會被導去登入 Vercel |
+
+**修法**：對外一律分享**上面那一種**。到 Vercel 專案頁的 `Domains` 區塊複製，別從部署紀錄裡拿。
+
 > 想在本機跑、想改程式碼、或想先測過再上線？往下看完整的手動流程。
 
 ## 架設流程總覽（手動路徑，給第一次自架的人）
