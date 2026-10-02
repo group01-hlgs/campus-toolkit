@@ -98,10 +98,13 @@ https://vercel.com/%2Fnew%2Fcontinue%3FloginReturn%3D...
 ### 第 3 步：去 Firebase 開一間「虛擬機房」
 
 1. Firebase Console → **新增專案**（名字隨意）。
-2. 啟用 **Google 登入**（Authentication → Sign-in method → Google）。
-3. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
-4. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。
-5. 把 Firestore 安全規則設成本 repo 的 `firestore.rules`（預設不給瀏覽器直接讀寫，比較安全）。
+2. **建立 Firestore 資料庫**：左側 Build → Firestore database → **Create database** → 選位置（建議離使用者近的，**建好就不能改**）→ 選 **不開放瀏覽器存取**的模式（Production mode，新版介面叫 Restrictive）→ 建立。
+   ⚠️ **新專案不會自動有資料庫** —— 漏這步的話，服務帳號私鑰照樣下載得到、部署也照樣成功，但任何資料讀寫都會失敗。
+   資料結構**不用另外建立**：Firestore 是結構自由的，程式用到哪個集合，第一次寫入時會自動長出來（`users`、四張身分名冊、`settings` 等），首筆由 `/setup` 建首位管理員時寫入。
+3. 啟用 **Google 登入**（Authentication → Sign-in method → Google）。
+4. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
+5. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。
+6. 把 Firestore 安全規則設成本 repo 的 `firestore.rules`（預設不給瀏覽器直接讀寫，比較安全）。
    ⚠️ 本 repo 的 `.firebaserc` 還綁著原作者的專案 ID，執行 `firebase deploy` 前請先改成你的專案，或直接在 Console 貼上規則（見下方「Firebase 專案設定」第 5 點）。
 
 ### 第 4 步：填環境變數（把第 3 步拿到的東西貼進去）
