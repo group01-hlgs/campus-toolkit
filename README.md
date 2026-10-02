@@ -100,7 +100,7 @@ https://vercel.com/%2Fnew%2Fcontinue%3FloginReturn%3D...
 1. Firebase Console → **新增專案**（名字隨意）。
 2. **建立 Firestore 資料庫**：左側 Build → Firestore database → **Create database** → 選位置（建議離使用者近的，**建好就不能改**）→ 選 **不開放瀏覽器存取**的模式（Production mode，新版介面叫 Restrictive）→ 建立。
    ⚠️ **新專案不會自動有資料庫** —— 漏這步的話，服務帳號私鑰照樣下載得到、部署也照樣成功，但任何資料讀寫都會失敗。
-   資料結構**不用另外建立**：Firestore 是結構自由的，程式用到哪個集合，第一次寫入時會自動長出來（`users`、四張身分名冊、`settings` 等），首筆由 `/setup` 建首位管理員時寫入。
+   資料結構**不用另外建立**：Firestore 是結構自由的，程式用到哪個集合，第一次寫入時會自動長出來（`users`、四張身分名冊、`settings` 等），首筆由 `/setup` 建首位管理員時寫入。12 個集合的完整清單見下方「Firebase 專案設定 → Firestore 資料結構」。
 3. 啟用 **Google 登入**（Authentication → Sign-in method → Google）。
 4. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
 5. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。
@@ -275,6 +275,31 @@ npm run dev
    ```
 
    ⚠️ 執行前請先確認 `.firebaserc` 的 `default` 已改成**你自己的** Firebase 專案 ID（fork 後仍是原作者的 `campus-toolkit-e77e4`，不改會因無權限而失敗）。也可以不裝 Firebase CLI，直接在 Console → Firestore → 規則 貼上相同內容後發布。
+
+### Firestore 資料結構（12 個集合）
+
+Firestore 是結構自由的，**集合不用預先建立** —— 程式第一次寫入某個集合時，它才會出現。本程式會用到的全部集合：
+
+| 集合 | 用途 | 誰寫第一筆 |
+|------|------|-----------|
+| `users` | 帳號（電子郵件、密碼雜湊、身分、可開的模組） | `/setup` 建首位管理員 |
+| `rosterAdmins` | 管理員名冊 | 同上（同一次請求一起寫） |
+| `rosterStudents` | 學生名冊 | 後台 Excel 匯入 |
+| `rosterParents` | 家長名冊 | 同上 |
+| `rosterStaff` | 教職員名冊 | 同上 |
+| `settings`（文件 `system`） | 系統設定（系統名稱、閒置逾時、維護開關、Google 登入開關） | 後台首次存設定；**沒存之前讀程式內建的 `defaultSettings`** |
+| `activityLog` | 後台操作紀錄 | 第一次後台操作 |
+| `revokedJTIs` | 已登出／失效的登入權杖 | 第一次登出或改密碼 |
+| `passwordResetTokens` | 忘記密碼的重設權杖 | 第一次使用忘記密碼 |
+| `examLeaderboard` | 學測滿級分排行榜 TOP 100 | 第一次寫入分數 |
+| `wrenchLeaderboard` | 丟板手排行榜 TOP 100 | 同上 |
+| `moonLeaderboard` | 嫦娥奔月排行榜 TOP 100 | 同上 |
+
+**空資料庫就是預期狀態**，分身專案不必先補任何資料：
+
+- 每個集合讀到空的都有回退 —— `settings` 回 `defaultSettings`、名冊頁顯示「目前沒有資料」、排行榜是空榜。
+- `/setup` 讀空的管理員名冊會判定「可建首任管理員」，**空庫正是它的啟動條件**。
+- **索引也不用建** —— `firebase.json` 沒有 indexes 段，所有查詢都是單一欄位排序（Firestore 自動索引），沒有需要手動建立的複合索引。
 
 ## 首次啟動（建立管理員）
 
