@@ -208,6 +208,8 @@ export async function POST(request: NextRequest) {
       failedAttempts: 0,
       lockedUntil: 0,
       lockIp: "",
+      // 本人已透過一次性連結設定新密碼：解除「須先改密碼」要求
+      mustChangePassword: false,
     });
 
     // 自動登入：以「當期名冊有效身分」決定要進入的身分（token 記錄的 role 只是提示）

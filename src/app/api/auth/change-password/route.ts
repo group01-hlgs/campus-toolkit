@@ -61,6 +61,8 @@ export async function POST(request: NextRequest) {
       failedAttempts: 0,
       lockedUntil: 0,
       lockIp: "",
+      // 本人已設定新密碼：解除「首次登入須先改密碼」的全螢幕要求
+      mustChangePassword: false,
     });
 
     const priorSession = await getSession();

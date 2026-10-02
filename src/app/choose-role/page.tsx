@@ -22,6 +22,8 @@ type ApiResponse = {
     displayName?: string;
     role?: string;
     roles?: string[];
+    /** 首次登入須先改密碼（管理員代設的預設密碼） */
+    mustChangePassword?: boolean;
   };
 };
 
@@ -169,6 +171,8 @@ export default function ChooseRolePage() {
         roles: Array.isArray(data.user.roles)
           ? (data.user.roles.filter(isUserRole) as UserRole[])
           : [data.user.role],
+        // 首次登入須先改密碼：選完身分後立即顯示全螢幕遮罩
+        mustChangePassword: data.user.mustChangePassword === true,
       };
       if (!user.uid) {
         setError("登入回應格式錯誤，請稍後再試");

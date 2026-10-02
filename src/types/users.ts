@@ -254,6 +254,12 @@ export interface AccountRecord {
   failedAttempts: number;
   /** 每次重設密碼 +1，使舊 JWT 全數失效 */
   tokenVersion: number;
+  /**
+   * 需由本人修改密碼（管理員設定的預設密碼）：登入後全螢幕要求先改密碼才放行。
+   * 建立帳號、管理員重設他人密碼時標記；本人改密或一次性連結重設時清除。
+   * 缺省（舊帳號、Google 建立的帳號）＝false，不強制。
+   */
+  mustChangePassword?: boolean;
   createdAt: number;
 }
 

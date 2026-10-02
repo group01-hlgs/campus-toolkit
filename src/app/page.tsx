@@ -28,6 +28,8 @@ type ApiResponse = {
     displayName?: string;
     role?: string;
     roles?: string[];
+    /** 首次登入須先改密碼（管理員代設的預設密碼） */
+    mustChangePassword?: boolean;
   };
 };
 
@@ -178,6 +180,8 @@ export default function Home() {
         roles: Array.isArray(data.user.roles)
           ? (data.user.roles.filter(isUserRole) as UserRole[])
           : [data.user.role],
+        // 首次登入須先改密碼：登入後立即顯示全螢幕遮罩
+        mustChangePassword: data.user.mustChangePassword === true,
       };
       setCachedSession(user);
 
@@ -336,6 +340,8 @@ export default function Home() {
         roles: Array.isArray(data.user.roles)
           ? (data.user.roles.filter(isUserRole) as UserRole[])
           : [data.user.role],
+        // 首次登入須先改密碼（Google 登入也可能帶旗標）：立即顯示全螢幕遮罩
+        mustChangePassword: data.user.mustChangePassword === true,
       };
       setCachedSession(user);
       if (email) setLastGoogleLoginEmail(email);

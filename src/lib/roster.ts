@@ -335,6 +335,8 @@ export function buildAccountRecord(
     lockIp: "",
     failedAttempts: 0,
     tokenVersion: 1,
+    // 管理員代設的預設密碼：本人首次登入須先修改（全螢幕擋下，見 ForceChangePassword）
+    mustChangePassword: true,
     createdAt: now,
   };
   if (isUserRole(preferredRole)) record.preferredRole = preferredRole;

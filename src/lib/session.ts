@@ -11,11 +11,28 @@ export interface UserSession {
   roles?: UserRole[];
   /** 管理員被指派的功能模組（首頁卡片顯示用；超級管理員＝全部） */
   adminModules?: string[];
+  /** 首次登入須先修改密碼（管理員代設的預設密碼）：全螢幕強制改密碼遮罩用 */
+  mustChangePassword?: boolean;
 }
 
 let cached: UserSession | null = null;
 let checked = false;
 let inFlight: Promise<UserSession | null> | null = null;
+
+/** session 快取的訂閱者（強制改密碼遮罩等元件用來即時反應登入／改密後的旗標） */
+type SessionListener = () => void;
+const listeners = new Set<SessionListener>();
+
+export function subscribeSession(listener: SessionListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifySession(): void {
+  for (const listener of listeners) listener();
+}
 
 function toUserSession(user: unknown): UserSession | null {
   if (!user || typeof user !== "object") return null;
@@ -34,6 +51,7 @@ function toUserSession(user: unknown): UserSession | null {
     adminModules: Array.isArray(u.adminModules)
       ? u.adminModules.filter((item): item is string => typeof item === "string")
       : undefined,
+    mustChangePassword: u.mustChangePassword === true,
   };
 }
 
@@ -59,6 +77,7 @@ export async function fetchSession(force = false): Promise<UserSession | null> {
     } finally {
       checked = true;
       inFlight = null;
+      notifySession();
     }
     return cached;
   })();
@@ -69,11 +88,13 @@ export async function fetchSession(force = false): Promise<UserSession | null> {
 export function setCachedSession(user: UserSession): void {
   cached = user;
   checked = true;
+  notifySession();
 }
 
 export function clearSession(): void {
   cached = null;
   checked = true;
+  notifySession();
 }
 
 export async function logout(): Promise<void> {

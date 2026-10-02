@@ -126,6 +126,8 @@ export default function TwoFactorVerify({ mode }: { mode: Mode }) {
             displayName: data.user.displayName || "",
             role: (isUserRole(data.user.role) ? data.user.role : "") as UserRole,
             roles: roles.length > 0 ? roles : undefined,
+            // 首次登入須先改密碼：驗證通過後立即顯示全螢幕遮罩
+            mustChangePassword: data.user.mustChangePassword === true,
           };
           if (!user.role) {
             setError("登入回應格式錯誤，請稍後再試");

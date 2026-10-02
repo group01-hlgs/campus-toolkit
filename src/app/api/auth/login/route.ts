@@ -377,6 +377,8 @@ export async function POST(request: NextRequest) {
       roles: candidates.map((candidate) => candidate.role),
       tokenVersion:
         typeof hit.data.tokenVersion === "number" ? hit.data.tokenVersion : 1,
+      // 首次登入須先改密碼（管理員代設的預設密碼）：登入回應即帶出，遮罩不必等重取 session
+      mustChangePassword: hit.data.mustChangePassword === true,
     };
 
     await createSession({

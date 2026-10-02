@@ -67,12 +67,15 @@ interface AccountForm {
 
 const EMPTY_FORM: AccountForm = { email: "", account: "", name: "", password: "" };
 
+/** 管理員代為設定的預設密碼提示（規則同 isStrongPassword；首次登入會要求本人修改） */
+const DEFAULT_PASSWORD_PLACEHOLDER = "預設密碼；至少8碼，須含大寫、小寫與數字";
+
 /** 「同時建立身分」的名冊專屬欄位（只存目前所選身分的欄位，換身分即清空） */
 type RosterForm = Record<string, string>;
 
 const BATCH_HINTS: Record<AccountBatchMode, string> = {
   create:
-    "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼；" +
+    "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼（預設密碼，該使用者首次登入須先修改）；" +
     "可選：慣用身分（學生／家長／教職員／管理員）、身分（填了即同時建立當期該身分，需一併填該身分的名冊欄位，" +
     "如學生的學號；不填＝只建帳號，事後至「身分名冊管理」指定）。單批最多 900 列。",
   update: "以「電子郵件地址」或「帳號」辨識該列（兩者都填須指向同一帳號）；可更新：姓名、帳號、慣用身分、狀態，空白欄位＝不修改。不支援批次修改電子郵件地址與密碼。",
@@ -81,7 +84,7 @@ const BATCH_HINTS: Record<AccountBatchMode, string> = {
 
 /** 未被指派「身分名冊管理」權限時的新增模式說明（無法同時建立身分） */
 const BATCH_HINT_CREATE_NO_ROSTER =
-  "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼；" +
+  "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼（預設密碼，該使用者首次登入須先修改）；" +
   "可選：慣用身分（學生／家長／教職員／管理員）。未被指派「身分名冊管理」權限，無法同時建立身分。單批最多 900 列。";
 
 /** 批次作業範例檔（存於 docs/，由 /api/admin/downloads 提供下載；粗體＝目前所選模式） */
@@ -1074,7 +1077,7 @@ export default function AccountsPage() {
                   value={form.password}
                   onChange={(e) => handleField("password", e.target.value)}
                   autoComplete="new-password"
-                  placeholder={editingUid ? "留空表示不變更密碼" : "至少 8 碼，需含大寫、小寫與數字"}
+                  placeholder={editingUid ? "留空表示不變更密碼" : DEFAULT_PASSWORD_PLACEHOLDER}
                   className="w-full input-theme rounded px-3 py-2 pr-10"
                 />
                 <PasswordToggleButton
@@ -1132,7 +1135,7 @@ export default function AccountsPage() {
 
             <p className="text-xs text-t3">
               電子郵件地址與帳號至少填寫一個（登入識別用，另一欄可留空）；同一組帳號具備多個身分時，
-              登入依慣用身分決定預設身分。
+              登入依慣用身分決定預設身分。此處設定的密碼為預設密碼，該使用者首次登入時會被要求先修改。
               {canCreateRoster
                 ? "未選擇「同時建立身分」時，建立帳號後請至「身分名冊管理」指定身分。"
                 : "建立帳號後，請至「身分名冊管理」指定身分。"}
@@ -1412,7 +1415,8 @@ export default function AccountsPage() {
                 {resetTarget.name}（{resetTarget.account || resetTarget.email}）
               </p>
               <p className="text-xs text-t3 mt-1">
-                重設後該帳號的既有登入狀態會全部失效，需重新登入。
+                重設後該帳號的既有登入狀態會全部失效，需重新登入；
+                對方下次登入時會被要求先由本人修改密碼。
               </p>
             </div>
             <div className="flex flex-col gap-1">
@@ -1425,7 +1429,7 @@ export default function AccountsPage() {
                   value={resetPassword}
                   onChange={(e) => setResetPassword(e.target.value)}
                   autoComplete="new-password"
-                  placeholder="至少 8 碼，需含大寫、小寫與數字"
+                  placeholder={DEFAULT_PASSWORD_PLACEHOLDER}
                   className="w-full input-theme rounded px-3 py-2 pr-10"
                 />
                 <PasswordToggleButton

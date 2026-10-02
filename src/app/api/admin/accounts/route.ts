@@ -353,6 +353,8 @@ export async function PUT(request: NextRequest) {
       updateData.failedAttempts = 0;
       updateData.lockedUntil = 0;
       updateData.lockIp = "";
+      // 管理員代設的預設密碼：對方下次登入須先由本人修改
+      updateData.mustChangePassword = true;
     }
     // 慣用身分：空字串＝清除（多身分登入時改回每次詢問）
     if (preferredRole !== undefined) {

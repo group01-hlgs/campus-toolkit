@@ -279,7 +279,11 @@ export async function POST(request: NextRequest) {
       details: `兩階段驗證登入成功（${ROLE_LABELS[role]}）`,
     });
 
-    return NextResponse.json({ success: true, user });
+    // 首次登入須先改密碼（管理員代設的預設密碼）：回應即帶出，遮罩不必等重取 session
+    return NextResponse.json({
+      success: true,
+      user: { ...user, mustChangePassword: userData.mustChangePassword === true },
+    });
   } catch (error) {
     console.error("2FA verify error:", error);
     return NextResponse.json(
