@@ -12,7 +12,7 @@
 
 ## 一鍵部署（給不想碰終端機的人）
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit&env=NEXT_PUBLIC_FIREBASE_API_KEY,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,NEXT_PUBLIC_FIREBASE_PROJECT_ID,NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,NEXT_PUBLIC_FIREBASE_APP_ID,SESSION_SECRET,FIREBASE_SERVICE_ACCOUNT_KEY,ALLOW_BOOTSTRAP_ADMIN&envDefaults=%7B%22ALLOW_BOOTSTRAP_ADMIN%22%3A%22true%22%7D&envDescription=%E5%A1%AB%E5%85%A5%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%20Firebase%20Web%20%E8%A8%AD%E5%AE%9A%E8%88%87%E9%87%91%E9%91%B0%EF%BC%9BALLOW_BOOTSTRAP_ADMIN%20%E4%BF%9D%E6%8C%81%20true%20%E4%BB%A5%E4%BE%BF%E7%A8%8D%E5%BE%8C%E5%BB%BA%E7%AB%8B%E9%A6%96%E4%BD%8D%E7%AE%A1%E7%90%86%E5%93%A1%EF%BC%8C%E5%BB%BA%E5%AE%8C%E8%AB%8B%E5%9B%9E%20Vercel%20%E6%94%B9%E7%82%BA%20false%E3%80%82%E6%AC%84%E4%BD%8D%E8%AA%AA%E6%98%8E%E8%88%87%E5%8F%96%E5%BE%97%E6%96%B9%E5%BC%8F%E8%A6%8B%20README%E3%80%8C%E7%92%B0%E5%A2%83%E8%AE%8A%E6%95%B8%E3%80%8D%E4%B8%80%E7%AF%80%E3%80%82&envLink=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit%2Fblob%2Fmain%2FREADME.md%23%E7%92%B0%E5%A2%83%E8%AE%8A%E6%95%B8&project-name=campus-toolkit&repository-name=campus-toolkit)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit&env=NEXT_PUBLIC_FIREBASE_API_KEY,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,NEXT_PUBLIC_FIREBASE_PROJECT_ID,NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,NEXT_PUBLIC_FIREBASE_APP_ID,SESSION_SECRET,FIREBASE_SERVICE_ACCOUNT_KEY,ALLOW_BOOTSTRAP_ADMIN&envDefaults=%7B%22ALLOW_BOOTSTRAP_ADMIN%22%3A%22true%22%7D&envDescription=Firebase%20%E6%AC%84%E4%BD%8D%E8%87%AA%E4%BD%A0%E7%9A%84%20Console%20%E8%A4%87%E8%A3%BD%EF%BC%9BSESSION_SECRET%20%E6%98%AF%E5%94%AF%E4%B8%80%E9%9C%80%E8%87%AA%E8%A1%8C%E7%94%A2%E7%94%9F%E7%9A%84%E6%AC%84%E4%BD%8D%EF%BC%88%E4%BA%82%E6%95%B8%EF%BC%8C%E8%87%B3%E5%B0%91%2032%20%E5%AD%97%E5%85%83%EF%BC%89%EF%BC%9BALLOW_BOOTSTRAP_ADMIN%20%E5%BB%BA%E5%AE%8C%E7%AE%A1%E7%90%86%E5%93%A1%E5%BE%8C%E6%94%B9%E7%82%BA%20false%E3%80%82%E8%A6%8F%E5%89%87%E8%A6%8B%20README%E3%80%8C%E7%92%B0%E5%A2%83%E8%AE%8A%E6%95%B8%E3%80%8D%E3%80%82&envLink=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit%2Fblob%2Fmain%2FREADME.md%23%E7%92%B0%E5%A2%83%E8%AE%8A%E6%95%B8&project-name=campus-toolkit&repository-name=campus-toolkit)
 
 按下去之後，Vercel 會**自動把程式碼複製到你的 GitHub 帳號**、開好專案，並出現一張表單要你貼 9 個環境變數（欄位說明與取得方式就在表單旁，連到本 README）。填完按 Deploy 就上線了。
 
@@ -23,7 +23,7 @@
 按鈕只負責「搬程式＋上線」，**Firebase 那間機房還是得自己開**，因為表單要填的值都出自那裡。照下方「架設流程總覽」的**第 1 步**與**第 3 步**做完（約 10 分鐘），手上有這 9 個值就能按：
 
 - 6 個 `NEXT_PUBLIC_*`（Firebase Web 應用程式設定）
-- `SESSION_SECRET`（一行 `openssl rand -base64 32` 產生）
+- `SESSION_SECRET`（**唯一要自己產生、不是去哪裡找的欄位**。至少 32 字元；macOS／Linux：`openssl rand -base64 32`，Windows PowerShell：`[Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')`）
 - `FIREBASE_SERVICE_ACCOUNT_KEY`（服務帳號私鑰，整段 JSON）
 - `ALLOW_BOOTSTRAP_ADMIN`（已預填 `true`，不用動）
 
@@ -78,7 +78,7 @@ cp .env.example .env.local
 編輯 `.env.local`，至少填好：
 
 - Firebase 的 6 個 `NEXT_PUBLIC_*`（第 3 步）
-- `SESSION_SECRET`（亂數字串，可用 `openssl rand -base64 32`）
+- `SESSION_SECRET`（亂數字串，**至少 32 字元**；macOS／Linux 用 `openssl rand -base64 32`，Windows PowerShell 用 `[Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')`）
 - `FIREBASE_SERVICE_ACCOUNT_KEY`（第 3 步下載的私鑰，整段 JSON 貼上）
 - `ALLOW_BOOTSTRAP_ADMIN=true`（**只**為了建立第一個管理員，之後要改回 false）
 - `SMTP_*` + `APP_BASE_URL`（**建議**：不填的話「忘記密碼」與 Email 驗證碼信件無法寄出，其他功能不受影響）
@@ -201,7 +201,7 @@ npm run dev
 
 | 變數 | 必填 | 說明 |
 |------|------|------|
-| `SESSION_SECRET` | 是 | 簽 session JWT 用，**至少 32 字元**。可用 `openssl rand -base64 32` 產生 |
+| `SESSION_SECRET` | 是 | 簽 session JWT 用，**至少 32 字元**。**唯一要自行產生的欄位**——不來自 Firebase、不來自 Vercel，沒有「去哪裡找」這回事。macOS／Linux：`openssl rand -base64 32`；Windows PowerShell：`[Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')`。⚠️ **不足 32 字元時部署仍會成功、`/setup` 也能建管，但一登入就 500** |
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | 是 | Firebase 服務帳號金鑰。Console → 專案設定 → 服務帳號 → 產生新的私鑰；可貼**整段 JSON 字串**或其 **base64** |
 | `ALLOW_BOOTSTRAP_ADMIN` | 首次啟動 | 僅在建立「第一個管理員」時設為 `true`，建完請改回 `false` |
 
@@ -243,6 +243,18 @@ npm run dev
 1. 確認 `.env.local` 已設 `ALLOW_BOOTSTRAP_ADMIN=true`，且 `SESSION_SECRET`、`FIREBASE_SERVICE_ACCOUNT_KEY` 已填。
 2. 啟動 `npm run dev`，開啟 **`/setup`**，建立第一個管理員帳號（密碼至少 8 碼）。
 3. 成功後登入首頁，再把 `ALLOW_BOOTSTRAP_ADMIN` 改為 `false`（或移除）並重啟，避免資料庫被清空後可免驗證建管。
+
+### 疑難排解：管理員建好了，但一登入就 500
+
+症狀長這樣：
+
+```text
+部署成功 → 網站開得出來 → /setup 顯示可建立 → 管理員建立成功 → 按「登入」→ 500 系統錯誤
+```
+
+原因：`SESSION_SECRET` **不足 32 字元**（或根本沒設）。它只在「簽登入 cookie」那一刻才被檢查（`src/lib/session-token.ts`），部署與 `/setup` 全程不碰它——所以**前面每步都對，問題只在最後一步爆出來**。這很容易被誤判成 Firebase 設錯或部署壞了。
+
+解法：換一組 **≥32 字元**的 `SESSION_SECRET` → Redeploy。**管理員資料不會掉**（存在 Firestore，與這個金鑰無關），補好後直接登入即可。
 
 ### （選用）種子角色資料
 
