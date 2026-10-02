@@ -9,6 +9,7 @@
 import {
   ACTIVE_STATUS,
   ADMIN_MODULES,
+  ALL_ROLES,
   AdminModule,
   AccountStatus,
   ROLE_LABELS,
@@ -341,6 +342,38 @@ export function rosterImportFields(role: RosterRole): RosterFieldDef[] {
     .map((key) => fields.find((field) => field.key === key))
     .filter((field): field is RosterFieldDef => Boolean(field));
 }
+
+/**
+ * 該身分的「名冊專屬欄位」定義（順序同 ROSTER_ENTRY_FIELDS，不含帳號三欄）。
+ * 表單動態欄位、批次檔標題列共用。
+ */
+export function rosterEntryFieldDefs(role: RosterRole): RosterFieldDef[] {
+  const wanted: EntryFieldKey[] = ROSTER_ENTRY_FIELDS[role];
+  return wanted
+    .map((key) => ROSTER_FIELDS[role].find((field) => field.key === key))
+    .filter((field): field is RosterFieldDef => Boolean(field));
+}
+
+/**
+ * 名冊專屬欄位跨四種身分的標題別名（同鍵欄位的別名合併去重）。
+ * 「使用者帳號管理」的批次檔不分身分、單一工作表，故需一份跨身分的欄位表。
+ */
+export function rosterEntryHeaderAliases(key: EntryFieldKey): string[] {
+  const aliases: string[] = [];
+  for (const role of ALL_ROLES) {
+    const def = ROSTER_FIELDS[role].find((field) => field.key === key);
+    if (!def) continue;
+    for (const alias of def.aliases) {
+      if (!aliases.includes(alias)) aliases.push(alias);
+    }
+  }
+  return aliases;
+}
+
+/** 名冊專屬欄位的鍵（四種身分合併、去重，順序 ALL_ROLES） */
+export const ROSTER_ENTRY_FIELD_KEYS: EntryFieldKey[] = ALL_ROLES.flatMap(
+  (role) => ROSTER_ENTRY_FIELDS[role]
+).filter((key, index, list) => list.indexOf(key) === index);
 
 /** 辨識鍵說明：電子郵件地址與帳號至少填一個（登入識別），兩者都填須指向同一帳號 */
 export const ROSTER_IDENTITY_LABEL = "電子郵件地址或帳號（至少填一個）";

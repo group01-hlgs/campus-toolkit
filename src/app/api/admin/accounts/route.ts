@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { hasAdminModule, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
@@ -21,15 +21,25 @@ import {
   UserRole,
 } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
-import { rosterCollection } from "@/types/roster";
+import {
+  isRosterRole,
+  rosterCollection,
+  rosterRoleLabel,
+  RosterInput,
+  RosterRole,
+} from "@/types/roster";
 import {
   accountStatusGuard,
   buildAccountRecord,
+  buildRosterEntry,
   checkRosterConflict,
   hashRosterPassword,
   loadAccountIndex,
+  loadRosterIndex,
+  rosterEntryId,
   syncEntryIdentity,
   validateAccountInput,
+  validateRosterInput,
 } from "@/lib/roster";
 
 /** 帳號狀態變更的守門：本人、以及「仍是有效管理員且只剩他一位」都要擋 */
@@ -100,16 +110,25 @@ function parseAccountBody(body: Record<string, unknown>): {
   preferredRole: unknown;
 } {
   const uid = typeof body.uid === "string" ? body.uid : "";
-  const raw = body.input;
-  const input: Record<string, string> =
-    raw && typeof raw === "object" && !Array.isArray(raw)
-      ? Object.fromEntries(
-          Object.entries(raw as Record<string, unknown>).filter(
-            (entry): entry is [string, string] => typeof entry[1] === "string"
-          )
+  return { uid, input: parseStringRecord(body.input), preferredRole: body.preferredRole };
+}
+
+function parseStringRecord(raw: unknown): Record<string, string> {
+  return raw && typeof raw === "object" && !Array.isArray(raw)
+    ? Object.fromEntries(
+        Object.entries(raw as Record<string, unknown>).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string"
         )
-      : {};
-  return { uid, input, preferredRole: body.preferredRole };
+      )
+    : {};
+}
+
+/** 「同時建立身分」區段：格式或身分無效回 null（呼叫端回 400） */
+function parseRosterSection(raw: unknown): { role: RosterRole; input: RosterInput } | null {
+  if (typeof raw !== "object" || Array.isArray(raw)) return null;
+  const section = raw as Record<string, unknown>;
+  if (!isRosterRole(section.role)) return null;
+  return { role: section.role, input: parseStringRecord(section.input) as RosterInput };
 }
 
 /** 慣用身分：undefined＝不更動、空字串＝清除、其餘須為合法身分 */
@@ -155,7 +174,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST：新增使用者帳號（不含名冊條目，身分於「身分名冊管理」建立） */
+/**
+ * POST：新增使用者帳號；可於同一請求附帶「同時建立身分」，
+ * 於寫入帳號後一併建立當期（目前學年度學期）的身分名冊條目。
+ */
 export async function POST(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -178,13 +200,55 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "慣用身分無效" }, { status: 400 });
     }
 
+    // 同時建立身分（選填）：未提供＝只建帳號
+    const rawRoster = body.roster;
+    let rosterSection: { role: RosterRole; input: RosterInput } | null = null;
+    if (rawRoster !== undefined && rawRoster !== null) {
+      rosterSection = parseRosterSection(rawRoster);
+      if (!rosterSection) {
+        return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
+      }
+      // 名冊寫入屬「身分名冊管理」權限：未被指派者只能建立帳號本身
+      if (!(await hasAdminModule(session, "roster"))) {
+        return NextResponse.json(
+          { success: false, message: "需具備「身分名冊管理」權限才能同時建立身分" },
+          { status: 403 }
+        );
+      }
+    }
+
     const result = validateAccountInput(input, { requirePassword: true });
     if (!result.ok) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }
 
-    const index = await loadAccountIndex();
-    const conflict = checkRosterConflict(result.account, {}, index);
+    // 名冊欄位驗證：帳號三欄一律以帳號輸入為準（名冊只存展示副本）
+    const rosterValidation = rosterSection
+      ? validateRosterInput(rosterSection.role, {
+          ...rosterSection.input,
+          email: result.account.email,
+          account: result.account.account,
+          name: result.account.name,
+        })
+      : null;
+    if (rosterSection && !rosterValidation?.ok) {
+      return NextResponse.json(
+        { success: false, message: rosterValidation?.message || "身分資料無效" },
+        { status: 400 }
+      );
+    }
+
+    const period = rosterSection ? await getCurrentPeriod() : null;
+    // 建立身分時需連同學號查重（學號索引取自當期該身分名冊）
+    const index =
+      rosterSection && period
+        ? await loadRosterIndex(rosterSection.role, period)
+        : await loadAccountIndex();
+    const conflict = checkRosterConflict(
+      result.account,
+      rosterValidation?.ok ? rosterValidation.roster : {},
+      index
+    );
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
@@ -196,18 +260,34 @@ export async function POST(request: NextRequest) {
     );
     const docRef = await getAdminDb().collection(USER_COLLECTION).add(record);
 
+    // 當期身分名冊條目：doc id ＝ uid_學年度_學期，之後可在「身分名冊管理」維護
+    if (rosterSection && rosterValidation?.ok && period) {
+      await getAdminDb()
+        .collection(rosterCollection(rosterSection.role))
+        .doc(rosterEntryId(docRef.id, period))
+        .set(
+          buildRosterEntry(docRef.id, rosterSection.role, period, rosterValidation.roster, {
+            email: result.account.email,
+            name: result.account.name,
+          })
+        );
+    }
+
+    const rosterLabel = rosterSection ? `、同時建立當期${rosterRoleLabel(rosterSection.role)}身分` : "";
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "account_created",
       ip: getClientIp(request),
-      details: `建立帳號 ${result.account.account || result.account.email}（${result.account.name}）`,
+      details: `建立帳號 ${result.account.account || result.account.email}（${result.account.name}）${rosterLabel}`,
     });
 
     return NextResponse.json({
       success: true,
       uid: docRef.id,
-      message: "帳號已建立，請至「身分名冊管理」指定身分",
+      message: rosterSection
+        ? `帳號已建立，並已建立當期${rosterRoleLabel(rosterSection.role)}身分`
+        : "帳號已建立，請至「身分名冊管理」指定身分",
     });
   } catch (error) {
     console.error("Account create error:", error);

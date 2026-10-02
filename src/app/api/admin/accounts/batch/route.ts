@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { hasAdminModule, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
+import { SchoolPeriod } from "@/types/settings";
 import {
   ACCOUNT_BATCH_MODE_LABELS,
   ACTIVE_STATUS,
@@ -25,16 +26,30 @@ import {
   normalizeAccountStatus,
   statusLabel,
 } from "@/types/users";
-import { AccountInput, RosterInput } from "@/types/roster";
+import {
+  AccountInput,
+  EntryFieldKey,
+  ROSTER_ENTRY_FIELDS,
+  ROSTER_ENTRY_FIELD_KEYS,
+  RosterInput,
+  RosterRole,
+  rosterCollection,
+  rosterEntryHeaderAliases,
+  rosterRoleLabel,
+} from "@/types/roster";
 import {
   AccountFields,
+  RosterData,
   RosterIndex,
   accountStatusGuard,
   buildAccountRecord,
+  buildRosterEntry,
   checkRosterConflict,
   hashRosterPassword,
+  rosterEntryId,
   syncEntryIdentity,
   validateAccountInput,
+  validateRosterInput,
 } from "@/lib/roster";
 
 export const maxDuration = 300;
@@ -44,18 +59,14 @@ const DELETE_CHUNK = 400;
 
 const MODES: AccountBatchMode[] = ["create", "update", "delete"];
 
-type BatchFieldKey = "email" | "account" | "name" | "password" | "preferredRole" | "status";
+type AccountColumnKey = "email" | "account" | "name" | "password" | "preferredRole" | "status";
 
-interface BatchFields {
-  email: string;
-  account: string;
-  name: string;
-  password: string;
-  preferredRole: string;
-  status: string;
-}
+/** 批次檔的欄位鍵：帳號欄位＋「身分」＋名冊專屬欄位（跨四種身分） */
+type BatchFieldKey = AccountColumnKey | "role" | EntryFieldKey;
 
-const FIELD_HEADERS: { key: BatchFieldKey; aliases: string[] }[] = [
+type BatchFields = Record<BatchFieldKey, string>;
+
+const FIELD_HEADERS: { key: AccountColumnKey; aliases: string[] }[] = [
   { key: "email", aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail", "mail"] },
   { key: "account", aliases: ["帳號", "账号", "使用者名稱", "account", "username"] },
   { key: "name", aliases: ["姓名", "名稱", "name"] },
@@ -66,6 +77,21 @@ const FIELD_HEADERS: { key: BatchFieldKey; aliases: string[] }[] = [
   },
   { key: "status", aliases: ["狀態", "状态", "status"] },
 ];
+
+/** 「身分」欄：填了才會在建立帳號的同時建立當期該身分名冊條目 */
+const ROLE_HEADER: { key: "role"; aliases: string[] } = {
+  key: "role",
+  aliases: ["身分", "身份", "role"],
+};
+
+/** 名冊專屬欄位（學號、班級、屬性等）的標題別名，依「身分」欄決定讀哪些 */
+const ROSTER_HEADERS: { key: EntryFieldKey; aliases: string[] }[] = ROSTER_ENTRY_FIELD_KEYS.map(
+  (key) => ({ key, aliases: rosterEntryHeaderAliases(key) })
+);
+
+const ALL_HEADERS = [...FIELD_HEADERS, ROLE_HEADER, ...ROSTER_HEADERS];
+
+const FIELD_KEYS: BatchFieldKey[] = ALL_HEADERS.map((field) => field.key);
 
 function normalizeHeader(value: string): string {
   return value.toLowerCase().replace(/\s+/g, "");
@@ -89,7 +115,9 @@ function parseStatus(value: string): AccountStatus | null {
 }
 
 function emptyFields(): BatchFields {
-  return { email: "", account: "", name: "", password: "", preferredRole: "", status: "" };
+  const row = {} as Record<BatchFieldKey, string>;
+  for (const key of FIELD_KEYS) row[key] = "";
+  return row;
 }
 
 function parseSpreadsheet(buffer: Buffer): { rows: BatchFields[] } | { error: string } {
@@ -108,7 +136,7 @@ function parseSpreadsheet(buffer: Buffer): { rows: BatchFields[] } | { error: st
   }
 
   const headerMap = new Map<string, BatchFieldKey>();
-  for (const field of FIELD_HEADERS) {
+  for (const field of ALL_HEADERS) {
     for (const alias of field.aliases) headerMap.set(normalizeHeader(alias), field.key);
   }
 
@@ -127,7 +155,8 @@ function parseSpreadsheet(buffer: Buffer): { rows: BatchFields[] } | { error: st
 
   if (matched.size === 0) {
     return {
-      error: "標題列無法辨識，第一列需為欄位名稱（電子郵件地址／帳號／姓名／密碼／慣用身分／狀態）",
+      error:
+        "標題列無法辨識，第一列需為欄位名稱（電子郵件地址／帳號／姓名／密碼／慣用身分／狀態／身分）",
     };
   }
   return { rows };
@@ -174,6 +203,12 @@ interface PlannedCreate {
   account: AccountFields;
   password: string;
   preferredRole?: UserRole;
+  /** 同時建立的身分（未填「身分」欄＝只建帳號） */
+  role?: RosterRole;
+  /** 該身分的名冊專屬欄位（已驗證） */
+  roster?: RosterData;
+  /** 預覽列的附加說明 */
+  note?: string;
 }
 
 interface PlannedUpdate {
@@ -209,7 +244,43 @@ function skipRow(row: number, fields: BatchFields, reason: string): PlannedSkip 
   return { row, action: "skip", key: rowKey(fields), reason };
 }
 
-function planCreate(row: number, fields: BatchFields, index: RosterIndex): PlannedRow {
+/** 「身分」欄的辨識（空白＝不建立身分）；無法辨識回錯誤訊息 */
+function parseRosterRole(value: string): { role?: RosterRole; error?: string } {
+  if (!value) return {};
+  const role = ROLE_HEADERS.get(normalizeHeader(value));
+  if (!role) return { error: "身分無法辨識（學生／家長／教職員／管理員）" };
+  return { role };
+}
+
+/**
+ * 當期「該身分」名冊的學號索引（學號查重只在同身分內比對；
+ * 家長的學號是其子女學號，故不跨表比對）。
+ */
+async function loadPeriodStudentIds(
+  role: RosterRole,
+  period: SchoolPeriod
+): Promise<RosterIndex> {
+  const index: RosterIndex = { emails: new Map(), accounts: new Map(), studentIds: new Map() };
+  const snapshot = await getAdminDb()
+    .collection(rosterCollection(role))
+    .where("academicYear", "==", period.academicYear)
+    .where("semester", "==", period.semester)
+    .get();
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const studentId = typeof data.studentId === "string" ? data.studentId : "";
+    if (studentId) index.studentIds.set(studentId, typeof data.uid === "string" ? data.uid : doc.id);
+  }
+  return index;
+}
+
+function planCreate(
+  row: number,
+  fields: BatchFields,
+  index: RosterIndex,
+  period: SchoolPeriod | null,
+  entryIndexes: Map<RosterRole, RosterIndex>
+): PlannedRow {
   const input: AccountInput = {};
   if (fields.email) input.email = fields.email;
   if (fields.account) input.account = fields.account;
@@ -226,7 +297,39 @@ function planCreate(row: number, fields: BatchFields, index: RosterIndex): Plann
     preferredRole = role;
   }
 
-  const conflict = checkRosterConflict(validation.account, {}, index);
+  // 同時建立身分：填了「身分」欄才建立當期名冊條目，其名冊欄位一併驗證
+  const rosterRole = parseRosterRole(fields.role);
+  if (rosterRole.error) return skipRow(row, fields, rosterRole.error);
+  let roster: RosterData | undefined;
+  let note: string | undefined;
+  if (rosterRole.role && period) {
+    const entryIndex = entryIndexes.get(rosterRole.role) ?? null;
+    const rosterInput: RosterInput = {};
+    for (const key of ROSTER_ENTRY_FIELD_KEYS) {
+      if (fields[key]) rosterInput[key] = fields[key];
+    }
+    const rosterValidation = validateRosterInput(rosterRole.role, {
+      ...rosterInput,
+      email: validation.account.email,
+      account: validation.account.account,
+      name: validation.account.name,
+    });
+    if (!rosterValidation.ok) return skipRow(row, fields, rosterValidation.message);
+
+    // 學號查重：只與「當期同身分」名冊比對（含本檔前列已排入者）
+    const studentId = typeof rosterValidation.roster.studentId === "string"
+      ? rosterValidation.roster.studentId
+      : "";
+    if (studentId && entryIndex?.studentIds.has(studentId)) {
+      return skipRow(row, fields, "此學號已被使用");
+    }
+
+    roster = rosterValidation.roster;
+    note = `同時建立當期${rosterRoleLabel(rosterRole.role)}身分`;
+    if (studentId && entryIndex) entryIndex.studentIds.set(studentId, `row:${row}`);
+  }
+
+  const conflict = checkRosterConflict(validation.account, roster ?? {}, index);
   if (conflict) return skipRow(row, fields, conflict);
 
   if (validation.account.email) index.emails.set(validation.account.email, `row:${row}`);
@@ -239,6 +342,9 @@ function planCreate(row: number, fields: BatchFields, index: RosterIndex): Plann
     account: validation.account,
     password: validation.password as string,
     preferredRole,
+    role: rosterRole.role,
+    roster,
+    note,
   };
 }
 
@@ -361,10 +467,19 @@ function buildPreview(mode: AccountBatchMode, planned: PlannedRow[]): AccountBat
     if (item.action === "update") {
       return { row: item.row, key: item.key, action: "update", changes: item.changes };
     }
-    return { row: item.row, key: item.key, action: item.action };
+    const note = item.action === "create" ? item.note : undefined;
+    return {
+      row: item.row,
+      key: item.key,
+      action: item.action,
+      ...(note ? { note } : {}),
+    };
   });
   const count = (action: PlannedRow["action"]) =>
     planned.filter((item) => item.action === action).length;
+  const rostered = planned.filter(
+    (item) => item.action === "create" && item.roster
+  ).length;
   return {
     mode,
     total: planned.length,
@@ -372,16 +487,25 @@ function buildPreview(mode: AccountBatchMode, planned: PlannedRow[]): AccountBat
     updated: count("update"),
     deleted: count("delete"),
     skipped: count("skip"),
+    ...(rostered > 0 ? { rostered } : {}),
     rows,
   };
 }
 
-async function executePlan(planned: PlannedRow[]): Promise<AccountBatchResult> {
+/**
+ * 執行計畫：建立帳號的同時寫入當期身分名冊條目（有「身分」者）。
+ * period 由呼叫端一次取得，整批寫入同一學期。
+ */
+async function executePlan(
+  planned: PlannedRow[],
+  period: SchoolPeriod | null
+): Promise<AccountBatchResult> {
   const db = getAdminDb();
   const users = db.collection(USER_COLLECTION);
   const skipped: { row: number; reason: string }[] = [];
   let created = 0;
   let updated = 0;
+  let rostered = 0;
   const deleteUids: string[] = [];
 
   for (const item of planned) {
@@ -393,8 +517,20 @@ async function executePlan(planned: PlannedRow[]): Promise<AccountBatchResult> {
         await hashRosterPassword(item.password),
         item.preferredRole
       );
-      await users.add(record);
+      const docRef = await users.add(record);
       created += 1;
+      if (item.role && item.roster && period) {
+        await db
+          .collection(rosterCollection(item.role))
+          .doc(rosterEntryId(docRef.id, period))
+          .set(
+            buildRosterEntry(docRef.id, item.role, period, item.roster, {
+              email: item.account.email,
+              name: item.account.name,
+            })
+          );
+        rostered += 1;
+      }
     } else if (item.action === "update") {
       await users.doc(item.uid).update(item.patch);
       if (typeof item.patch.name === "string") {
@@ -425,7 +561,7 @@ async function executePlan(planned: PlannedRow[]): Promise<AccountBatchResult> {
     }
   }
 
-  return { created, updated, deleted: deleteUids.length, skipped };
+  return { created, updated, deleted: deleteUids.length, rostered, skipped };
 }
 
 export async function POST(request: NextRequest) {
@@ -496,11 +632,39 @@ export async function POST(request: NextRequest) {
     }
 
     const { index, byUid } = await loadAccounts();
+
+    // 新增模式：先取當期學期，並載入檔案內出現身分的學號索引（同身分內查重）
+    let period: SchoolPeriod | null = null;
+    const entryIndexes = new Map<RosterRole, RosterIndex>();
+    if (mode === "create") {
+      const wantedRoles = new Set<RosterRole>();
+      for (const { fields } of dataRows) {
+        const parsedRole = parseRosterRole(fields.role);
+        if (parsedRole.role) wantedRoles.add(parsedRole.role);
+      }
+      // 名冊寫入屬「身分名冊管理」權限：未被指派者整批不建立身分（直接回報，避免逐列略過）
+      if (wantedRoles.size > 0 && !(await hasAdminModule(session, "roster"))) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "需具備「身分名冊管理」權限才能同時建立身分，請移除「身分」欄後重試",
+          },
+          { status: 403 }
+        );
+      }
+      period = await getCurrentPeriod();
+      for (const role of wantedRoles) {
+        if (ROSTER_ENTRY_FIELDS[role].includes("studentId")) {
+          entryIndexes.set(role, await loadPeriodStudentIds(role, period));
+        }
+      }
+    }
+
     const seen = new Set<string>();
     const planned: PlannedRow[] = [];
     for (const { row, fields } of dataRows) {
       if (mode === "create") {
-        planned.push(planCreate(row, fields, index));
+        planned.push(planCreate(row, fields, index, period, entryIndexes));
       } else if (mode === "update") {
         planned.push(await planUpdate(row, fields, index, byUid, seen, session.uid));
       } else {
@@ -512,21 +676,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, dryRun: true, preview: buildPreview(mode, planned) });
     }
 
-    const result = await executePlan(planned);
+    const result = await executePlan(planned, mode === "create" ? period : null);
     const label = ACCOUNT_BATCH_MODE_LABELS[mode];
+    const rosterNote = (result.rostered ?? 0) > 0 ? `、同時建立身分 ${result.rostered} 筆` : "";
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "account_batch",
       ip: getClientIp(request),
-      details: `批次${label}：新增 ${result.created} 筆、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
+      details: `批次${label}：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
     });
 
     return NextResponse.json({
       success: true,
       dryRun: false,
       result,
-      message: `批次作業完成：新增 ${result.created} 筆、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
+      message: `批次作業完成：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
     });
   } catch (error) {
     console.error("Account batch error:", error);

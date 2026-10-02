@@ -12,12 +12,16 @@ import {
   AccountBatchRow,
   AccountStatus,
   AccountSummary,
+  ADMIN_MODULES,
   ALL_ROLES,
+  BASE_ADMIN_MODULES,
   ROLE_LABELS,
+  STAFF_ATTRIBUTES,
   statusLabel,
   twoFactorShortLabel,
   UserRole,
 } from "@/types/users";
+import { RosterFieldDef, rosterEntryFieldDefs } from "@/types/roster";
 import {
   ACCOUNT_FORMAT_MESSAGE,
   ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE,
@@ -63,11 +67,22 @@ interface AccountForm {
 
 const EMPTY_FORM: AccountForm = { email: "", account: "", name: "", password: "" };
 
+/** 「同時建立身分」的名冊專屬欄位（只存目前所選身分的欄位，換身分即清空） */
+type RosterForm = Record<string, string>;
+
 const BATCH_HINTS: Record<AccountBatchMode, string> = {
-  create: "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼；可選：慣用身分（學生／家長／教職員／管理員）。單批最多 900 列。",
+  create:
+    "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼；" +
+    "可選：慣用身分（學生／家長／教職員／管理員）、身分（填了即同時建立當期該身分，需一併填該身分的名冊欄位，" +
+    "如學生的學號；不填＝只建帳號，事後至「身分名冊管理」指定）。單批最多 900 列。",
   update: "以「電子郵件地址」或「帳號」辨識該列（兩者都填須指向同一帳號）；可更新：姓名、帳號、慣用身分、狀態，空白欄位＝不修改。不支援批次修改電子郵件地址與密碼。",
   delete: "以「電子郵件地址」或「帳號」辨識該列；將刪除帳號與其所有學期的名冊條目，刪除後無法復原。",
 };
+
+/** 未被指派「身分名冊管理」權限時的新增模式說明（無法同時建立身分） */
+const BATCH_HINT_CREATE_NO_ROSTER =
+  "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼；" +
+  "可選：慣用身分（學生／家長／教職員／管理員）。未被指派「身分名冊管理」權限，無法同時建立身分。單批最多 900 列。";
 
 /** 批次作業範例檔（存於 docs/，由 /api/admin/downloads 提供下載；粗體＝目前所選模式） */
 const BATCH_SAMPLE_FILES: { key: AccountBatchMode; href: string; label: string }[] = [
@@ -75,6 +90,11 @@ const BATCH_SAMPLE_FILES: { key: AccountBatchMode; href: string; label: string }
     key: "create",
     href: "/api/admin/downloads/範例_使用者帳號管理_批次新增.xlsx",
     label: "批次新增",
+  },
+  {
+    key: "create",
+    href: "/api/admin/downloads/範例_使用者帳號管理_批次新增含身分.xlsx",
+    label: "批次新增（含身分）",
   },
   {
     key: "update",
@@ -104,7 +124,7 @@ function describeBatchRow(item: AccountBatchRow): string {
     .join("、");
   return `第 ${item.row} 列 · ${BATCH_ACTION_LABELS[item.action]}「${item.key}」${
     changes ? `：${changes}` : ""
-  }`;
+  }${item.note ? `（${item.note}）` : ""}`;
 }
 
 /** 全螢幕遮罩（儲存／刪除中）：淡入過場並擋住下方所有操作 */
@@ -142,11 +162,18 @@ export default function AccountsPage() {
   const [listError, setListError] = useState("");
   const [flash, setFlash] = useState<Flash>(null);
 
+  // 目前帳號的功能模組（同時建立身分需「身分名冊管理」；讀不到＝不提供，fail-closed）
+  const [adminModules, setAdminModules] = useState<string[] | null>(null);
+  const canCreateRoster = adminModules !== null && adminModules.includes("roster");
+
   // 新增／編輯表單
   const [formOpen, setFormOpen] = useState(false);
   const [editingUid, setEditingUid] = useState("");
   const [form, setForm] = useState<AccountForm>(EMPTY_FORM);
   const [formPreferredRole, setFormPreferredRole] = useState<UserRole | "">("");
+  // 同時建立身分（僅新增時）：選擇的身分＋該身分的名冊專屬欄位
+  const [formRosterRole, setFormRosterRole] = useState<UserRole | "">("");
+  const [formRoster, setFormRoster] = useState<RosterForm>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -265,6 +292,23 @@ export default function AccountsPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const modules = data?.user?.adminModules;
+        setAdminModules(Array.isArray(modules) ? modules.filter((m) => typeof m === "string") : []);
+      })
+      .catch(() => {
+        if (!cancelled) setAdminModules([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     void loadAccounts();
   }, []);
 
@@ -283,6 +327,8 @@ export default function AccountsPage() {
     setEditingUid("");
     setForm(EMPTY_FORM);
     setFormPreferredRole("");
+    setFormRosterRole("");
+    setFormRoster({});
     setFormError("");
     setShowPassword(false);
   }
@@ -290,6 +336,8 @@ export default function AccountsPage() {
   function openCreate() {
     setForm(EMPTY_FORM);
     setFormPreferredRole("");
+    setFormRosterRole("");
+    setFormRoster({});
     setEditingUid("");
     setFormError("");
     setShowPassword(false);
@@ -304,6 +352,8 @@ export default function AccountsPage() {
       password: "",
     });
     setFormPreferredRole(target.preferredRole || "");
+    setFormRosterRole("");
+    setFormRoster({});
     setEditingUid(target.uid);
     setFormError("");
     setShowPassword(false);
@@ -344,6 +394,28 @@ export default function AccountsPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function handleRosterField(key: string, value: string) {
+    setFormRoster((prev) => ({ ...prev, [key]: value }));
+  }
+
+  /** 換身分即清空名冊欄位：各身分的專屬欄位不通用 */
+  function changeRosterRole(value: UserRole | "") {
+    setFormRosterRole(value);
+    setFormRoster({});
+  }
+
+  /** 指定功能模組（一般管理員）：以逗號字串儲存，與名冊表單一致 */
+  function toggleRosterModule(value: string) {
+    setFormRoster((prev) => {
+      const list = (prev.modules || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const next = list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+      return { ...prev, modules: next.join(",") };
+    });
+  }
+
   /** 與伺服器 /api/admin/accounts 的規則一致 */
   function validateForm(): string | null {
     if (!form.name.trim()) return "請填寫姓名";
@@ -358,6 +430,17 @@ export default function AccountsPage() {
       if (!isStrongPassword(form.password)) return PASSWORD_REQUIREMENT_MESSAGE;
     } else if (!editingUid) {
       return `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}`;
+    }
+    // 同時建立身分的必填欄位（與伺服器 validateRosterInput 一致）
+    if (!editingUid && formRosterRole) {
+      if (formRosterRole === "student" && !formRoster.studentId?.trim()) return "請填寫學號";
+      if (
+        formRosterRole === "admin" &&
+        formRoster.attribute !== "一般" &&
+        formRoster.attribute !== "超級"
+      ) {
+        return "請選擇管理員屬性（一般／超級）";
+      }
     }
     return null;
   }
@@ -382,6 +465,8 @@ export default function AccountsPage() {
           ...(isEdit ? { uid: editingUid } : {}),
           input: { ...form },
           preferredRole: formPreferredRole,
+          // 同時建立身分（僅新增）：寫入帳號後一併建立當期名冊條目
+          ...(!isEdit && formRosterRole ? { roster: { role: formRosterRole, input: formRoster } } : {}),
         }),
       });
       const data = await res.json();
@@ -613,6 +698,100 @@ export default function AccountsPage() {
   // 目前開啟選單的帳號（清單重載後找不到就自動不顯示）
   const menuTarget = menu ? accounts.find((item) => item.uid === menu.uid) : null;
 
+  /** 同時建立身分：屬性（下拉）與指定功能模組（勾選）為特殊控制項 */
+  function renderRosterAttribute(field: RosterFieldDef) {
+    const isAdmin = formRosterRole === "admin";
+    const options = isAdmin
+      ? [
+          { value: "", label: "請選擇屬性" },
+          { value: "一般", label: "一般（指定功能模組）" },
+          { value: "超級", label: "超級（全開）" },
+        ]
+      : [
+          { value: "", label: "請選擇屬性（選填）" },
+          ...STAFF_ATTRIBUTES.map((value) => ({ value, label: value })),
+        ];
+    return (
+      <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
+          {field.label}
+          {isAdmin && <span className="text-t1">*</span>}
+        </label>
+        <select
+          value={formRoster.attribute ?? ""}
+          onChange={(e) => handleRosterField("attribute", e.target.value)}
+          className="flex-1 input-theme rounded px-3 py-2"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {!isAdmin && (
+          <span className="text-xs text-t3 sm:max-w-64">
+            教師＝純教學；兼導師＝任導師；兼行政＝組長／主任等行政職或職員編制；職員＝專任行政人員。
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  /** 指定功能模組（一般管理員勾選）：超級管理員全開、不需勾選 */
+  function renderRosterModules(field: RosterFieldDef) {
+    const isSuper = formRoster.attribute === "超級";
+    const selected = (formRoster.modules || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const assignable = ADMIN_MODULES.filter(
+      (module) => !(BASE_ADMIN_MODULES as readonly string[]).includes(module.value)
+    );
+    return (
+      <div key={field.key} className="flex flex-col sm:flex-row sm:items-start gap-2">
+        <label className="text-t2 sm:w-40 shrink-0">{field.label}</label>
+        <div className="flex-1 flex flex-wrap gap-x-4 gap-y-2">
+          {assignable.map((module) => (
+            <label key={module.value} className="flex items-center gap-1.5 text-sm text-t1">
+              <input
+                type="checkbox"
+                checked={isSuper || selected.includes(module.value)}
+                disabled={isSuper}
+                onChange={() => toggleRosterModule(module.value)}
+                className="accent-current"
+              />
+              {module.label}
+            </label>
+          ))}
+          <span className="w-full text-xs text-t3">
+            可選欄位：只記錄實際勾選的內容；超級管理員＝全開，由屬性判定、不看此欄位。
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  /** 同時建立身分的單一欄位 */
+  function renderRosterField(field: RosterFieldDef) {
+    if (field.key === "attribute") return renderRosterAttribute(field);
+    if (field.key === "modules") return renderRosterModules(field);
+    return (
+      <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
+          {field.label}
+          {field.required && <span className="text-t1">*</span>}
+        </label>
+        <input
+          type={field.key === "studentEmail" ? "email" : "text"}
+          value={formRoster[field.key] ?? ""}
+          onChange={(e) => handleRosterField(field.key, e.target.value)}
+          autoComplete="off"
+          className="flex-1 input-theme rounded px-3 py-2"
+        />
+      </div>
+    );
+  }
+
   const actionButtons = (
     <>
       <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
@@ -732,7 +911,11 @@ export default function AccountsPage() {
               )}
             </div>
 
-            <p className="text-xs text-t3 mt-2">{BATCH_HINTS[batchMode]}</p>
+            <p className="text-xs text-t3 mt-2">
+              {batchMode === "create" && !canCreateRoster
+                ? BATCH_HINT_CREATE_NO_ROSTER
+                : BATCH_HINTS[batchMode]}
+            </p>
 
             <p className="text-xs text-t3 mt-2">
               範例檔下載：
@@ -764,7 +947,9 @@ export default function AccountsPage() {
             {batchPreview && (
               <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
                 <p className="font-bold text-t1 mb-2">
-                  預覽：新增 {batchPreview.created} 筆、更新 {batchPreview.updated} 筆、刪除{" "}
+                  預覽：新增 {batchPreview.created} 筆
+                  {(batchPreview.rostered ?? 0) > 0 && `（含同時建立身分 ${batchPreview.rostered} 筆）`}
+                  、更新 {batchPreview.updated} 筆、刪除{" "}
                   {batchPreview.deleted} 筆、略過 {batchPreview.skipped} 筆（共{" "}
                   {batchPreview.total} 列）
                 </p>
@@ -779,7 +964,9 @@ export default function AccountsPage() {
             {batchResult && (
               <div className="mt-3 border border-themed rounded-lg p-3 text-sm">
                 <p className="font-bold text-t1 mb-2">
-                  批次作業完成：新增 {batchResult.created} 筆、更新 {batchResult.updated} 筆、刪除{" "}
+                  批次作業完成：新增 {batchResult.created} 筆
+                  {(batchResult.rostered ?? 0) > 0 && `（含同時建立身分 ${batchResult.rostered} 筆）`}
+                  、更新 {batchResult.updated} 筆、刪除{" "}
                   {batchResult.deleted} 筆、略過 {batchResult.skipped.length} 筆
                 </p>
                 {batchResult.skipped.length > 0 && (
@@ -912,9 +1099,43 @@ export default function AccountsPage() {
                 ))}
               </select>
             </div>
+
+            {/* 同時建立身分（僅新增）：選擇身分後帶出該身分的名冊專屬欄位 */}
+            {!editingUid && canCreateRoster && (
+              <div className="border-t border-themed pt-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <label className="text-t2 sm:w-40 shrink-0">同時建立身分</label>
+                  <select
+                    value={formRosterRole}
+                    onChange={(e) => changeRosterRole(e.target.value as UserRole | "")}
+                    className="flex-1 input-theme rounded px-3 py-2"
+                  >
+                    <option value="">不建立（事後至「身分名冊管理」指定）</option>
+                    {ALL_ROLES.map((option) => (
+                      <option key={option} value={option}>
+                        {ROLE_LABELS[option]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {formRosterRole && (
+                  <div className="mt-3 space-y-4">
+                    <p className="text-xs text-t3">
+                      一併建立 {settings.academicYear} 學年度第{settings.semester}學期的
+                      {ROLE_LABELS[formRosterRole]}身分（名冊欄位）；建立後仍可在「身分名冊管理」維護。
+                    </p>
+                    {rosterEntryFieldDefs(formRosterRole).map(renderRosterField)}
+                  </div>
+                )}
+              </div>
+            )}
+
             <p className="text-xs text-t3">
               電子郵件地址與帳號至少填寫一個（登入識別用，另一欄可留空）；同一組帳號具備多個身分時，
-              登入依慣用身分決定預設身分。建立帳號後，請至「身分名冊管理」指定身分。
+              登入依慣用身分決定預設身分。
+              {canCreateRoster
+                ? "未選擇「同時建立身分」時，建立帳號後請至「身分名冊管理」指定身分。"
+                : "建立帳號後，請至「身分名冊管理」指定身分。"}
             </p>
           </div>
 

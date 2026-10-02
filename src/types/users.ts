@@ -300,6 +300,8 @@ export interface AccountBatchRow {
   reason?: string;
   /** 僅 update 有值 */
   changes?: AccountBatchChange[];
+  /** 附加說明（新增列同時建立當期身分時） */
+  note?: string;
 }
 
 export interface AccountBatchPreview {
@@ -309,6 +311,8 @@ export interface AccountBatchPreview {
   updated: number;
   deleted: number;
   skipped: number;
+  /** 新增列中同時建立當期身分名冊條目的筆數 */
+  rostered?: number;
   rows: AccountBatchRow[];
 }
 
@@ -316,5 +320,7 @@ export interface AccountBatchResult {
   created: number;
   updated: number;
   deleted: number;
+  /** 同時建立當期身分名冊條目的筆數 */
+  rostered?: number;
   skipped: { row: number; reason: string }[];
 }
