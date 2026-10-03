@@ -265,6 +265,31 @@ export function flattenOrgTree(structure: OrgStructure): OrgUnit[] {
   return out;
 }
 
+/** 樹狀節點：供視覺化檢視以「母艦」方式巢狀呈現（第 1 層卡片內含第 2 層…） */
+export interface OrgNode {
+  unit: OrgUnit;
+  children: OrgNode[];
+}
+
+/**
+ * 依上級關係組成樹（兄弟依陣列順序）。
+ * 只在「上級恰高一層」時連結，故不可能成環；
+ * 上級不存在或層級不符的單位先當最上層，問題交由驗證回報。
+ */
+export function buildOrgTree(structure: OrgStructure): OrgNode[] {
+  const nodes = new Map<string, OrgNode>();
+  for (const unit of structure.units) nodes.set(unit.code, { unit, children: [] });
+  const roots: OrgNode[] = [];
+  for (const unit of structure.units) {
+    const node = nodes.get(unit.code);
+    if (!node) continue;
+    const parent = unit.parent ? nodes.get(unit.parent) : null;
+    if (parent && parent.unit.level === unit.level - 1) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
 /** 搬到新上級的末尾（兄弟順序＝陣列相對順序，故把目標單位插到最後一個兄弟之後） */
 function placeAfterSiblings(units: OrgUnit[], code: string, parent: string | null): OrgUnit[] {
   const index = units.findIndex((unit) => unit.code === code);
