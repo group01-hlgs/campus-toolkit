@@ -11,6 +11,10 @@ import HomepageCornerExam from "@/components/HomepageCornerExam";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { fetchSession, logout, UserSession } from "@/lib/session";
+import versionData from "@/version.json";
+
+/** 主程式版本與建置日期（供管理員確認目前版本，僅管理頁顯示） */
+const versionLabel = `主程式版本 ${versionData.version}（${versionData.date.replace(/-/g, ".")}）`;
 
 interface ModuleCard {
   id: string;
@@ -149,6 +153,9 @@ export default function AdminPage() {
         <h1 className="text-4xl font-bold mb-2">{settings.systemName || "數位校園工具箱"}</h1>
         <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
         <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
+        <p className="text-xs text-t3 mt-1" title={versionLabel}>
+          {versionLabel}
+        </p>
       </div>
 
       {/* 功能標題 */}
