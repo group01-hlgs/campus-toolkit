@@ -362,6 +362,44 @@ export function setUnitParent(
 }
 
 /**
+ * 插到指定上級之下的第 index 個位置（index 依「不含自己」的同層順序計算，
+ * 即視覺化檢視卡片間空隙所標示的位置）。
+ * 先走 applyPlacement 的整棵子樹平移規則，再把單位插進目標位置，
+ * 因此跨層搬移與同層換位共用同一套限制。
+ */
+export function placeSibling(
+  structure: OrgStructure,
+  code: string,
+  parent: string | null,
+  index: number
+): OrgPlacementResult {
+  const placed = applyPlacement(structure, code, parent);
+  if (!placed.ok) return placed;
+  const units = placed.value.units.slice();
+  const from = units.findIndex((item) => item.code === code);
+  if (from < 0) return { ok: false, message: "找不到該單位" };
+  const moved = units.splice(from, 1)[0];
+  if (!moved) return { ok: false, message: "找不到該單位" };
+  const siblings = units.filter((item) => (item.parent ?? null) === parent);
+  const wanted = Number.isInteger(index) ? index : siblings.length;
+  const target = Math.max(0, Math.min(wanted, siblings.length));
+  const anchor = siblings[target];
+  const last = siblings[siblings.length - 1];
+  let to = units.length;
+  if (anchor) {
+    const at = units.findIndex((item) => item.code === anchor.code);
+    if (at < 0) return { ok: false, message: "找不到該單位" };
+    to = at;
+  } else if (last) {
+    const at = units.findIndex((item) => item.code === last.code);
+    if (at < 0) return { ok: false, message: "找不到該單位" };
+    to = at + 1;
+  }
+  units.splice(to, 0, moved);
+  return { ok: true, value: { ...placed.value, units } };
+}
+
+/**
  * 直接設定層級（表格的「層級」欄）：
  * 第 1 層＝清空上級；其餘層級若原上級不符新層級則暫留空，
  * 由驗證回報「未指定上級單位」擋住儲存，直到管理員補選。
