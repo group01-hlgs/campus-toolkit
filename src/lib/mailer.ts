@@ -230,7 +230,7 @@ export async function sendLoginOtpEmail(options: LoginOtpMailOptions): Promise<v
   await transport.sendMail({
     from,
     to: options.to,
-    subject: `【${brand}】登入驗證碼 ${options.code}（${options.expiresInMinutes} 分鐘內有效）`,
+    subject: `${options.code} - 登入驗證碼【${brand}】（${options.expiresInMinutes} 分鐘內有效）`,
     text,
     html,
   });
