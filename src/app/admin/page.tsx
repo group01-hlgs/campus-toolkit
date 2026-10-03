@@ -165,7 +165,7 @@ export default function AdminPage() {
       </div>
 
       {/* 登出按鈕 */}
-      <div className="content-width flex justify-end mb-4">
+      <div className="content-width flex justify-end mb-2.5">
         <button
           onClick={handleLogout}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -175,7 +175,7 @@ export default function AdminPage() {
       </div>
 
       {/* 主程式版本（第一個登出按鈕下方、第一條分隔線上方，靠左） */}
-      <div className="content-width text-left text-xs text-t3 mb-3" title={versionLabel}>
+      <div className="content-width text-left text-xs text-t3 mb-2.5" title={versionLabel}>
         {versionLabel}
       </div>
 
