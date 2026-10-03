@@ -183,4 +183,8 @@ export const RATE = {
   ROLE_SETTINGS_GET: { limit: 60, windowMs: 60_000 },
   /** 身分名冊管理：啟用／停用身分（現行開關） */
   ROLE_SETTINGS_MUTATE: { limit: 30, windowMs: 60_000 },
+  /** 學校基本設定：讀取單位層級設定 */
+  SCHOOL_ORG_GET: { limit: 60, windowMs: 60_000 },
+  /** 學校基本設定：儲存單位層級設定（整份覆寫，數量與變動較大） */
+  SCHOOL_ORG_MUTATE: { limit: 20, windowMs: 60_000 },
 } as const;

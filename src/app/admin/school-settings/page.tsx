@@ -6,6 +6,7 @@ import { Settings, defaultSettings } from "@/types/settings";
 import { logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
+import OrgUnitEditor from "@/components/OrgUnitEditor";
 
 export default function SchoolSettingsPage() {
   const router = useRouter();
@@ -73,12 +74,12 @@ export default function SchoolSettingsPage() {
       </div>
 
       {/* 功能標題 */}
-      <div className="w-full max-w-2xl mt-4 mb-2 text-center">
+      <div className="w-full max-w-4xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">學校基本設定</h2>
       </div>
 
       {/* 操作按鈕 */}
-      <div className="w-full max-w-2xl flex justify-end gap-3 mb-4">
+      <div className="w-full max-w-4xl flex justify-end gap-3 mb-4">
         <button
           onClick={handleBack}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -93,22 +94,31 @@ export default function SchoolSettingsPage() {
         </button>
       </div>
 
-      <hr className="w-full max-w-2xl border-themed mb-4" />
+      <hr className="w-full max-w-4xl border-themed mb-4" />
 
-      {/* 設定內容：目前為空白頁，日後於此新增學校基本設定的分組卡片 */}
+      {/* 設定內容：學校基本設定的子功能分區 */}
       {allowed ? (
-        <div className="w-full max-w-2xl min-h-40 mb-8" />
+        <div className="w-full max-w-4xl min-h-40 mb-8 space-y-6">
+          <section className="border border-themed rounded-lg bg-card p-5">
+            <h3 className="text-lg font-bold text-t1">單位層級設定</h3>
+            <p className="text-sm text-t3 mt-1">
+              決定本校的單位層級數與每層名稱，並設定各單位（處室、組別）的層級與上級單位。
+              此為結構性資料，不隨學期變動。
+            </p>
+            <OrgUnitEditor />
+          </section>
+        </div>
       ) : (
-        <div className="w-full max-w-2xl border border-themed rounded-lg p-8 bg-card text-center space-y-2 mb-8">
+        <div className="w-full max-w-4xl border border-themed rounded-lg p-8 bg-card text-center space-y-2 mb-8">
           <p className="text-lg font-bold text-t1">權限不足</p>
           <p className="text-sm text-t2">「學校基本設定」僅超級管理員可使用。</p>
         </div>
       )}
 
-      <hr className="w-full max-w-2xl border-themed mb-4" />
+      <hr className="w-full max-w-4xl border-themed mb-4" />
 
       {/* 底部操作按鈕 */}
-      <div className="w-full max-w-2xl flex justify-start gap-3 mb-8">
+      <div className="w-full max-w-4xl flex justify-start gap-3 mb-8">
         <button
           onClick={handleBack}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -125,13 +135,13 @@ export default function SchoolSettingsPage() {
 
       {/* 廣告區域 */}
       {settings.sponsorAdEnabled && (
-        <div className="w-full max-w-2xl">
+        <div className="w-full max-w-4xl">
           <AdSense />
         </div>
       )}
 
       {/* 版權宣告 */}
-      <div className="w-full max-w-2xl mt-auto">
+      <div className="w-full max-w-4xl mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
     </div>
