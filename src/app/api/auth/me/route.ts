@@ -17,12 +17,17 @@ export async function GET() {
   );
   // 管理員功能模組（首頁卡片顯示用）：讀不到時為 undefined，前端視為全部隱藏
   let adminModules: string[] | undefined;
+  // 管理員屬性（超級／一般）：供管理端表單決定能否指派「超級」屬性
+  let adminAttribute: string | undefined;
   if (session.role === "admin") {
     try {
       const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
       adminModules = adminModulesOf(entry);
+      const attribute = entry && typeof entry.attribute === "string" ? entry.attribute : "";
+      adminAttribute = attribute === "超級" ? "超級" : "一般";
     } catch {
       adminModules = [];
+      adminAttribute = "一般";
     }
   }
   // 首次登入須先改密碼（管理員代設的預設密碼）：供全螢幕強制改密碼遮罩判斷
@@ -41,6 +46,7 @@ export async function GET() {
       roles,
       mustChangePassword,
       ...(adminModules ? { adminModules } : {}),
+      ...(adminAttribute ? { adminAttribute } : {}),
     },
   });
 }

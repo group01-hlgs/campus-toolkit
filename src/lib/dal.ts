@@ -6,7 +6,7 @@ import { getSession, SessionPayload } from "@/lib/server-session";
 import { isJtiRevoked } from "@/lib/revocation";
 import { getClientIp } from "@/lib/audit";
 import { getSessionTimeoutMinutes, getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
-import { adminModulesOf, getRosterEntry, isActiveEntry } from "@/lib/roster";
+import { adminAttributeGuard, adminModulesOf, getRosterEntry, isActiveEntry } from "@/lib/roster";
 import { isRoleEnabled } from "@/lib/role-settings";
 import { AdminModule, isAccountActive, USER_COLLECTION, UserRole } from "@/types/users";
 
@@ -121,20 +121,60 @@ export async function requireAdminModule(module: AdminModule): Promise<
 }
 
 /**
- * 「系統設定」的可設定判定：**僅超級管理員**。
- * 「系統設定」是每位管理員的基本入口（首頁固定顯示），但實際可讀寫的設定項目僅超級可用；
- * 一般管理員與其他身分只有入口、頁內顯示「尚無可用設定項目」。
+ * 超級管理員判定：當期管理員名冊條目 `attribute === "超級"`。
+ * 屬性指派、新增管理員、系統設定等高風險操作都以本函式把關。
  */
-export async function hasSettingsManage(session: SessionPayload): Promise<boolean> {
+export async function isSuperAdmin(session: SessionPayload): Promise<boolean> {
   if (session.role !== "admin") return false;
   try {
     const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
     const attribute = entry && typeof entry.attribute === "string" ? entry.attribute : "";
     return attribute === "超級";
   } catch {
-    // fail-closed：讀不到屬性一律視為不可設定
+    // fail-closed：讀不到屬性一律視為非超級
     return false;
   }
+}
+
+/** 僅超級管理員可執行的操作（升級超級、新增管理員等） */
+export async function requireSuperAdmin(
+  message = "僅超級管理員可執行此操作"
+): Promise<
+  { session: SessionPayload; denial: null } | { session: null; denial: AuthDenial }
+> {
+  const result = await requireRole("admin");
+  if (result.denial) return result;
+  if (!(await isSuperAdmin(result.session))) {
+    return { session: null, denial: { status: 403, message } };
+  }
+  return result;
+}
+
+/**
+ * 「系統設定」的可設定判定：**僅超級管理員**。
+ * 「系統設定」是每位管理員的基本入口（首頁固定顯示），但實際可讀寫的設定項目僅超級可用；
+ * 一般管理員與其他身分只有入口、頁內顯示「尚無可用設定項目」。
+ */
+export async function hasSettingsManage(session: SessionPayload): Promise<boolean> {
+  return isSuperAdmin(session);
+}
+
+/**
+ * 管理員名冊的屬性寫入守門（建立／修改／停用／刪除管理員條目都應先過這關）：
+ * 非超級管理員不得指定「超級」屬性，也不得變更既有的超級條目。
+ * 通過回 null；否則回 403 denial（呼叫端以 `toAuthResponse` 回覆）。
+ */
+export async function checkAdminAttribute(
+  session: SessionPayload,
+  nextAttribute: string | null,
+  currentAttribute: string | null
+): Promise<AuthDenial | null> {
+  const message = adminAttributeGuard({
+    isSuper: await isSuperAdmin(session),
+    nextAttribute,
+    currentAttribute,
+  });
+  return message ? { status: 403, message } : null;
 }
 
 export async function requireSettingsManage(): Promise<

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { findAccountByKey, moveEntriesUid } from "@/lib/roster";
+import { findAccountByKey, isSuperEntry, moveEntriesUid } from "@/lib/roster";
 import { USER_COLLECTION } from "@/types/users";
+import { rosterCollection } from "@/types/roster";
 
 /**
  * POST：手動銜接孤兒名冊條目（帳號已刪除、名冊條目保留）。
@@ -52,7 +53,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "查無此帳號" }, { status: 404 });
     }
 
-    const moved = await moveEntriesUid(fromUid, target.uid);
+    // 屬性層級守門：孤兒條目含「超級」管理員時，銜接＝授予超級，須由超級管理員執行
+    const isSuper = await isSuperAdmin(session);
+    if (!isSuper) {
+      const orphans = await db
+        .collection(rosterCollection("admin"))
+        .where("uid", "==", fromUid)
+        .get();
+      if (orphans.docs.some((doc) => isSuperEntry(doc.data()))) {
+        return NextResponse.json(
+          { success: false, message: "該批名冊含超級管理員條目，僅超級管理員可銜接" },
+          { status: 403 }
+        );
+      }
+    }
+
+    const moved = await moveEntriesUid(fromUid, target.uid, isSuper);
     if (moved === 0) {
       return NextResponse.json(
         {

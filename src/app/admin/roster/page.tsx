@@ -37,7 +37,7 @@ import {
   type StaffAttribute,
   type UserRole,
 } from "@/types/users";
-import { logout } from "@/lib/session";
+import { getCachedSession, logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import RoleEnablePanel from "@/components/RoleEnablePanel";
@@ -250,6 +250,10 @@ function BlockingMask({ text }: { text: string }) {
 export default function RosterPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
+  // 目前操作者的管理員屬性（超級／一般）：決定能否指派「超級」屬性
+  const [adminAttribute, setAdminAttribute] = useState(
+    () => getCachedSession()?.adminAttribute ?? ""
+  );
   const [role, setRole] = useState<RosterRole>("student");
   const [members, setMembers] = useState<RosterMember[]>([]);
   const [keyword, setKeyword] = useState("");
@@ -400,6 +404,23 @@ export default function RosterPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const attribute = data?.user?.adminAttribute;
+        if (typeof attribute === "string") setAdminAttribute(attribute);
+      })
+      .catch(() => {
+        // 讀取失敗沿用快取值（權限最終由伺服器端判定）
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -610,6 +631,10 @@ export default function RosterPage() {
     if (role === "admin") {
       if (form.attribute !== "一般" && form.attribute !== "超級") {
         return "請選擇管理員屬性（一般／超級）";
+      }
+      // 屬性層級守門（與伺服器一致）：非超級管理員不得指派超級、不得變更超級條目
+      if (adminAttribute !== "超級" && form.attribute === "超級") {
+        return "僅超級管理員可以指定或變更「超級」管理員";
       }
       // 指定功能模組為可選欄位，未指定＝該一般管理員暫無可用功能模組
     }
@@ -847,12 +872,16 @@ export default function RosterPage() {
 
   /** 屬性欄位：教職員＝教師／兼導師／兼行政／職員；管理員＝一般／超級 */
   function renderAttributeSelect(field: RosterFieldDef) {
+    const isSuperOperator = adminAttribute === "超級";
     const options =
       role === "admin"
         ? [
             { value: "", label: "請選擇屬性" },
             { value: "一般", label: "一般（指定功能模組）" },
-            { value: "超級", label: "超級（全開）" },
+            // 「超級」只有超級管理員可以指派；編輯既有超級條目時保留原值供顯示
+            ...(isSuperOperator || form.attribute === "超級"
+              ? [{ value: "超級", label: "超級（全開）" }]
+              : []),
           ]
         : [
             { value: "", label: "請選擇屬性" },
@@ -872,6 +901,7 @@ export default function RosterPage() {
         <select
           value={form.attribute}
           onChange={(e) => handleField("attribute", e.target.value)}
+          disabled={role === "admin" && form.attribute === "超級" && !isSuperOperator}
           className="flex-1 input-theme rounded px-3 py-2"
         >
           {options.map((option) => (
@@ -880,6 +910,11 @@ export default function RosterPage() {
             </option>
           ))}
         </select>
+        {role === "admin" && form.attribute === "超級" && !isSuperOperator && (
+          <span className="text-xs text-t3 sm:max-w-64">
+            僅超級管理員可以變更超級管理員的資料。
+          </span>
+        )}
         {role === "staff" && (
           <span className="text-xs text-t3 sm:max-w-64">
             教師＝純教學；兼導師＝任導師；兼行政＝組長／主任等行政職或職員編制；職員＝專任行政人員。

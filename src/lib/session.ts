@@ -11,6 +11,8 @@ export interface UserSession {
   roles?: UserRole[];
   /** 管理員被指派的功能模組（首頁卡片顯示用；超級管理員＝全部） */
   adminModules?: string[];
+  /** 管理員屬性（超級／一般）：僅超級管理員可指派「超級」屬性 */
+  adminAttribute?: string;
   /** 首次登入須先修改密碼（管理員代設的預設密碼）：全螢幕強制改密碼遮罩用 */
   mustChangePassword?: boolean;
 }
@@ -51,6 +53,8 @@ function toUserSession(user: unknown): UserSession | null {
     adminModules: Array.isArray(u.adminModules)
       ? u.adminModules.filter((item): item is string => typeof item === "string")
       : undefined,
+    adminAttribute:
+      typeof u.adminAttribute === "string" && u.adminAttribute ? u.adminAttribute : undefined,
     mustChangePassword: u.mustChangePassword === true,
   };
 }

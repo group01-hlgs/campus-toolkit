@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { checkAdminAttribute, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
@@ -27,12 +27,19 @@ import {
   countOtherActiveAdmins,
   findAccountByKey,
   getRosterEntry,
+  isSuperEntry,
+  lastSuperGuard,
   loadRosterIndex,
   rosterEntryId,
   syncEntryIdentity,
   toRosterMember,
   validateRosterInput,
 } from "@/lib/roster";
+
+/** 條目上的管理員屬性字串（無／非字串＝空） */
+function attributeOf(entry: Record<string, unknown> | null | undefined): string {
+  return entry && typeof entry.attribute === "string" ? entry.attribute : "";
+}
 
 function parseRosterBody(body: Record<string, unknown>): {
   role: RosterRole | null;
@@ -181,6 +188,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }
 
+    // 屬性層級守門：非超級管理員不得建立「超級」管理員
+    const attrDenial = await checkAdminAttribute(
+      session,
+      typeof result.roster.attribute === "string" ? result.roster.attribute : null,
+      null
+    );
+    if (attrDenial) return toAuthResponse(attrDenial);
+
     const entryRef = db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
     if ((await entryRef.get()).exists) {
       return NextResponse.json(
@@ -253,6 +268,24 @@ export async function PUT(request: NextRequest) {
     }
 
     const period = await getCurrentPeriod();
+    const entryId = rosterEntryId(uid, period);
+    const entryRef = getAdminDb().collection(rosterCollection(role)).doc(entryId);
+    const entrySnap = await entryRef.get();
+    const currentEntry = entrySnap.exists ? entrySnap.data() ?? null : null;
+
+    // 屬性層級守門：非超級管理員不得指定「超級」、不得變更既有超級條目；
+    // 另擋「降級最後一位超級管理員」（降級後無人可再指派超級）
+    const nextAttribute =
+      typeof result.roster.attribute === "string" ? result.roster.attribute : null;
+    const attrDenial = await checkAdminAttribute(session, nextAttribute, attributeOf(currentEntry));
+    if (attrDenial) return toAuthResponse(attrDenial);
+    if (role === "admin" && isSuperEntry(currentEntry) && nextAttribute !== "超級") {
+      const lastSuper = await lastSuperGuard(uid);
+      if (lastSuper) {
+        return NextResponse.json({ success: false, message: lastSuper }, { status: 400 });
+      }
+    }
+
     const index = await loadRosterIndex(role, period, uid);
     const conflict = checkRosterConflict(result.account, result.roster, index);
     if (conflict) {
@@ -275,10 +308,7 @@ export async function PUT(request: NextRequest) {
     });
 
     // 名冊專屬欄位寫入「目前學年度學期」的條目，歷史學期不受影響
-    const entryId = rosterEntryId(uid, period);
-    const entryRef = getAdminDb().collection(rosterCollection(role)).doc(entryId);
-    const entrySnap = await entryRef.get();
-    if (entrySnap.exists) {
+    if ((await entryRef.get()).exists) {
       const patch: Record<string, unknown> = { ...result.roster, updatedAt: Date.now() };
       await entryRef.update(patch);
     } else {
@@ -357,6 +387,18 @@ export async function PATCH(request: NextRequest) {
     if (!snap.exists) {
       return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
     }
+    const statusEntry = snap.data() || {};
+
+    // 屬性層級守門：非超級管理員不得動超級條目；停用最後一位超級管理員也要擋
+    const statusDenial = await checkAdminAttribute(session, null, attributeOf(statusEntry));
+    if (statusDenial) return toAuthResponse(statusDenial);
+    if (status !== ACTIVE_STATUS && role === "admin" && isSuperEntry(statusEntry)) {
+      const lastSuper = await lastSuperGuard(uid);
+      if (lastSuper) {
+        return NextResponse.json({ success: false, message: lastSuper }, { status: 400 });
+      }
+    }
+
     await ref.update({ status, updatedAt: Date.now() });
 
     const account = (await getAdminDb().collection(USER_COLLECTION).doc(uid).get()).data() || {};
@@ -415,6 +457,16 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
     }
     const entry = snap.data() || {};
+
+    // 屬性層級守門：非超級管理員不得刪除超級條目；刪除最後一位超級管理員也要擋
+    const attrDenial = await checkAdminAttribute(session, null, attributeOf(entry));
+    if (attrDenial) return toAuthResponse(attrDenial);
+    if (role === "admin" && isSuperEntry(entry)) {
+      const lastSuper = await lastSuperGuard(uid);
+      if (lastSuper) {
+        return NextResponse.json({ success: false, message: lastSuper }, { status: 400 });
+      }
+    }
 
     if (role === "admin" && (await countOtherActiveAdmins(uid)) === 0) {
       return NextResponse.json(

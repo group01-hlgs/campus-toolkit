@@ -491,9 +491,14 @@ const ROSTER_ROLES_ALL: RosterRole[] = ["student", "parent", "staff", "admin"];
 /**
  * 把 fromUid 的名冊條目（四張名冊、所有學年度學期）改掛到 toUid：
  * 改寫 uid 欄位與 doc id（`toUid_學年度_學期`）；toUid 已有的條目跳過（不覆寫）。
+ * `allowSuper＝false` 時跳過「超級」管理員條目（銜接＝授予超級，非超級操作者不得為之）。
  * toUid 查無使用者文件時不動作。回傳成功改掛的條目數。
  */
-export async function moveEntriesUid(fromUid: string, toUid: string): Promise<number> {
+export async function moveEntriesUid(
+  fromUid: string,
+  toUid: string,
+  allowSuper: boolean
+): Promise<number> {
   if (!fromUid || !toUid || fromUid === toUid) return 0;
   const db = getAdminDb();
   if (!(await db.collection(USER_COLLECTION).doc(toUid).get()).exists) return 0;
@@ -505,9 +510,11 @@ export async function moveEntriesUid(fromUid: string, toUid: string): Promise<nu
   );
   let moved = 0;
   for (let i = 0; i < ROSTER_ROLES_ALL.length; i += 1) {
-    const col = db.collection(rosterCollection(ROSTER_ROLES_ALL[i]));
+    const role = ROSTER_ROLES_ALL[i];
+    const col = db.collection(rosterCollection(role));
     for (const doc of snaps[i].docs) {
       const data = doc.data();
+      if (!allowSuper && role === "admin" && isSuperEntry(data)) continue;
       const academicYear = typeof data.academicYear === "number" ? data.academicYear : null;
       const semester = typeof data.semester === "number" ? data.semester : null;
       if (academicYear === null || semester === null) continue;
@@ -526,13 +533,17 @@ export async function moveEntriesUid(fromUid: string, toUid: string): Promise<nu
 /**
  * 自動銜接：建立／更新帳號時，把「孤兒名冊條目」（uid 已查無使用者文件）
  * 且辨識鍵（電子郵件地址或帳號）相符者，整批改掛回此帳號。
+ * `allowSuper＝false` 時不接「超級」管理員條目（見 moveEntriesUid）。
  * 仍屬活著帳號的條目一律不動。回傳銜接的條目數（無相符回 0）。
  */
-export async function linkOrphanEntries(target: {
-  uid: string;
-  email: string;
-  account: string;
-}): Promise<number> {
+export async function linkOrphanEntries(
+  target: {
+    uid: string;
+    email: string;
+    account: string;
+  },
+  allowSuper: boolean
+): Promise<number> {
   if (!target.uid || (!target.email && !target.account)) return 0;
   const db = getAdminDb();
 
@@ -574,7 +585,7 @@ export async function linkOrphanEntries(target: {
   // 3) 逐個孤兒 uid 整批改掛（同一辨識鍵可能來自多個孤兒 uid）
   let linked = 0;
   for (const uid of orphanUids) {
-    linked += await moveEntriesUid(uid, target.uid);
+    linked += await moveEntriesUid(uid, target.uid, allowSuper);
   }
   return linked;
 }
@@ -663,6 +674,37 @@ export async function countOtherActiveAdmins(excludeUid: string): Promise<number
 }
 
 /**
+ * 當期「其他有效超級管理員」人數：名冊條目有效且屬性＝超級 ＋ 使用者帳號有效。
+ * 用於擋降級／停用／刪除最後一位超級管理員。
+ */
+export async function countOtherActiveSupers(excludeUid: string): Promise<number> {
+  const db = getAdminDb();
+  const period = await getCurrentPeriod();
+  const snapshot = await db
+    .collection(rosterCollection("admin"))
+    .where("academicYear", "==", period.academicYear)
+    .where("semester", "==", period.semester)
+    .get();
+
+  const uids = snapshot.docs
+    .map((doc) => doc.data())
+    .filter(
+      (data) =>
+        isActiveEntry(data) &&
+        isSuperEntry(data) &&
+        typeof data.uid === "string" &&
+        data.uid !== excludeUid
+    )
+    .map((data) => data.uid as string);
+  if (uids.length === 0) return 0;
+
+  const docs = await db.getAll(
+    ...uids.map((uid) => db.collection(USER_COLLECTION).doc(uid))
+  );
+  return docs.filter((doc) => doc.exists && isAccountActive(doc.data())).length;
+}
+
+/**
  * 狀態變更／刪除的守門：本人、以及「仍是有效管理員且只剩他一位」。
  * 回傳擋下訊息，null＝放行（訊息用語由呼叫端依情境調整）。
  */
@@ -670,8 +712,49 @@ export async function accountStatusGuard(uid: string, sessionUid: string): Promi
   if (uid === sessionUid) return "無法停用自己使用的帳號";
   const period = await getCurrentPeriod();
   const entry = await getRosterEntry(uid, "admin", period);
-  if (isActiveEntry(entry) && (await countOtherActiveAdmins(uid)) === 0) {
-    return "無法停用最後一位有效管理員";
+  if (isActiveEntry(entry)) {
+    if ((await countOtherActiveAdmins(uid)) === 0) return "無法停用最後一位有效管理員";
+    // 最後一位超級管理員也留著：沒有超級就無法再指派超級（系統設定、學校基本設定將無人可改）
+    if (isSuperEntry(entry)) {
+      const supers = await countOtherActiveSupers(uid);
+      if (supers === 0) return "無法停用最後一位超級管理員，請先新增另一位超級管理員";
+    }
+  }
+  return null;
+}
+
+/** 條目是否為超級管理員（`attribute === "超級"`） */
+export function isSuperEntry(entry: Record<string, unknown> | null | undefined): boolean {
+  if (!entry) return false;
+  return typeof entry.attribute === "string" && entry.attribute === "超級";
+}
+
+/**
+ * 管理員屬性的層級守門（純規則，不查資料）：
+ * 只有超級管理員可以指定「超級」屬性，也只有超級管理員可以修改、停用、刪除既有的超級條目，
+ * 避免一般管理員自行升級或掏空超級管理員。回傳擋下訊息，null＝放行。
+ */
+export function adminAttributeGuard(options: {
+  /** 目前操作者是否為超級管理員 */
+  isSuper: boolean;
+  /** 即將寫入的屬性（建立／修改） */
+  nextAttribute?: string | null;
+  /** 既有條目屬性（修改／停用／刪除；無既有條目＝null） */
+  currentAttribute?: string | null;
+}): string | null {
+  if (options.isSuper) return null;
+  if (options.nextAttribute === "超級") return "僅超級管理員可以指定「超級」屬性";
+  if (options.currentAttribute === "超級") return "僅超級管理員可以變更超級管理員的資料";
+  return null;
+}
+
+/**
+ * 降級／停用／刪除超級管理員前的守門：還得留著最後一位超級管理員。
+ * 回傳擋下訊息，null＝放行。
+ */
+export async function lastSuperGuard(uid: string): Promise<string | null> {
+  if ((await countOtherActiveSupers(uid)) === 0) {
+    return "無法動最後一位超級管理員，請先新增另一位超級管理員";
   }
   return null;
 }

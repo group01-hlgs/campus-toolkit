@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
@@ -35,13 +35,22 @@ import {
 import {
   RosterData,
   RosterIndex,
+  adminAttributeGuard,
   buildRosterEntry,
   countOtherActiveAdmins,
+  countOtherActiveSupers,
+  isSuperEntry,
+  lastSuperGuard,
   loadPeriodEntries,
   rosterEntryId,
   storedAdminModules,
   validateRosterInput,
 } from "@/lib/roster";
+
+/** 條目上的管理員屬性字串（無／非字串＝空） */
+function attributeOf(entry: Record<string, unknown> | null | undefined): string {
+  return entry && typeof entry.attribute === "string" ? entry.attribute : "";
+}
 
 /** Firestore 寫入與 900 列上限一起控管 */
 export const maxDuration = 300;
@@ -220,7 +229,8 @@ function planCreate(
   input: RosterInput,
   context: BatchContext,
   seen: Set<string>,
-  strategy: RosterBatchStrategy
+  strategy: RosterBatchStrategy,
+  isSuper: boolean
 ): PlannedRow {
   const resolved = resolveUid(input, context.index);
   if (!resolved.uid) return skipRow(row, input, resolved.error ?? "查無此帳號");
@@ -242,6 +252,17 @@ function planCreate(
     name: input.name,
   });
   if (!validation.ok) return skipRow(row, input, validation.message);
+
+  // 屬性層級守門：非超級管理員不得建立超級管理員（覆蓋模式會以檔案重建既有條目）
+  if (role === "admin") {
+    const guard = adminAttributeGuard({
+      isSuper,
+      nextAttribute:
+        typeof validation.roster.attribute === "string" ? validation.roster.attribute : null,
+      currentAttribute: attributeOf(context.entries.get(uid)),
+    });
+    if (guard) return skipRow(row, input, guard);
+  }
 
   seen.add(uid);
   return {
@@ -277,13 +298,14 @@ function resolveUid(
   return { uid, key };
 }
 
-function planUpdate(
+async function planUpdate(
   role: RosterRole,
   row: number,
   input: RosterInput,
   context: BatchContext,
-  seen: Set<string>
-): PlannedRow {
+  seen: Set<string>,
+  isSuper: boolean
+): Promise<PlannedRow> {
   const resolved = resolveUid(input, context.index);
   if (!resolved.uid) return skipRow(row, input, resolved.error ?? "查無此帳號");
   const uid = resolved.uid;
@@ -316,6 +338,21 @@ function planUpdate(
   if (!validation.ok) return skipRow(row, input, validation.message);
 
   const roster = validation.roster;
+
+  // 屬性層級守門：非超級管理員不得改超級條目；降級最後一位超級管理員也要擋
+  if (role === "admin") {
+    const nextAttribute = attributeOf(roster);
+    const guard = adminAttributeGuard({
+      isSuper,
+      nextAttribute,
+      currentAttribute: attributeOf(entry),
+    });
+    if (guard) return skipRow(row, input, guard);
+    if (isSuperEntry(entry) && nextAttribute !== "超級") {
+      const lastSuper = await lastSuperGuard(uid);
+      if (lastSuper) return skipRow(row, input, lastSuper);
+    }
+  }
 
   const changes: RosterBatchChange[] = [];
   const entryPatch: Record<string, unknown> = {};
@@ -366,7 +403,8 @@ async function planDelete(
   input: RosterInput,
   context: BatchContext,
   seen: Set<string>,
-  sessionUid: string
+  sessionUid: string,
+  isSuper: boolean
 ): Promise<PlannedRow> {
   const resolved = resolveUid(input, context.index);
   if (!resolved.uid) return skipRow(row, input, resolved.error ?? "查無此帳號");
@@ -375,9 +413,17 @@ async function planDelete(
   if (!context.entries.has(uid)) return skipRow(row, input, "本期無此身分名冊資料");
 
   if (role === "admin") {
+    const entry = context.entries.get(uid);
+    // 屬性層級守門：非超級管理員不得刪除超級條目、不得刪最後一位超級管理員
+    const guard = adminAttributeGuard({ isSuper, currentAttribute: attributeOf(entry) });
+    if (guard) return skipRow(row, input, guard);
     if (uid === sessionUid) return skipRow(row, input, "無法刪除自己的管理員身分");
     if ((await countOtherActiveAdmins(uid)) === 0) {
       return skipRow(row, input, "無法刪除最後一位有效管理員");
+    }
+    if (isSuperEntry(entry)) {
+      const lastSuper = await lastSuperGuard(uid);
+      if (lastSuper) return skipRow(row, input, lastSuper);
     }
   }
 
@@ -417,7 +463,7 @@ function buildPreview(
 
 /**
  * 覆蓋模式要先行刪除的 uid：本期該身分的全部條目。
- * 管理員身分保留兩道防呆（自己的管理員身分、最後一位有效管理員），
+ * 管理員身分保留三道防呆（自己的管理員身分、最後一位有效管理員、最後一位超級管理員），
  * 檔案包含該人時仍會在下一輪以檔案資料覆寫重建。
  */
 async function planReplaceDeletions(
@@ -432,6 +478,9 @@ async function planReplaceDeletions(
   for (const uid of uids) {
     if (keep.has(uid)) continue;
     if ((await countOtherActiveAdmins(uid)) === 0) keep.add(uid);
+    else if (isSuperEntry(context.entries.get(uid)) && (await countOtherActiveSupers(uid)) === 0) {
+      keep.add(uid);
+    }
   }
   return uids.filter((uid) => !keep.has(uid));
 }
@@ -569,15 +618,17 @@ export async function POST(request: NextRequest) {
 
     const period = await getCurrentPeriod();
     const context = await loadBatchContext(role, period);
+    // 管理員屬性的層級守門需知道操作者是否為超級管理員（其餘身分不涉及）
+    const isSuper = role === "admin" ? await isSuperAdmin(session) : false;
     const seen = new Set<string>();
     const planned: PlannedRow[] = [];
     for (const { row, input } of dataRows) {
       if (mode === "create") {
-        planned.push(planCreate(role, row, input, context, seen, strategy));
+        planned.push(planCreate(role, row, input, context, seen, strategy, isSuper));
       } else if (mode === "update") {
-        planned.push(planUpdate(role, row, input, context, seen));
+        planned.push(await planUpdate(role, row, input, context, seen, isSuper));
       } else {
-        planned.push(await planDelete(role, row, input, context, seen, session.uid));
+        planned.push(await planDelete(role, row, input, context, seen, session.uid, isSuper));
       }
     }
 

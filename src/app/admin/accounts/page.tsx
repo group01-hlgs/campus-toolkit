@@ -19,6 +19,7 @@ import {
   ROLE_LABELS,
   STAFF_ATTRIBUTES,
   statusLabel,
+  SUPER_ONLY_ADMIN_MODULES,
   twoFactorShortLabel,
   UserRole,
 } from "@/types/users";
@@ -32,7 +33,7 @@ import {
   isValidEmail,
   PASSWORD_REQUIREMENT_MESSAGE,
 } from "@/lib/validation";
-import { logout } from "@/lib/session";
+import { getCachedSession, logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
@@ -188,6 +189,10 @@ export default function AccountsPage() {
   // 目前帳號的功能模組（同時建立身分需「身分名冊管理」；讀不到＝不提供，fail-closed）
   const [adminModules, setAdminModules] = useState<string[] | null>(null);
   const canCreateRoster = adminModules !== null && adminModules.includes("roster");
+  // 目前操作者的管理員屬性（超級／一般）：決定能否指派「超級」屬性
+  const [adminAttribute, setAdminAttribute] = useState(
+    () => getCachedSession()?.adminAttribute ?? ""
+  );
 
   // 新增／編輯表單
   const [formOpen, setFormOpen] = useState(false);
@@ -344,8 +349,11 @@ export default function AccountsPage() {
         if (cancelled) return;
         const modules = data?.user?.adminModules;
         setAdminModules(Array.isArray(modules) ? modules.filter((m) => typeof m === "string") : []);
+        const attribute = data?.user?.adminAttribute;
+        if (typeof attribute === "string") setAdminAttribute(attribute);
       })
       .catch(() => {
+        // 模組清單讀不到＝不提供（fail-closed）；屬性沿用快取值，權限由伺服器端判定
         if (!cancelled) setAdminModules([]);
       });
     return () => {
@@ -485,6 +493,10 @@ export default function AccountsPage() {
         formRoster.attribute !== "超級"
       ) {
         return "請選擇管理員屬性（一般／超級）";
+      }
+      // 屬性層級守門（與伺服器一致）：非超級管理員不得建立超級管理員
+      if (formRosterRole === "admin" && adminAttribute !== "超級" && formRoster.attribute === "超級") {
+        return "僅超級管理員可以指定「超級」管理員";
       }
     }
     return null;
@@ -772,7 +784,8 @@ export default function AccountsPage() {
       ? [
           { value: "", label: "請選擇屬性" },
           { value: "一般", label: "一般（指定功能模組）" },
-          { value: "超級", label: "超級（全開）" },
+          // 「超級」只有超級管理員可以指派
+          ...(adminAttribute === "超級" ? [{ value: "超級", label: "超級（全開）" }] : []),
         ]
       : [
           { value: "", label: "請選擇屬性（選填）" },
@@ -811,8 +824,11 @@ export default function AccountsPage() {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
+    // 基本模組（系統設定）與超級專屬模組（學校基本設定）都不列入指派
     const assignable = ADMIN_MODULES.filter(
-      (module) => !(BASE_ADMIN_MODULES as readonly string[]).includes(module.value)
+      (module) =>
+        !(BASE_ADMIN_MODULES as readonly string[]).includes(module.value) &&
+        !(SUPER_ONLY_ADMIN_MODULES as readonly string[]).includes(module.value)
     );
     return (
       <div key={field.key} className="flex flex-col sm:flex-row sm:items-start gap-2">

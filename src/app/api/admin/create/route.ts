@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { hashPassword } from "@/lib/auth";
-import { requireRole, toAuthResponse } from "@/lib/dal";
+import { requireSuperAdmin, toAuthResponse } from "@/lib/dal";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
@@ -77,7 +77,8 @@ export async function POST(request: NextRequest) {
 
     let session = null;
     if (!isBootstrap) {
-      const { session: s, denial } = await requireRole("admin");
+      // 新增管理員一律建立「超級」，故須由超級管理員執行（一般管理員不得自行升級代理人選）
+      const { session: s, denial } = await requireSuperAdmin("僅超級管理員可新增管理員");
       if (denial) return toAuthResponse(denial);
       session = s;
     }

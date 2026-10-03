@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { hasAdminModule, requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { hasAdminModule, isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
@@ -44,6 +44,7 @@ import {
   RosterData,
   RosterIndex,
   accountStatusGuard,
+  adminAttributeGuard,
   buildAccountRecord,
   buildRosterEntry,
   checkRosterConflict,
@@ -293,7 +294,8 @@ function planCreate(
   fields: BatchFields,
   index: RosterIndex,
   period: SchoolPeriod | null,
-  entryIndexes: Map<RosterRole, RosterIndex>
+  entryIndexes: Map<RosterRole, RosterIndex>,
+  isSuper: boolean
 ): PlannedRow {
   const input: AccountInput = {};
   if (fields.email) input.email = fields.email;
@@ -329,6 +331,19 @@ function planCreate(
       name: validation.account.name,
     });
     if (!rosterValidation.ok) return skipRow(row, fields, rosterValidation.message);
+
+    // 屬性層級守門：非超級管理員不得藉「同時建立身分」建立超級管理員
+    if (rosterRole.role === "admin") {
+      const guard = adminAttributeGuard({
+        isSuper,
+        nextAttribute:
+          typeof rosterValidation.roster.attribute === "string"
+            ? rosterValidation.roster.attribute
+            : null,
+        currentAttribute: null,
+      });
+      if (guard) return skipRow(row, fields, guard);
+    }
 
     // 學號查重：只與「本學期同身分」名冊比對（含本檔前列已排入者）
     const studentId = typeof rosterValidation.roster.studentId === "string"
@@ -516,7 +531,8 @@ async function executePlan(
   planned: PlannedRow[],
   period: SchoolPeriod | null,
   rosterScope: RosterDeleteScope,
-  byUid: Map<string, AccountSnapshot>
+  byUid: Map<string, AccountSnapshot>,
+  isSuper: boolean
 ): Promise<AccountBatchResult> {
   const db = getAdminDb();
   const users = db.collection(USER_COLLECTION);
@@ -539,11 +555,15 @@ async function executePlan(
       const docRef = await users.add(record);
       created += 1;
       // 自動銜接：孤兒條目改掛回新帳號（須在寫入本學期條目之前，避免同身分同學期重複）
-      linked += await linkOrphanEntries({
-        uid: docRef.id,
-        email: item.account.email,
-        account: item.account.account,
-      });
+      // （超級條目僅超級管理員可銜接，否則等同授予超級權限）
+      linked += await linkOrphanEntries(
+        {
+          uid: docRef.id,
+          email: item.account.email,
+          account: item.account.account,
+        },
+        isSuper
+      );
       if (item.role && item.roster && period) {
         await db
           .collection(rosterCollection(item.role))
@@ -567,14 +587,17 @@ async function executePlan(
           ...(accountChanged ? { account: item.patch.account as string } : {}),
         });
       }
-      //帳號名（辨識鍵）變更：把同辨識鍵的孤兒名冊條目銜接回本帳號
+      // 帳號名（辨識鍵）變更：把同辨識鍵的孤兒名冊條目銜接回本帳號
       if (accountChanged) {
         const current = byUid.get(item.uid);
-        linked += await linkOrphanEntries({
-          uid: item.uid,
-          email: current?.email ?? "",
-          account: (item.patch.account as string) || current?.account || "",
-        });
+        linked += await linkOrphanEntries(
+          {
+            uid: item.uid,
+            email: current?.email ?? "",
+            account: (item.patch.account as string) || current?.account || "",
+          },
+          isSuper
+        );
       }
       updated += 1;
     } else {
@@ -690,6 +713,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { index, byUid } = await loadAccounts();
+    // 操作者是否為超級管理員（管理員屬性守門與孤兒銜接的超級條目處理共用）
+    const isSuper = await isSuperAdmin(session);
 
     // 新增模式：先取本學期，並載入檔案內出現身分的學號索引（同身分內查重）
     let period: SchoolPeriod | null = null;
@@ -725,7 +750,7 @@ export async function POST(request: NextRequest) {
     const planned: PlannedRow[] = [];
     for (const { row, fields } of dataRows) {
       if (mode === "create") {
-        planned.push(planCreate(row, fields, index, period, entryIndexes));
+        planned.push(planCreate(row, fields, index, period, entryIndexes, isSuper));
       } else if (mode === "update") {
         planned.push(await planUpdate(row, fields, index, byUid, seen, session.uid));
       } else {
@@ -737,7 +762,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, dryRun: true, preview: buildPreview(mode, planned) });
     }
 
-    const result = await executePlan(planned, period, rosterScope, byUid);
+    const result = await executePlan(planned, period, rosterScope, byUid, isSuper);
     const label = ACCOUNT_BATCH_MODE_LABELS[mode];
     const rosterNote = (result.rostered ?? 0) > 0 ? `、同時建立身分 ${result.rostered} 筆` : "";
     const linkNote = (result.linked ?? 0) > 0 ? `、銜接名冊 ${result.linked} 筆` : "";

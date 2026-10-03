@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
-import { hasAdminModule, requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { hasAdminModule, isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
@@ -32,6 +32,7 @@ import {
 } from "@/types/roster";
 import {
   accountStatusGuard,
+  adminAttributeGuard,
   buildAccountRecord,
   buildRosterEntry,
   checkRosterConflict,
@@ -241,6 +242,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 操作者是否為超級管理員（屬性守門與孤兒銜接的超級條目處理共用）
+    const isSuper = await isSuperAdmin(session);
+
+    // 屬性層級守門：非超級管理員不得藉「同時建立身分」建立超級管理員
+    if (rosterSection && rosterValidation?.ok) {
+      const guardMessage = adminAttributeGuard({
+        isSuper,
+        nextAttribute:
+          typeof rosterValidation.roster.attribute === "string"
+            ? rosterValidation.roster.attribute
+            : null,
+        currentAttribute: null,
+      });
+      if (guardMessage) return toAuthResponse({ status: 403, message: guardMessage });
+    }
+
     const period = rosterSection ? await getCurrentPeriod() : null;
     // 建立身分時需連同學號查重（學號索引取自本學期該身分名冊）
     const index =
@@ -264,11 +281,15 @@ export async function POST(request: NextRequest) {
     const docRef = await getAdminDb().collection(USER_COLLECTION).add(record);
 
     // 自動銜接：同一辨識鍵曾留下孤兒名冊條目（帳號已刪除）時，整批改掛回本帳號
-    const linked = await linkOrphanEntries({
-      uid: docRef.id,
-      email: result.account.email,
-      account: result.account.account,
-    });
+    // （超級條目僅超級管理員可銜接，否則等同授予超級權限）
+    const linked = await linkOrphanEntries(
+      {
+        uid: docRef.id,
+        email: result.account.email,
+        account: result.account.account,
+      },
+      isSuper
+    );
     const linkedLabel = linked > 0 ? `，已銜接名冊 ${linked} 筆` : "";
 
     // 本學期身分名冊條目：doc id ＝ uid_學年度_學期，之後可在「身分名冊管理」維護
@@ -388,8 +409,12 @@ export async function PUT(request: NextRequest) {
     });
 
     // 辨識鍵變更：把同辨識鍵的孤兒名冊條目（帳號已刪除）銜接回本帳號
+    // （超級條目僅超級管理員可銜接，否則等同授予超級權限）
     const linked = identityChanged
-      ? await linkOrphanEntries({ uid, email: account.email, account: account.account })
+      ? await linkOrphanEntries(
+          { uid, email: account.email, account: account.account },
+          await isSuperAdmin(session)
+        )
       : 0;
     const linkedLabel = linked > 0 ? `，已銜接名冊 ${linked} 筆` : "";
 
