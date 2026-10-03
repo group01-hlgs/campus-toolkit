@@ -15,6 +15,7 @@ import {
   ADMIN_MODULES,
   ALL_ROLES,
   BASE_ADMIN_MODULES,
+  RosterDeleteScope,
   ROLE_LABELS,
   STAFF_ATTRIBUTES,
   statusLabel,
@@ -89,7 +90,7 @@ const BATCH_HINTS: Record<AccountBatchMode, string[]> = {
   ],
   delete: [
     "辨識欄位：電子郵件地址或帳號（兩者都填須指向同一帳號）",
-    "將刪除帳號與其所有學期的名冊條目，帳號一併刪除",
+    "刪除帳號；其名冊條目可選擇一併刪除所有學期、只刪本學期，或完全保留（於確認視窗選擇）",
     "刪除後無法復原",
   ],
 };
@@ -102,6 +103,9 @@ const BATCH_HINT_CREATE_NO_ROSTER: string[] = [
   "未被指派「身分名冊管理」權限，無法同時建立身分",
   "單批最多 900 列",
 ];
+
+/** 刪除確認視窗的名冊條目處理選項（單筆與批次共用；說明文字代入目前學年度學期） */
+const ROSTER_SCOPE_OPTIONS: RosterDeleteScope[] = ["all", "current", "none"];
 
 /** 批次作業範例檔（存於 docs/，由 /api/admin/downloads 提供下載；粗體＝目前所選模式） */
 const BATCH_SAMPLE_FILES: { key: AccountBatchMode; href: string; label: string }[] = [
@@ -233,11 +237,22 @@ export default function AccountsPage() {
   const [confirmRequest, setConfirmRequest] = useState<{
     message: string;
     onConfirm: () => void;
-    danger?: boolean;
   } | null>(null);
 
-  function askConfirm(message: string, onConfirm: () => void, danger = false) {
-    setConfirmRequest({ message, onConfirm, danger });
+  function askConfirm(message: string, onConfirm: () => void) {
+    setConfirmRequest({ message, onConfirm });
+  }
+
+  // 刪除確認 modal：單筆與批次共用，可選擇名冊條目的處理範圍（預設＝所有學期）
+  const [deleteRequest, setDeleteRequest] = useState<
+    { kind: "single"; target: AccountSummary } | { kind: "batch"; count: number } | null
+  >(null);
+  const [deleteScope, setDeleteScope] = useState<RosterDeleteScope>("all");
+
+  /** 開啟刪除確認（每次都回到預設範圍） */
+  function openDeleteConfirm(request: NonNullable<typeof deleteRequest>) {
+    setDeleteScope("all");
+    setDeleteRequest(request);
   }
 
   useEffect(() => {
@@ -277,6 +292,16 @@ export default function AccountsPage() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [confirmRequest]);
+
+  // 刪除確認 modal：Esc 取消
+  useEffect(() => {
+    if (!deleteRequest) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDeleteRequest(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleteRequest]);
 
   const loadAccounts = async () => {
     setLoading(true);
@@ -594,22 +619,17 @@ export default function AccountsPage() {
 
   function handleDelete(target: AccountSummary) {
     if (deleting) return;
-    const label = `${target.name}（${target.account || target.email}）`;
-    askConfirm(
-      `確定刪除 ${label}？將刪除帳號與所有學期的身分名冊資料，刪除後無法復原。`,
-      () => void applyDelete(target),
-      true
-    );
+    openDeleteConfirm({ kind: "single", target });
   }
 
-  async function applyDelete(target: AccountSummary) {
+  async function applyDelete(target: AccountSummary, rosterScope: RosterDeleteScope) {
     setDeleting(true);
     setFlash(null);
     try {
       const res = await fetch("/api/admin/accounts", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: target.uid }),
+        body: JSON.stringify({ uid: target.uid, rosterScope }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -624,6 +644,28 @@ export default function AccountsPage() {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
       setDeleting(false);
+    }
+  }
+
+  /** 刪除確認視窗的名冊處理選項文字（「本學期」代入目前學年度學期） */
+  function rosterScopeCopy(scope: RosterDeleteScope): { label: string; hint: string } {
+    const periodLabel = `${settings.academicYear} 學年度第 ${settings.semester} 學期`;
+    switch (scope) {
+      case "current":
+        return {
+          label: "只刪除本學期的名冊條目",
+          hint: `僅移除 ${periodLabel} 的身分名冊資料，其他學期保留`,
+        };
+      case "none":
+        return {
+          label: "不刪除任何名冊條目",
+          hint: "只刪除帳號，所有學期的身分名冊資料完整保留",
+        };
+      default:
+        return {
+          label: "一併刪除所有學期的名冊條目",
+          hint: "該帳號各學年度學期的身分名冊資料全部刪除",
+        };
     }
   }
 
@@ -650,16 +692,19 @@ export default function AccountsPage() {
       void executeBatch(true);
       return;
     }
-    const question =
-      batchMode === "delete"
-        ? `確定執行批次刪除？共 ${batchPreview?.deleted ?? 0} 個帳號將被刪除，無法復原。`
-        : `確定執行批次「${ACCOUNT_BATCH_MODE_LABELS[batchMode]}」？共 ${
-            batchPreview?.total ?? 0
-          } 列。`;
-    askConfirm(question, () => void executeBatch(false), batchMode === "delete");
+    if (batchMode === "delete") {
+      openDeleteConfirm({ kind: "batch", count: batchPreview?.deleted ?? 0 });
+      return;
+    }
+    askConfirm(
+      `確定執行批次「${ACCOUNT_BATCH_MODE_LABELS[batchMode]}」？共 ${
+        batchPreview?.total ?? 0
+      } 列。`,
+      () => void executeBatch(false)
+    );
   }
 
-  async function executeBatch(dryRun: boolean) {
+  async function executeBatch(dryRun: boolean, rosterScope: RosterDeleteScope = "all") {
     if (!batchFile || batchBusy) return;
     setBatchBusy(dryRun ? "preview" : "execute");
     setBatchError("");
@@ -667,6 +712,7 @@ export default function AccountsPage() {
       const body = new FormData();
       body.append("mode", batchMode);
       body.append("dryRun", dryRun ? "true" : "false");
+      if (batchMode === "delete") body.append("rosterScope", rosterScope);
       body.append("file", batchFile);
       const res = await fetch("/api/admin/accounts/batch", { method: "POST", body });
       const data = await res.json();
@@ -1505,12 +1551,6 @@ export default function AccountsPage() {
             <div>
               <h3 className="text-lg font-bold text-t1">確認操作</h3>
               <p className="text-sm text-t2 mt-2">{confirmRequest.message}</p>
-              {/* 危險操作統一警示：刪除類操作無法復原 */}
-              {confirmRequest.danger && (
-                <p className="alert-danger mt-3 px-3 py-2 text-sm font-bold" role="alert">
-                  <span className="text-danger">刪除後無法復原</span>
-                </p>
-              )}
             </div>
             <div className="flex justify-end gap-3">
               <button
@@ -1527,11 +1567,89 @@ export default function AccountsPage() {
                   setConfirmRequest(null);
                   onConfirm();
                 }}
-                className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
-                  confirmRequest.danger ? "btn-danger" : "btn-theme"
-                }`}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
               >
                 確認
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 刪除確認 modal：可選擇名冊條目處理範圍，危險警示比照「身分名冊管理」 */}
+      {deleteRequest && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          onClick={() => setDeleteRequest(null)}
+        >
+          <div
+            className="bg-card rounded-2xl p-6 w-full max-w-md space-y-4 shadow-lg animate-fade-in"
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="space-y-3">
+              <h3 className="text-lg font-bold text-t1">確認刪除</h3>
+              <p className="text-sm text-t2">
+                {deleteRequest.kind === "single"
+                  ? `確定刪除 ${deleteRequest.target.name}（${
+                      deleteRequest.target.account || deleteRequest.target.email
+                    }）的帳號？`
+                  : `確定執行批次刪除？共 ${deleteRequest.count} 個帳號將被刪除。`}
+              </p>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-bold text-t1">名冊條目的處理方式</legend>
+                {ROSTER_SCOPE_OPTIONS.map((value) => {
+                  const copy = rosterScopeCopy(value);
+                  return (
+                    <label
+                      key={value}
+                      className="flex items-start gap-2 text-sm text-t2 cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="roster-delete-scope"
+                        value={value}
+                        checked={deleteScope === value}
+                        onChange={() => setDeleteScope(value)}
+                        className="mt-0.5 cursor-pointer"
+                      />
+                      <span>
+                        {copy.label}
+                        <span className="block text-xs text-t3">{copy.hint}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+              <p className="alert-danger px-3 py-2 text-sm font-bold" role="alert">
+                <span className="text-danger">刪除後無法復原</span>
+              </p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteRequest(null)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const request = deleteRequest;
+                  const scope = deleteScope;
+                  setDeleteRequest(null);
+                  if (request.kind === "single") {
+                    void applyDelete(request.target, scope);
+                  } else {
+                    void executeBatch(false, scope);
+                  }
+                }}
+                className="btn-danger rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                確認刪除
               </button>
             </div>
           </div>

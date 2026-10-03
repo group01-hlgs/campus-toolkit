@@ -339,3 +339,13 @@ export interface AccountBatchResult {
   rostered?: number;
   skipped: { row: number; reason: string }[];
 }
+
+/** 刪除帳號時的名冊條目處理範圍（單筆與批次刪除皆可選，預設 all） */
+export type RosterDeleteScope = "all" | "current" | "none";
+
+/** 各處理範圍的完整說明（用於成功訊息與稽核紀錄） */
+export const ROSTER_DELETE_SCOPE_LABELS: Record<RosterDeleteScope, string> = {
+  all: "刪除所有學期的名冊條目",
+  current: "只刪除本學期的名冊條目",
+  none: "保留所有名冊條目",
+};

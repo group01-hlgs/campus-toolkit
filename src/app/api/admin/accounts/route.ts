@@ -16,6 +16,8 @@ import {
   isUserRole,
   lastLoginOf,
   normalizeAccountStatus,
+  ROSTER_DELETE_SCOPE_LABELS,
+  RosterDeleteScope,
   statusLabel,
   USER_COLLECTION,
   UserRole,
@@ -439,7 +441,10 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-/** DELETE：刪除使用者帳號，連動刪除其所有學期的名冊條目 */
+/**
+ * DELETE：刪除使用者帳號，名冊條目依 `rosterScope` 處理：
+ * `all`＝連動刪除所有學期（預設）、`current`＝只刪本學期、`none`＝保留名冊條目。
+ */
 export async function DELETE(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -461,6 +466,9 @@ export async function DELETE(request: NextRequest) {
     if (!uid) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
     }
+    const scopeRaw = typeof body.rosterScope === "string" ? body.rosterScope : "";
+    const rosterScope: RosterDeleteScope =
+      scopeRaw === "current" || scopeRaw === "none" ? scopeRaw : "all";
 
     const guard = await assertAccountStatusAllowed(uid, session.uid);
     if (guard) {
@@ -481,30 +489,41 @@ export async function DELETE(request: NextRequest) {
 
     await ref.delete();
 
-    // 帳號刪除時一併清掉四張名冊中所有學年度學期的條目
-    const collections = ["rosterStudents", "rosterParents", "rosterStaff", "rosterAdmins"];
-    const snaps = await Promise.all(
-      collections.map((name) => db.collection(name).where("uid", "==", uid).get())
-    );
-    const batch = db.batch();
+    // 名冊條目：預設清掉四張名冊中所有學年度學期的條目，可改為只刪本學期或完全保留
+    const scopeLabel = ROSTER_DELETE_SCOPE_LABELS[rosterScope];
     let deletes = 0;
-    for (const entrySnap of snaps) {
-      for (const doc of entrySnap.docs) {
-        batch.delete(doc.ref);
-        deletes += 1;
+    if (rosterScope !== "none") {
+      const collections = ["rosterStudents", "rosterParents", "rosterStaff", "rosterAdmins"];
+      const period = rosterScope === "current" ? await getCurrentPeriod() : null;
+      const snaps = await Promise.all(
+        collections.map((name) => db.collection(name).where("uid", "==", uid).get())
+      );
+      const batch = db.batch();
+      for (const entrySnap of snaps) {
+        for (const doc of entrySnap.docs) {
+          const entry = doc.data();
+          if (
+            period &&
+            (entry.academicYear !== period.academicYear || entry.semester !== period.semester)
+          ) {
+            continue;
+          }
+          batch.delete(doc.ref);
+          deletes += 1;
+        }
       }
+      if (deletes > 0) await batch.commit();
     }
-    if (deletes > 0) await batch.commit();
 
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "account_deleted",
       ip: getClientIp(request),
-      details: `刪除帳號 ${target.account || target.email || uid}`,
+      details: `刪除帳號 ${target.account || target.email || uid}（${scopeLabel}）`,
     });
 
-    return NextResponse.json({ success: true, message: "帳號已刪除" });
+    return NextResponse.json({ success: true, message: `帳號已刪除（${scopeLabel}）` });
   } catch (error) {
     console.error("Account delete error:", error);
     return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });

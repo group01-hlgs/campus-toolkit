@@ -20,6 +20,8 @@ import {
   AccountBatchRow,
   AccountStatus,
   ROLE_LABELS,
+  ROSTER_DELETE_SCOPE_LABELS,
+  RosterDeleteScope,
   USER_COLLECTION,
   UserRole,
   isUserRole,
@@ -493,12 +495,14 @@ function buildPreview(mode: AccountBatchMode, planned: PlannedRow[]): AccountBat
 }
 
 /**
- * 執行計畫：建立帳號的同時寫入本學期身分名冊條目（有「身分」者）。
- * period 由呼叫端一次取得，整批寫入同一學期。
+ * 執行計畫：建立帳號的同時寫入本學期身分名冊條目（有「身分」者）；
+ * 刪除列的名冊處理依 rosterScope（all＝所有學期、current＝僅本學期、none＝完全保留）。
+ * period 由呼叫端一次取得，整批寫入／比對同一學期。
  */
 async function executePlan(
   planned: PlannedRow[],
-  period: SchoolPeriod | null
+  period: SchoolPeriod | null,
+  rosterScope: RosterDeleteScope
 ): Promise<AccountBatchResult> {
   const db = getAdminDb();
   const users = db.collection(USER_COLLECTION);
@@ -544,14 +548,26 @@ async function executePlan(
 
   if (deleteUids.length > 0) {
     const targets = new Set(deleteUids);
-    const collections = ["rosterStudents", "rosterParents", "rosterStaff", "rosterAdmins"];
-    const snapshots = await Promise.all(
-      collections.map((name) => db.collection(name).get())
-    );
     const refs = deleteUids.map((uid) => users.doc(uid));
-    for (const snapshot of snapshots) {
-      for (const doc of snapshot.docs) {
-        if (targets.has(String(doc.data().uid ?? ""))) refs.push(doc.ref);
+    // 名冊條目：none＝完全保留（只刪帳號）；current＝僅本學期；all＝所有學期
+    if (rosterScope !== "none") {
+      const collections = ["rosterStudents", "rosterParents", "rosterStaff", "rosterAdmins"];
+      const snapshots = await Promise.all(
+        collections.map((name) => db.collection(name).get())
+      );
+      for (const snapshot of snapshots) {
+        for (const doc of snapshot.docs) {
+          const entry = doc.data();
+          if (!targets.has(String(entry.uid ?? ""))) continue;
+          if (
+            rosterScope === "current" &&
+            period &&
+            (entry.academicYear !== period.academicYear || entry.semester !== period.semester)
+          ) {
+            continue;
+          }
+          refs.push(doc.ref);
+        }
       }
     }
     for (let i = 0; i < refs.length; i += DELETE_CHUNK) {
@@ -594,6 +610,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "批次作業模式無效" }, { status: 400 });
     }
     const dryRun = formData.get("dryRun") === "true";
+    // 刪除模式的名冊處理範圍（其餘模式忽略；預設＝所有學期）
+    const scopeRaw = formData.get("rosterScope");
+    const rosterScope: RosterDeleteScope =
+      scopeRaw === "current" || scopeRaw === "none"
+        ? (scopeRaw as RosterDeleteScope)
+        : "all";
 
     const file = formData.get("file");
     if (!file || typeof file === "string") {
@@ -658,6 +680,9 @@ export async function POST(request: NextRequest) {
           entryIndexes.set(role, await loadPeriodStudentIds(role, period));
         }
       }
+    } else if (mode === "delete" && rosterScope === "current") {
+      // 只刪本學期名冊條目：需取得目前學年度學期做比對
+      period = await getCurrentPeriod();
     }
 
     const seen = new Set<string>();
@@ -676,22 +701,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, dryRun: true, preview: buildPreview(mode, planned) });
     }
 
-    const result = await executePlan(planned, mode === "create" ? period : null);
+    const result = await executePlan(planned, period, rosterScope);
     const label = ACCOUNT_BATCH_MODE_LABELS[mode];
     const rosterNote = (result.rostered ?? 0) > 0 ? `、同時建立身分 ${result.rostered} 筆` : "";
+    const deleteNote =
+      mode === "delete" && result.deleted > 0
+        ? `（${ROSTER_DELETE_SCOPE_LABELS[rosterScope]}）`
+        : "";
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "account_batch",
       ip: getClientIp(request),
-      details: `批次${label}：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
+      details: `批次${label}：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
     });
 
     return NextResponse.json({
       success: true,
       dryRun: false,
       result,
-      message: `批次作業完成：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
+      message: `批次作業完成：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
     });
   } catch (error) {
     console.error("Account batch error:", error);
