@@ -52,7 +52,7 @@ async function assertAccountStatusAllowed(
   return NextResponse.json({ success: false, message }, { status: 400 });
 }
 
-/** 當期四張名冊 → 每個 uid 具備的身分（順序固定 ALL_ROLES） */
+/** 本學期四張名冊 → 每個 uid 具備的身分（順序固定 ALL_ROLES） */
 async function loadRolesByUid(period: SchoolPeriod): Promise<Map<string, UserRole[]>> {
   const db = getAdminDb();
   const snapshots = await Promise.all(
@@ -176,7 +176,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST：新增使用者帳號；可於同一請求附帶「同時建立身分」，
- * 於寫入帳號後一併建立當期（目前學年度學期）的身分名冊條目。
+ * 於寫入帳號後一併建立本學期（目前學年度學期）的身分名冊條目。
  */
 export async function POST(request: NextRequest) {
   try {
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
     }
 
     const period = rosterSection ? await getCurrentPeriod() : null;
-    // 建立身分時需連同學號查重（學號索引取自當期該身分名冊）
+    // 建立身分時需連同學號查重（學號索引取自本學期該身分名冊）
     const index =
       rosterSection && period
         ? await loadRosterIndex(rosterSection.role, period)
@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
     );
     const docRef = await getAdminDb().collection(USER_COLLECTION).add(record);
 
-    // 當期身分名冊條目：doc id ＝ uid_學年度_學期，之後可在「身分名冊管理」維護
+    // 本學期身分名冊條目：doc id ＝ uid_學年度_學期，之後可在「身分名冊管理」維護
     if (rosterSection && rosterValidation?.ok && period) {
       await getAdminDb()
         .collection(rosterCollection(rosterSection.role))
@@ -273,7 +273,7 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const rosterLabel = rosterSection ? `、同時建立當期${rosterRoleLabel(rosterSection.role)}身分` : "";
+    const rosterLabel = rosterSection ? `、同時建立本學期${rosterRoleLabel(rosterSection.role)}身分` : "";
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -286,7 +286,7 @@ export async function POST(request: NextRequest) {
       success: true,
       uid: docRef.id,
       message: rosterSection
-        ? `帳號已建立，並已建立當期${rosterRoleLabel(rosterSection.role)}身分`
+        ? `帳號已建立，並已建立本學期${rosterRoleLabel(rosterSection.role)}身分`
         : "帳號已建立，請至「身分名冊管理」指定身分",
     });
   } catch (error) {
@@ -295,7 +295,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** PUT：更新帳號（電子郵件／帳號／姓名／密碼／慣用身分），同步當期名冊展示資料 */
+/** PUT：更新帳號（電子郵件／帳號／姓名／密碼／慣用身分），同步本學期名冊展示資料 */
 export async function PUT(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -363,7 +363,7 @@ export async function PUT(request: NextRequest) {
 
     await ref.update(updateData);
 
-    // 名稱／信箱變更：同步當期四張名冊的展示資料（歷史學期不受影響）
+    // 名稱／信箱變更：同步本學期四張名冊的展示資料（歷史學期不受影響）
     await syncEntryIdentity(uid, await getCurrentPeriod(), {
       email: account.email,
       name: account.name,

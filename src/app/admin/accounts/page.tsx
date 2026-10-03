@@ -73,19 +73,35 @@ const DEFAULT_PASSWORD_PLACEHOLDER = "預設密碼；至少8碼，須含大寫�
 /** 「同時建立身分」的名冊專屬欄位（只存目前所選身分的欄位，換身分即清空） */
 type RosterForm = Record<string, string>;
 
-const BATCH_HINTS: Record<AccountBatchMode, string> = {
-  create:
-    "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼（預設密碼，該使用者首次登入須先修改）；" +
-    "可選：慣用身分（學生／家長／教職員／管理員）、身分（填了即同時建立當期該身分，需一併填該身分的名冊欄位，" +
-    "如學生的學號；不填＝只建帳號，事後至「身分名冊管理」指定）。單批最多 900 列。",
-  update: "以「電子郵件地址」或「帳號」辨識該列（兩者都填須指向同一帳號）；可更新：姓名、帳號、慣用身分、狀態，空白欄位＝不修改。不支援批次修改電子郵件地址與密碼。",
-  delete: "以「電子郵件地址」或「帳號」辨識該列；將刪除帳號與其所有學期的名冊條目，刪除後無法復原。",
+/** 批次管理三種模式的說明（分點敘述） */
+const BATCH_HINTS: Record<AccountBatchMode, string[]> = {
+  create: [
+    "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）",
+    "必填欄位：姓名、密碼（預設密碼，該使用者首次登入須先修改）",
+    "可選欄位：慣用身分（學生／家長／教職員／管理員）",
+    "「身分」欄填了即同時建立本學期該身分，需一併填該身分的名冊欄位（如學生的學號）；不填＝只建帳號，事後至「身分名冊管理」指定",
+    "單批最多 900 列",
+  ],
+  update: [
+    "辨識欄位：電子郵件地址或帳號（兩者都填須指向同一帳號）",
+    "可更新：姓名、帳號、慣用身分、狀態，空白欄位＝不修改",
+    "不支援批次修改電子郵件地址與密碼",
+  ],
+  delete: [
+    "辨識欄位：電子郵件地址或帳號（兩者都填須指向同一帳號）",
+    "將刪除帳號與其所有學期的名冊條目，帳號一併刪除",
+    "刪除後無法復原",
+  ],
 };
 
 /** 未被指派「身分名冊管理」權限時的新增模式說明（無法同時建立身分） */
-const BATCH_HINT_CREATE_NO_ROSTER =
-  "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）；必填欄位：姓名、密碼（預設密碼，該使用者首次登入須先修改）；" +
-  "可選：慣用身分（學生／家長／教職員／管理員）。未被指派「身分名冊管理」權限，無法同時建立身分。單批最多 900 列。";
+const BATCH_HINT_CREATE_NO_ROSTER: string[] = [
+  "辨識欄位：電子郵件地址或帳號（至少填一個，兩者都填須指向同一帳號）",
+  "必填欄位：姓名、密碼（預設密碼，該使用者首次登入須先修改）",
+  "可選欄位：慣用身分（學生／家長／教職員／管理員）",
+  "未被指派「身分名冊管理」權限，無法同時建立身分",
+  "單批最多 900 列",
+];
 
 /** 批次作業範例檔（存於 docs/，由 /api/admin/downloads 提供下載；粗體＝目前所選模式） */
 const BATCH_SAMPLE_FILES: { key: AccountBatchMode; href: string; label: string }[] = [
@@ -217,10 +233,11 @@ export default function AccountsPage() {
   const [confirmRequest, setConfirmRequest] = useState<{
     message: string;
     onConfirm: () => void;
+    danger?: boolean;
   } | null>(null);
 
-  function askConfirm(message: string, onConfirm: () => void) {
-    setConfirmRequest({ message, onConfirm });
+  function askConfirm(message: string, onConfirm: () => void, danger = false) {
+    setConfirmRequest({ message, onConfirm, danger });
   }
 
   useEffect(() => {
@@ -468,7 +485,7 @@ export default function AccountsPage() {
           ...(isEdit ? { uid: editingUid } : {}),
           input: { ...form },
           preferredRole: formPreferredRole,
-          // 同時建立身分（僅新增）：寫入帳號後一併建立當期名冊條目
+          // 同時建立身分（僅新增）：寫入帳號後一併建立本學期名冊條目
           ...(!isEdit && formRosterRole ? { roster: { role: formRosterRole, input: formRoster } } : {}),
         }),
       });
@@ -580,7 +597,8 @@ export default function AccountsPage() {
     const label = `${target.name}（${target.account || target.email}）`;
     askConfirm(
       `確定刪除 ${label}？將刪除帳號與所有學期的身分名冊資料，刪除後無法復原。`,
-      () => void applyDelete(target)
+      () => void applyDelete(target),
+      true
     );
   }
 
@@ -638,7 +656,7 @@ export default function AccountsPage() {
         : `確定執行批次「${ACCOUNT_BATCH_MODE_LABELS[batchMode]}」？共 ${
             batchPreview?.total ?? 0
           } 列。`;
-    askConfirm(question, () => void executeBatch(false));
+    askConfirm(question, () => void executeBatch(false), batchMode === "delete");
   }
 
   async function executeBatch(dryRun: boolean) {
@@ -914,32 +932,27 @@ export default function AccountsPage() {
               )}
             </div>
 
-            <p className="text-xs text-t3 mt-2">
-              {batchMode === "create" && !canCreateRoster
+            <ul className="text-xs text-t3 mt-2 list-disc pl-5 space-y-1">
+              {(batchMode === "create" && !canCreateRoster
                 ? BATCH_HINT_CREATE_NO_ROSTER
-                : BATCH_HINTS[batchMode]}
-            </p>
-
-            <p className="text-xs text-t3 mt-2">
-              範例檔下載：
-              {BATCH_SAMPLE_FILES.map((item, index) => (
-                <span key={item.href}>
-                  {index > 0 && "、"}
+                : BATCH_HINTS[batchMode]
+              ).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+              {BATCH_SAMPLE_FILES.filter((item) => item.key === batchMode).map((item) => (
+                <li key={item.href}>
+                  範例檔下載：
                   <a
                     href={encodeURI(item.href)}
                     download
-                    className={
-                      item.key === batchMode
-                        ? "text-t1 font-medium"
-                        : "text-t2 underline hover:text-t1"
-                    }
+                    className="text-t1 font-medium"
                   >
                     {item.label}
                   </a>
-                </span>
+                  ，可另存修改後再上傳。
+                </li>
               ))}
-              ，可另存修改後再上傳。
-            </p>
+            </ul>
 
             {batchError && (
               <p className="text-sm text-danger mt-2" role="alert">
@@ -1492,6 +1505,12 @@ export default function AccountsPage() {
             <div>
               <h3 className="text-lg font-bold text-t1">確認操作</h3>
               <p className="text-sm text-t2 mt-2">{confirmRequest.message}</p>
+              {/* 危險操作統一警示：刪除類操作無法復原 */}
+              {confirmRequest.danger && (
+                <p className="alert-danger mt-3 px-3 py-2 text-sm font-bold" role="alert">
+                  <span className="text-danger">刪除後無法復原</span>
+                </p>
+              )}
             </div>
             <div className="flex justify-end gap-3">
               <button
@@ -1508,7 +1527,9 @@ export default function AccountsPage() {
                   setConfirmRequest(null);
                   onConfirm();
                 }}
-                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+                className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
+                  confirmRequest.danger ? "btn-danger" : "btn-theme"
+                }`}
               >
                 確認
               </button>

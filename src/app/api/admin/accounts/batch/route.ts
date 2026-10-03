@@ -78,7 +78,7 @@ const FIELD_HEADERS: { key: AccountColumnKey; aliases: string[] }[] = [
   { key: "status", aliases: ["狀態", "状态", "status"] },
 ];
 
-/** 「身分」欄：填了才會在建立帳號的同時建立當期該身分名冊條目 */
+/** 「身分」欄：填了才會在建立帳號的同時建立本學期該身分名冊條目 */
 const ROLE_HEADER: { key: "role"; aliases: string[] } = {
   key: "role",
   aliases: ["身分", "身份", "role"],
@@ -253,7 +253,7 @@ function parseRosterRole(value: string): { role?: RosterRole; error?: string } {
 }
 
 /**
- * 當期「該身分」名冊的學號索引（學號查重只在同身分內比對；
+ * 本學期「該身分」名冊的學號索引（學號查重只在同身分內比對；
  * 家長的學號是其子女學號，故不跨表比對）。
  */
 async function loadPeriodStudentIds(
@@ -297,7 +297,7 @@ function planCreate(
     preferredRole = role;
   }
 
-  // 同時建立身分：填了「身分」欄才建立當期名冊條目，其名冊欄位一併驗證
+  // 同時建立身分：填了「身分」欄才建立本學期名冊條目，其名冊欄位一併驗證
   const rosterRole = parseRosterRole(fields.role);
   if (rosterRole.error) return skipRow(row, fields, rosterRole.error);
   let roster: RosterData | undefined;
@@ -316,7 +316,7 @@ function planCreate(
     });
     if (!rosterValidation.ok) return skipRow(row, fields, rosterValidation.message);
 
-    // 學號查重：只與「當期同身分」名冊比對（含本檔前列已排入者）
+    // 學號查重：只與「本學期同身分」名冊比對（含本檔前列已排入者）
     const studentId = typeof rosterValidation.roster.studentId === "string"
       ? rosterValidation.roster.studentId
       : "";
@@ -325,7 +325,7 @@ function planCreate(
     }
 
     roster = rosterValidation.roster;
-    note = `同時建立當期${rosterRoleLabel(rosterRole.role)}身分`;
+    note = `同時建立本學期${rosterRoleLabel(rosterRole.role)}身分`;
     if (studentId && entryIndex) entryIndex.studentIds.set(studentId, `row:${row}`);
   }
 
@@ -493,7 +493,7 @@ function buildPreview(mode: AccountBatchMode, planned: PlannedRow[]): AccountBat
 }
 
 /**
- * 執行計畫：建立帳號的同時寫入當期身分名冊條目（有「身分」者）。
+ * 執行計畫：建立帳號的同時寫入本學期身分名冊條目（有「身分」者）。
  * period 由呼叫端一次取得，整批寫入同一學期。
  */
 async function executePlan(
@@ -633,7 +633,7 @@ export async function POST(request: NextRequest) {
 
     const { index, byUid } = await loadAccounts();
 
-    // 新增模式：先取當期學期，並載入檔案內出現身分的學號索引（同身分內查重）
+    // 新增模式：先取本學期，並載入檔案內出現身分的學號索引（同身分內查重）
     let period: SchoolPeriod | null = null;
     const entryIndexes = new Map<RosterRole, RosterIndex>();
     if (mode === "create") {
