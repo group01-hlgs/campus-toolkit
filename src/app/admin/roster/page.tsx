@@ -1450,10 +1450,38 @@ export default function RosterPage() {
                   <td className="px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <span>{member.name || "—"}</span>
-                      {/* 孤兒列（帳號已刪除、名冊條目保留）：明示狀態並提供銜接 */}
+                      {/* 孤兒列（帳號已刪除、名冊條目保留）：鎖鍊斷開圖示標示無對應帳號 */}
                       {member.orphan && (
-                        <span className="inline-block rounded-full border border-themed px-2 py-0.5 text-xs text-danger">
-                          無對應帳號
+                        <span
+                          role="img"
+                          aria-label="無對應帳號"
+                          title="無對應帳號"
+                          className="inline-flex text-danger"
+                        >
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 0 0-.12-7.07 5.006 5.006 0 0 0-6.95 0l-1.72 1.71"
+                            />
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 0 0 .12 7.07 5.006 5.006 0 0 0 6.95 0l1.71-1.71"
+                            />
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M8 2v3M2 8h3M16 19v3M19 16h3"
+                            />
+                          </svg>
                         </span>
                       )}
                     </div>
