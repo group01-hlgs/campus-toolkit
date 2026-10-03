@@ -397,6 +397,39 @@ export function setUnitLevel(
   };
 }
 
+/**
+ * 與同層的前一個／後一個兄弟對調（direction：-1 上移、1 下移）。
+ * 兄弟順序＝陣列相對順序，第一層順序即全校處室的羅列順位；
+ * 對調兩個元素在陣列中的位置，其餘元素位置不動。
+ */
+export function moveSibling(
+  structure: OrgStructure,
+  code: string,
+  direction: -1 | 1
+): OrgPlacementResult {
+  const unit = findUnit(structure, code);
+  if (!unit) return { ok: false, message: "找不到該單位" };
+  const siblings = childrenOf(structure, unit.parent);
+  const index = siblings.findIndex((item) => item.code === code);
+  const target = index >= 0 ? siblings[index + direction] : undefined;
+  if (!target) {
+    return {
+      ok: false,
+      message: direction < 0 ? "已是同層的第一個單位" : "已是同層的最後一個單位",
+    };
+  }
+  const units = structure.units.slice();
+  const from = units.findIndex((item) => item.code === code);
+  const to = units.findIndex((item) => item.code === target.code);
+  if (from < 0 || to < 0) return { ok: false, message: "找不到該單位" };
+  const moved = units[from];
+  const swapped = units[to];
+  if (!moved || !swapped) return { ok: false, message: "找不到該單位" };
+  units[from] = swapped;
+  units[to] = moved;
+  return { ok: true, value: { ...structure, units } };
+}
+
 /** 同上級單位內不重複的預設名稱 */
 function uniqueSiblingName(structure: OrgStructure, parent: string | null): string {
   const names = new Set(childrenOf(structure, parent).map((unit) => unit.name));

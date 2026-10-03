@@ -7,7 +7,9 @@ import {
   OrgStructure,
   addUnit,
   childCountOf,
+  childrenOf,
   flattenOrgTree,
+  moveSibling,
   removeUnit,
   setUnitLevel,
   setUnitParent,
@@ -57,6 +59,7 @@ export default function OrgUnitTable({
       <div className="flex items-center justify-between gap-3 mb-3">
         <p className="text-sm text-t3">
           改層級或上級單位會連同其下所有子單位一起調整；未指定上級單位時無法儲存。
+          「上移／下移」調整同層順位，第一層順序即全校處室的羅列順位。
         </p>
         <button
           type="button"
@@ -97,6 +100,10 @@ export default function OrgUnitTable({
               const parentOptions = value.units.filter((unit) => unit.level === row.level - 1);
               const children = childCountOf(value, row.code);
               const canAddChild = row.level < value.levelCount;
+              const siblings = childrenOf(value, row.parent);
+              const siblingIndex = siblings.findIndex((unit) => unit.code === row.code);
+              const canUp = siblingIndex > 0;
+              const canDown = siblingIndex >= 0 && siblingIndex < siblings.length - 1;
               return (
                 <tr key={row.code} className="border-b border-themed last:border-0 text-t1">
                   <td className="px-3 py-2 whitespace-nowrap">
@@ -158,7 +165,25 @@ export default function OrgUnitTable({
                     {children > 0 ? `${children} 個` : "—"}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
-                    <div className="inline-flex gap-2">
+                    <div className="inline-flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => apply(moveSibling(value, row.code, -1))}
+                        disabled={!canUp}
+                        title={canUp ? "與上一個同層單位對調順位" : "已是同層的第一個單位"}
+                        className="btn-theme rounded px-3 py-1.5 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        上移
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => apply(moveSibling(value, row.code, 1))}
+                        disabled={!canDown}
+                        title={canDown ? "與下一個同層單位對調順位" : "已是同層的最後一個單位"}
+                        className="btn-theme rounded px-3 py-1.5 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        下移
+                      </button>
                       <button
                         type="button"
                         onClick={() => apply(addUnit(value, row.code))}
