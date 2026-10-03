@@ -1,148 +1,53 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, defaultSettings } from "@/types/settings";
-import { logout } from "@/lib/session";
-import Copyright from "@/components/Copyright";
-import AdSense from "@/components/AdSense";
-import OrgUnitEditor from "@/components/OrgUnitEditor";
 
+/** 學校基本設定的子功能入口卡片（新增子功能時在這裡加一張） */
+const SUB_FEATURE_CARDS = [
+  {
+    id: "org",
+    href: "/admin/school-settings/org",
+    label: "單位層級設定",
+    description: "設定學校層級數與各層名稱，並維護各單位（處室、組別）的層級與上級關係。",
+    icon: (
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM13.5 6A2.25 2.25 0 0115.75 3.75H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"
+        />
+      </svg>
+    ),
+  },
+] as const;
+
+/** 「學校基本設定」入口：列出各子功能的卡片，點選進入對應子頁面 */
 export default function SchoolSettingsPage() {
   const router = useRouter();
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [loading, setLoading] = useState(true);
-  // 可用模組清單（同「使用者帳號管理」的 fail-closed：讀不到＝視為無權限）
-  const [adminModules, setAdminModules] = useState<string[] | null>(null);
-  // 僅超級管理員可用的模組：入口只對超級顯示，頁內再擋一次
-  const allowed = adminModules !== null && adminModules.includes("schoolSettings");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled) return;
-        const modules = data?.user?.adminModules;
-        setAdminModules(Array.isArray(modules) ? modules.filter((m) => typeof m === "string") : []);
-      })
-      .catch(() => {
-        if (!cancelled) setAdminModules([]);
-      });
-
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.success || !data.settings) return;
-        setSettings({ ...defaultSettings, ...data.settings });
-      })
-      .catch((error: unknown) => console.error("載入設定失敗:", error))
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  function handleBack() {
-    router.push("/admin");
-  }
-
-  function handleLogout() {
-    void logout();
-    router.push("/");
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-t3">載入中...</p>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
-      {/* 標題區域 */}
-      <div className="text-center mb-2">
-        <h1 className="text-4xl font-bold mb-2">{settings.systemName || "數位校園工具箱"}</h1>
-        <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
-        <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
-      </div>
-
-      {/* 功能標題 */}
-      <div className="w-full max-w-4xl mt-4 mb-2 text-center">
-        <h2 className="text-2xl font-bold text-t1">學校基本設定</h2>
-      </div>
-
-      {/* 操作按鈕 */}
-      <div className="w-full max-w-4xl flex justify-end gap-3 mb-4">
-        <button
-          onClick={handleBack}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-        >
-          返回功能首頁
-        </button>
-        <button
-          onClick={handleLogout}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-        >
-          登出
-        </button>
-      </div>
-
-      <hr className="w-full max-w-4xl border-themed mb-4" />
-
-      {/* 設定內容：學校基本設定的子功能分區 */}
-      {allowed ? (
-        <div className="w-full max-w-4xl min-h-40 mb-8 space-y-6">
-          <section className="border border-themed rounded-lg bg-card p-5">
-            <h3 className="text-lg font-bold text-t1">單位層級設定</h3>
-            <p className="text-sm text-t3 mt-1">
-              決定本校的單位層級數與每層名稱，並設定各單位（處室、組別）的層級與上級單位。
-              此為結構性資料，不隨學期變動。
-            </p>
-            <OrgUnitEditor />
-          </section>
-        </div>
-      ) : (
-        <div className="w-full max-w-4xl border border-themed rounded-lg p-8 bg-card text-center space-y-2 mb-8">
-          <p className="text-lg font-bold text-t1">權限不足</p>
-          <p className="text-sm text-t2">「學校基本設定」僅超級管理員可使用。</p>
-        </div>
-      )}
-
-      <hr className="w-full max-w-4xl border-themed mb-4" />
-
-      {/* 底部操作按鈕 */}
-      <div className="w-full max-w-4xl flex justify-start gap-3 mb-8">
-        <button
-          onClick={handleBack}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-        >
-          返回功能首頁
-        </button>
-        <button
-          onClick={handleLogout}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-        >
-          登出
-        </button>
-      </div>
-
-      {/* 廣告區域 */}
-      {settings.sponsorAdEnabled && (
-        <div className="w-full max-w-4xl">
-          <AdSense />
-        </div>
-      )}
-
-      {/* 版權宣告 */}
-      <div className="w-full max-w-4xl mt-auto">
-        <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
+    <div className="w-full max-w-4xl mb-8">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {SUB_FEATURE_CARDS.map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            onClick={() => router.push(card.href)}
+            className="border border-themed rounded-lg bg-card p-5 text-left flex flex-col gap-2 transition cursor-pointer hover:bg-hover"
+          >
+            <span className="text-t3">{card.icon}</span>
+            <span className="text-lg font-bold text-t1">{card.label}</span>
+            <span className="text-sm text-t3">{card.description}</span>
+            <span className="text-sm text-t2 mt-1">進入設定 →</span>
+          </button>
+        ))}
       </div>
     </div>
   );
