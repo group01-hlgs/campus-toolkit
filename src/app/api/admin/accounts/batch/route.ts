@@ -48,6 +48,7 @@ import {
   buildRosterEntry,
   checkRosterConflict,
   hashRosterPassword,
+  linkOrphanEntries,
   rosterEntryId,
   syncEntryIdentity,
   validateAccountInput,
@@ -257,6 +258,7 @@ function parseRosterRole(value: string): { role?: RosterRole; error?: string } {
 /**
  * 本學期「該身分」名冊的學號索引（學號查重只在同身分內比對；
  * 家長的學號是其子女學號，故不跨表比對）。
+ * 孤兒條目（帳號已刪除）不佔學號：重建同辨識鍵的帳號時由自動銜接接手。
  */
 async function loadPeriodStudentIds(
   role: RosterRole,
@@ -268,10 +270,20 @@ async function loadPeriodStudentIds(
     .where("academicYear", "==", period.academicYear)
     .where("semester", "==", period.semester)
     .get();
+  const uidOf = (doc: { data: () => Record<string, unknown>; id: string }) =>
+    typeof doc.data().uid === "string" && doc.data().uid ? (doc.data().uid as string) : doc.id;
+  const uids = [...new Set(snapshot.docs.map(uidOf))];
+  const userDocs = uids.length
+    ? await getAdminDb().getAll(
+        ...uids.map((uid) => getAdminDb().collection(USER_COLLECTION).doc(uid))
+      )
+    : [];
+  const liveUids = new Set(userDocs.filter((doc) => doc.exists).map((doc) => doc.id));
   for (const doc of snapshot.docs) {
-    const data = doc.data();
-    const studentId = typeof data.studentId === "string" ? data.studentId : "";
-    if (studentId) index.studentIds.set(studentId, typeof data.uid === "string" ? data.uid : doc.id);
+    const uid = uidOf(doc);
+    if (!liveUids.has(uid)) continue;
+    const studentId = typeof doc.data().studentId === "string" ? doc.data().studentId : "";
+    if (studentId) index.studentIds.set(studentId, uid);
   }
   return index;
 }
@@ -495,14 +507,16 @@ function buildPreview(mode: AccountBatchMode, planned: PlannedRow[]): AccountBat
 }
 
 /**
- * 執行計畫：建立帳號的同時寫入本學期身分名冊條目（有「身分」者）；
- * 刪除列的名冊處理依 rosterScope（all＝所有學期、current＝僅本學期、none＝完全保留）。
+ * 執行計畫：建立帳號的同時寫入本學期身分名冊條目（有「身分」者）、
+ * 自動銜接同辨識鍵的孤兒名冊條目；刪除列的名冊處理依 rosterScope
+ * （all＝所有學期、current＝僅本學期、none＝完全保留）。
  * period 由呼叫端一次取得，整批寫入／比對同一學期。
  */
 async function executePlan(
   planned: PlannedRow[],
   period: SchoolPeriod | null,
-  rosterScope: RosterDeleteScope
+  rosterScope: RosterDeleteScope,
+  byUid: Map<string, AccountSnapshot>
 ): Promise<AccountBatchResult> {
   const db = getAdminDb();
   const users = db.collection(USER_COLLECTION);
@@ -510,6 +524,7 @@ async function executePlan(
   let created = 0;
   let updated = 0;
   let rostered = 0;
+  let linked = 0;
   const deleteUids: string[] = [];
 
   for (const item of planned) {
@@ -523,6 +538,12 @@ async function executePlan(
       );
       const docRef = await users.add(record);
       created += 1;
+      // 自動銜接：孤兒條目改掛回新帳號（須在寫入本學期條目之前，避免同身分同學期重複）
+      linked += await linkOrphanEntries({
+        uid: docRef.id,
+        email: item.account.email,
+        account: item.account.account,
+      });
       if (item.role && item.roster && period) {
         await db
           .collection(rosterCollection(item.role))
@@ -530,6 +551,7 @@ async function executePlan(
           .set(
             buildRosterEntry(docRef.id, item.role, period, item.roster, {
               email: item.account.email,
+              account: item.account.account,
               name: item.account.name,
             })
           );
@@ -537,8 +559,22 @@ async function executePlan(
       }
     } else if (item.action === "update") {
       await users.doc(item.uid).update(item.patch);
-      if (typeof item.patch.name === "string") {
-        await syncEntryIdentity(item.uid, await getCurrentPeriod(), { name: item.patch.name });
+      const nameChanged = typeof item.patch.name === "string";
+      const accountChanged = typeof item.patch.account === "string";
+      if (nameChanged || accountChanged) {
+        await syncEntryIdentity(item.uid, await getCurrentPeriod(), {
+          ...(nameChanged ? { name: item.patch.name as string } : {}),
+          ...(accountChanged ? { account: item.patch.account as string } : {}),
+        });
+      }
+      //帳號名（辨識鍵）變更：把同辨識鍵的孤兒名冊條目銜接回本帳號
+      if (accountChanged) {
+        const current = byUid.get(item.uid);
+        linked += await linkOrphanEntries({
+          uid: item.uid,
+          email: current?.email ?? "",
+          account: (item.patch.account as string) || current?.account || "",
+        });
       }
       updated += 1;
     } else {
@@ -577,7 +613,7 @@ async function executePlan(
     }
   }
 
-  return { created, updated, deleted: deleteUids.length, rostered, skipped };
+  return { created, updated, deleted: deleteUids.length, rostered, linked, skipped };
 }
 
 export async function POST(request: NextRequest) {
@@ -701,9 +737,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, dryRun: true, preview: buildPreview(mode, planned) });
     }
 
-    const result = await executePlan(planned, period, rosterScope);
+    const result = await executePlan(planned, period, rosterScope, byUid);
     const label = ACCOUNT_BATCH_MODE_LABELS[mode];
     const rosterNote = (result.rostered ?? 0) > 0 ? `、同時建立身分 ${result.rostered} 筆` : "";
+    const linkNote = (result.linked ?? 0) > 0 ? `、銜接名冊 ${result.linked} 筆` : "";
     const deleteNote =
       mode === "delete" && result.deleted > 0
         ? `（${ROSTER_DELETE_SCOPE_LABELS[rosterScope]}）`
@@ -713,14 +750,14 @@ export async function POST(request: NextRequest) {
       role: "admin",
       action: "account_batch",
       ip: getClientIp(request),
-      details: `批次${label}：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
+      details: `批次${label}：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
     });
 
     return NextResponse.json({
       success: true,
       dryRun: false,
       result,
-      message: `批次作業完成：新增 ${result.created} 筆${rosterNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
+      message: `批次作業完成：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
     });
   } catch (error) {
     console.error("Account batch error:", error);

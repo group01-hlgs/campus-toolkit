@@ -99,6 +99,8 @@ export interface RosterEntry {
   status: AccountStatus;
   /** 電子郵件地址（該期該身分的信箱，展示／搜尋） */
   email: string;
+  /** 帳號名（留存辨識鍵；帳號已刪除的孤兒條目用來銜接回重建的帳號） */
+  account?: string;
   /** 姓名（該期該身分的姓名，顯示以此為準） */
   name: string;
   /** 學年度（民國年） */
@@ -295,6 +297,8 @@ export interface RosterMember {
   status: AccountStatus;
   /** 名冊狀態：有效／無效（擋本期該身分能否使用） */
   rosterStatus: AccountStatus;
+  /** true＝查無對應使用者帳號（帳號已刪除、名冊條目保留的孤兒列），可銜接回帳號 */
+  orphan?: boolean;
   /** 慣用身分：多身分共用帳號時登入預設進入的身分（未設定則登入時詢問） */
   preferredRole?: UserRole;
   /** 最後登入（由登入紀錄推導） */

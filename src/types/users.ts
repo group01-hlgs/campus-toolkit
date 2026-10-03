@@ -337,6 +337,8 @@ export interface AccountBatchResult {
   deleted: number;
   /** 同時建立當期身分名冊條目的筆數 */
   rostered?: number;
+  /** 自動銜接的孤兒名冊條目筆數（重建同辨識鍵帳號時） */
+  linked?: number;
   skipped: { row: number; reason: string }[];
 }
 

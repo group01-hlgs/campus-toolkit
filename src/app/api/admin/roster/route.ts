@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
     }
 
     await entryRef.set(
-      buildRosterEntry(uid, role, period, result.roster, { email, name })
+      buildRosterEntry(uid, role, period, result.roster, { email, account, name })
     );
 
     await logActivity({
@@ -267,8 +267,12 @@ export async function PUT(request: NextRequest) {
       name: account.name,
     });
 
-    // 名稱／信箱變更：同步當期四張名冊的展示資料（歷史學期保留當時資料）
-    await syncEntryIdentity(uid, period, { email: account.email, name: account.name });
+    // 名稱／信箱／帳號名變更：同步當期四張名冊的展示資料（歷史學期保留當時資料）
+    await syncEntryIdentity(uid, period, {
+      email: account.email,
+      account: account.account,
+      name: account.name,
+    });
 
     // 名冊專屬欄位寫入「目前學年度學期」的條目，歷史學期不受影響
     const entryId = rosterEntryId(uid, period);
@@ -281,6 +285,7 @@ export async function PUT(request: NextRequest) {
       await entryRef.set(
         buildRosterEntry(uid, role, period, result.roster, {
           email: account.email,
+          account: account.account,
           name: account.name,
         })
       );

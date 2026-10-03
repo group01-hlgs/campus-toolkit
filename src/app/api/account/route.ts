@@ -343,10 +343,11 @@ export async function PUT(request: NextRequest) {
 
     await userRef.update(updateData);
 
-    // 電子郵件變更：同步當期各身分名冊的展示信箱（歷史學期保留當時資料）
-    if (typeof updateData.email === "string") {
+    // 辨識鍵（電子郵件／帳號名）變更：同步當期各身分名冊的展示資料（歷史學期保留當時資料）
+    if (typeof updateData.email === "string" || typeof updateData.account === "string") {
       await syncEntryIdentity(session.uid, await getCurrentPeriod(), {
-        email: updateData.email,
+        ...(typeof updateData.email === "string" ? { email: updateData.email } : {}),
+        ...(typeof updateData.account === "string" ? { account: updateData.account } : {}),
       });
     }
 

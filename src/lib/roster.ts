@@ -272,6 +272,7 @@ export async function loadRosterIndex(
   };
 
   const usersSnapshot = await getAdminDb().collection(USER_COLLECTION).get();
+  const liveUids = new Set(usersSnapshot.docs.map((doc) => doc.id));
   for (const doc of usersSnapshot.docs) {
     if (doc.id === excludeUid) continue;
     const data = doc.data();
@@ -291,6 +292,8 @@ export async function loadRosterIndex(
       const data = doc.data();
       const uid = typeof data.uid === "string" ? data.uid : "";
       if (uid === excludeUid) continue;
+      // 孤兒條目（帳號已刪除）不佔學號：重建同辨識鍵的帳號時由自動銜接接手
+      if (!liveUids.has(uid)) continue;
       const studentId = typeof data.studentId === "string" ? data.studentId : "";
       if (studentId) index.studentIds.set(studentId, uid);
     }
@@ -345,20 +348,22 @@ export function buildAccountRecord(
 
 /**
  * 組出一條名冊資料（寫入前呼叫）：
- * 共同欄位（狀態、電子郵件、姓名、學年度、學期）＋該身分的專屬欄位。
+ * 共同欄位（狀態、電子郵件、帳號名、姓名、學年度、學期）＋該身分的專屬欄位。
+ * 帳號名一併留存，孤兒條目（帳號已刪除）才能用「電子郵件或帳號」銜接回重建的帳號。
  */
 export function buildRosterEntry(
   uid: string,
   role: RosterRole,
   period: SchoolPeriod,
   roster: RosterData,
-  identity: { email: string; name: string; status?: AccountStatus }
+  identity: { email: string; name: string; account?: string; status?: AccountStatus }
 ): RosterEntry {
   const now = Date.now();
   const data: Record<string, unknown> = {
     uid,
     status: identity.status || ENTRY_DEFAULT_STATUS,
     email: identity.email,
+    account: identity.account || "",
     name: identity.name,
     academicYear: period.academicYear,
     semester: period.semester,
@@ -454,13 +459,13 @@ export function resolveDisplayName(
 }
 
 /**
- * 更新帳號識別欄位時，同步當期各名冊條目的電子郵件／姓名（展示欄位）。
+ * 更新帳號識別欄位時，同步當期各名冊條目的電子郵件／帳號名／姓名（展示與銜接用）。
  * 只更新確實存在的條目，歷史學期不受影響。
  */
 export async function syncEntryIdentity(
   uid: string,
   period: SchoolPeriod,
-  patch: { email?: string; name?: string }
+  patch: { email?: string; account?: string; name?: string }
 ): Promise<void> {
   const db = getAdminDb();
   const roles: RosterRole[] = ["student", "parent", "staff", "admin"];
@@ -473,10 +478,105 @@ export async function syncEntryIdentity(
     .map((snap) => {
       const data: Record<string, unknown> = { updatedAt: Date.now() };
       if (typeof patch.email === "string") data.email = patch.email;
+      if (typeof patch.account === "string") data.account = patch.account;
       if (typeof patch.name === "string") data.name = patch.name;
       return snap.ref.update(data);
     });
   await Promise.all(updates);
+}
+
+/** 四張名冊（與 syncEntryIdentity 同序） */
+const ROSTER_ROLES_ALL: RosterRole[] = ["student", "parent", "staff", "admin"];
+
+/**
+ * 把 fromUid 的名冊條目（四張名冊、所有學年度學期）改掛到 toUid：
+ * 改寫 uid 欄位與 doc id（`toUid_學年度_學期`）；toUid 已有的條目跳過（不覆寫）。
+ * toUid 查無使用者文件時不動作。回傳成功改掛的條目數。
+ */
+export async function moveEntriesUid(fromUid: string, toUid: string): Promise<number> {
+  if (!fromUid || !toUid || fromUid === toUid) return 0;
+  const db = getAdminDb();
+  if (!(await db.collection(USER_COLLECTION).doc(toUid).get()).exists) return 0;
+
+  const snaps = await Promise.all(
+    ROSTER_ROLES_ALL.map((role) =>
+      db.collection(rosterCollection(role)).where("uid", "==", fromUid).get()
+    )
+  );
+  let moved = 0;
+  for (let i = 0; i < ROSTER_ROLES_ALL.length; i += 1) {
+    const col = db.collection(rosterCollection(ROSTER_ROLES_ALL[i]));
+    for (const doc of snaps[i].docs) {
+      const data = doc.data();
+      const academicYear = typeof data.academicYear === "number" ? data.academicYear : null;
+      const semester = typeof data.semester === "number" ? data.semester : null;
+      if (academicYear === null || semester === null) continue;
+      const targetId = rosterEntryId(toUid, { academicYear, semester });
+      if (targetId === doc.id) continue;
+      const targetRef = col.doc(targetId);
+      if ((await targetRef.get()).exists) continue;
+      await targetRef.set({ ...data, uid: toUid });
+      await doc.ref.delete();
+      moved += 1;
+    }
+  }
+  return moved;
+}
+
+/**
+ * 自動銜接：建立／更新帳號時，把「孤兒名冊條目」（uid 已查無使用者文件）
+ * 且辨識鍵（電子郵件地址或帳號）相符者，整批改掛回此帳號。
+ * 仍屬活著帳號的條目一律不動。回傳銜接的條目數（無相符回 0）。
+ */
+export async function linkOrphanEntries(target: {
+  uid: string;
+  email: string;
+  account: string;
+}): Promise<number> {
+  if (!target.uid || (!target.email && !target.account)) return 0;
+  const db = getAdminDb();
+
+  // 1) 以辨識鍵找候選條目（email／account 各查一次，同文件去重）
+  const seen = new Set<string>();
+  const candidateUids = new Set<string>();
+  for (const role of ROSTER_ROLES_ALL) {
+    const col = db.collection(rosterCollection(role));
+    const queries = [
+      ...(target.email ? [col.where("email", "==", target.email).get()] : []),
+      ...(target.account ? [col.where("account", "==", target.account).get()] : []),
+    ];
+    const snaps = await Promise.all(queries);
+    for (const snap of snaps) {
+      for (const doc of snap.docs) {
+        const key = `${role}:${doc.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const uid = typeof doc.data().uid === "string" ? doc.data().uid : "";
+        if (!uid || uid === target.uid) continue;
+        candidateUids.add(uid);
+      }
+    }
+  }
+  if (candidateUids.size === 0) return 0;
+
+  // 2) 孤兒判定：uid 已無使用者文件（仍活著的帳號不接，避免誤掛）
+  const uids = [...candidateUids];
+  const orphanUids = new Set<string>();
+  for (let i = 0; i < uids.length; i += 200) {
+    const chunk = uids.slice(i, i + 200);
+    const snaps = await db.getAll(...chunk.map((uid) => db.collection(USER_COLLECTION).doc(uid)));
+    snaps.forEach((snap, index) => {
+      if (!snap.exists) orphanUids.add(chunk[index]);
+    });
+  }
+  if (orphanUids.size === 0) return 0;
+
+  // 3) 逐個孤兒 uid 整批改掛（同一辨識鍵可能來自多個孤兒 uid）
+  let linked = 0;
+  for (const uid of orphanUids) {
+    linked += await moveEntriesUid(uid, target.uid);
+  }
+  return linked;
 }
 
 /** 使用者帳號文件 → 帳號清單的帳號段（不含密碼） */
@@ -496,11 +596,13 @@ export function toRosterMember(
 
   const member: RosterMember = {
     uid,
-    email: str(account, "email"),
-    account: str(account, "account"),
+    // 孤兒列（帳號已刪除）：退回條目留存的辨識鍵，方便辨識與銜接
+    email: account ? str(account, "email") : str(entry, "email"),
+    account: account ? str(account, "account") : str(entry, "account"),
     name: str(entry, "name") || str(account, "name"),
     status: accountStatus(account),
     rosterStatus: entryStatus(entry),
+    orphan: !account,
   };
   if (account) {
     const lastLogin = lastLoginOf(account);

@@ -36,6 +36,7 @@ import {
   buildRosterEntry,
   checkRosterConflict,
   hashRosterPassword,
+  linkOrphanEntries,
   loadAccountIndex,
   loadRosterIndex,
   rosterEntryId,
@@ -262,7 +263,16 @@ export async function POST(request: NextRequest) {
     );
     const docRef = await getAdminDb().collection(USER_COLLECTION).add(record);
 
+    // 自動銜接：同一辨識鍵曾留下孤兒名冊條目（帳號已刪除）時，整批改掛回本帳號
+    const linked = await linkOrphanEntries({
+      uid: docRef.id,
+      email: result.account.email,
+      account: result.account.account,
+    });
+    const linkedLabel = linked > 0 ? `，已銜接名冊 ${linked} 筆` : "";
+
     // 本學期身分名冊條目：doc id ＝ uid_學年度_學期，之後可在「身分名冊管理」維護
+    // （同身分本學期若為剛銜接的孤兒條目，此處以表單填寫的資料覆寫）
     if (rosterSection && rosterValidation?.ok && period) {
       await getAdminDb()
         .collection(rosterCollection(rosterSection.role))
@@ -270,6 +280,7 @@ export async function POST(request: NextRequest) {
         .set(
           buildRosterEntry(docRef.id, rosterSection.role, period, rosterValidation.roster, {
             email: result.account.email,
+            account: result.account.account,
             name: result.account.name,
           })
         );
@@ -281,15 +292,15 @@ export async function POST(request: NextRequest) {
       role: "admin",
       action: "account_created",
       ip: getClientIp(request),
-      details: `建立帳號 ${result.account.account || result.account.email}（${result.account.name}）${rosterLabel}`,
+      details: `建立帳號 ${result.account.account || result.account.email}（${result.account.name}）${rosterLabel}${linkedLabel}`,
     });
 
     return NextResponse.json({
       success: true,
       uid: docRef.id,
       message: rosterSection
-        ? `帳號已建立，並已建立本學期${rosterRoleLabel(rosterSection.role)}身分`
-        : "帳號已建立，請至「身分名冊管理」指定身分",
+        ? `帳號已建立，並已建立本學期${rosterRoleLabel(rosterSection.role)}身分${linkedLabel}`
+        : `帳號已建立，請至「身分名冊管理」指定身分${linkedLabel}`,
     });
   } catch (error) {
     console.error("Account create error:", error);
@@ -341,6 +352,10 @@ export async function PUT(request: NextRequest) {
     }
 
     const { account, password } = result;
+    const currentData = snap.data() || {};
+    const prevEmail = typeof currentData.email === "string" ? currentData.email : "";
+    const prevAccount = typeof currentData.account === "string" ? currentData.account : "";
+    const identityChanged = prevEmail !== account.email || prevAccount !== account.account;
     const updateData: Record<string, unknown> = {
       email: account.email,
       account: account.account,
@@ -365,11 +380,18 @@ export async function PUT(request: NextRequest) {
 
     await ref.update(updateData);
 
-    // 名稱／信箱變更：同步本學期四張名冊的展示資料（歷史學期不受影響）
+    // 名稱／信箱／帳號名變更：同步本學期四張名冊的展示資料（歷史學期不受影響）
     await syncEntryIdentity(uid, await getCurrentPeriod(), {
       email: account.email,
+      account: account.account,
       name: account.name,
     });
+
+    // 辨識鍵變更：把同辨識鍵的孤兒名冊條目（帳號已刪除）銜接回本帳號
+    const linked = identityChanged
+      ? await linkOrphanEntries({ uid, email: account.email, account: account.account })
+      : 0;
+    const linkedLabel = linked > 0 ? `，已銜接名冊 ${linked} 筆` : "";
 
     await logActivity({
       userId: session.uid,
@@ -378,10 +400,13 @@ export async function PUT(request: NextRequest) {
       ip: getClientIp(request),
       details: `更新帳號 ${account.account || account.email}${
         password ? "（密碼已重設）" : ""
-      }${preferredRole !== undefined ? "（慣用身分已更新）" : ""}`,
+      }${preferredRole !== undefined ? "（慣用身分已更新）" : ""}${linkedLabel}`,
     });
 
-    return NextResponse.json({ success: true, message: "帳號已更新" });
+    return NextResponse.json({
+      success: true,
+      message: `帳號已更新${linkedLabel}`,
+    });
   } catch (error) {
     console.error("Account update error:", error);
     return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });

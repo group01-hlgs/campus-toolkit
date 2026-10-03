@@ -267,6 +267,12 @@ export default function RosterPage() {
   const [bindLoading, setBindLoading] = useState(false);
   const [bindError, setBindError] = useState("");
   const [formError, setFormError] = useState("");
+  // 手動銜接：孤兒列（帳號已查無使用者文件）→ 找回帳號後整批改掛
+  const [linkTarget, setLinkTarget] = useState<RosterMember | null>(null);
+  const [linkKey, setLinkKey] = useState("");
+  const [linkFound, setLinkFound] = useState<BindTarget | null>(null);
+  const [linkBusy, setLinkBusy] = useState<"" | "lookup" | "apply">("");
+  const [linkError, setLinkError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -366,6 +372,16 @@ export default function RosterPage() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [confirmRequest]);
+
+  // 銜接 modal：Esc 取消
+  useEffect(() => {
+    if (!linkTarget) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLinkTarget(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [linkTarget]);
 
   const loadMembers = async (targetRole: RosterRole) => {
     setLoading(true);
@@ -487,6 +503,87 @@ export default function RosterPage() {
       setBindError(error instanceof Error ? error.message : "查無此帳號");
     } finally {
       setBindLoading(false);
+    }
+  }
+
+  /**手動銜接孤兒列：開啟對話框（預填條目留存的辨識鍵） */
+  function openLink(member: RosterMember) {
+    setLinkTarget(member);
+    setLinkKey(member.account || member.email);
+    setLinkFound(null);
+    setLinkError("");
+    setLinkBusy("");
+  }
+
+  /** 銜接的目標帳號查詢（與綁定查詢共用 API，只用來確認要銜接到哪個帳號） */
+  async function handleLinkLookup() {
+    if (linkBusy) return;
+    const key = linkKey.trim();
+    if (!key) {
+      setLinkError("請輸入要銜接的電子郵件或帳號");
+      setLinkFound(null);
+      return;
+    }
+    setLinkBusy("lookup");
+    setLinkError("");
+    setLinkFound(null);
+    try {
+      const res = await fetch(`/api/admin/roster?lookup=${encodeURIComponent(key)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setLinkError(data?.message || "查無此帳號");
+        return;
+      }
+      const account = data.account;
+      if (!account || typeof account.uid !== "string") {
+        setLinkError("查無此帳號");
+        return;
+      }
+      if (linkTarget && account.uid === linkTarget.uid) {
+        setLinkError("此帳號即為該筆資料原本的帳號，無需銜接");
+        return;
+      }
+      setLinkFound({
+        uid: account.uid,
+        email: typeof account.email === "string" ? account.email : "",
+        account: typeof account.account === "string" ? account.account : "",
+        name: typeof account.name === "string" ? account.name : "",
+        roles: Array.isArray(account.roles) ? account.roles : [],
+      });
+    } catch (error) {
+      setLinkError(error instanceof Error ? error.message : "查無此帳號");
+    } finally {
+      setLinkBusy("");
+    }
+  }
+
+  /** 確認銜接：把孤兒列的名冊條目整批改掛到查詢到的帳號（目標已有的同學期同身分資料不覆寫） */
+  async function handleLinkApply() {
+    if (!linkTarget || !linkFound || linkBusy) return;
+    setLinkBusy("apply");
+    setLinkError("");
+    try {
+      const res = await fetch("/api/admin/roster/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: linkTarget.uid, key: linkKey.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setLinkError(data?.message || "銜接失敗");
+        return;
+      }
+      const message = data.message || "銜接完成";
+      setLinkTarget(null);
+      setFlash({ type: "success", text: message });
+      showSuccessModal(message);
+      await loadMembers(role);
+    } catch (error) {
+      setLinkError(error instanceof Error ? error.message : "銜接失敗");
+    } finally {
+      setLinkBusy("");
     }
   }
 
@@ -1350,7 +1447,17 @@ export default function RosterPage() {
                       {statusLabel(member.rosterStatus)}
                     </span>
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">{member.name || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <span>{member.name || "—"}</span>
+                      {/* 孤兒列（帳號已刪除、名冊條目保留）：明示狀態並提供銜接 */}
+                      {member.orphan && (
+                        <span className="inline-block rounded-full border border-themed px-2 py-0.5 text-xs text-danger">
+                          無對應帳號
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <div>{member.email || "—"}</div>
                     <div className="text-xs text-t2">{member.account || "—"}</div>
@@ -1403,14 +1510,26 @@ export default function RosterPage() {
           className="fixed z-40 min-w-[172px] rounded-lg border border-themed bg-card py-1 shadow-lg animate-fade-in"
           style={{ top: menu.top, bottom: menu.bottom, right: menu.right }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            className="menu-item"
-            onClick={() => runMenuAction(() => openEdit(menuTarget))}
-          >
-            編輯
-          </button>
+          {/* 孤兒列沒有帳號可編輯，改提供銜接找回帳號 */}
+          {menuTarget.orphan ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => runMenuAction(() => openLink(menuTarget))}
+            >
+              銜接帳號
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => runMenuAction(() => openEdit(menuTarget))}
+            >
+              編輯
+            </button>
+          )}
           {menuTarget.rosterStatus === "有效" ? (
             <button
               type="button"
@@ -1472,6 +1591,100 @@ export default function RosterPage() {
                   : "儲存中，請稍候…"
           }
         />
+      )}
+
+      {/* 銜接帳號 modal：孤兒列（帳號已刪除、名冊資料保留）找回帳號後整批改掛 */}
+      {linkTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          onClick={() => setLinkTarget(null)}
+        >
+          <div
+            className="bg-card rounded-2xl p-6 w-full max-w-md space-y-4 shadow-lg animate-fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="roster-link-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div>
+              <h3 id="roster-link-title" className="text-lg font-bold text-t1">
+                銜接帳號
+              </h3>
+              <p className="text-sm text-t2 mt-2">
+                {linkTarget.name || "—"}（{linkTarget.account || linkTarget.email || "無辨識鍵"}
+                ）目前查無對應帳號。輸入要銜接的電子郵件或帳號，確認後此筆資料會整批改掛到該帳號。
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-t2 text-sm">電子郵件或帳號</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={linkKey}
+                  onChange={(event) => {
+                    setLinkKey(event.target.value);
+                    setLinkFound(null);
+                    setLinkError("");
+                  }}
+                  placeholder="例如 name@school.edu 或 student01"
+                  autoComplete="off"
+                  className="flex-1 input-theme rounded px-3 py-2"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleLinkLookup()}
+                  disabled={Boolean(linkBusy)}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {linkBusy === "lookup" ? "查詢中..." : "查詢帳號"}
+                </button>
+              </div>
+            </div>
+            {linkFound && (
+              <div className="border border-themed rounded-lg p-3 text-sm text-t1 bg-page">
+                <p className="font-bold">
+                  {linkFound.name}（{linkFound.account || linkFound.email}）
+                </p>
+                <p className="text-t2 mt-1">
+                  電子郵件：{linkFound.email || "（無，以帳號登入）"}
+                </p>
+                <p className="text-t2 mt-1">
+                  本期已具備身分：
+                  {linkFound.roles.length
+                    ? linkFound.roles.map((item) => ROLE_LABELS[item]).join("、")
+                    : "無"}
+                </p>
+              </div>
+            )}
+            {linkError && (
+              <p className="text-sm text-t1 border border-themed rounded px-3 py-2" role="alert">
+                {linkError}
+              </p>
+            )}
+            <p className="text-xs text-t3">
+              只改掛「查無對應帳號」的資料；目標帳號本期已有同一身分時該筆不會被覆蓋。
+              查不到帳號時，請先至「使用者帳號管理」建立帳號再銜接。
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setLinkTarget(null)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleLinkApply()}
+                disabled={!linkFound || Boolean(linkBusy)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                {linkBusy === "apply" ? "銜接中..." : "確認銜接"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 確認 modal：取代原生 confirm，樣式跟隨主題 */}

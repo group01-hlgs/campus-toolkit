@@ -157,6 +157,7 @@ interface PlannedCreate {
   key: string;
   uid: string;
   email: string;
+  account: string;
   name: string;
   roster: RosterData;
 }
@@ -249,6 +250,7 @@ function planCreate(
     key: current.email || current.account,
     uid,
     email: current.email,
+    account: current.account,
     name: validation.account.name,
     roster: validation.roster,
   };
@@ -464,6 +466,7 @@ async function executePlan(
         .set(
           buildRosterEntry(item.uid, role, period, item.roster, {
             email: item.email,
+            account: item.account,
             name: item.name,
           })
         );

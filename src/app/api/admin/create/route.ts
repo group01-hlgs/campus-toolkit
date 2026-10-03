@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
           "admin",
           period,
           { attribute: "超級", modules: ADMIN_MODULE_VALUES.slice() },
-          { email: normEmail || "", name: normName }
+          { email: normEmail || "", account: newAdmin.account || "", name: normName }
         )
       );
 
