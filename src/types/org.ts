@@ -401,12 +401,10 @@ export function addUnit(structure: OrgStructure, parent: string | null): OrgPlac
     level,
     parent: parentCode,
   };
+  const units = placeAfterSiblings([...structure.units, unit], unit.code, unit.parent);
   return {
     ok: true,
-    value: {
-      ...structure,
-      units: placeAfterSiblings([...structure.units], unit.code, unit.parent),
-    },
+    value: { ...structure, units },
   };
 }
 
