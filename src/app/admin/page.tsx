@@ -175,11 +175,12 @@ export default function AdminPage() {
       </div>
 
       {/* 主程式版本（第一個登出按鈕下方、第一條分隔線上方，靠左） */}
-      <div className="content-width text-left text-xs text-t3 mb-2.5" title={versionLabel}>
+      <div className="content-width text-left text-xs text-t3 mb-1.25" title={versionLabel}>
         {versionLabel}
       </div>
 
-      <hr className="content-width border-themed mb-4" />
+      {/* 全域 hr 有 margin: 1rem 0，這裡清掉上間距，只保留版本號給的 5px */}
+      <hr className="content-width border-themed mb-4 mt-0" />
 
       {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
       <DraggableModuleGrid items={visibleModules} storageKey="campusCardOrder.admin" />
