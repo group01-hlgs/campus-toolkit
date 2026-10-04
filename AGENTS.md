@@ -11,6 +11,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## 修改完成後的流程
 
 1. `npm run lint`（eslint + tsc）確認通過
-2. `node scripts/version.js`（依 commit 數計算，版本號 +1，寫入 `src/version.json`）
+2. `npm run version:bump`（即 `node scripts/version.js`：依 commit 數 +1 寫入 `src/version.json`；
+   `dev`/`build` **不**重算，版本號一律以已 commit 的檔案為準，各部署環境顯示才會一致）
 3. commit（訊息結尾附「版本號更新至 0.xxx」）
 4. `git push`

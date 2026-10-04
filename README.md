@@ -331,11 +331,12 @@ node scripts/reset-users-roster.mjs
 
 | 指令 | 說明 |
 |------|------|
-| `npm run dev` | 開發伺服器（會先更新 `src/version.json`） |
+| `npm run dev` | 開發伺服器（版本號直接讀已 commit 的 `src/version.json`，不自動重算） |
 | `npm run build` | 生產建置 |
 | `npm start` | 執行生產建置 |
 | `npm run lint` | ESLint 檢查 + TypeScript 型別檢查（`tsc --noEmit`） |
 | `npm run typecheck` | 只跑 TypeScript 型別檢查 |
+| `npm run version:bump` | 更新版本號（**僅開發機 commit 前執行**；`dev`/`build` 不會重算） |
 
 ## 專案結構
 
@@ -343,7 +344,7 @@ node scripts/reset-users-roster.mjs
 campus-toolkit/
 ├── public/                 # 靜態資源（含 ads.txt）
 ├── scripts/
-│   └── version.js          # 依 git commit 數更新 version.json
+│   └── version.js          # 開發機 commit 前更新 version.json（npm run version:bump）
 ├── src/
 │   ├── app/                # App Router 頁面與 API
 │   │   ├── api/            # REST API（auth、admin、account、settings、排行榜…）
@@ -392,7 +393,8 @@ campus-toolkit/
 歡迎送 Pull Request。本專案的 commit 規範如下（詳見 [`AGENTS.md`](AGENTS.md)）：
 
 1. `npm run lint`（ESLint + tsc）確認通過。
-2. `node scripts/version.js` — 依 commit 數將版本號 +1，寫入 `src/version.json`。
+2. `npm run version:bump` — 依 commit 數將版本號 +1，寫入 `src/version.json`（`dev`/`build` 不重算，
+   各環境一律讀這份已 commit 的檔案，本機與分支部署的版本號才會一致）。
 3. commit，訊息結尾附上版本號，例：`…（版本號更新至 0.232）`。
 4. `git push`。
 
