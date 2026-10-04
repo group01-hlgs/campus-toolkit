@@ -1,3 +1,5 @@
+import { MODULES, type ModuleValue } from "./modules";
+
 export type UserRole = "student" | "parent" | "staff" | "admin";
 
 /** 四種身分的固定順序（查找、顯示、選擇清單共用） */
@@ -123,35 +125,38 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
 /**
  * 管理員可指定的功能模組（超級＝全開；一般＝僅被指定的模組）。
  * 模組決定：首頁卡片是否顯示、對應 API 是否放行（requireAdminModule）。
+ * 清單由功能模組註冊表（`types/modules.ts` 的 `MODULES`）派生——
+ * 新增／調整模組請改註冊表，此處只做投影，不要另立清單。
  * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示；
- * 另見 BASE_ADMIN_MODULES（系統設定）＝不需指派的基本模組，每位管理員皆有；
- * SUPER_ONLY_ADMIN_MODULES（學校基本設定）＝僅超級管理員可用，不開放指派。
+ * 另見 BASE_ADMIN_MODULES（scope＝core：系統設定、功能模組管理）＝不需指派的基本模組，每位管理員皆有；
+ * SUPER_ONLY_ADMIN_MODULES（scope＝superOnly：學校基本設定）＝僅超級管理員可用，不開放指派。
  */
-export const ADMIN_MODULES = [
-  { value: "users", label: "使用者帳號管理" },
-  { value: "roster", label: "身分名冊管理" },
-  { value: "settings", label: "系統設定" },
-  { value: "schoolSettings", label: "學校基本設定" },
-  { value: "activity", label: "稽核紀錄" },
-] as const;
+export type AdminModule = ModuleValue;
 
-export type AdminModule = (typeof ADMIN_MODULES)[number]["value"];
+export const ADMIN_MODULES: { value: AdminModule; label: string }[] = MODULES.map((item) => ({
+  value: item.value,
+  label: item.label,
+}));
 
 export const ADMIN_MODULE_VALUES: AdminModule[] = ADMIN_MODULES.map((item) => item.value);
 
 /**
- * 管理員的「基本模組」：不需指派、每位管理員（含一般屬性）一律具備，
+ * 管理員的「基本模組」（註冊表 scope＝core）：不需指派、每位管理員（含一般屬性）一律具備，
  * 用途＝首頁固定顯示該入口（系統設定的讀寫另由超級管理員判定，見 hasSettingsManage）。
- * 「系統設定」是每個身分都有的入口；一般管理員在其中的實際可用功能日後再收斂。
+ * 「系統設定」「功能模組管理」是每個管理員都有的入口。
  */
-export const BASE_ADMIN_MODULES: AdminModule[] = ["settings"];
+export const BASE_ADMIN_MODULES: AdminModule[] = MODULES.filter(
+  (item) => item.scope === "core"
+).map((item) => item.value);
 
 /**
- * 「僅超級管理員」的功能模組：不列入一般管理員的可指派清單（名冊表單不顯示勾選），
- * 即使名冊存有該代碼也不授予（adminModulesOf 一律剝除）。
+ * 「僅超級管理員」的功能模組（註冊表 scope＝superOnly）：不列入一般管理員的可指派清單
+ * （名冊表單不顯示勾選），即使名冊存有該代碼也不授予（adminModulesOf 一律剝除）。
  * 超級管理員由 `attribute` 判定、本來就全開，故此清單只影響一般管理員。
  */
-export const SUPER_ONLY_ADMIN_MODULES: AdminModule[] = ["schoolSettings"];
+export const SUPER_ONLY_ADMIN_MODULES: AdminModule[] = MODULES.filter(
+  (item) => item.scope === "superOnly"
+).map((item) => item.value);
 
 export function isAdminModule(value: unknown): value is AdminModule {
   return typeof value === "string" && ADMIN_MODULE_VALUES.includes(value as AdminModule);
