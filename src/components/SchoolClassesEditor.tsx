@@ -6,13 +6,11 @@ import {
   CLASSES_CODE_MAX,
   CLASSES_GRADE_CODE_MAX,
   CLASSES_GRADE_NAME_MAX,
-  CLASSES_MAX_CLASSES,
   CLASSES_MAX_CLASSES_PER_GRADE,
   CLASSES_NAME_MAX,
   CLASSES_VOC_CODE_MAX,
   CLASSES_VOC_NAME_MAX,
   ClassRow,
-  GradeNameStyle,
   GradeRow,
   SchoolClassesContext,
   SchoolClassesSetting,
@@ -28,7 +26,6 @@ import {
   newGradeId,
   readSchoolClasses,
   stageName,
-  totalClassCount,
   validateSchoolClasses,
 } from "@/types/school-classes";
 import { StageValue } from "@/types/school-profile";
@@ -282,7 +279,6 @@ export default function SchoolClassesEditor() {
 
   if (!draft || !validation) return null;
 
-  const classTotal = totalClassCount(draft);
   const yearsSum = contextYearsSum(context);
   /** 年級編號未落在校務基本資料任何學制範圍內的年段（需刪除後才能儲存） */
   const orphanRows = draft.grades.filter((row) =>
@@ -294,25 +290,8 @@ export default function SchoolClassesEditor() {
 
   return (
     <div className="mt-4">
-      {/* 命名慣例／還原／儲存 */}
+      {/* 還原／儲存 */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <label className="flex items-center gap-1 text-sm" title="只影響之後新增年級的預設名稱，既有名稱不會被改寫">
-          <span className="text-t3">年級名稱預設</span>
-          <select
-            value={draft.nameStyle}
-            onChange={(event) =>
-              setDraft({ ...draft, nameStyle: event.target.value as GradeNameStyle })
-            }
-            aria-label="年級名稱預設慣例"
-            className="input-theme rounded px-2 py-2 text-sm"
-          >
-            <option value="local">學制內序號（1 年級）</option>
-            <option value="global">全域編號（10 年級）</option>
-          </select>
-        </label>
-        <span className="text-xs text-t3">
-          年段 {draft.grades.length} / {yearsSum}，班級 {classTotal} / {CLASSES_MAX_CLASSES}
-        </span>
         <div className="ml-auto flex gap-2">
           <button
             type="button"
@@ -417,18 +396,9 @@ export default function SchoolClassesEditor() {
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] text-sm border border-themed">
+                  <table className="w-full min-w-[560px] text-sm border border-themed">
                     <thead>
                       <tr className="bg-hover">
-                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                          年級編號
-                        </th>
-                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                          年級代碼
-                        </th>
-                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                          年級名稱
-                        </th>
                         <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
                           班級代碼
                         </th>
@@ -452,48 +422,8 @@ export default function SchoolClassesEditor() {
                     </thead>
                     <tbody>
                       {rows.map((row) => {
-                        const classCols = isSenior ? 5 : 3;
-                        const totalCols = 3 + classCols;
-                        const gradeCells = (
-                          <>
-                            <td
-                              rowSpan={Math.max(row.classes.length, 1)}
-                              className="px-2 py-2 align-top whitespace-nowrap text-t2 font-medium"
-                            >
-                              {row.grade}
-                            </td>
-                            <td rowSpan={Math.max(row.classes.length, 1)} className="px-2 py-2 align-top">
-                              <input
-                                type="text"
-                                maxLength={CLASSES_GRADE_CODE_MAX}
-                                value={row.code}
-                                onChange={(event) =>
-                                  changeGrade(row.grade, (item) => ({
-                                    ...item,
-                                    code: event.target.value,
-                                  }))
-                                }
-                                aria-label={`${row.name}年級代碼`}
-                                className="input-theme rounded px-2 py-1 text-sm w-20"
-                              />
-                            </td>
-                            <td rowSpan={Math.max(row.classes.length, 1)} className="px-2 py-2 align-top">
-                              <input
-                                type="text"
-                                maxLength={CLASSES_GRADE_NAME_MAX}
-                                value={row.name}
-                                onChange={(event) =>
-                                  changeGrade(row.grade, (item) => ({
-                                    ...item,
-                                    name: event.target.value,
-                                  }))
-                                }
-                                aria-label={`${row.name}年級名稱`}
-                                className="input-theme rounded px-2 py-1 text-sm w-28"
-                              />
-                            </td>
-                          </>
-                        );
+                        const classCols = isSenior ? 4 : 2;
+                        const totalCols = classCols + 1;
                         const gradeActions = (
                           <>
                             <button
@@ -516,9 +446,60 @@ export default function SchoolClassesEditor() {
 
                         return (
                           <Fragment key={row.id}>
+                            {/* 年段（＝年級）自己一列，不與第 1 班並排 */}
+                            <tr className="border-t-2 border-themed align-top">
+                              <td colSpan={totalCols} className="px-2 py-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs font-bold text-t2 whitespace-nowrap">
+                                    年級編號 {row.grade}
+                                  </span>
+                                  <label className="flex items-center gap-1 text-xs text-t3">
+                                    年級代碼
+                                    <input
+                                      type="text"
+                                      maxLength={CLASSES_GRADE_CODE_MAX}
+                                      value={row.code}
+                                      onChange={(event) =>
+                                        changeGrade(row.grade, (item) => ({
+                                          ...item,
+                                          code: event.target.value,
+                                        }))
+                                      }
+                                      aria-label={`${row.name}年級代碼`}
+                                      className="input-theme rounded px-2 py-1 text-sm w-20"
+                                    />
+                                  </label>
+                                  <label className="flex items-center gap-1 text-xs text-t3">
+                                    年級名稱
+                                    <input
+                                      type="text"
+                                      maxLength={CLASSES_GRADE_NAME_MAX}
+                                      value={row.name}
+                                      onChange={(event) =>
+                                        changeGrade(row.grade, (item) => ({
+                                          ...item,
+                                          name: event.target.value,
+                                        }))
+                                      }
+                                      aria-label={`${row.name}年級名稱`}
+                                      className="input-theme rounded px-2 py-1 text-sm w-28"
+                                    />
+                                  </label>
+                                  <span className="text-xs text-t3">
+                                    {row.classes.length} 班
+                                  </span>
+                                  <div className="flex gap-1 ml-auto">{gradeActions}</div>
+                                  {row.classes.length > 1 && (
+                                    <span className="text-xs text-t3 basis-full">
+                                      班級順位＝由上到下的順序（用「前移／後移」調整），
+                                      日後顯示全年段班級時以此排序。
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
                             {row.classes.map((item, classIndex) => (
                               <tr key={item.id} className="border-t border-themed align-top">
-                                {classIndex === 0 && gradeCells}
                                 <td className="px-2 py-2">
                                   <input
                                     type="text"
@@ -664,29 +645,12 @@ export default function SchoolClassesEditor() {
                             ))}
 
                             {row.classes.length === 0 && (
-                              <tr className="border-t border-themed align-top">
-                                {gradeCells}
-                                <td colSpan={classCols} className="px-2 py-2">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-xs text-t3">尚未建立班級。</span>
-                                    {gradeActions}
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-
-                            {row.classes.length > 0 && (
-                              <tr className="border-t-2 border-themed">
-                                <td colSpan={totalCols} className="px-2 py-2">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-xs text-t3">{row.classes.length} 班</span>
-                                    {gradeActions}
-                                    {row.classes.length > 1 && (
-                                      <span className="text-xs text-t3">
-                                        班級順位＝由上到下的順序（用「前移／後移」調整），日後顯示全年段班級時以此排序。
-                                      </span>
-                                    )}
-                                  </div>
+                              <tr className="border-t border-themed">
+                                <td
+                                  colSpan={totalCols}
+                                  className="px-2 py-2 text-xs text-t3"
+                                >
+                                  尚未建立班級。
                                 </td>
                               </tr>
                             )}
