@@ -28,43 +28,32 @@ function Badge({ text, className = "" }: { text: string; className?: string }) {
   );
 }
 
-/** 內建功能模組卡片：一律啟用；有子功能者展開子功能入口 */
+/** 內建功能模組卡片：一律啟用；已上線且有入口者可直接進入 */
 function BuiltinCard({ item, onOpen }: { item: FeatureModuleMeta; onOpen: (href: string) => void }) {
-  const hasChildren = item.children.length > 0;
+  const enterable = item.status === "live" && item.href !== "";
   return (
     <div
-      className={`border border-themed rounded-lg bg-card p-5 flex flex-col gap-3${hasChildren ? " sm:col-span-2 xl:col-span-3" : ""}${item.status === "live" ? "" : " opacity-70"}`}
+      className={`border border-themed rounded-lg bg-card p-5 flex flex-col gap-3${enterable ? "" : " opacity-70"}`}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-lg font-bold text-t1">{item.label}</span>
         <Badge text={FEATURE_MODULE_KIND_LABELS[item.kind]} className="text-t2" />
         <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
       </div>
-      <p className="text-sm text-t3">{item.description}</p>
-      {hasChildren && (
-        <div>
-          <p className="text-xs text-t2 mb-2">子功能（{item.children.length}）：</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {item.children.map((child) => (
-              <button
-                key={child.href}
-                type="button"
-                onClick={() => onOpen(child.href)}
-                className="border border-themed rounded-lg px-3 py-2 text-sm text-t1 text-left cursor-pointer hover:bg-hover transition flex items-center justify-between gap-2"
-              >
-                <span>{child.label}</span>
-                <span className="text-t3">→</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {!hasChildren &&
-        (item.status === "live" ? (
-          <span className="text-sm text-t2">內建模組，隨主程式啟用。</span>
+      <p className="text-sm text-t3 flex-1">{item.description}</p>
+      <div>
+        {enterable ? (
+          <button
+            type="button"
+            onClick={() => onOpen(item.href)}
+            className="text-sm text-t2 cursor-pointer hover:text-t1"
+          >
+            前往 →
+          </button>
         ) : (
-          <span className="text-sm text-t3 mt-auto">尚未提供，敬請期待。</span>
-        ))}
+          <span className="text-sm text-t3">尚未提供，敬請期待。</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -189,7 +178,7 @@ export default function ModulesPage() {
       <section>
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
-          <p className="text-xs text-t3">隨主程式提供、一律啟用；點子功能即可進入對應頁面。</p>
+          <p className="text-xs text-t3">隨主程式提供、一律啟用；已上線的模組可直接進入。</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {builtins.map((item) => (
@@ -240,7 +229,8 @@ export default function ModulesPage() {
       <section className="border border-themed rounded-lg bg-card p-5">
         <h3 className="text-lg font-bold text-t1 mb-2">管理端權限（指定功能模組）說明</h3>
         <p className="text-xs text-t3 mb-2">
-          「主程式功能模組」的管理端子功能以另一層權限控制，由超級管理員在名冊或帳號頁指派：
+          內建的管理端模組（帳號、身分與安全管理、使用者帳號管理…）另有管理權限層，
+          由超級管理員在名冊或帳號頁以「指定功能模組」指派：
         </p>
         <ul className="text-sm text-t2 space-y-1.5 list-disc pl-5">
           <li>
