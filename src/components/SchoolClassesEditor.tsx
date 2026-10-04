@@ -315,6 +315,18 @@ export default function SchoolClassesEditor() {
     }));
   }
 
+  /** 調整班級順位：同一年級內前後移動（陣列順序＝儲存的班級順位，日後顯示全年段班級以此排序） */
+  function moveClass(segmentId: string, grade: number, classId: string, direction: -1 | 1) {
+    changeGrade(segmentId, grade, (item) => {
+      const index = item.classes.findIndex((row) => row.id === classId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= item.classes.length) return item;
+      const classes = [...item.classes];
+      [classes[index], classes[target]] = [classes[target], classes[index]];
+      return { ...item, classes };
+    });
+  }
+
   function removeClass(segmentId: string, grade: number, classId: string) {
     changeGrade(segmentId, grade, (item) => ({
       ...item,
@@ -454,9 +466,12 @@ export default function SchoolClassesEditor() {
       </div>
 
       {!validation.ok && (
-        <p className="text-danger text-sm mb-2" role="alert">
-          {validation.message}
-        </p>
+        <div className="sticky-alert mb-2" role="alert">
+          <p className="alert-danger px-3 py-2 text-sm">
+            <span className="font-bold text-danger">無法儲存：</span>
+            {validation.message}
+          </p>
+        </div>
       )}
       <p className="text-xs text-t3 mb-3">
         {dirty ? "有尚未儲存的變更，記得按「儲存變更」。" : "已與伺服器同步。"}
@@ -649,9 +664,9 @@ export default function SchoolClassesEditor() {
                         <p className="text-xs text-t3 mb-2">尚未建立班級。</p>
                       ) : (
                         <div className="grid gap-2 mb-2">
-                          {row.classes.map((item) => (
+                          {row.classes.map((item, classIndex) => (
                             <div key={item.id} className="border border-themed rounded p-2">
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <input
                                   type="text"
                                   maxLength={CLASSES_CODE_MAX}
@@ -678,6 +693,26 @@ export default function SchoolClassesEditor() {
                                   aria-label={`${row.name}班級名稱`}
                                   className="input-theme rounded px-3 py-1 text-sm w-full"
                                 />
+                                <button
+                                  type="button"
+                                  onClick={() => moveClass(segment.id, row.grade, item.id, -1)}
+                                  disabled={classIndex === 0}
+                                  title="往前調整班級順位"
+                                  aria-label={`${item.name || "班級"}往前移動`}
+                                  className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  前移
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveClass(segment.id, row.grade, item.id, 1)}
+                                  disabled={classIndex === row.classes.length - 1}
+                                  title="往後調整班級順位"
+                                  aria-label={`${item.name || "班級"}往後移動`}
+                                  className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  後移
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => removeClass(segment.id, row.grade, item.id)}
@@ -768,6 +803,11 @@ export default function SchoolClassesEditor() {
                             </div>
                           ))}
                         </div>
+                      )}
+                      {row.classes.length > 1 && (
+                        <p className="text-xs text-t3 mb-2">
+                          班級順位＝由上到下的順序（用「前移／後移」調整），日後顯示全年段班級時以此排序。
+                        </p>
                       )}
                     </div>
                   ))}

@@ -402,6 +402,18 @@ mark {
   border-radius: var(--radius);
 }
 
+/* 驗證訊息固定列：列表過長捲動時仍釘在畫面上方。
+   外層用不透明卡片色當底，避免半透明警示底色讓下方列表的文字透出來；
+   內層才是警示框本身。 */
+.sticky-alert {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  padding-top: 4px;
+  background-color: var(--card);
+  box-shadow: var(--sh);
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
