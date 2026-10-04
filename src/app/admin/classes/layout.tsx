@@ -12,7 +12,7 @@ import AdSense from "@/components/AdSense";
  * 標題區域、功能標題、返回／登出按鈕、分隔線、內容、頁尾與版權宣告。
  * 本模組為可指派模組（classes），頁面層以 adminModules 擋一次、
  * API 端以 requireAdminModule("classes") 再擋一次；
- * 所有子功能頁面（入口卡片、班級總覽…）都包在這個 layout 裡。
+ * 內容頁（班級總覽…）都包在這個 layout 裡，共用同一套版面。
  */
 export default function ClassesLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -82,7 +82,9 @@ export default function ClassesLayout({ children }: { children: ReactNode }) {
       {/* 功能標題 */}
       <div className="w-full max-w-4xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">班級管理</h2>
-        <p className="text-sm text-t3 mt-1">各項班級相關功能的子功能入口，請點選要使用的項目。</p>
+        <p className="text-sm text-t3 mt-1">
+          當期各年級班級與每班學生人數總覽；班級結構維護於「學校基本設定 → 年段班級設定」。
+        </p>
       </div>
 
       {/* 操作按鈕 */}
@@ -103,7 +105,7 @@ export default function ClassesLayout({ children }: { children: ReactNode }) {
 
       <hr className="w-full max-w-4xl border-themed mb-4" />
 
-      {/* 內容：入口卡片頁或各子功能頁 */}
+      {/* 內容：班級總覽等內容頁 */}
       {allowed ? (
         children
       ) : (
