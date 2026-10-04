@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   EDUCATION_STAGES,
   PROFILE_ADDRESS_MAX,
@@ -20,7 +20,10 @@ import {
   validateSchoolProfile,
 } from "@/types/school-profile";
 
-type Flash = { type: "success" | "error"; text: string } | null;
+type Modal = { type: "success" | "error"; text: string } | null;
+
+/** 儲存結果過場視窗的停留時間 */
+const MODAL_DURATION_MS = 2000;
 type ProfileResponse = { success?: boolean; message?: string; profile?: unknown };
 
 /**
@@ -34,7 +37,9 @@ export default function SchoolProfileEditor() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [modal, setModal] = useState<Modal>(null);
+  /** 過場視窗的自動關閉計時器（重新彈出前先清掉舊的） */
+  const modalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 年制輸入框的暫存字串：允許清空後重打，失焦或輸入無效值時回復現值 */
   const [yearInputs, setYearInputs] = useState<Record<string, string>>({});
 
@@ -68,9 +73,35 @@ export default function SchoolProfileEditor() {
     return JSON.stringify(saved) !== JSON.stringify(draft);
   }, [saved, draft]);
 
+  /** 彈出儲存結果過場視窗，MODAL_DURATION_MS 後自動關閉 */
+  function showModal(type: "success" | "error", text: string) {
+    if (modalTimer.current) clearTimeout(modalTimer.current);
+    setModal({ type, text });
+    modalTimer.current = setTimeout(() => {
+      setModal(null);
+      modalTimer.current = null;
+    }, MODAL_DURATION_MS);
+  }
+
+  /** 立即關閉過場視窗（含計時器） */
+  function closeModal() {
+    if (modalTimer.current) {
+      clearTimeout(modalTimer.current);
+      modalTimer.current = null;
+    }
+    setModal(null);
+  }
+
+  // 卸載時清掉計時器，避免對已卸載元件 setState
+  useEffect(() => {
+    return () => {
+      if (modalTimer.current) clearTimeout(modalTimer.current);
+    };
+  }, []);
+
   function toggleStage(stage: StageValue, checked: boolean) {
     if (!draft) return;
-    setFlash(null);
+    setModal(null);
     const exists = draft.stages.some((item) => item.stage === stage);
     if (checked && !exists) {
       setDraft({
@@ -94,7 +125,7 @@ export default function SchoolProfileEditor() {
     setYearInputs((prev) => ({ ...prev, [stage]: raw }));
     const years = Number(raw);
     if (!Number.isInteger(years) || years < 1 || years > PROFILE_MAX_YEARS) return;
-    setFlash(null);
+    setModal(null);
     setDraft({
       ...draft,
       stages: draft.stages.map((item) => (item.stage === stage ? { ...item, years } : item)),
@@ -103,19 +134,19 @@ export default function SchoolProfileEditor() {
 
   function changePrincipal(value: string) {
     if (!draft) return;
-    setFlash(null);
+    setModal(null);
     setDraft({ ...draft, principal: value });
   }
 
   function addVicePrincipal() {
     if (!draft || draft.vicePrincipals.length >= PROFILE_MAX_VICE_PRINCIPALS) return;
-    setFlash(null);
+    setModal(null);
     setDraft({ ...draft, vicePrincipals: [...draft.vicePrincipals, ""] });
   }
 
   function changeVicePrincipal(index: number, value: string) {
     if (!draft) return;
-    setFlash(null);
+    setModal(null);
     setDraft({
       ...draft,
       vicePrincipals: draft.vicePrincipals.map((item, position) =>
@@ -126,7 +157,7 @@ export default function SchoolProfileEditor() {
 
   function removeVicePrincipal(index: number) {
     if (!draft) return;
-    setFlash(null);
+    setModal(null);
     setDraft({
       ...draft,
       vicePrincipals: draft.vicePrincipals.filter((_, position) => position !== index),
@@ -135,7 +166,7 @@ export default function SchoolProfileEditor() {
 
   function addCampus() {
     if (!draft || draft.campuses.length >= PROFILE_MAX_CAMPUSES) return;
-    setFlash(null);
+    setModal(null);
     setDraft({
       ...draft,
       campuses: [...draft.campuses, { id: newCampusId(), name: "", address: "", phone: "" }],
@@ -144,7 +175,7 @@ export default function SchoolProfileEditor() {
 
   function changeCampus(id: string, field: "name" | "address" | "phone", value: string) {
     if (!draft) return;
-    setFlash(null);
+    setModal(null);
     setDraft({
       ...draft,
       campuses: draft.campuses.map((campus) =>
@@ -155,7 +186,7 @@ export default function SchoolProfileEditor() {
 
   function removeCampus(id: string) {
     if (!draft || draft.campuses.length <= PROFILE_MIN_CAMPUSES) return;
-    setFlash(null);
+    setModal(null);
     setDraft({ ...draft, campuses: draft.campuses.filter((campus) => campus.id !== id) });
   }
 
@@ -163,13 +194,13 @@ export default function SchoolProfileEditor() {
     if (!saved) return;
     setYearInputs({});
     setDraft(saved);
-    setFlash(null);
+    setModal(null);
   }
 
   async function save() {
     if (!draft || !validation?.ok || saving) return;
     setSaving(true);
-    setFlash(null);
+    setModal(null);
     try {
       const res = await fetch("/api/admin/school/profile", {
         method: "PUT",
@@ -184,9 +215,9 @@ export default function SchoolProfileEditor() {
       setSaved(profile);
       setDraft(profile);
       setYearInputs({});
-      setFlash({ type: "success", text: data.message || "校務基本資料已儲存" });
+      showModal("success", data.message || "校務基本資料已儲存");
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "儲存失敗" });
+      showModal("error", error instanceof Error ? error.message : "儲存失敗");
     } finally {
       setSaving(false);
     }
@@ -218,15 +249,6 @@ export default function SchoolProfileEditor() {
 
   return (
     <div className="mt-4">
-      {flash && (
-        <p
-          role={flash.type === "error" ? "alert" : "status"}
-          className={`text-sm mb-3 ${flash.type === "success" ? "text-success" : "text-danger"}`}
-        >
-          {flash.text}
-        </p>
-      )}
-
       {/* 還原／儲存 */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="ml-auto flex gap-2">
@@ -461,7 +483,7 @@ export default function SchoolProfileEditor() {
             value={draft.website}
             onChange={(event) => {
               if (!draft) return;
-              setFlash(null);
+              setModal(null);
               setDraft({ ...draft, website: event.target.value });
             }}
             placeholder="https://www.school.edu.tw"
@@ -469,6 +491,90 @@ export default function SchoolProfileEditor() {
           />
         </label>
       </section>
+
+      {/* 儲存遮罩：儲存期間覆蓋畫面、阻擋重複操作 */}
+      {saving && <BlockingMask text="儲存中，請稍候…" />}
+
+      {/* 儲存結果過場視窗：彈出後停留 2 秒自動關閉 */}
+      {modal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          role="presentation"
+          onClick={closeModal}
+        >
+          <div
+            className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in"
+            role={modal.type === "error" ? "alertdialog" : "dialog"}
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex justify-center">
+              {modal.type === "error" ? (
+                <svg
+                  className="w-12 h-12 text-danger"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  className="w-12 h-12 text-success"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              )}
+            </div>
+            <p
+              className={`text-lg font-semibold ${modal.type === "error" ? "text-danger" : "text-t1"}`}
+            >
+              {modal.text}
+            </p>
+            <p className="text-xs text-t3">視窗將於 2 秒後自動關閉</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 全螢幕遮罩（儲存中）：淡入過場並擋住下方所有操作 */
+function BlockingMask({ text }: { text: string }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 animate-fade-in"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+      role="status"
+      aria-live="polite"
+    >
+      <svg
+        className="w-10 h-10 animate-spin text-t2"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" d="M21 12a9 9 0 11-6.22-8.56" />
+      </svg>
+      <p className="text-sm text-t2">{text}</p>
     </div>
   );
 }
