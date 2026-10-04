@@ -8,12 +8,12 @@ import {
   CLASSES_GRADE_NAME_MAX,
   CLASSES_MAX_CLASSES,
   CLASSES_MAX_CLASSES_PER_GRADE,
-  CLASSES_MAX_SEGMENTS,
   CLASSES_NAME_MAX,
   CLASSES_SEGMENT_NAME_MAX,
   CLASSES_VOC_CODE_MAX,
   CLASSES_VOC_NAME_MAX,
   ClassRow,
+  GradeNameStyle,
   GradeRow,
   SchoolClassesContext,
   SchoolClassesSetting,
@@ -167,23 +167,30 @@ export default function SchoolClassesEditor() {
     if (!draft || !pickStage) return;
     const free = freeGradeNumbers(draft, context, pickStage);
     if (free.length === 0) return;
+    // 每次只帶入 1 個年級（該學制第一個未占用編號），
+    // 同段其餘年級按「新增年級」、分段就再按「新增年段」，
+    // 否則一次吃光所有編號會讓高級中等學校只能建立 1 個年段。
+    const value = free[0];
     const range = gradeRangeOf(context, pickStage);
+    const gradeName = defaultGradeName(value, range, draft.nameStyle);
     commit([
       ...draft.segments,
       {
         id: newSegmentId(),
-        name: `${stageName(pickStage)}部`,
+        name: `${stageName(pickStage)}部 ${gradeName}`,
         stage: pickStage,
-        grades: free.map((value) => ({
-          id: newGradeId(),
-          grade: value,
-          code: defaultGradeCode(value),
-          name: defaultGradeName(value, range),
-          classes: [],
-        })),
+        grades: [
+          {
+            id: newGradeId(),
+            grade: value,
+            code: defaultGradeCode(value),
+            name: gradeName,
+            classes: [],
+          },
+        ],
       },
     ]);
-    setStagePick("");
+    // 刻意不重置 stagePick：連續按可依同一學制往下建年段（高一→高二→高三）
   }
 
   function moveSegment(id: string, direction: -1 | 1) {
@@ -242,7 +249,7 @@ export default function SchoolClassesEditor() {
           id: newGradeId(),
           grade: value,
           code: defaultGradeCode(value),
-          name: defaultGradeName(value, range),
+          name: defaultGradeName(value, range, draft.nameStyle),
           classes: [],
         },
       ].sort((a, b) => a.grade - b.grade),
@@ -403,13 +410,28 @@ export default function SchoolClassesEditor() {
         <button
           type="button"
           onClick={addSegment}
-          disabled={!pickStage || draft.segments.length >= CLASSES_MAX_SEGMENTS}
+          disabled={!pickStage}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           新增年段
         </button>
+        <label className="flex items-center gap-1 text-sm" title="只影響之後新增年級的預設名稱，既有名稱不會被改寫">
+          <span className="text-t3">年級名稱預設</span>
+          <select
+            value={draft.nameStyle}
+            onChange={(event) =>
+              setDraft({ ...draft, nameStyle: event.target.value as GradeNameStyle })
+            }
+            aria-label="年級名稱預設慣例"
+            className="input-theme rounded px-2 py-2 text-sm"
+          >
+            <option value="local">學制內序號（1 年級）</option>
+            <option value="global">全域編號（10 年級）</option>
+          </select>
+        </label>
         <span className="text-xs text-t3">
-          年級 {gradeTotal} / {yearsSum}，班級 {classTotal} / {CLASSES_MAX_CLASSES}
+          年段 {draft.segments.length} / {yearsSum}，年級 {gradeTotal} / {yearsSum}，班級{" "}
+          {classTotal} / {CLASSES_MAX_CLASSES}
         </span>
         <div className="ml-auto flex gap-2">
           <button
@@ -447,7 +469,8 @@ export default function SchoolClassesEditor() {
           <span className="text-xs text-t3 ml-auto">年級編號總和 {yearsSum}</span>
         </div>
         <p className="text-sm text-t3 mt-1 mb-3">
-          年段須綁定校務基本資料中的學制，可建立的年級數受該學制年數限制。
+          年段須綁定校務基本資料中的學制，每段可含 1 個或多個年級（高中職常見 3 個年段各 1 個年級，
+          國小常見低／中／高年段各 2 個年級），可建立的年段與年級數受年制總和限制。
           年級代碼與名稱可自行修改；高級中等學校學制的班級另可填寫群別與科別。
         </p>
 
@@ -468,7 +491,8 @@ export default function SchoolClassesEditor() {
 
         {draft.segments.length === 0 ? (
           <p className="text-sm text-t3">
-            尚未建立年段。請在上方選擇學制後按「新增年段」，系統會依該學制的年數一次帶入所有年級。
+            尚未建立年段。請在上方選擇學制後按「新增年段」，一次建立 1 個年段並帶入 1 個年級；
+            同一段要再加年級按「新增年級」，要分段就再按一次「新增年段」。
           </p>
         ) : (
           <div className="grid gap-3">

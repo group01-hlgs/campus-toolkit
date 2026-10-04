@@ -1,10 +1,10 @@
-/**
+﻿/**
  * 年段班級設定（年段、學制、年級與班級）。
  *
  * 屬「學校基本設定」模組（schoolSettings，超級專屬）的子功能 `schoolSettings.classes`：
- * 登記本校的年段劃分、各年段綁定的學制、涵蓋的年級（代碼＋名稱），
- * 以及每年級的班級清單（代碼＋名稱，高級中等學校學制另有群別與科別），
- * 供日後名冊的年級／班級欄位引用。
+ * 登記本校的年段劃分（每段 1 個以上年級，高中職常見 3 段各 1 年級）、各年段綁定的學制、
+ * 涵蓋的年級（代碼＋名稱），以及每年級的班級清單（代碼＋名稱，
+ * 高級中等學校學制另有群別與科別），供日後名冊的年級／班級欄位引用。
  *
  * 資料存於獨立文件 `settings/schoolClasses`（結構性資料、不按學期、全校一份）：
  * - 不放 `settings/system`：系統設定的 PUT 是整份覆寫（只保留 roleEnabled），
@@ -48,7 +48,7 @@ export interface GradeRow {
   grade: number;
   /** 年級代碼（預設＝年級編號），全校不可重複 */
   code: string;
-  /** 年級名稱（預設＝該學制內第 N 年級），同年段內不可重複 */
+  /** 年級名稱（預設依 nameStyle：學制內序號或全域編號），同年段內不可重複 */
   name: string;
   /** 該年級的班級；兄弟順序＝陣列相對順序 */
   classes: ClassRow[];
@@ -66,9 +66,18 @@ export interface Segment {
   grades: GradeRow[];
 }
 
+/**
+ * 年級名稱的預設命名慣例（只影響之後新建年級的預設名稱，既有名稱不動）。
+ * `local`＝學制內序號（國中 1～3 年級）、`global`＝全域編號（國中 7～9 年級）。
+ * 兩種說法在現場都常見，故開放切換；年級代碼一律預設為年級編號，不受此設定影響。
+ */
+export type GradeNameStyle = "local" | "global";
+
 export interface SchoolClassesSetting {
   /** 年段；兄弟順序＝陣列相對順序 */
   segments: Segment[];
+  /** 年級名稱的預設慣例（缺省視為 local） */
+  nameStyle: GradeNameStyle;
 }
 
 /** 驗證上下文：取自校務基本資料（`settings/schoolProfile`）的教育階段與年制 */
@@ -80,10 +89,11 @@ export interface SchoolClassesContext {
 export const SENIOR_HIGH_STAGE: StageValue = "seniorHigh";
 
 export const CLASSES_DOC_ID = "schoolClasses";
-/** 年段數量的結構上限（實際可用學制數另受校務基本資料約束） */
-export const CLASSES_MAX_SEGMENTS = 6;
 export const CLASSES_MIN_GRADE = 1;
-/** 年級編號的結構上限（read 用的寬容範圍）；語意上限由校務基本資料的年制總和決定 */
+/**
+ * 年級編號的結構上限（read 用的寬容範圍）；
+ * 語意上限由校務基本資料的年制總和決定，年段數量上限亦同（年段必含年級，故不另設常數）。
+ */
 export const CLASSES_MAX_GRADE = 24;
 export const CLASSES_MAX_CLASSES_PER_GRADE = 30;
 export const CLASSES_MAX_CLASSES = 300;
@@ -131,7 +141,7 @@ export function gradeRangeOf(
 
 /** 該學制尚未被占用的年級編號（由小到大）；未勾選該學制時回空陣列 */
 export function freeGradeNumbers(
-  setting: SchoolClassesSetting,
+  setting: Pick<SchoolClassesSetting, "segments">,
   context: SchoolClassesContext,
   stage: StageValue | null
 ): number[] {
@@ -148,10 +158,17 @@ export function freeGradeNumbers(
   return free;
 }
 
-/** 年級名稱預設值：該學制內的第 N 年級（如國中編號 7 → 「1 年級」） */
-export function defaultGradeName(grade: number, range: { start: number } | null): string {
-  const local = range ? grade - range.start + 1 : grade;
-  return `${local} 年級`;
+/**
+ * 年級名稱預設值。`local`＝該學制內的第 N 年級（國中編號 7 →「1 年級」）、
+ * `global`＝年級編號本身（國中編號 7 →「7 年級」）。
+ */
+export function defaultGradeName(
+  grade: number,
+  range: { start: number } | null,
+  style: GradeNameStyle = "local"
+): string {
+  const value = style === "global" || !range ? grade : grade - range.start + 1;
+  return `${value} 年級`;
 }
 
 /** 年級代碼預設值：年級編號（全校唯一） */
@@ -175,18 +192,23 @@ export function newClassId(): string {
 }
 
 export function defaultSchoolClasses(): SchoolClassesSetting {
-  return { segments: [] };
+  return { segments: [], nameStyle: "local" };
+}
+
+/** 解析命名慣例（寬容）：非合法值一律當作 local */
+function readNameStyle(value: unknown): GradeNameStyle {
+  return value === "global" ? "global" : "local";
 }
 
 /** 年級總數 */
-export function totalGradeCount(setting: SchoolClassesSetting): number {
+export function totalGradeCount(setting: Pick<SchoolClassesSetting, "segments">): number {
   let total = 0;
   for (const segment of setting.segments) total += segment.grades.length;
   return total;
 }
 
 /** 班級總數 */
-export function totalClassCount(setting: SchoolClassesSetting): number {
+export function totalClassCount(setting: Pick<SchoolClassesSetting, "segments">): number {
   let total = 0;
   for (const segment of setting.segments) {
     for (const row of segment.grades) total += row.classes.length;
@@ -243,6 +265,7 @@ export function readSchoolClasses(
 ): SchoolClassesSetting {
   if (!raw || typeof raw !== "object") return defaultSchoolClasses();
   const data = raw as Record<string, unknown>;
+  const nameStyle = readNameStyle(data.nameStyle);
 
   const segments: Segment[] = [];
   const seenSegmentIds = new Set<string>();
@@ -252,7 +275,7 @@ export function readSchoolClasses(
 
   const rawSegments = Array.isArray(data.segments) ? data.segments : [];
   for (const item of rawSegments) {
-    if (segments.length >= CLASSES_MAX_SEGMENTS) break;
+    if (segments.length >= CLASSES_MAX_GRADE) break;
     if (!item || typeof item !== "object") continue;
     const entry = item as Record<string, unknown>;
 
@@ -285,7 +308,7 @@ export function readSchoolClasses(
       const name =
         typeof gradeEntry.name === "string" && gradeEntry.name.trim()
           ? gradeEntry.name.trim().slice(0, CLASSES_GRADE_NAME_MAX)
-          : defaultGradeName(grade, range);
+          : defaultGradeName(grade, range, nameStyle);
 
       const classes = readClasses(
         gradeEntry.classes,
@@ -317,7 +340,7 @@ export function readSchoolClasses(
     if (remaining <= 0) break;
   }
 
-  return { segments };
+  return { segments, nameStyle };
 }
 
 export type ClassesValidation =
@@ -349,7 +372,7 @@ function validateVoc(
 /**
  * 完整驗證（API 與表單共用），任一項目不過即回錯誤訊息。
  * `context` 為校務基本資料的教育階段與年制：學制是否勾選、年級編號範圍、
- * 年級總數上限皆由此決定。
+ * 年級總數與年段數量上限（＝年制總和）皆由此決定。
  */
 export function validateSchoolClasses(
   raw: unknown,
@@ -360,15 +383,25 @@ export function validateSchoolClasses(
   }
   const data = raw as Record<string, unknown>;
 
-  const rawSegments = Array.isArray(data.segments) ? data.segments : [];
-  if (rawSegments.length === 0) return { ok: true, value: { segments: [] } };
-  if (rawSegments.length > CLASSES_MAX_SEGMENTS) {
-    return { ok: false, message: `年段數量超過上限（最多 ${CLASSES_MAX_SEGMENTS} 個）` };
+  const rawStyle = data.nameStyle;
+  if (rawStyle !== undefined && rawStyle !== null && rawStyle !== "local" && rawStyle !== "global") {
+    return { ok: false, message: "年級名稱的命名慣例格式錯誤" };
   }
+  const nameStyle: GradeNameStyle = rawStyle === "global" ? "global" : "local";
+
+  const rawSegments = Array.isArray(data.segments) ? data.segments : [];
+  if (rawSegments.length === 0) return { ok: true, value: { segments: [], nameStyle } };
   if (context.stages.length === 0) {
     return {
       ok: false,
       message: "尚未於「校務基本資料」勾選教育階段與學校年制，請先前往設定後再回來建立年段。",
+    };
+  }
+  const segmentLimit = contextYearsSum(context);
+  if (rawSegments.length > segmentLimit) {
+    return {
+      ok: false,
+      message: `年段數量（${rawSegments.length}）超過校務基本資料的年制總和（${segmentLimit}）`,
     };
   }
 
@@ -621,5 +654,5 @@ export function validateSchoolClasses(
     };
   }
 
-  return { ok: true, value: { segments } };
+  return { ok: true, value: { segments, nameStyle } };
 }

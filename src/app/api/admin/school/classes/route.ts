@@ -105,6 +105,7 @@ export async function PUT(request: NextRequest) {
       .collection(CLASSES_DOC.collection)
       .doc(CLASSES_DOC.id)
       .set({
+        nameStyle: setting.nameStyle,
         segments: setting.segments.map((segment) => ({
           id: segment.id,
           name: segment.name,
