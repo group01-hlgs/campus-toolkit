@@ -32,7 +32,8 @@ export type ActivityAction =
   | "role_settings_updated"
   | "school_org_updated"
   | "school_profile_updated"
-  | "school_classes_updated";
+  | "school_classes_updated"
+  | "school_codes_updated";
 
 export interface ActivityEntry {
   userId?: string;

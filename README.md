@@ -288,7 +288,7 @@ Firestore 是結構自由的，**集合不用預先建立** —— 程式第一�
 | `rosterStudents` | 學生名冊 | 後台 Excel 匯入 |
 | `rosterParents` | 家長名冊 | 同上 |
 | `rosterStaff` | 教職員名冊 | 同上 |
-| `settings`（文件 `system`／`school`／`schoolProfile`／`schoolClasses`） | 系統設定、單位層級、校務基本資料、年段班級設定 | 後台首次存設定；**沒存之前讀程式內建的預設值** |
+| `settings`（文件 `system`／`school`／`schoolProfile`／`schoolClasses`／`schoolCodes`） | 系統設定、單位層級、校務基本資料、年段班級設定、群別／科別代碼表 | 後台首次存設定；**沒存之前讀程式內建的預設值**（代碼表＝內建官方清單） |
 | `activityLog` | 後台操作紀錄 | 第一次後台操作 |
 | `revokedJTIs` | 已登出／失效的登入權杖 | 第一次登出或改密碼 |
 | `passwordResetTokens` | 忘記密碼的重設權杖 | 第一次使用忘記密碼 |
@@ -353,6 +353,7 @@ campus-toolkit/
 │   │   └── setup/          # 首次建立管理員
 │   ├── components/         # UI 元件
 │   ├── contexts/           # React Context（主題等）
+│   ├── data/               # 內建種子資料（群別／科別官方代碼表）
 │   ├── lib/                # Firebase、session、驗證、rate limit…
 │   ├── styles/             # 全域樣式與主題 CSS 變數
 │   ├── types/              # TypeScript 型別

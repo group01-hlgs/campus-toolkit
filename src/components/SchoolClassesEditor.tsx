@@ -29,6 +29,11 @@ import {
   validateSchoolClasses,
 } from "@/types/school-classes";
 import { StageValue } from "@/types/school-profile";
+import {
+  SchoolCodesSetting,
+  defaultSchoolCodes,
+  readSchoolCodes,
+} from "@/types/school-codes";
 
 type Modal = { type: "success" | "error"; text: string } | null;
 
@@ -52,6 +57,8 @@ export default function SchoolClassesEditor() {
   const [saved, setSaved] = useState<SchoolClassesSetting | null>(null);
   const [draft, setDraft] = useState<SchoolClassesSetting | null>(null);
   const [context, setContext] = useState<SchoolClassesContext>(emptyContext);
+  /** 群別／科別代碼表（代碼下拉與名稱帶入的來源；讀取失敗時退回內建官方清單） */
+  const [codes, setCodes] = useState<SchoolCodesSetting>(defaultSchoolCodes);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -63,7 +70,10 @@ export default function SchoolClassesEditor() {
     setLoading(true);
     setLoadError("");
     try {
-      const res = await fetch("/api/admin/school/classes", { cache: "no-store" });
+      const [res, codesRes] = await Promise.all([
+        fetch("/api/admin/school/classes", { cache: "no-store" }),
+        fetch("/api/admin/school/codes", { cache: "no-store" }).catch(() => null),
+      ]);
       const data: ClassesResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success || !data.setting) {
         throw new Error(data?.message || `讀取失敗（HTTP ${res.status}）`);
@@ -73,6 +83,19 @@ export default function SchoolClassesEditor() {
       setContext(next);
       setSaved(setting);
       setDraft(setting);
+      // 代碼表讀不到不擋編輯：退回內建官方清單（只是少了下拉建議）
+      if (codesRes && codesRes.ok) {
+        const codesData = (await codesRes.json().catch(() => null)) as
+          | { success?: boolean; setting?: unknown }
+          | null;
+        if (codesData?.success && codesData.setting) {
+          setCodes(readSchoolCodes(codesData.setting));
+        } else {
+          setCodes(defaultSchoolCodes());
+        }
+      } else {
+        setCodes(defaultSchoolCodes());
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "讀取失敗");
     } finally {
@@ -185,6 +208,11 @@ export default function SchoolClassesEditor() {
     }));
   }
 
+  /**
+   * 修改群別／科別的代碼或名稱。
+   * 代碼完全比對到代碼表時自動帶入名稱——但僅在名稱目前是空的、
+   * 或仍是表內的官方名稱時才覆寫，避免打斷自行改過的名稱。
+   */
   function changeVoc(
     grade: number,
     classId: string,
@@ -192,12 +220,20 @@ export default function SchoolClassesEditor() {
     field: "code" | "name",
     value: string
   ) {
+    const list = key === "group" ? codes.groups : codes.departments;
     changeGrade(grade, (item) => ({
       ...item,
       classes: item.classes.map((row) => {
         if (row.id !== classId) return row;
         const current: VocField = row[key] ?? { code: "", name: "" };
         const next: VocField = { ...current, [field]: value };
+        if (field === "code") {
+          const keyword = value.trim();
+          const hit = keyword ? list.find((option) => option.code === keyword) : undefined;
+          const nameIsPristine =
+            !next.name.trim() || list.some((option) => option.name === next.name.trim());
+          if (hit && nameIsPristine) next.name = hit.name;
+        }
         const merged: VocField | null =
           next.code.trim() || next.name.trim() ? { code: next.code, name: next.name } : null;
         return { ...row, [key]: merged };
@@ -290,6 +326,25 @@ export default function SchoolClassesEditor() {
 
   return (
     <div className="mt-4">
+      {/* 群別／科別代碼下拉（僅高級中等學校學制用得到；選項取自群別／科別代碼表） */}
+      {context.stages.some((item) => item.stage === SENIOR_HIGH_STAGE) && (
+        <>
+          <datalist id="voc-group-codes">
+            {codes.groups.map((option) => (
+              <option key={`${option.code}-${option.name}`} value={option.code}>
+                {option.code} {option.name}
+              </option>
+            ))}
+          </datalist>
+          <datalist id="voc-department-codes">
+            {codes.departments.map((option) => (
+              <option key={`${option.code}-${option.name}`} value={option.code}>
+                {option.code} {option.name}
+              </option>
+            ))}
+          </datalist>
+        </>
+      )}
       {/* 還原／儲存 */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="ml-auto flex gap-2">
@@ -383,7 +438,9 @@ export default function SchoolClassesEditor() {
 
               {isSenior && (
                 <p className="text-xs text-t3 mb-2">
-                  高級中等學校學制：每班的「群別」「科別」為選填，代碼與名稱需同時填寫。
+                  高級中等學校學制：每班的「群別」「科別」為選填，代碼與名稱需同時填寫；
+                  代碼可下拉選自「群別／科別代碼表」（學校基本設定 → 群別／科別代碼表），
+                  選定後自動帶入名稱，也可自行輸入表外的代碼與名稱。
                 </p>
               )}
 
@@ -545,8 +602,9 @@ export default function SchoolClassesEditor() {
                                             event.target.value
                                           )
                                         }
-                                        placeholder="代碼"
+                                        placeholder="代碼，可下拉選"
                                         aria-label={`${row.name}班級群別代碼`}
+                                        list="voc-group-codes"
                                         className="input-theme rounded px-2 py-1 text-sm w-20"
                                       />
                                       <input
@@ -585,8 +643,9 @@ export default function SchoolClassesEditor() {
                                             event.target.value
                                           )
                                         }
-                                        placeholder="代碼"
+                                        placeholder="代碼，可下拉選"
                                         aria-label={`${row.name}班級科別代碼`}
+                                        list="voc-department-codes"
                                         className="input-theme rounded px-2 py-1 text-sm w-20"
                                       />
                                       <input

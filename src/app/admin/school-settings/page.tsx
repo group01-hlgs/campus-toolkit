@@ -70,6 +70,28 @@ const SUB_FEATURE_CARDS = [
       </svg>
     ),
   },
+  {
+    id: "codes",
+    href: "/admin/school-settings/codes",
+    label: "群別／科別代碼表",
+    description: "維護高級中等學校班級的群別與科別代碼（系統基礎資料庫），供年段班級設定選用。",
+    icon: (
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M8.25 6.75h12M8.25 12h12M8.25 17.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+        />
+      </svg>
+    ),
+  },
 ] as const;
 
 /** 「學校基本設定」入口：列出各子功能的卡片，點選進入對應子頁面 */
@@ -78,7 +100,7 @@ export default function SchoolSettingsPage() {
 
   return (
     <div className="w-full max-w-4xl mb-8">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {SUB_FEATURE_CARDS.map((card) => (
           <button
             key={card.id}
