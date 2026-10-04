@@ -187,4 +187,8 @@ export const RATE = {
   SCHOOL_ORG_GET: { limit: 60, windowMs: 60_000 },
   /** 學校基本設定：儲存單位層級設定（整份覆寫，數量與變動較大） */
   SCHOOL_ORG_MUTATE: { limit: 20, windowMs: 60_000 },
+  /** 學校基本設定：讀取校務基本資料 */
+  SCHOOL_PROFILE_GET: { limit: 60, windowMs: 60_000 },
+  /** 學校基本設定：儲存校務基本資料（整份覆寫） */
+  SCHOOL_PROFILE_MUTATE: { limit: 20, windowMs: 60_000 },
 } as const;

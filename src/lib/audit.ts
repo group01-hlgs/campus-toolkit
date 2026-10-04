@@ -30,7 +30,8 @@ export type ActivityAction =
   | "roster_batch"
   | "roster_linked"
   | "role_settings_updated"
-  | "school_org_updated";
+  | "school_org_updated"
+  | "school_profile_updated";
 
 export interface ActivityEntry {
   userId?: string;
