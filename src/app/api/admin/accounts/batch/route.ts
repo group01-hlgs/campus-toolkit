@@ -16,6 +16,7 @@ import {
   AccountBatchChange,
   AccountBatchMode,
   AccountBatchPreview,
+  AccountBatchProgress,
   AccountBatchResult,
   AccountBatchRow,
   AccountStatus,
@@ -60,6 +61,12 @@ export const maxDuration = 300;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 900;
 const DELETE_CHUNK = 400;
+/** 各模式每批處理列數：單批須在 300 秒（Vercel maxDuration）內完成，故依模式切割、由前端依 progress 迴圈送下一批 */
+const CHUNK_SIZE: Record<AccountBatchMode, number> = {
+  create: 120,
+  update: 200,
+  delete: 400,
+};
 
 const MODES: AccountBatchMode[] = ["create", "update", "delete"];
 
@@ -672,6 +679,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "批次作業模式無效" }, { status: 400 });
     }
     const dryRun = formData.get("dryRun") === "true";
+    // 分批執行的起始列（僅執行生效；預覽整檔規劃，忽略 offset）
+    const offsetRaw = formData.get("offset");
+    const offset =
+      typeof offsetRaw === "string" && /^\d+$/.test(offsetRaw) ? Number(offsetRaw) : 0;
     // 刪除模式的名冊處理範圍（其餘模式忽略；預設＝所有學期）
     const scopeRaw = formData.get("rosterScope");
     const rosterScope: RosterDeleteScope =
@@ -715,6 +726,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 執行時只取本批列（offset 由前端依上一批回傳的 progress 推進）；預覽不切
+    const totalRows = dataRows.length;
+    const chunkRows = dryRun ? dataRows : dataRows.slice(offset, offset + CHUNK_SIZE[mode]);
+
     const { index, byUid } = await loadAccounts();
     // 操作者是否為超級管理員（管理員屬性守門與孤兒銜接的超級條目處理共用）
     const isSuper = await isSuperAdmin(session);
@@ -724,7 +739,7 @@ export async function POST(request: NextRequest) {
     const entryIndexes = new Map<RosterRole, RosterIndex>();
     if (mode === "create") {
       const wantedRoles = new Set<RosterRole>();
-      for (const { fields } of dataRows) {
+      for (const { fields } of chunkRows) {
         const parsedRole = parseRosterRole(fields.role);
         if (parsedRole.role) wantedRoles.add(parsedRole.role);
       }
@@ -751,7 +766,7 @@ export async function POST(request: NextRequest) {
 
     const seen = new Set<string>();
     const planned: PlannedRow[] = [];
-    for (const { row, fields } of dataRows) {
+    for (const { row, fields } of chunkRows) {
       if (mode === "create") {
         planned.push(planCreate(row, fields, index, period, entryIndexes, isSuper));
       } else if (mode === "update") {
@@ -761,8 +776,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 分批進度：前端依 done 決定是否送下一批（offset + processed >= 總列數 即完成）
+    const progress: AccountBatchProgress = {
+      offset,
+      processed: chunkRows.length,
+      total: totalRows,
+      done: offset + chunkRows.length >= totalRows,
+    };
+
     if (dryRun) {
-      return NextResponse.json({ success: true, dryRun: true, preview: buildPreview(mode, planned) });
+      return NextResponse.json({
+        success: true,
+        dryRun: true,
+        preview: buildPreview(mode, planned),
+        progress,
+      });
     }
 
     const result = await executePlan(planned, period, rosterScope, byUid, isSuper);
@@ -773,19 +801,24 @@ export async function POST(request: NextRequest) {
       mode === "delete" && result.deleted > 0
         ? `（${ROSTER_DELETE_SCOPE_LABELS[rosterScope]}）`
         : "";
+    // 多批時於稽核紀錄與訊息標示批次序號，便於對照單批完成範圍
+    const chunkTotal = Math.ceil(totalRows / CHUNK_SIZE[mode]);
+    const chunkNo = Math.min(Math.floor(offset / CHUNK_SIZE[mode]) + 1, chunkTotal);
+    const chunkNote = chunkTotal > 1 ? `（第 ${chunkNo}/${chunkTotal} 批）` : "";
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "account_batch",
       ip: getClientIp(request),
-      details: `批次${label}：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
+      details: `批次${label}${chunkNote}：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
     });
 
     return NextResponse.json({
       success: true,
       dryRun: false,
       result,
-      message: `批次作業完成：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
+      progress,
+      message: `批次作業完成${chunkNote}：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
     });
   } catch (error) {
     console.error("Account batch error:", error);

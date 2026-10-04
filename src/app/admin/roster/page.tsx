@@ -38,6 +38,7 @@ import {
   type UserRole,
 } from "@/types/users";
 import { getCachedSession, logout } from "@/lib/session";
+import { readJsonResponse } from "@/lib/fetch-json";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import RoleEnablePanel from "@/components/RoleEnablePanel";
@@ -848,16 +849,21 @@ export default function RosterPage() {
       body.append("dryRun", dryRun ? "true" : "false");
       body.append("file", batchFile);
       const res = await fetch("/api/admin/roster/batch", { method: "POST", body });
-      const data = await res.json();
+      const data = await readJsonResponse<{
+        success: boolean;
+        message?: string;
+        preview?: RosterBatchPreview;
+        result?: RosterBatchResult;
+      }>(res);
       if (!res.ok || !data.success) {
         throw new Error(data?.message || "批次作業失敗");
       }
       if (dryRun) {
         setBatchResult(null);
-        setBatchPreview(data.preview as RosterBatchPreview);
+        setBatchPreview(data.preview ?? null);
       } else {
         setBatchPreview(null);
-        setBatchResult(data.result as RosterBatchResult);
+        setBatchResult(data.result ?? null);
         setBatchFile(null);
         if (batchFileRef.current) batchFileRef.current.value = "";
         if (batchRole === role) await loadMembers(role);

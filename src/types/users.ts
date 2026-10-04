@@ -347,6 +347,18 @@ export interface AccountBatchResult {
   skipped: { row: number; reason: string }[];
 }
 
+/** 批次執行的分批進度：伺服器每次只處理一批，前端依 done 決定是否繼續送下一批 */
+export interface AccountBatchProgress {
+  /** 本批的起始列索引（0 起，相對資料列） */
+  offset: number;
+  /** 本批實際處理的列數 */
+  processed: number;
+  /** 檔案資料列總數 */
+  total: number;
+  /** 是否已處理完所有列 */
+  done: boolean;
+}
+
 /** 刪除帳號時的名冊條目處理範圍（單筆與批次刪除皆可選，預設 all） */
 export type RosterDeleteScope = "all" | "current" | "none";
 

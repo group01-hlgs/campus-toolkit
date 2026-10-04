@@ -8,6 +8,7 @@ import {
   ACCOUNT_BATCH_MODE_LABELS,
   AccountBatchMode,
   AccountBatchPreview,
+  AccountBatchProgress,
   AccountBatchResult,
   AccountBatchRow,
   AccountStatus,
@@ -16,6 +17,7 @@ import {
   ALL_ROLES,
   BASE_ADMIN_MODULES,
   RosterDeleteScope,
+  ROSTER_DELETE_SCOPE_LABELS,
   ROLE_LABELS,
   STAFF_ATTRIBUTES,
   statusLabel,
@@ -34,6 +36,7 @@ import {
   PASSWORD_REQUIREMENT_MESSAGE,
 } from "@/lib/validation";
 import { getCachedSession, logout } from "@/lib/session";
+import { readJsonResponse } from "@/lib/fetch-json";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
@@ -107,6 +110,30 @@ const BATCH_HINT_CREATE_NO_ROSTER: string[] = [
 
 /** 刪除確認視窗的名冊條目處理選項（單筆與批次共用；說明文字代入目前學年度學期） */
 const ROSTER_SCOPE_OPTIONS: RosterDeleteScope[] = ["all", "current", "none"];
+
+/** 批次 API 回應（預覽／單批執行；執行另帶分批進度 progress） */
+interface BatchResponse {
+  success: boolean;
+  message?: string;
+  preview?: AccountBatchPreview;
+  result?: AccountBatchResult;
+  progress?: AccountBatchProgress;
+}
+
+/** 彙總多批執行結果的完成訊息（格式同伺服器單批訊息，但為整檔累計） */
+function composeBatchMessage(
+  mode: AccountBatchMode,
+  result: AccountBatchResult,
+  rosterScope: RosterDeleteScope
+): string {
+  const rosterNote = (result.rostered ?? 0) > 0 ? `、同時建立身分 ${result.rostered} 筆` : "";
+  const linkNote = (result.linked ?? 0) > 0 ? `、銜接名冊 ${result.linked} 筆` : "";
+  const deleteNote =
+    mode === "delete" && result.deleted > 0
+      ? `（${ROSTER_DELETE_SCOPE_LABELS[rosterScope]}）`
+      : "";
+  return `批次作業完成：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`;
+}
 
 /** 批次作業範例檔（存於 docs/，由 /api/admin/downloads 提供下載；粗體＝目前所選模式） */
 const BATCH_SAMPLE_FILES: { key: AccountBatchMode; href: string; label: string }[] = [
@@ -224,6 +251,8 @@ export default function AccountsPage() {
   const [batchPreview, setBatchPreview] = useState<AccountBatchPreview | null>(null);
   const [batchResult, setBatchResult] = useState<AccountBatchResult | null>(null);
   const [batchError, setBatchError] = useState("");
+  // 分批執行進度（已完成列數／總列數），供遮罩即時顯示
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const batchFileRef = useRef<HTMLInputElement>(null);
 
   // 操作欄下拉選單：記錄開啟的列與定位（top／bottom 二選一，避開視窗下緣）
@@ -690,6 +719,7 @@ export default function AccountsPage() {
     setBatchPreview(null);
     setBatchResult(null);
     setBatchError("");
+    setBatchProgress(null);
     if (batchFileRef.current) batchFileRef.current.value = "";
   }
 
@@ -718,34 +748,85 @@ export default function AccountsPage() {
 
   async function executeBatch(dryRun: boolean, rosterScope: RosterDeleteScope = "all") {
     if (!batchFile || batchBusy) return;
+    const file = batchFile;
+    const mode = batchMode;
     setBatchBusy(dryRun ? "preview" : "execute");
     setBatchError("");
+    setBatchProgress(null);
+    let doneRows = 0;
+    let totalRows = 0;
     try {
-      const body = new FormData();
-      body.append("mode", batchMode);
-      body.append("dryRun", dryRun ? "true" : "false");
-      if (batchMode === "delete") body.append("rosterScope", rosterScope);
-      body.append("file", batchFile);
-      const res = await fetch("/api/admin/accounts/batch", { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data?.message || "批次作業失敗");
-      }
+      const send = async (offset: number): Promise<BatchResponse> => {
+        const body = new FormData();
+        body.append("mode", mode);
+        body.append("dryRun", dryRun ? "true" : "false");
+        if (mode === "delete") body.append("rosterScope", rosterScope);
+        if (!dryRun) body.append("offset", String(offset));
+        body.append("file", file);
+        const res = await fetch("/api/admin/accounts/batch", { method: "POST", body });
+        const data = await readJsonResponse<BatchResponse>(res);
+        if (!res.ok || !data.success) {
+          throw new Error(data?.message || "批次作業失敗");
+        }
+        return data;
+      };
+
       if (dryRun) {
+        const data = await send(0);
         setBatchResult(null);
-        setBatchPreview(data.preview as AccountBatchPreview);
-      } else {
-        setBatchPreview(null);
-        setBatchResult(data.result as AccountBatchResult);
-        setBatchFile(null);
-        if (batchFileRef.current) batchFileRef.current.value = "";
-        await loadAccounts();
-        showSuccessModal(data.message || "批次作業完成");
+        setBatchPreview(data.preview ?? null);
+        return;
       }
+
+      // 執行：伺服器每批只處理 offset 起的一段，依 progress 迴圈送下一批並逐批累加結果
+      const aggregated: AccountBatchResult = {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        rostered: 0,
+        linked: 0,
+        skipped: [],
+      };
+      let offset = 0;
+      for (;;) {
+        const data = await send(offset);
+        if (!data.result) throw new Error(data.message || "批次作業失敗");
+        const result = data.result;
+        aggregated.created += result.created;
+        aggregated.updated += result.updated;
+        aggregated.deleted += result.deleted;
+        aggregated.rostered = (aggregated.rostered ?? 0) + (result.rostered ?? 0);
+        aggregated.linked = (aggregated.linked ?? 0) + (result.linked ?? 0);
+        aggregated.skipped.push(...result.skipped);
+        const progress = data.progress;
+        const processed =
+          progress?.processed ??
+          result.created + result.updated + result.deleted + result.skipped.length;
+        offset += processed;
+        totalRows = progress?.total ?? offset;
+        doneRows = Math.min(offset, totalRows);
+        setBatchProgress({ done: doneRows, total: totalRows });
+        if (!progress || progress.done) break;
+      }
+
+      setBatchPreview(null);
+      setBatchResult(aggregated);
+      setBatchFile(null);
+      setBatchProgress(null);
+      if (batchFileRef.current) batchFileRef.current.value = "";
+      await loadAccounts();
+      showSuccessModal(composeBatchMessage(mode, aggregated, rosterScope));
     } catch (error) {
-      setBatchError(error instanceof Error ? error.message : "批次作業失敗");
+      const base = error instanceof Error ? error.message : "批次作業失敗";
+      // 中斷時明確告知已完成範圍：已建立的資料保留，重跑已完成的列會自然略過（可原檔續傳）
+      const note =
+        !dryRun && doneRows > 0
+          ? `；已完成 ${doneRows}/${totalRows} 列，已建立的資料已保留，再次執行時已完成的列會自動略過`
+          : "";
+      setBatchError(base + note);
     } finally {
       setBatchBusy("");
+      setBatchProgress(null);
     }
   }
 
@@ -1467,7 +1548,9 @@ export default function AccountsPage() {
                   ? "刪除中，請稍候…"
                   : batchBusy
                     ? batchBusy === "execute"
-                      ? "批次執行中，請稍候…"
+                      ? batchProgress
+                        ? `批次執行中，已完成 ${batchProgress.done}/${batchProgress.total} 列，請稍候…`
+                        : "批次執行中，請稍候…"
                       : "上傳預覽中，請稍候…"
                     : "儲存中，請稍候…"
           }
