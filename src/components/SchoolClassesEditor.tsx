@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CLASSES_CODE_MAX,
@@ -416,211 +416,285 @@ export default function SchoolClassesEditor() {
                     : "但該學制的年級編號已全部建立。"}
                 </p>
               ) : (
-                <div className="grid gap-3">
-                  {rows.map((row) => (
-                    <div key={row.id} className="border border-themed rounded-lg p-3">
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <span className="text-xs font-bold text-t2">年級編號 {row.grade}</span>
-                        <label className="flex items-center gap-1 text-sm">
-                          <span className="text-t3">年級代碼</span>
-                          <input
-                            type="text"
-                            maxLength={CLASSES_GRADE_CODE_MAX}
-                            value={row.code}
-                            onChange={(event) =>
-                              changeGrade(row.grade, (item) => ({
-                                ...item,
-                                code: event.target.value,
-                              }))
-                            }
-                            aria-label={`${row.name}年級代碼`}
-                            className="input-theme rounded px-2 py-1 text-sm w-24"
-                          />
-                        </label>
-                        <label className="flex items-center gap-1 text-sm">
-                          <span className="text-t3">年級名稱</span>
-                          <input
-                            type="text"
-                            maxLength={CLASSES_GRADE_NAME_MAX}
-                            value={row.name}
-                            onChange={(event) =>
-                              changeGrade(row.grade, (item) => ({
-                                ...item,
-                                name: event.target.value,
-                              }))
-                            }
-                            aria-label={`${row.name}年級名稱`}
-                            className="input-theme rounded px-2 py-1 text-sm w-32"
-                          />
-                        </label>
-                        <span className="text-xs text-t3">{row.classes.length} 班</span>
-                        <div className="ml-auto flex gap-1">
-                          <button
-                            type="button"
-                            onClick={() => addClass(row.grade)}
-                            disabled={row.classes.length >= CLASSES_MAX_CLASSES_PER_GRADE}
-                            className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            新增班級
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeGrade(row.grade)}
-                            className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
-                          >
-                            刪除年段
-                          </button>
-                        </div>
-                      </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px] text-sm border border-themed">
+                    <thead>
+                      <tr className="bg-hover">
+                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                          年級編號
+                        </th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                          年級代碼
+                        </th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                          年級名稱
+                        </th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                          班級代碼
+                        </th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                          班級名稱
+                        </th>
+                        {isSenior && (
+                          <>
+                            <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                              群別（代碼／名稱）
+                            </th>
+                            <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                              科別（代碼／名稱）
+                            </th>
+                          </>
+                        )}
+                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                          操作
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => {
+                        const classCols = isSenior ? 5 : 3;
+                        const totalCols = 3 + classCols;
+                        const gradeCells = (
+                          <>
+                            <td
+                              rowSpan={Math.max(row.classes.length, 1)}
+                              className="px-2 py-2 align-top whitespace-nowrap text-t2 font-medium"
+                            >
+                              {row.grade}
+                            </td>
+                            <td rowSpan={Math.max(row.classes.length, 1)} className="px-2 py-2 align-top">
+                              <input
+                                type="text"
+                                maxLength={CLASSES_GRADE_CODE_MAX}
+                                value={row.code}
+                                onChange={(event) =>
+                                  changeGrade(row.grade, (item) => ({
+                                    ...item,
+                                    code: event.target.value,
+                                  }))
+                                }
+                                aria-label={`${row.name}年級代碼`}
+                                className="input-theme rounded px-2 py-1 text-sm w-20"
+                              />
+                            </td>
+                            <td rowSpan={Math.max(row.classes.length, 1)} className="px-2 py-2 align-top">
+                              <input
+                                type="text"
+                                maxLength={CLASSES_GRADE_NAME_MAX}
+                                value={row.name}
+                                onChange={(event) =>
+                                  changeGrade(row.grade, (item) => ({
+                                    ...item,
+                                    name: event.target.value,
+                                  }))
+                                }
+                                aria-label={`${row.name}年級名稱`}
+                                className="input-theme rounded px-2 py-1 text-sm w-28"
+                              />
+                            </td>
+                          </>
+                        );
+                        const gradeActions = (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => addClass(row.grade)}
+                              disabled={row.classes.length >= CLASSES_MAX_CLASSES_PER_GRADE}
+                              className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              新增班級
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeGrade(row.grade)}
+                              className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
+                            >
+                              刪除年段
+                            </button>
+                          </>
+                        );
 
-                      {row.classes.length === 0 ? (
-                        <p className="text-xs text-t3 mb-2">尚未建立班級。</p>
-                      ) : (
-                        <div className="grid gap-2 mb-2">
-                          {row.classes.map((item, classIndex) => (
-                            <div key={item.id} className="border border-themed rounded p-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <input
-                                  type="text"
-                                  maxLength={CLASSES_CODE_MAX}
-                                  value={item.code}
-                                  onChange={(event) =>
-                                    changeClass(row.grade, item.id, {
-                                      code: event.target.value,
-                                    })
-                                  }
-                                  placeholder="班級代碼"
-                                  aria-label={`${row.name}班級代碼`}
-                                  className="input-theme rounded px-3 py-1 text-sm w-32"
-                                />
-                                <input
-                                  type="text"
-                                  maxLength={CLASSES_NAME_MAX}
-                                  value={item.name}
-                                  onChange={(event) =>
-                                    changeClass(row.grade, item.id, {
-                                      name: event.target.value,
-                                    })
-                                  }
-                                  placeholder="班級名稱，如：1 年 1 班"
-                                  aria-label={`${row.name}班級名稱`}
-                                  className="input-theme rounded px-3 py-1 text-sm w-full"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => moveClass(row.grade, item.id, -1)}
-                                  disabled={classIndex === 0}
-                                  title="往前調整班級順位"
-                                  aria-label={`${item.name || "班級"}往前移動`}
-                                  className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  前移
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => moveClass(row.grade, item.id, 1)}
-                                  disabled={classIndex === row.classes.length - 1}
-                                  title="往後調整班級順位"
-                                  aria-label={`${item.name || "班級"}往後移動`}
-                                  className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  後移
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeClass(row.grade, item.id)}
-                                  className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
-                                >
-                                  移除
-                                </button>
-                              </div>
+                        return (
+                          <Fragment key={row.id}>
+                            {row.classes.map((item, classIndex) => (
+                              <tr key={item.id} className="border-t border-themed align-top">
+                                {classIndex === 0 && gradeCells}
+                                <td className="px-2 py-2">
+                                  <input
+                                    type="text"
+                                    maxLength={CLASSES_CODE_MAX}
+                                    value={item.code}
+                                    onChange={(event) =>
+                                      changeClass(row.grade, item.id, {
+                                        code: event.target.value,
+                                      })
+                                    }
+                                    placeholder="班級代碼"
+                                    aria-label={`${row.name}班級代碼`}
+                                    className="input-theme rounded px-2 py-1 text-sm w-24"
+                                  />
+                                </td>
+                                <td className="px-2 py-2">
+                                  <input
+                                    type="text"
+                                    maxLength={CLASSES_NAME_MAX}
+                                    value={item.name}
+                                    onChange={(event) =>
+                                      changeClass(row.grade, item.id, {
+                                        name: event.target.value,
+                                      })
+                                    }
+                                    placeholder="班級名稱，如：1 年 1 班"
+                                    aria-label={`${row.name}班級名稱`}
+                                    className="input-theme rounded px-2 py-1 text-sm w-44"
+                                  />
+                                </td>
+                                {isSenior && (
+                                  <td className="px-2 py-2">
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="text"
+                                        maxLength={CLASSES_VOC_CODE_MAX}
+                                        value={item.group?.code ?? ""}
+                                        onChange={(event) =>
+                                          changeVoc(
+                                            row.grade,
+                                            item.id,
+                                            "group",
+                                            "code",
+                                            event.target.value
+                                          )
+                                        }
+                                        placeholder="代碼"
+                                        aria-label={`${row.name}班級群別代碼`}
+                                        className="input-theme rounded px-2 py-1 text-sm w-20"
+                                      />
+                                      <input
+                                        type="text"
+                                        maxLength={CLASSES_VOC_NAME_MAX}
+                                        value={item.group?.name ?? ""}
+                                        onChange={(event) =>
+                                          changeVoc(
+                                            row.grade,
+                                            item.id,
+                                            "group",
+                                            "name",
+                                            event.target.value
+                                          )
+                                        }
+                                        placeholder="名稱，如：機械群"
+                                        aria-label={`${row.name}班級群別名稱`}
+                                        className="input-theme rounded px-2 py-1 text-sm w-28"
+                                      />
+                                    </div>
+                                  </td>
+                                )}
+                                {isSenior && (
+                                  <td className="px-2 py-2">
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="text"
+                                        maxLength={CLASSES_VOC_CODE_MAX}
+                                        value={item.department?.code ?? ""}
+                                        onChange={(event) =>
+                                          changeVoc(
+                                            row.grade,
+                                            item.id,
+                                            "department",
+                                            "code",
+                                            event.target.value
+                                          )
+                                        }
+                                        placeholder="代碼"
+                                        aria-label={`${row.name}班級科別代碼`}
+                                        className="input-theme rounded px-2 py-1 text-sm w-20"
+                                      />
+                                      <input
+                                        type="text"
+                                        maxLength={CLASSES_VOC_NAME_MAX}
+                                        value={item.department?.name ?? ""}
+                                        onChange={(event) =>
+                                          changeVoc(
+                                            row.grade,
+                                            item.id,
+                                            "department",
+                                            "name",
+                                            event.target.value
+                                          )
+                                        }
+                                        placeholder="名稱，如：機械科"
+                                        aria-label={`${row.name}班級科別名稱`}
+                                        className="input-theme rounded px-2 py-1 text-sm w-28"
+                                      />
+                                    </div>
+                                  </td>
+                                )}
+                                <td className="px-2 py-2 whitespace-nowrap">
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => moveClass(row.grade, item.id, -1)}
+                                      disabled={classIndex === 0}
+                                      title="往前調整班級順位"
+                                      aria-label={`${item.name || "班級"}往前移動`}
+                                      className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      前移
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => moveClass(row.grade, item.id, 1)}
+                                      disabled={classIndex === row.classes.length - 1}
+                                      title="往後調整班級順位"
+                                      aria-label={`${item.name || "班級"}往後移動`}
+                                      className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      後移
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeClass(row.grade, item.id)}
+                                      className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
+                                    >
+                                      移除
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
 
-                              {isSenior && (
-                                <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-themed">
-                                  <span className="text-xs font-bold text-t2">群別</span>
-                                  <input
-                                    type="text"
-                                    maxLength={CLASSES_VOC_CODE_MAX}
-                                    value={item.group?.code ?? ""}
-                                    onChange={(event) =>
-                                      changeVoc(
-                                        row.grade,
-                                        item.id,
-                                        "group",
-                                        "code",
-                                        event.target.value
-                                      )
-                                    }
-                                    placeholder="群別代碼"
-                                    aria-label={`${row.name}班級群別代碼`}
-                                    className="input-theme rounded px-3 py-1 text-sm w-28"
-                                  />
-                                  <input
-                                    type="text"
-                                    maxLength={CLASSES_VOC_NAME_MAX}
-                                    value={item.group?.name ?? ""}
-                                    onChange={(event) =>
-                                      changeVoc(
-                                        row.grade,
-                                        item.id,
-                                        "group",
-                                        "name",
-                                        event.target.value
-                                      )
-                                    }
-                                    placeholder="群別名稱，如：機械群"
-                                    aria-label={`${row.name}班級群別名稱`}
-                                    className="input-theme rounded px-3 py-1 text-sm w-40"
-                                  />
-                                  <span className="text-xs font-bold text-t2">科別</span>
-                                  <input
-                                    type="text"
-                                    maxLength={CLASSES_VOC_CODE_MAX}
-                                    value={item.department?.code ?? ""}
-                                    onChange={(event) =>
-                                      changeVoc(
-                                        row.grade,
-                                        item.id,
-                                        "department",
-                                        "code",
-                                        event.target.value
-                                      )
-                                    }
-                                    placeholder="科別代碼"
-                                    aria-label={`${row.name}班級科別代碼`}
-                                    className="input-theme rounded px-3 py-1 text-sm w-28"
-                                  />
-                                  <input
-                                    type="text"
-                                    maxLength={CLASSES_VOC_NAME_MAX}
-                                    value={item.department?.name ?? ""}
-                                    onChange={(event) =>
-                                      changeVoc(
-                                        row.grade,
-                                        item.id,
-                                        "department",
-                                        "name",
-                                        event.target.value
-                                      )
-                                    }
-                                    placeholder="科別名稱，如：機械科"
-                                    aria-label={`${row.name}班級科別名稱`}
-                                    className="input-theme rounded px-3 py-1 text-sm w-40"
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {row.classes.length > 1 && (
-                        <p className="text-xs text-t3 mb-2">
-                          班級順位＝由上到下的順序（用「前移／後移」調整），日後顯示全年段班級時以此排序。
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                            {row.classes.length === 0 && (
+                              <tr className="border-t border-themed align-top">
+                                {gradeCells}
+                                <td colSpan={classCols} className="px-2 py-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs text-t3">尚未建立班級。</span>
+                                    {gradeActions}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
 
+                            {row.classes.length > 0 && (
+                              <tr className="border-t-2 border-themed">
+                                <td colSpan={totalCols} className="px-2 py-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs text-t3">{row.classes.length} 班</span>
+                                    {gradeActions}
+                                    {row.classes.length > 1 && (
+                                      <span className="text-xs text-t3">
+                                        班級順位＝由上到下的順序（用「前移／後移」調整），日後顯示全年段班級時以此排序。
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
