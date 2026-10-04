@@ -6,6 +6,7 @@ import {
   CLASSES_CODE_MAX,
   CLASSES_GRADE_CODE_MAX,
   CLASSES_GRADE_NAME_MAX,
+  CLASSES_MAX_CLASSES,
   CLASSES_MAX_CLASSES_PER_GRADE,
   CLASSES_NAME_MAX,
   CLASSES_VOC_CODE_MAX,
@@ -22,10 +23,13 @@ import {
   emptyContext,
   freeGradeNumbers,
   gradeRangeOf,
+  incrementLastNumber,
   newClassId,
   newGradeId,
   readSchoolClasses,
   stageName,
+  stageOfGrade,
+  totalClassCount,
   validateSchoolClasses,
 } from "@/types/school-classes";
 import { StageValue } from "@/types/school-profile";
@@ -45,6 +49,60 @@ type ClassesResponse = {
   setting?: unknown;
   stages?: SchoolClassesContext["stages"];
 };
+
+/** 產生不與 `used` 撞車的文字：`base`、`base-2`、`base-3`…（全撞或超長則回 base） */
+function uniqueText(base: string, used: Set<string>, maxLength: number, separator: string): string {
+  if (base.length <= maxLength && !used.has(base)) return base;
+  for (let count = 2; count <= 100; count += 1) {
+    const candidate = `${base}${separator}${count}`;
+    if (candidate.length <= maxLength && !used.has(candidate)) return candidate;
+  }
+  return base;
+}
+
+/**
+ * 依命名慣例推下一個班級代碼：末段數字 +1（保留前導零，`101`→`102`），
+ * 撞到 `used`（全校既有代碼）就繼續 +1；推不出來（沒有數字／超過長度）回空字串。
+ */
+function nextClassCode(template: string, used: Set<string>): string {
+  const base = template.trim();
+  if (!base) return "";
+  let candidate = incrementLastNumber(base, CLASSES_CODE_MAX);
+  for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
+    candidate = incrementLastNumber(candidate, CLASSES_CODE_MAX);
+  }
+  return candidate ?? "";
+}
+
+/**
+ * 「新增班級」的班級名稱：末段數字 +1（`1 年 1 班`→`1 年 2 班`），
+ * 撞到 `used`（該年級既有名稱）就繼續 +1；名稱沒有數字時回空字串讓使用者填。
+ */
+function nextClassName(template: string, used: Set<string>): string {
+  const base = template.trim();
+  if (!base) return "";
+  let candidate = incrementLastNumber(base, CLASSES_NAME_MAX);
+  for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
+    candidate = incrementLastNumber(candidate, CLASSES_NAME_MAX);
+  }
+  return candidate ?? "";
+}
+
+/**
+ * 「複製年級＋1」的班級名稱：末段數字 +1、撞到 `used`（新年級）就繼續 +1；
+ * 模板名稱沒有數字時沿用原名（新年級是空的，原名必然可用），仍重複才回空字串。
+ */
+function copiedClassName(template: string, used: Set<string>): string {
+  const base = template.trim();
+  if (!base) return "";
+  let candidate = incrementLastNumber(base, CLASSES_NAME_MAX) ?? base;
+  for (let guard = 0; used.has(candidate) && guard < 1000; guard += 1) {
+    const bumped = incrementLastNumber(candidate, CLASSES_NAME_MAX);
+    if (!bumped) return "";
+    candidate = bumped;
+  }
+  return candidate;
+}
 
 /**
  * 年段班級設定編輯器（學校基本設定的子功能）。
@@ -174,30 +232,131 @@ export default function SchoolClassesEditor() {
     ]);
   }
 
-  /** 刪除年段（＝刪除該年級與其下所有班級） */
+  /** 刪除年級（＝刪除該年級與其下所有班級） */
   function removeGrade(grade: number) {
     if (!draft) return;
     const row = draft.grades.find((item) => item.grade === grade);
     if (!row) return;
     if (
       row.classes.length > 0 &&
-      !window.confirm(`確定刪除年段「${row.name}」及其 ${row.classes.length} 個班級？`)
+      !window.confirm(`確定刪除年級「${row.name}」及其 ${row.classes.length} 個班級？`)
     ) {
       return;
     }
     commit(draft.grades.filter((item) => item.grade !== grade));
   }
 
+  /**
+   * 複製年級＋1：以此年級為範本，在編號 +1 處建立新年級與其班級
+   * （代碼、名稱依命名慣例 +1，群別／科別沿用）。
+   * 目標編號已占用、超出該學制編號範圍、或年段／班級數將超過上限時，
+   * 跳出提示且不做任何搬移。
+   */
+  function duplicateGrade(grade: number) {
+    if (!draft) return;
+    const row = draft.grades.find((item) => item.grade === grade);
+    if (!row) return;
+    const stage = stageOfGrade(context, grade);
+    const target = grade + 1;
+    if (!stage) return;
+    const range = gradeRangeOf(context, stage);
+    if (!range || target > range.end) {
+      showModal(
+        "error",
+        `「${row.name}」已是${stageName(stage)}最後一個年級，無法複製到年級編號 ${target}`
+      );
+      return;
+    }
+    if (draft.grades.some((item) => item.grade === target)) {
+      showModal(
+        "error",
+        `年級編號 ${target} 已建立，無法複製；請改用學制右上的「新增年段」，或先刪除該年級`
+      );
+      return;
+    }
+    const gradeLimit = contextYearsSum(context);
+    if (draft.grades.length + 1 > gradeLimit) {
+      showModal(
+        "error",
+        `複製後年段數會超過校務基本資料的年制總和（${gradeLimit}），請先至校務基本資料調整年制`
+      );
+      return;
+    }
+    if (totalClassCount(draft) + row.classes.length > CLASSES_MAX_CLASSES) {
+      showModal("error", `複製後班級總數會超過上限（最多 ${CLASSES_MAX_CLASSES} 班）`);
+      return;
+    }
+    if (row.classes.length > CLASSES_MAX_CLASSES_PER_GRADE) return;
+
+    const usedGradeCodes = new Set(draft.grades.map((item) => item.code));
+    const usedStageNames = new Set(
+      draft.grades
+        .filter((item) => stageOfGrade(context, item.grade) === stage)
+        .map((item) => item.name)
+    );
+    const newCode = uniqueText(
+      defaultGradeCode(target),
+      usedGradeCodes,
+      CLASSES_GRADE_CODE_MAX,
+      "-"
+    );
+    const newName = uniqueText(
+      defaultGradeName(target, range, draft.nameStyle),
+      usedStageNames,
+      CLASSES_GRADE_NAME_MAX,
+      "-"
+    );
+    const usedClassCodes = new Set<string>();
+    for (const item of draft.grades) {
+      for (const cls of item.classes) usedClassCodes.add(cls.code);
+    }
+    const usedClassNames = new Set<string>();
+    const classes: ClassRow[] = [];
+    for (const source of row.classes) {
+      const code = nextClassCode(source.code, usedClassCodes);
+      if (code) usedClassCodes.add(code);
+      const name = copiedClassName(source.name, usedClassNames);
+      if (name) usedClassNames.add(name);
+      classes.push({
+        id: newClassId(),
+        code,
+        name,
+        group: source.group ? { ...source.group } : null,
+        department: source.department ? { ...source.department } : null,
+      });
+    }
+    const grades = [
+      ...draft.grades,
+      { id: newGradeId(), grade: target, code: newCode, name: newName, classes },
+    ];
+    commit(grades);
+  }
+
+  /** 新增班級：沿用該年級最後一班的群別／科別，代碼與名稱依命名慣例 +1（`101`→`102`、`1 年 1 班`→`1 年 2 班`） */
   function addClass(grade: number) {
     if (!draft) return;
     const row = draft.grades.find((item) => item.grade === grade);
     if (!row || row.classes.length >= CLASSES_MAX_CLASSES_PER_GRADE) return;
+    const template = row.classes[row.classes.length - 1];
+    let code = "";
+    let name = "";
+    let group: VocField | null = null;
+    let department: VocField | null = null;
+    if (template) {
+      const usedClassCodes = new Set<string>();
+      for (const item of draft.grades) {
+        for (const cls of item.classes) usedClassCodes.add(cls.code);
+      }
+      code = nextClassCode(template.code, usedClassCodes);
+      name = nextClassName(template.name, new Set(row.classes.map((cls) => cls.name)));
+      if (stageOfGrade(context, grade) === SENIOR_HIGH_STAGE) {
+        group = template.group ? { ...template.group } : null;
+        department = template.department ? { ...template.department } : null;
+      }
+    }
     changeGrade(grade, (item) => ({
       ...item,
-      classes: [
-        ...item.classes,
-        { id: newClassId(), code: "", name: "", group: null, department: null },
-      ],
+      classes: [...item.classes, { id: newClassId(), code, name, group, department }],
     }));
   }
 
@@ -504,10 +663,18 @@ export default function SchoolClassesEditor() {
                             </button>
                             <button
                               type="button"
+                              onClick={() => duplicateGrade(row.grade)}
+                              title="以此年級為範本，在編號 +1 處新增一個年級與其班級"
+                              className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
+                            >
+                              複製年級+1
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => removeGrade(row.grade)}
                               className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
                             >
-                              刪除年段
+                              刪除年級
                             </button>
                           </div>
                           {row.classes.length > 1 && (

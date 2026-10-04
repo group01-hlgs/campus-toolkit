@@ -194,6 +194,24 @@ export function newClassId(): string {
   return `cl_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * 末段數字 +1（保留前導零：`"009"`→`"010"`、`"09"`→`"10"`）。
+ * 「末段數字」＝字串中最後一段連續數字（`"1 年 1 班"` 取到末尾前的 `1` → `"1 年 2 班"`），
+ * 因此代碼（`101`→`102`）與名稱（`1 年 1 班`→`1 年 2 班`）都適用。
+ * 沒有數字、數字過大失去精度、或 +1 後超過 `maxLength` 回 `null`，由呼叫端決定退回策略。
+ */
+export function incrementLastNumber(value: string, maxLength: number): string | null {
+  const match = /(\d+)(?!.*\d)/.exec(value);
+  if (!match) return null;
+  const digits = match[1];
+  const next = Number(digits) + 1;
+  if (!Number.isSafeInteger(next)) return null;
+  const padded = String(next).padStart(digits.length, "0");
+  const result = value.slice(0, match.index) + padded + value.slice(match.index + digits.length);
+  if (result.length > maxLength) return null;
+  return result;
+}
+
 export function defaultSchoolClasses(): SchoolClassesSetting {
   return { grades: [], nameStyle: "local" };
 }
