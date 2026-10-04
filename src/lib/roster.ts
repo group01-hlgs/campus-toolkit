@@ -8,6 +8,7 @@ import {
   isStrongPassword,
   normalizeAccount,
   normalizeEmail,
+  PASSWORD_MAX_LENGTH,
   PASSWORD_REQUIREMENT_MESSAGE,
 } from "@/lib/validation";
 import {
@@ -167,10 +168,11 @@ export type AccountValidation =
 /**
  * 驗證「使用者帳號管理」工作表的帳號輸入（無名冊欄位）。
  * 建立時密碼必填；更新時密碼留空代表不變更。
+ * skipPasswordRule＝略過密碼命名規則（僅驗證非空白與長度上限），批次匯入使用。
  */
 export function validateAccountInput(
   input: AccountInput,
-  options: { requirePassword: boolean }
+  options: { requirePassword: boolean; skipPasswordRule?: boolean }
 ): AccountValidation {
   const name = text(input.name, MAX_TEXT);
   if (!name) return { ok: false, message: "請填寫姓名" };
@@ -190,12 +192,21 @@ export function validateAccountInput(
   const rawPassword = typeof input.password === "string" ? input.password : "";
   let password: string | null = null;
   if (rawPassword) {
-    if (!isStrongPassword(rawPassword)) {
+    if (options.skipPasswordRule) {
+      if (rawPassword.length > PASSWORD_MAX_LENGTH) {
+        return { ok: false, message: `密碼最多 ${PASSWORD_MAX_LENGTH} 碼` };
+      }
+    } else if (!isStrongPassword(rawPassword)) {
       return { ok: false, message: PASSWORD_REQUIREMENT_MESSAGE };
     }
     password = rawPassword;
   } else if (options.requirePassword) {
-    return { ok: false, message: `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}` };
+    return {
+      ok: false,
+      message: options.skipPasswordRule
+        ? "請填寫密碼"
+        : `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}`,
+    };
   }
 
   return { ok: true, account: { email, account, name }, password };

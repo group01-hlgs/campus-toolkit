@@ -60,13 +60,16 @@ const COMMON_WEAK_PASSWORDS = new Set([
   "aaaaaaaa",
 ]);
 
+/** 密碼長度上限（規則檢查與略過規則時共用） */
+export const PASSWORD_MAX_LENGTH = 128;
+
 /**
  * 密碼規則：至少 8 碼，且需同時包含大寫字母、小寫字母與數字（符號可有可無）、擋常見弱密碼。
  * 客戶端與伺服器共用此檢查，兩側訊息需一致。
  */
 export function isStrongPassword(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  if (value.length < 8 || value.length > 128) return false;
+  if (value.length < 8 || value.length > PASSWORD_MAX_LENGTH) return false;
   if (COMMON_WEAK_PASSWORDS.has(value.toLowerCase())) return false;
 
   const hasUpper = /[A-Z]/.test(value);

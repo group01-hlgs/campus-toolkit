@@ -303,7 +303,10 @@ function planCreate(
   if (fields.name) input.name = fields.name;
   if (fields.password) input.password = fields.password;
 
-  const validation = validateAccountInput(input, { requirePassword: true });
+  const validation = validateAccountInput(input, {
+    requirePassword: true,
+    skipPasswordRule: true,
+  });
   if (!validation.ok) return skipRow(row, fields, validation.message);
 
   let preferredRole: UserRole | undefined;
