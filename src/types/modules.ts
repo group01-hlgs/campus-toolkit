@@ -1,12 +1,17 @@
 /**
- * 功能模組中繼資料註冊表（單一來源）。
+ * 管理端「權限單位」註冊表（單一來源）。
  *
- * 系統內所有「功能模組」的定義都集中在這裡：
+ * ⚠️ 這裡定義的是管理端的**權限模組**（名冊「指定功能模組」勾的那些），
+ * 不是產品層級的功能模組——產品層級（內建／選用、啟用狀態）見 `types/feature-modules.ts`，
+ * 本表是該表「主程式功能模組」的子功能來源。
+ *
+ * 系統內所有「權限模組」的定義都集中在這裡：
  * - `types/users.ts` 由本表派生 `ADMIN_MODULES`（全部）、`BASE_ADMIN_MODULES`（核心＝scope core）、
  *   `SUPER_ONLY_ADMIN_MODULES`（僅超級＝scope superOnly），進而決定名冊「指定功能模組」的可指派清單、
  *   `adminModulesOf` 的授予結果與 `requireAdminModule` 的 API 守門；
  * - 管理員首頁卡片由本表「有入口路由（href 非空）」的項目派生；
- * - 「功能模組管理」頁（`/admin/modules`）依 `category` 分類展示本表。
+ * - 這些權限單位以「主程式功能模組」的子功能身分，出現在「功能模組管理」頁
+ *   （`/admin/modules`，產品層級的展示見 `types/feature-modules.ts`）。
  *
  * 欄位約定（每個模組的鍵都要齊，聯合型別才能安全取值）：
  * - `href`：入口路由，空字串＝尚未建頁（如僅 API 已上線的稽核紀錄）；
@@ -15,7 +20,7 @@
  * - `status`：built＝已上線；apiOnly＝API 已上線、頁面未建；planned＝規劃中。
  */
 
-/** 功能模組的分類（順序＝「功能模組管理」頁的顯示順序） */
+/** 權限單位的分類（帳號／校務資料／系統，供日後依類檢視權限時使用） */
 export const MODULE_CATEGORIES = ["帳號與權限", "校務資料", "系統與紀錄"] as const;
 export type ModuleCategory = (typeof MODULE_CATEGORIES)[number];
 

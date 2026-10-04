@@ -30,6 +30,7 @@ export type ActivityAction =
   | "roster_batch"
   | "roster_linked"
   | "role_settings_updated"
+  | "feature_module_updated"
   | "school_org_updated"
   | "school_profile_updated"
   | "school_classes_updated"

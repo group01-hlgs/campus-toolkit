@@ -9,9 +9,10 @@ import AdSense from "@/components/AdSense";
 
 /**
  * 「功能模組管理」共用外殼（標題、權限閘門、頁尾）。
- * 本模組是核心模組（modules 為 scope＝core，每位管理員皆具備，頁面層仍擋一次；
- * 日後若新增寫入類 API，另以 requireAdminModule("modules") 再擋一次）。
- * 分類卡片牆頁面包在這個 layout 裡。
+ * 本頁展示產品層級的功能模組（內建／選用、子功能與啟用狀態），
+ * 「功能模組管理」是核心權限模組（modules 為 scope＝core，每位管理員皆可檢視，
+ * 頁面層仍擋一次；啟用／停用的寫入 API 另以 requireAdminModule("modules")＋僅超級把關）。
+ * 內建／選用卡片牆頁面包在這個 layout 裡。
  */
 export default function ModulesLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -83,7 +84,7 @@ export default function ModulesLayout({ children }: { children: ReactNode }) {
       <div className="w-full max-w-4xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">功能模組管理</h2>
         <p className="text-sm text-t3 mt-1">
-          「功能模組」是管理端各項功能的權限單位，本頁依分類列出所有模組與其權限範圍。
+          系統的功能模組架構：內建與選用的分類、各模組的子功能，以及選用模組的啟用狀態。
         </p>
       </div>
 
