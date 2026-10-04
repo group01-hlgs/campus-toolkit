@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CLASSES_CODE_MAX,
@@ -395,41 +395,59 @@ export default function SchoolClassesEditor() {
                     : "但該學制的年級編號已全部建立。"}
                 </p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-sm border border-themed">
-                    <thead>
-                      <tr className="bg-hover">
-                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                          班級代碼
-                        </th>
-                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                          班級名稱
-                        </th>
-                        {isSenior && (
-                          <>
-                            <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                              群別（代碼／名稱）
-                            </th>
-                            <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                              科別（代碼／名稱）
-                            </th>
-                          </>
-                        )}
-                        <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
-                          操作
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => {
-                        const classCols = isSenior ? 4 : 2;
-                        const totalCols = classCols + 1;
-                        const gradeActions = (
-                          <>
+                <div className="space-y-3">
+                  {rows.map((row) => {
+                    const totalCols = isSenior ? 5 : 3;
+                    const tableMin = isSenior ? "min-w-[720px]" : "min-w-[420px]";
+                    return (
+                      <div key={row.id}>
+                        {/* 年段（＝年級）列：獨立一行，不與班級表格同格，避免資料交疊 */}
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="text-xs font-bold text-t2 whitespace-nowrap">
+                            年級編號 {row.grade}
+                          </span>
+                          <label className="flex items-center gap-1 text-xs text-t3">
+                            年級代碼
+                            <input
+                              type="text"
+                              maxLength={CLASSES_GRADE_CODE_MAX}
+                              value={row.code}
+                              onChange={(event) =>
+                                changeGrade(row.grade, (item) => ({
+                                  ...item,
+                                  code: event.target.value,
+                                }))
+                              }
+                              aria-label={`${row.name}年級代碼`}
+                              className="input-theme rounded px-2 py-1 text-sm w-20"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs text-t3">
+                            年級名稱
+                            <input
+                              type="text"
+                              maxLength={CLASSES_GRADE_NAME_MAX}
+                              value={row.name}
+                              onChange={(event) =>
+                                changeGrade(row.grade, (item) => ({
+                                  ...item,
+                                  name: event.target.value,
+                                }))
+                              }
+                              aria-label={`${row.name}年級名稱`}
+                              className="input-theme rounded px-2 py-1 text-sm w-28"
+                            />
+                          </label>
+                          <span className="text-xs text-t3">
+                            {row.classes.length} 班
+                          </span>
+                          <div className="flex gap-1 ml-auto">
                             <button
                               type="button"
                               onClick={() => addClass(row.grade)}
-                              disabled={row.classes.length >= CLASSES_MAX_CLASSES_PER_GRADE}
+                              disabled={
+                                row.classes.length >= CLASSES_MAX_CLASSES_PER_GRADE
+                              }
                               className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               新增班級
@@ -441,64 +459,45 @@ export default function SchoolClassesEditor() {
                             >
                               刪除年段
                             </button>
-                          </>
-                        );
+                          </div>
+                          {row.classes.length > 1 && (
+                            <span className="text-xs text-t3 basis-full">
+                              班級順位＝由上到下的順序（用「前移／後移」調整），
+                              日後顯示全年段班級時以此排序。
+                            </span>
+                          )}
+                        </div>
 
-                        return (
-                          <Fragment key={row.id}>
-                            {/* 年段（＝年級）自己一列，不與第 1 班並排 */}
-                            <tr className="border-t-2 border-themed align-top">
-                              <td colSpan={totalCols} className="px-2 py-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-xs font-bold text-t2 whitespace-nowrap">
-                                    年級編號 {row.grade}
-                                  </span>
-                                  <label className="flex items-center gap-1 text-xs text-t3">
-                                    年級代碼
-                                    <input
-                                      type="text"
-                                      maxLength={CLASSES_GRADE_CODE_MAX}
-                                      value={row.code}
-                                      onChange={(event) =>
-                                        changeGrade(row.grade, (item) => ({
-                                          ...item,
-                                          code: event.target.value,
-                                        }))
-                                      }
-                                      aria-label={`${row.name}年級代碼`}
-                                      className="input-theme rounded px-2 py-1 text-sm w-20"
-                                    />
-                                  </label>
-                                  <label className="flex items-center gap-1 text-xs text-t3">
-                                    年級名稱
-                                    <input
-                                      type="text"
-                                      maxLength={CLASSES_GRADE_NAME_MAX}
-                                      value={row.name}
-                                      onChange={(event) =>
-                                        changeGrade(row.grade, (item) => ({
-                                          ...item,
-                                          name: event.target.value,
-                                        }))
-                                      }
-                                      aria-label={`${row.name}年級名稱`}
-                                      className="input-theme rounded px-2 py-1 text-sm w-28"
-                                    />
-                                  </label>
-                                  <span className="text-xs text-t3">
-                                    {row.classes.length} 班
-                                  </span>
-                                  <div className="flex gap-1 ml-auto">{gradeActions}</div>
-                                  {row.classes.length > 1 && (
-                                    <span className="text-xs text-t3 basis-full">
-                                      班級順位＝由上到下的順序（用「前移／後移」調整），
-                                      日後顯示全年段班級時以此排序。
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                            {row.classes.map((item, classIndex) => (
+                        {/* 班級表格：每個年段獨立一張，內縮置於年段列之下 */}
+                        <div className="overflow-x-auto ml-4 sm:ml-8">
+                          <table
+                            className={`w-full ${tableMin} text-sm border border-themed`}
+                          >
+                            <thead>
+                              <tr className="bg-hover">
+                                <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                                  班級代碼
+                                </th>
+                                <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                                  班級名稱
+                                </th>
+                                {isSenior && (
+                                  <>
+                                    <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                                      群別（代碼／名稱）
+                                    </th>
+                                    <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                                      科別（代碼／名稱）
+                                    </th>
+                                  </>
+                                )}
+                                <th className="px-2 py-2 text-left text-xs font-bold text-t3 whitespace-nowrap">
+                                  操作
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {row.classes.map((item, classIndex) => (
                               <tr key={item.id} className="border-t border-themed align-top">
                                 <td className="px-2 py-2">
                                   <input
@@ -644,21 +643,22 @@ export default function SchoolClassesEditor() {
                               </tr>
                             ))}
 
-                            {row.classes.length === 0 && (
-                              <tr className="border-t border-themed">
-                                <td
-                                  colSpan={totalCols}
-                                  className="px-2 py-2 text-xs text-t3"
-                                >
-                                  尚未建立班級。
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              {row.classes.length === 0 && (
+                                <tr className="border-t border-themed">
+                                  <td
+                                    colSpan={totalCols}
+                                    className="px-2 py-2 text-xs text-t3"
+                                  >
+                                    尚未建立班級。
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
