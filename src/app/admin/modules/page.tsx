@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
 import {
   FEATURE_MODULES,
-  FEATURE_MODULE_KIND_LABELS,
   FEATURE_MODULE_STATUS_LABELS,
   type FeatureModuleMeta,
   type FeatureModulesEnabledMap,
@@ -19,7 +18,7 @@ interface FeatureModulesResponse {
   enabled?: FeatureModulesEnabledMap;
 }
 
-/** 小標籤（內建／選用、已上線／規劃中） */
+/** 小標籤（已上線／開發中／規劃中） */
 function Badge({ text, className = "" }: { text: string; className?: string }) {
   return (
     <span className={`text-xs border border-themed rounded px-1.5 py-0.5 ${className}`}>
@@ -28,38 +27,35 @@ function Badge({ text, className = "" }: { text: string; className?: string }) {
   );
 }
 
-/** 內建功能模組卡片：一律啟用；已上線且有入口者可直接進入 */
-function BuiltinCard({ item, onOpen }: { item: FeatureModuleMeta; onOpen: (href: string) => void }) {
+/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入 */
+function BuiltinRow({ item, onOpen }: { item: FeatureModuleMeta; onOpen: (href: string) => void }) {
   const enterable = item.status === "live" && item.href !== "";
   return (
-    <div
-      className={`border border-themed rounded-lg bg-card p-5 flex flex-col gap-3${enterable ? "" : " opacity-70"}`}
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-lg font-bold text-t1">{item.label}</span>
-        <Badge text={FEATURE_MODULE_KIND_LABELS[item.kind]} className="text-t2" />
+    <tr className={`border-b border-themed last:border-0 text-t1${enterable ? "" : " opacity-70"}`}>
+      <td className="px-3 py-2 whitespace-nowrap font-medium">{item.label}</td>
+      <td className="px-3 py-2 text-t3">{item.description}</td>
+      <td className="px-3 py-2 whitespace-nowrap">
         <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
-      </div>
-      <p className="text-sm text-t3 flex-1">{item.description}</p>
-      <div>
+      </td>
+      <td className="px-3 py-2 whitespace-nowrap text-right">
         {enterable ? (
           <button
             type="button"
             onClick={() => onOpen(item.href)}
-            className="text-sm text-t2 cursor-pointer hover:text-t1"
+            className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
           >
             前往 →
           </button>
         ) : (
-          <span className="text-sm text-t3">尚未提供，敬請期待。</span>
+          <span className="text-xs text-t3">尚未提供，敬請期待</span>
         )}
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
-/** 選用功能模組卡片：僅超級管理員可切換，且只有所上線者才能啟用 */
-function OptionalCard({
+/** 選用功能模組列表列：僅超級管理員可切換，且只有已上線者才能啟用 */
+function OptionalRow({
   item,
   enabled,
   isSuper,
@@ -84,15 +80,14 @@ function OptionalCard({
         ? "處理中..."
         : undefined;
   return (
-    <div className={`border border-themed rounded-lg bg-card p-5 flex flex-col gap-3${live ? "" : " opacity-70"}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-lg font-bold text-t1">{item.label}</span>
-        <Badge text={FEATURE_MODULE_KIND_LABELS[item.kind]} className="text-t2" />
+    <tr className={`border-b border-themed last:border-0 text-t1${live ? "" : " opacity-70"}`}>
+      <td className="px-3 py-2 whitespace-nowrap font-medium">{item.label}</td>
+      <td className="px-3 py-2 text-t3">{item.description}</td>
+      <td className="px-3 py-2 whitespace-nowrap">
         <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
-      </div>
-      <p className="text-sm text-t3 flex-1">{item.description}</p>
-      <div className="flex items-center justify-between gap-3">
-        <span className={`text-sm font-medium ${stateClass}`}>{stateText}</span>
+      </td>
+      <td className={`px-3 py-2 whitespace-nowrap text-sm font-medium ${stateClass}`}>{stateText}</td>
+      <td className="px-3 py-2 whitespace-nowrap text-right">
         {live ? (
           <button
             type="button"
@@ -101,21 +96,21 @@ function OptionalCard({
             title={disabledReason}
             className={
               enabled
-                ? "btn-danger rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-                : "btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                ? "btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+                : "btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
             }
           >
             {saving ? "處理中..." : enabled ? "停用" : "啟用"}
           </button>
         ) : (
-          <span className="text-sm text-t3">尚未提供</span>
+          <span className="text-xs text-t3">尚未提供</span>
         )}
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
-/** 「功能模組管理」入口：內建／選用兩區的功能模組總覽＋選用模組啟用開關 */
+/** 「功能模組管理」入口：內建／選用兩份功能模組列表＋選用模組啟用開關 */
 export default function ModulesPage() {
   const router = useRouter();
   // 選用模組啟用狀態：null＝載入中（fail-closed，先當全部未啟用）
@@ -173,17 +168,36 @@ export default function ModulesPage() {
   const optionals = FEATURE_MODULES.filter((item) => item.kind === "optional");
 
   return (
-    <div className="w-full max-w-4xl mb-8 space-y-6">
+    <div className="w-full max-w-5xl mb-8 space-y-6">
       {/* 內建功能模組 */}
       <section>
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
           <p className="text-xs text-t3">隨主程式提供、一律啟用；已上線的模組可直接進入。</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {builtins.map((item) => (
-            <BuiltinCard key={item.value} item={item} onOpen={(href) => router.push(href)} />
-          ))}
+        <div className="border border-themed rounded-lg bg-card overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="border-b border-themed">
+              <tr className="text-t2">
+                <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
+                <th className="px-3 py-2 font-medium">說明</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {builtins.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-6 text-center text-t3">
+                    沒有內建功能模組
+                  </td>
+                </tr>
+              )}
+              {builtins.map((item) => (
+                <BuiltinRow key={item.value} item={item} onOpen={(href) => router.push(href)} />
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -205,24 +219,45 @@ export default function ModulesPage() {
           </p>
         )}
 
-        {enabled === null ? (
-          <p className="text-center text-t3 border border-themed rounded-lg bg-card p-8">
-            啟用狀態載入中...
-          </p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {optionals.map((item) => (
-              <OptionalCard
-                key={item.value}
-                item={item}
-                enabled={enabled[item.value] === true}
-                isSuper={isSuper}
-                saving={saving === item.value}
-                onToggle={toggle}
-              />
-            ))}
-          </div>
-        )}
+        <div className="border border-themed rounded-lg bg-card overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="border-b border-themed">
+              <tr className="text-t2">
+                <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
+                <th className="px-3 py-2 font-medium">說明</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">啟用狀態</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enabled === null ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-t3">
+                    啟用狀態載入中...
+                  </td>
+                </tr>
+              ) : optionals.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-t3">
+                    沒有選用功能模組
+                  </td>
+                </tr>
+              ) : (
+                optionals.map((item) => (
+                  <OptionalRow
+                    key={item.value}
+                    item={item}
+                    enabled={enabled[item.value] === true}
+                    isSuper={isSuper}
+                    saving={saving === item.value}
+                    onToggle={toggle}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       {/* 管理端權限（指定功能模組）說明：屬主程式模組的子功能權限 */}
