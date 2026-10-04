@@ -13,7 +13,7 @@ const MAX_BODY = 400_000;
 const noStore = { "Cache-Control": "no-store" };
 
 /**
- * 群別／科別代碼表（學校基本設定 schoolSettings 的子功能，系統的基礎資料庫）。
+ * 各式代碼表（學校基本設定 schoolSettings 的子功能，系統的基礎資料庫）。
  * 守門用 requireAdminModule("schoolSettings")：adminModulesOf 對非超級一律剝除該模組，
  * 因此等同「僅超級管理員」，與頁面層的判斷保持同一把尺。
  *
@@ -21,7 +21,7 @@ const noStore = { "Cache-Control": "no-store" };
  * 文件不存在時讀回內建的官方代碼表。
  */
 
-/** GET：讀回群別／科別代碼表（結構性資料，不按學期） */
+/** GET：讀回各式代碼表（結構性資料，不按學期） */
 export async function GET(request: NextRequest) {
   try {
     const limited = enforceRateLimit(
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** PUT：整份覆寫群別／科別代碼表（驗證不過一律 400，不寫入） */
+/** PUT：整份覆寫各式代碼表（驗證不過一律 400，不寫入） */
 export async function PUT(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -83,6 +83,7 @@ export async function PUT(request: NextRequest) {
       .collection(CODES_DOC.collection)
       .doc(CODES_DOC.id)
       .set({
+        schoolTypes: setting.schoolTypes.map((item) => ({ code: item.code, name: item.name })),
         groups: setting.groups.map((item) => ({ code: item.code, name: item.name })),
         departments: setting.departments.map((item) => ({ code: item.code, name: item.name })),
       });
@@ -92,7 +93,7 @@ export async function PUT(request: NextRequest) {
       role: "admin",
       action: "school_codes_updated",
       ip: getClientIp(request),
-      details: `群別／科別代碼表已更新（群別 ${setting.groups.length} 筆、科別 ${setting.departments.length} 筆）`,
+      details: `各式代碼表已更新（類型 ${setting.schoolTypes.length} 筆、群別 ${setting.groups.length} 筆、科別 ${setting.departments.length} 筆）`,
     });
 
     return NextResponse.json({ success: true, message: "代碼表已儲存", setting });

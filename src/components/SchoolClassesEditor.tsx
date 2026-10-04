@@ -57,7 +57,7 @@ export default function SchoolClassesEditor() {
   const [saved, setSaved] = useState<SchoolClassesSetting | null>(null);
   const [draft, setDraft] = useState<SchoolClassesSetting | null>(null);
   const [context, setContext] = useState<SchoolClassesContext>(emptyContext);
-  /** 群別／科別代碼表（代碼下拉與名稱帶入的來源；讀取失敗時退回內建官方清單） */
+  /** 各式代碼表（代碼下拉與名稱帶入的來源；讀取失敗時退回內建官方清單） */
   const [codes, setCodes] = useState<SchoolCodesSetting>(defaultSchoolCodes);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -326,7 +326,7 @@ export default function SchoolClassesEditor() {
 
   return (
     <div className="mt-4">
-      {/* 群別／科別代碼下拉（僅高級中等學校學制用得到；選項取自群別／科別代碼表） */}
+      {/* 群別／科別代碼下拉（僅高級中等學校學制用得到；選項取自各式代碼表） */}
       {context.stages.some((item) => item.stage === SENIOR_HIGH_STAGE) && (
         <>
           <datalist id="voc-group-codes">
@@ -432,7 +432,7 @@ export default function SchoolClassesEditor() {
               {isSenior && (
                 <p className="text-xs text-t3 mb-2">
                   高級中等學校學制：每班的「群別」「科別」為選填，代碼與名稱需同時填寫；
-                  代碼可下拉選自「群別／科別代碼表」（學校基本設定 → 群別／科別代碼表），
+                  代碼可下拉選自「各式代碼表」（學校基本設定 → 各式代碼表），
                   選定後自動帶入名稱，也可自行輸入表外的代碼與名稱。
                 </p>
               )}

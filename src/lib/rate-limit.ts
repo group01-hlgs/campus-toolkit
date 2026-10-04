@@ -195,8 +195,8 @@ export const RATE = {
   SCHOOL_CLASSES_GET: { limit: 60, windowMs: 60_000 },
   /** 學校基本設定：儲存年段班級設定（整份覆寫，班級數量較多） */
   SCHOOL_CLASSES_MUTATE: { limit: 20, windowMs: 60_000 },
-  /** 學校基本設定：讀取群別／科別代碼表（清單較長） */
+  /** 學校基本設定：讀取各式代碼表（清單較長） */
   SCHOOL_CODES_GET: { limit: 60, windowMs: 60_000 },
-  /** 學校基本設定：儲存群別／科別代碼表（整份覆寫，科別可達千筆） */
+  /** 學校基本設定：儲存各式代碼表（整份覆寫，科別可達千筆） */
   SCHOOL_CODES_MUTATE: { limit: 20, windowMs: 60_000 },
 } as const;

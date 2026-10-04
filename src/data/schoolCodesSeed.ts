@@ -1,20 +1,38 @@
 /**
- * 群別／科別代碼表的官方預設值（系統內建的基礎資料）。
+ * 各式代碼表的官方預設值（系統內建的基礎資料）：高級中等學校類型、群別、科別。
  *
  * 來源：教育部「高級中等學校課程計畫平臺」代碼查詢（抓取於 2026-10-04）
+ * 類型 https://course.k12ea.gov.tw/courseinformation/QueryCode.asp?T=SCH
  * 群別 https://course.k12ea.gov.tw/courseinformation/QueryCode.asp?T=GRP
  * 科別 https://course.k12ea.gov.tw/courseinformation/QueryCode.asp?T=DEP
  *
- * 用途：settings/schoolCodes 不存在時的預設值、代碼表頁的「還原官方預設」按鈕，
+ * 用途：settings/schoolCodes 不存在時的預設值、各式代碼表頁的「還原官方預設」按鈕，
  * 以及年段班級設定中群別／科別代碼下拉的來源。平台日後更新時請重新抓取覆寫本檔。
  */
 import type { VocCodeRow } from "@/types/school-codes";
 
 /** 官方代碼表的來源網址（頁面會顯示，方便日後核對） */
 export const SCHOOL_CODES_SOURCES = {
+  schoolTypes: "https://course.k12ea.gov.tw/courseinformation/QueryCode.asp?T=SCH",
   groups: "https://course.k12ea.gov.tw/courseinformation/QueryCode.asp?T=GRP",
   departments: "https://course.k12ea.gov.tw/courseinformation/QueryCode.asp?T=DEP",
 } as const;
+
+/**
+ * 高級中等學校類型（8 筆）。T=SCH 查詢頁列 `代碼｜名稱` 兩欄；
+ * 本次抓取時該站 TLS 連線失敗，內容依官方查詢頁列出，
+ * 代碼與 GRP／DEP 兩頁的「課程類型」完全一致（H/V/M/S/C/E/F/G）。
+ */
+export const OFFICIAL_SCHOOL_TYPES: VocCodeRow[] = [
+  { code: "H", name: "普通型高中" },
+  { code: "V", name: "技術型高中" },
+  { code: "M", name: "綜合型高中" },
+  { code: "S", name: "單科型高中" },
+  { code: "C", name: "進修部" },
+  { code: "E", name: "實用技能學程(日)" },
+  { code: "F", name: "實用技能學程(夜)" },
+  { code: "G", name: "建教合作班" },
+];
 
 /** 群別（21 筆；官方表內 11、26 各有兩筆不同名稱，屬不同課程類型） */
 export const OFFICIAL_GROUPS: VocCodeRow[] = [

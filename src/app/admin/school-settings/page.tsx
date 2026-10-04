@@ -73,8 +73,8 @@ const SUB_FEATURE_CARDS = [
   {
     id: "codes",
     href: "/admin/school-settings/codes",
-    label: "群別／科別代碼表",
-    description: "維護高級中等學校班級的群別與科別代碼（系統基礎資料庫），供年段班級設定選用。",
+    label: "各式代碼表",
+    description: "維護高級中等學校類型、群別與科別代碼（系統基礎資料庫），供年段班級設定選用。",
     icon: (
       <svg
         className="w-6 h-6"
