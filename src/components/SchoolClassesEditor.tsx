@@ -629,7 +629,7 @@ export default function SchoolClassesEditor() {
                           </div>
                           {row.classes.length > 1 && (
                             <span className="text-xs text-t3 basis-full">
-                              班級順位＝由上到下的順序（用「前移／後移」調整），
+                              班級順位＝由上到下的順序（用「上移／下移」箭頭按鈕調整），
                               日後顯示全年段班級時以此排序。
                             </span>
                           )}
@@ -678,7 +678,7 @@ export default function SchoolClassesEditor() {
                                     }
                                     placeholder="班級代碼"
                                     aria-label={`${row.name}班級代碼`}
-                                    className="input-theme rounded px-2 py-1 text-sm w-24"
+                                    className="input-theme rounded px-2 py-1 text-sm w-16"
                                   />
                                 </td>
                                 <td className="px-2 py-2">
@@ -693,7 +693,7 @@ export default function SchoolClassesEditor() {
                                     }
                                     placeholder="班級名稱，如：1 年 1 班"
                                     aria-label={`${row.name}班級名稱`}
-                                    className="input-theme rounded px-2 py-1 text-sm w-44"
+                                    className="input-theme rounded px-2 py-1 text-sm w-28"
                                   />
                                 </td>
                                 {isSenior && (
@@ -784,28 +784,69 @@ export default function SchoolClassesEditor() {
                                       type="button"
                                       onClick={() => moveClass(row.grade, item.id, -1)}
                                       disabled={classIndex === 0}
-                                      title="往前調整班級順位"
-                                      aria-label={`${item.name || "班級"}往前移動`}
-                                      className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                      title="上移（往前調整班級順位）"
+                                      aria-label={`${item.name || "班級"}上移（往前）`}
+                                      className="btn-theme rounded-lg px-2 py-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      前移
+                                      <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                        aria-hidden="true"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18"
+                                        />
+                                      </svg>
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => moveClass(row.grade, item.id, 1)}
                                       disabled={classIndex === row.classes.length - 1}
-                                      title="往後調整班級順位"
-                                      aria-label={`${item.name || "班級"}往後移動`}
-                                      className="btn-theme rounded-lg px-2 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                      title="下移（往後調整班級順位）"
+                                      aria-label={`${item.name || "班級"}下移（往後）`}
+                                      className="btn-theme rounded-lg px-2 py-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      後移
+                                      <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                        aria-hidden="true"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3"
+                                        />
+                                      </svg>
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => removeClass(row.grade, item.id)}
-                                      className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
+                                      title="移除班級"
+                                      aria-label={`${item.name || "班級"}移除`}
+                                      className="btn-theme rounded-lg px-2 py-1 cursor-pointer"
                                     >
-                                      移除
+                                      <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                        aria-hidden="true"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          d="M6 18 18 6M6 6l12 12"
+                                        />
+                                      </svg>
                                     </button>
                                   </div>
                                 </td>
