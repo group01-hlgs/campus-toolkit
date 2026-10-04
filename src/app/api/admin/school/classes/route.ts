@@ -106,22 +106,17 @@ export async function PUT(request: NextRequest) {
       .doc(CLASSES_DOC.id)
       .set({
         nameStyle: setting.nameStyle,
-        segments: setting.segments.map((segment) => ({
-          id: segment.id,
-          name: segment.name,
-          stage: segment.stage,
-          grades: segment.grades.map((grade) => ({
-            id: grade.id,
-            grade: grade.grade,
-            code: grade.code,
-            name: grade.name,
-            classes: grade.classes.map((item) => ({
-              id: item.id,
-              code: item.code,
-              name: item.name,
-              group: item.group,
-              department: item.department,
-            })),
+        grades: setting.grades.map((grade) => ({
+          id: grade.id,
+          grade: grade.grade,
+          code: grade.code,
+          name: grade.name,
+          classes: grade.classes.map((item) => ({
+            id: item.id,
+            code: item.code,
+            name: item.name,
+            group: item.group,
+            department: item.department,
           })),
         })),
       });
@@ -131,7 +126,7 @@ export async function PUT(request: NextRequest) {
       role: "admin",
       action: "school_classes_updated",
       ip: getClientIp(request),
-      details: `年段班級設定已更新（${setting.segments.length} 個年段、${totalGradeCount(setting)} 個年級、${totalClassCount(setting)} 個班級）`,
+      details: `年段班級設定已更新（${totalGradeCount(setting)} 個年段、${totalClassCount(setting)} 個班級）`,
     });
 
     return NextResponse.json({

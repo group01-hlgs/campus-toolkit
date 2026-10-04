@@ -1,10 +1,12 @@
 ﻿/**
- * 年段班級設定（年段、學制、年級與班級）。
+ * 年段班級設定（年段＝年級、學制與班級）。
  *
  * 屬「學校基本設定」模組（schoolSettings，超級專屬）的子功能 `schoolSettings.classes`：
- * 登記本校的年段劃分（每段 1 個以上年級，高中職常見 3 段各 1 年級）、各年段綁定的學制、
- * 涵蓋的年級（代碼＋名稱），以及每年級的班級清單（代碼＋名稱，
- * 高級中等學校學制另有群別與科別），供日後名冊的年級／班級欄位引用。
+ * 登記本校的年段（**一個年段＝一個年級**，如「高一」）與其代碼、名稱，
+ * 以及每年級的班級清單（代碼＋名稱，高級中等學校學制另有群別與科別），
+ * 供日後名冊的年級／班級欄位引用。
+ * 所屬學制不另存欄位：由年級編號在校務基本資料年制總和中的位置推導（`stageOfGrade`）。
+ * 早先的 `segments`（年段包年級）結構由 `collectRawGrades` 讀入時自動攤平，不需遷移。
  *
  * 資料存於獨立文件 `settings/schoolClasses`（結構性資料、不按學期、全校一份）：
  * - 不放 `settings/system`：系統設定的 PUT 是整份覆寫（只保留 roleEnabled），
@@ -40,30 +42,21 @@ export interface ClassRow {
   department: VocField | null;
 }
 
-/** 一個年級及其班級清單 */
+/**
+ * 一個年段＝一個年級（**年段就是年級**，例如高中的高一／高二／高三各是一個年段），
+ * 連同該年級的班級清單。所屬學制不另存欄位，由 `grade` 編號配合校務基本資料推導。
+ */
 export interface GradeRow {
   /** 穩定代碼：新增時產生、改名不變，供日後引用 */
   id: string;
-  /** 年級編號：落在該學制的全校編號範圍內、全校不可重複，僅供排序與產生預設值 */
+  /** 年級編號（＝年段編號）：1～年制總和、全校唯一、升冪；決定所屬學制與編號範圍 */
   grade: number;
   /** 年級代碼（預設＝年級編號），全校不可重複 */
   code: string;
-  /** 年級名稱（預設依 nameStyle：學制內序號或全域編號），同年段內不可重複 */
+  /** 年級名稱（預設依 nameStyle：學制內序號或全域編號），同學制內不可重複 */
   name: string;
-  /** 該年級的班級；兄弟順序＝陣列相對順序 */
+  /** 該年級的班級；**兄弟順序＝班級順位**（有意義，見文件） */
   classes: ClassRow[];
-}
-
-/** 一個年段（綁定一個學制，如「低年段」綁國民小學） */
-export interface Segment {
-  /** 穩定代碼：新增時產生、改名不變，供日後引用 */
-  id: string;
-  /** 年段名稱（如「低年段」「國小部」） */
-  name: string;
-  /** 綁定的學制；null＝尚未選擇（驗證會擋下） */
-  stage: StageValue | null;
-  /** 涵蓋的年級，升冪排列、編號全校不可重複 */
-  grades: GradeRow[];
 }
 
 /**
@@ -74,8 +67,8 @@ export interface Segment {
 export type GradeNameStyle = "local" | "global";
 
 export interface SchoolClassesSetting {
-  /** 年段；兄弟順序＝陣列相對順序 */
-  segments: Segment[];
+  /** 年段（＝年級），升冪排列；畫面上依所屬學制分區顯示 */
+  grades: GradeRow[];
   /** 年級名稱的預設慣例（缺省視為 local） */
   nameStyle: GradeNameStyle;
 }
@@ -92,12 +85,11 @@ export const CLASSES_DOC_ID = "schoolClasses";
 export const CLASSES_MIN_GRADE = 1;
 /**
  * 年級編號的結構上限（read 用的寬容範圍）；
- * 語意上限由校務基本資料的年制總和決定，年段數量上限亦同（年段必含年級，故不另設常數）。
+ * 語意上限由校務基本資料的年制總和決定（年段＝年級，故年段數上限亦同）。
  */
 export const CLASSES_MAX_GRADE = 24;
 export const CLASSES_MAX_CLASSES_PER_GRADE = 30;
 export const CLASSES_MAX_CLASSES = 300;
-export const CLASSES_SEGMENT_NAME_MAX = 20;
 export const CLASSES_GRADE_CODE_MAX = 10;
 export const CLASSES_GRADE_NAME_MAX = 20;
 export const CLASSES_CODE_MAX = 20;
@@ -139,18 +131,34 @@ export function gradeRangeOf(
   return null;
 }
 
+/**
+ * 年級編號所屬的學制：由編號落在校務基本資料的哪一段範圍推導。
+ * 例如國小 6 年＋國中 3 年 → 編號 7 屬國民中學；超出年制總和回 null。
+ */
+export function stageOfGrade(
+  context: SchoolClassesContext,
+  grade: number
+): StageValue | null {
+  if (!Number.isFinite(grade)) return null;
+  let cursor = CLASSES_MIN_GRADE;
+  for (const item of context.stages) {
+    const end = cursor + item.years - 1;
+    if (grade >= cursor && grade <= end) return item.stage;
+    cursor = end + 1;
+  }
+  return null;
+}
+
 /** 該學制尚未被占用的年級編號（由小到大）；未勾選該學制時回空陣列 */
 export function freeGradeNumbers(
-  setting: Pick<SchoolClassesSetting, "segments">,
+  setting: Pick<SchoolClassesSetting, "grades">,
   context: SchoolClassesContext,
   stage: StageValue | null
 ): number[] {
   const range = gradeRangeOf(context, stage);
   if (!range) return [];
   const used = new Set<number>();
-  for (const segment of setting.segments) {
-    for (const row of segment.grades) used.add(row.grade);
-  }
+  for (const row of setting.grades) used.add(row.grade);
   const free: number[] = [];
   for (let value = range.start; value <= range.end; value += 1) {
     if (!used.has(value)) free.push(value);
@@ -176,11 +184,6 @@ export function defaultGradeCode(grade: number): string {
   return String(grade);
 }
 
-/** 新年段代碼：時間基底＋亂碼，同毫秒內也不會相撞 */
-export function newSegmentId(): string {
-  return `s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
 /** 新年級代碼：時間基底＋亂碼，同毫秒內也不會相撞 */
 export function newGradeId(): string {
   return `g_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -192,7 +195,7 @@ export function newClassId(): string {
 }
 
 export function defaultSchoolClasses(): SchoolClassesSetting {
-  return { segments: [], nameStyle: "local" };
+  return { grades: [], nameStyle: "local" };
 }
 
 /** 解析命名慣例（寬容）：非合法值一律當作 local */
@@ -200,19 +203,15 @@ function readNameStyle(value: unknown): GradeNameStyle {
   return value === "global" ? "global" : "local";
 }
 
-/** 年級總數 */
-export function totalGradeCount(setting: Pick<SchoolClassesSetting, "segments">): number {
-  let total = 0;
-  for (const segment of setting.segments) total += segment.grades.length;
-  return total;
+/** 年段（＝年級）總數 */
+export function totalGradeCount(setting: Pick<SchoolClassesSetting, "grades">): number {
+  return setting.grades.length;
 }
 
 /** 班級總數 */
-export function totalClassCount(setting: Pick<SchoolClassesSetting, "segments">): number {
+export function totalClassCount(setting: Pick<SchoolClassesSetting, "grades">): number {
   let total = 0;
-  for (const segment of setting.segments) {
-    for (const row of segment.grades) total += row.classes.length;
-  }
+  for (const row of setting.grades) total += row.classes.length;
   return total;
 }
 
@@ -254,10 +253,33 @@ function readClasses(raw: unknown, seenIds: Set<string>, budget: number, allowVo
 }
 
 /**
+ * 攤平年段來源：新版頂層 `grades`；舊版（年段包年級）則取 `segments[].grades`。
+ * 讀與驗證共用，舊資料不必先遷移就能繼續用。
+ */
+function collectRawGrades(data: Record<string, unknown>): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const push = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const item of list) {
+      if (item && typeof item === "object") out.push(item as Record<string, unknown>);
+    }
+  };
+  if (Array.isArray(data.grades)) {
+    push(data.grades);
+  } else if (Array.isArray(data.segments)) {
+    for (const item of data.segments) {
+      if (item && typeof item === "object") push((item as Record<string, unknown>).grades);
+    }
+  }
+  return out;
+}
+
+/**
  * 讀回年段班級設定（寬容）：只把型別與範圍修到安全值
- * （補 id、補年級代碼與名稱預設值、去重、年級排序、非高中職學制丟棄群別科別），
- * 語意問題（學制未勾選、年級編號超出學制範圍、代碼重複、空白名稱…）交由驗證回報，
- * 避免資料毀損時整份作廢。`context` 缺省時以空上下文讀（預設值退化為年級編號）。
+ * （補 id、補年級代碼與名稱預設值、去重、依年級編號排序、非高中職學制丟棄群別科別），
+ * 語意問題（編號超出年制總和、代碼重複、空白名稱…）交由驗證回報，
+ * 避免資料毀損時整份作廢。舊版 `segments` 結構會自動攤平為 `grades`。
+ * `context` 缺省時以空上下文讀（推不出學制，預設值退化為年級編號）。
  */
 export function readSchoolClasses(
   raw: unknown,
@@ -267,80 +289,51 @@ export function readSchoolClasses(
   const data = raw as Record<string, unknown>;
   const nameStyle = readNameStyle(data.nameStyle);
 
-  const segments: Segment[] = [];
-  const seenSegmentIds = new Set<string>();
-  const seenGrades = new Set<number>();
+  const grades: GradeRow[] = [];
+  const seenIds = new Set<string>();
+  const seenNumbers = new Set<number>();
   const seenClassIds = new Set<string>();
   let remaining = CLASSES_MAX_CLASSES;
 
-  const rawSegments = Array.isArray(data.segments) ? data.segments : [];
-  for (const item of rawSegments) {
-    if (segments.length >= CLASSES_MAX_GRADE) break;
-    if (!item || typeof item !== "object") continue;
-    const entry = item as Record<string, unknown>;
+  for (const gradeEntry of collectRawGrades(data)) {
+    if (grades.length >= CLASSES_MAX_GRADE) break;
 
-    let id = readId(entry.id, newSegmentId);
-    if (seenSegmentIds.has(id)) id = newSegmentId();
-    seenSegmentIds.add(id);
-
-    const stageValue = typeof entry.stage === "string" ? entry.stage : "";
-    const stage = EDUCATION_STAGES.some((option) => option.value === stageValue)
-      ? (stageValue as StageValue)
-      : null;
-    const range = gradeRangeOf(context, stage);
-
-    const grades: GradeRow[] = [];
-    const rawGrades = Array.isArray(entry.grades) ? entry.grades : [];
-    for (const gradeItem of rawGrades) {
-      if (!gradeItem || typeof gradeItem !== "object") continue;
-      const gradeEntry = gradeItem as Record<string, unknown>;
-      const grade = Number(gradeEntry.grade);
-      if (!Number.isInteger(grade) || grade < CLASSES_MIN_GRADE || grade > CLASSES_MAX_GRADE) {
-        continue;
-      }
-      if (seenGrades.has(grade)) continue;
-      seenGrades.add(grade);
-
-      const code =
-        typeof gradeEntry.code === "string" && gradeEntry.code.trim()
-          ? gradeEntry.code.trim().slice(0, CLASSES_GRADE_CODE_MAX)
-          : defaultGradeCode(grade);
-      const name =
-        typeof gradeEntry.name === "string" && gradeEntry.name.trim()
-          ? gradeEntry.name.trim().slice(0, CLASSES_GRADE_NAME_MAX)
-          : defaultGradeName(grade, range, nameStyle);
-
-      const classes = readClasses(
-        gradeEntry.classes,
-        seenClassIds,
-        Math.min(CLASSES_MAX_CLASSES_PER_GRADE, remaining),
-        stage === SENIOR_HIGH_STAGE
-      );
-      remaining -= classes.length;
-      grades.push({
-        id: readId(gradeEntry.id, newGradeId),
-        grade,
-        code,
-        name,
-        classes,
-      });
-      if (remaining <= 0) break;
+    const grade = Number(gradeEntry.grade);
+    if (!Number.isInteger(grade) || grade < CLASSES_MIN_GRADE || grade > CLASSES_MAX_GRADE) {
+      continue;
     }
-    grades.sort((a, b) => a.grade - b.grade);
+    if (seenNumbers.has(grade)) continue;
+    seenNumbers.add(grade);
 
-    segments.push({
-      id,
-      name:
-        typeof entry.name === "string"
-          ? entry.name.trim().slice(0, CLASSES_SEGMENT_NAME_MAX)
-          : "",
-      stage,
-      grades,
-    });
+    const stage = stageOfGrade(context, grade);
+    const range = stage ? gradeRangeOf(context, stage) : null;
+    const code =
+      typeof gradeEntry.code === "string" && gradeEntry.code.trim()
+        ? gradeEntry.code.trim().slice(0, CLASSES_GRADE_CODE_MAX)
+        : defaultGradeCode(grade);
+    const name =
+      typeof gradeEntry.name === "string" && gradeEntry.name.trim()
+        ? gradeEntry.name.trim().slice(0, CLASSES_GRADE_NAME_MAX)
+        : defaultGradeName(grade, range, nameStyle);
+
+    const classes = readClasses(
+      gradeEntry.classes,
+      seenClassIds,
+      Math.min(CLASSES_MAX_CLASSES_PER_GRADE, remaining),
+      stage === SENIOR_HIGH_STAGE
+    );
+    remaining -= classes.length;
+
+    let id = readId(gradeEntry.id, newGradeId);
+    if (seenIds.has(id)) id = newGradeId();
+    seenIds.add(id);
+
+    grades.push({ id, grade, code, name, classes });
     if (remaining <= 0) break;
   }
 
-  return { segments, nameStyle };
+  grades.sort((a, b) => a.grade - b.grade);
+  return { grades, nameStyle };
 }
 
 export type ClassesValidation =
@@ -371,8 +364,8 @@ function validateVoc(
 
 /**
  * 完整驗證（API 與表單共用），任一項目不過即回錯誤訊息。
- * `context` 為校務基本資料的教育階段與年制：學制是否勾選、年級編號範圍、
- * 年級總數與年段數量上限（＝年制總和）皆由此決定。
+ * `context` 為校務基本資料的教育階段與年制：年級編號範圍與年段（＝年級）數量上限
+ * （＝年制總和）由此決定；所屬學制由編號推導，決定班級可否填寫群別科別。
  */
 export function validateSchoolClasses(
   raw: unknown,
@@ -389,270 +382,188 @@ export function validateSchoolClasses(
   }
   const nameStyle: GradeNameStyle = rawStyle === "global" ? "global" : "local";
 
-  const rawSegments = Array.isArray(data.segments) ? data.segments : [];
-  if (rawSegments.length === 0) return { ok: true, value: { segments: [], nameStyle } };
+  const rawGrades = collectRawGrades(data);
+  if (rawGrades.length === 0) return { ok: true, value: { grades: [], nameStyle } };
   if (context.stages.length === 0) {
     return {
       ok: false,
       message: "尚未於「校務基本資料」勾選教育階段與學校年制，請先前往設定後再回來建立年段。",
     };
   }
-  const segmentLimit = contextYearsSum(context);
-  if (rawSegments.length > segmentLimit) {
+  const gradeLimit = contextYearsSum(context);
+  if (rawGrades.length > gradeLimit) {
     return {
       ok: false,
-      message: `年段數量（${rawSegments.length}）超過校務基本資料的年制總和（${segmentLimit}）`,
+      message: `年段數量（${rawGrades.length}）超過校務基本資料的年制總和（${gradeLimit}）`,
     };
   }
 
-  const segments: Segment[] = [];
-  const segmentIds = new Set<string>();
-  const segmentNames = new Set<string>();
-  const stageYears = new Map(context.stages.map((item) => [item.stage, item.years]));
-  const gradeNumbers = new Set<number>();
-  const gradeCodes = new Map<string, string>();
+  const grades: GradeRow[] = [];
   const gradeIds = new Set<string>();
+  const gradeCodes = new Map<string, number>();
+  /** 各學制內的年段名稱對照（年段名稱只需在同學制內唯一，不同學制可同名） */
+  const gradeNamesByStage = new Map<string, Map<string, number>>();
   const classIds = new Set<string>();
   const classCodeOwners = new Map<string, string>();
-  let totalGrades = 0;
   let totalClasses = 0;
+  let previousGrade = 0;
 
-  for (let index = 0; index < rawSegments.length; index += 1) {
-    const item = rawSegments[index];
-    if (!item || typeof item !== "object") {
-      return { ok: false, message: `第 ${index + 1} 個年段資料格式錯誤` };
-    }
-    const entry = item as Record<string, unknown>;
+  for (let index = 0; index < rawGrades.length; index += 1) {
+    const entry = rawGrades[index];
 
-    const id = typeof entry.id === "string" ? entry.id.trim() : "";
-    if (!id) {
-      return { ok: false, message: `第 ${index + 1} 個年段缺少年段代碼，請重新整理頁面後再試` };
+    const gradeId = typeof entry.id === "string" ? entry.id.trim() : "";
+    if (!gradeId) {
+      return { ok: false, message: `第 ${index + 1} 個年段缺少年級代碼，請重新整理頁面後再試` };
     }
-    if (segmentIds.has(id)) {
-      return { ok: false, message: "年段代碼重複，請重新整理頁面後再試" };
+    if (gradeIds.has(gradeId)) {
+      return { ok: false, message: "年級的內部編號重複，請重新整理頁面後再試" };
     }
-    segmentIds.add(id);
+    gradeIds.add(gradeId);
 
-    const name = typeof entry.name === "string" ? entry.name.trim() : "";
-    if (!name) {
-      return { ok: false, message: `第 ${index + 1} 個年段的名稱不可空白` };
+    const grade = Number(entry.grade);
+    if (!Number.isInteger(grade) || grade < CLASSES_MIN_GRADE || grade > CLASSES_MAX_GRADE) {
+      return { ok: false, message: `第 ${index + 1} 個年段的年級編號格式錯誤` };
     }
-    if (name.length > CLASSES_SEGMENT_NAME_MAX) {
+    if (grade <= previousGrade) {
+      return { ok: false, message: "年級編號需由小到大排列且不可重複" };
+    }
+    previousGrade = grade;
+    if (grade > gradeLimit) {
       return {
         ok: false,
-        message: `年段名稱「${name}」過長（最多 ${CLASSES_SEGMENT_NAME_MAX} 字）`,
+        message: `年級編號 ${grade} 超出校務基本資料的年制總和（${gradeLimit}），請至校務基本資料調整年制，或刪除該年段`,
       };
     }
-    if (segmentNames.has(name)) {
-      return { ok: false, message: `年段名稱「${name}」重複` };
+    const stage = stageOfGrade(context, grade);
+    const range = stage ? gradeRangeOf(context, stage) : null;
+    if (!stage || !range) {
+      return { ok: false, message: `年級編號 ${grade} 的所屬學制無法判定，請重新整理頁面後再試` };
     }
-    segmentNames.add(name);
+    const stageTitle = stageLabel(stage);
 
-    const rawStage = entry.stage;
-    if (rawStage !== null && rawStage !== undefined && typeof rawStage !== "string") {
-      return { ok: false, message: `年段「${name}」的學制格式錯誤` };
+    const gradeCode = typeof entry.code === "string" ? entry.code.trim() : "";
+    if (!gradeCode) {
+      return { ok: false, message: `第 ${index + 1} 個年段的年級代碼不可空白` };
     }
-    const stageValue = typeof rawStage === "string" ? rawStage : "";
-    if (stageValue === "") {
-      return { ok: false, message: `年段「${name}」尚未選擇學制` };
-    }
-    if (!EDUCATION_STAGES.some((option) => option.value === stageValue)) {
+    if (gradeCode.length > CLASSES_GRADE_CODE_MAX) {
       return {
         ok: false,
-        message: `年段「${name}」綁定了未知的學制：「${stageLabel(stageValue)}」`,
+        message: `年級代碼「${gradeCode}」過長（最多 ${CLASSES_GRADE_CODE_MAX} 字）`,
       };
     }
-    const stage = stageValue as StageValue;
-    const years = stageYears.get(stage);
-    if (years === undefined) {
+    const codeOwner = gradeCodes.get(gradeCode);
+    if (codeOwner !== undefined) {
+      return { ok: false, message: `年級代碼「${gradeCode}」重複（已用於年級編號 ${codeOwner}）` };
+    }
+    gradeCodes.set(gradeCode, grade);
+
+    const gradeName = typeof entry.name === "string" ? entry.name.trim() : "";
+    if (!gradeName) {
+      return { ok: false, message: `第 ${index + 1} 個年段的年級名稱不可空白` };
+    }
+    if (gradeName.length > CLASSES_GRADE_NAME_MAX) {
       return {
         ok: false,
-        message: `年段「${name}」的學制「${stageLabel(stage)}」未在校務基本資料中勾選，請先勾選或調整本年段的學制`,
+        message: `年級名稱「${gradeName}」過長（最多 ${CLASSES_GRADE_NAME_MAX} 字）`,
       };
     }
-    const range = gradeRangeOf(context, stage);
-    if (!range) {
-      return { ok: false, message: `年段「${name}」的學制年制資料異常，請重新整理頁面後再試` };
-    }
-
-    const rawGrades = Array.isArray(entry.grades) ? entry.grades : [];
-    if (rawGrades.length === 0) {
-      return { ok: false, message: `年段「${name}」尚未設定任何年級` };
-    }
-    if (rawGrades.length > years) {
+    const stageNames = gradeNamesByStage.get(stage) ?? new Map<string, number>();
+    const nameOwner = stageNames.get(gradeName);
+    if (nameOwner !== undefined) {
       return {
         ok: false,
-        message: `年段「${name}」的年級數超過學制「${stageLabel(stage)}」的年數（${years} 年）`,
+        message: `年級名稱「${gradeName}」重複（同學制「${stageTitle}」已用於年級編號 ${nameOwner}）`,
+      };
+    }
+    stageNames.set(gradeName, grade);
+    gradeNamesByStage.set(stage, stageNames);
+
+    const rawClasses = Array.isArray(entry.classes) ? entry.classes : [];
+    if (rawClasses.length > CLASSES_MAX_CLASSES_PER_GRADE) {
+      return {
+        ok: false,
+        message: `年段「${gradeName}」的班級數超過上限（最多 ${CLASSES_MAX_CLASSES_PER_GRADE} 班）`,
       };
     }
 
-    const grades: GradeRow[] = [];
-    let previousGrade = 0;
-    for (let gradeIndex = 0; gradeIndex < rawGrades.length; gradeIndex += 1) {
-      const gradeItem = rawGrades[gradeIndex];
-      if (!gradeItem || typeof gradeItem !== "object") {
-        return { ok: false, message: `年段「${name}」的年級資料格式錯誤` };
+    const classes: ClassRow[] = [];
+    const gradeClassNames = new Set<string>();
+    for (let classIndex = 0; classIndex < rawClasses.length; classIndex += 1) {
+      const classItem = rawClasses[classIndex];
+      if (!classItem || typeof classItem !== "object") {
+        return { ok: false, message: `年級「${gradeName}」的班級資料格式錯誤` };
       }
-      const gradeEntry = gradeItem as Record<string, unknown>;
+      const classEntry = classItem as Record<string, unknown>;
 
-      const gradeId = typeof gradeEntry.id === "string" ? gradeEntry.id.trim() : "";
-      if (!gradeId) {
-        return { ok: false, message: `年段「${name}」有年級缺少年級代碼，請重新整理頁面後再試` };
-      }
-      if (gradeIds.has(gradeId)) {
-        return { ok: false, message: "年級的內部編號重複，請重新整理頁面後再試" };
-      }
-      gradeIds.add(gradeId);
-
-      const grade = Number(gradeEntry.grade);
-      if (!Number.isInteger(grade) || grade < CLASSES_MIN_GRADE || grade > CLASSES_MAX_GRADE) {
+      const classId = typeof classEntry.id === "string" ? classEntry.id.trim() : "";
+      if (!classId) {
         return {
           ok: false,
-          message: `年段「${name}」的第 ${gradeIndex + 1} 個年級編號格式錯誤`,
+          message: `年級「${gradeName}」的第 ${classIndex + 1} 個班級缺少班級編號，請重新整理頁面後再試`,
         };
       }
-      if (grade < range.start || grade > range.end) {
-        return {
-          ok: false,
-          message: `年段「${name}」的年級編號 ${grade} 超出學制「${stageLabel(stage)}」的年級編號範圍（${range.start}～${range.end}），請至校務基本資料確認年制，或刪除該年級`,
-        };
+      if (classIds.has(classId)) {
+        return { ok: false, message: "班級編號重複，請重新整理頁面後再試" };
       }
-      if (grade <= previousGrade) {
-        return { ok: false, message: `年段「${name}」的年級需由小到大排列且不可重複` };
-      }
-      previousGrade = grade;
-      if (gradeNumbers.has(grade)) {
-        return { ok: false, message: `年級編號 ${grade} 重複，每個年級編號全校只能使用一次` };
-      }
-      gradeNumbers.add(grade);
-      totalGrades += 1;
+      classIds.add(classId);
 
-      const gradeCode = typeof gradeEntry.code === "string" ? gradeEntry.code.trim() : "";
-      if (!gradeCode) {
-        return { ok: false, message: `年段「${name}」第 ${gradeIndex + 1} 個年級的年級代碼不可空白` };
+      const code = typeof classEntry.code === "string" ? classEntry.code.trim() : "";
+      if (!code) {
+        return { ok: false, message: `年級「${gradeName}」第 ${classIndex + 1} 個班級的班級代碼不可空白` };
       }
-      if (gradeCode.length > CLASSES_GRADE_CODE_MAX) {
-        return {
-          ok: false,
-          message: `年級代碼「${gradeCode}」過長（最多 ${CLASSES_GRADE_CODE_MAX} 字）`,
-        };
+      if (code.length > CLASSES_CODE_MAX) {
+        return { ok: false, message: `班級代碼「${code}」過長（最多 ${CLASSES_CODE_MAX} 字）` };
       }
-      const codeOwner = gradeCodes.get(gradeCode);
-      if (codeOwner !== undefined) {
-        return { ok: false, message: `年級代碼「${gradeCode}」重複（已用於年段「${codeOwner}」）` };
+      const classCodeOwner = classCodeOwners.get(code);
+      if (classCodeOwner !== undefined) {
+        return { ok: false, message: `班級代碼「${code}」重複（已用於${classCodeOwner}）` };
       }
-      gradeCodes.set(gradeCode, name);
+      classCodeOwners.set(code, `年級「${gradeName}」`);
 
-      const gradeName = typeof gradeEntry.name === "string" ? gradeEntry.name.trim() : "";
-      if (!gradeName) {
-        return { ok: false, message: `年段「${name}」第 ${gradeIndex + 1} 個年級的年級名稱不可空白` };
+      const className = typeof classEntry.name === "string" ? classEntry.name.trim() : "";
+      if (!className) {
+        return { ok: false, message: `年級「${gradeName}」第 ${classIndex + 1} 個班級的班級名稱不可空白` };
       }
-      if (gradeName.length > CLASSES_GRADE_NAME_MAX) {
-        return {
-          ok: false,
-          message: `年級名稱「${gradeName}」過長（最多 ${CLASSES_GRADE_NAME_MAX} 字）`,
-        };
+      if (className.length > CLASSES_NAME_MAX) {
+        return { ok: false, message: `班級名稱「${className}」過長（最多 ${CLASSES_NAME_MAX} 字）` };
       }
-      if (grades.some((row) => row.name === gradeName)) {
-        return { ok: false, message: `年段「${name}」的年級名稱「${gradeName}」重複` };
+      if (gradeClassNames.has(className)) {
+        return { ok: false, message: `年級「${gradeName}」的班級名稱「${className}」重複` };
+      }
+      gradeClassNames.add(className);
+
+      totalClasses += 1;
+      if (totalClasses > CLASSES_MAX_CLASSES) {
+        return { ok: false, message: `班級總數超過上限（最多 ${CLASSES_MAX_CLASSES} 班）` };
       }
 
-      const rawClasses = Array.isArray(gradeEntry.classes) ? gradeEntry.classes : [];
-      if (rawClasses.length > CLASSES_MAX_CLASSES_PER_GRADE) {
+      const allowVoc = stage === SENIOR_HIGH_STAGE;
+      const group = validateVoc(classEntry.group, "群別");
+      if (!group.ok) {
+        return { ok: false, message: `年級「${gradeName}」班級「${className}」：${group.message}` };
+      }
+      const department = validateVoc(classEntry.department, "科別");
+      if (!department.ok) {
+        return { ok: false, message: `年級「${gradeName}」班級「${className}」：${department.message}` };
+      }
+      if (!allowVoc && (group.value || department.value)) {
         return {
           ok: false,
-          message: `年段「${name}」年級「${gradeName}」的班級數超過上限（最多 ${CLASSES_MAX_CLASSES_PER_GRADE} 班）`,
+          message: `僅「高級中等學校」學制的班級可填寫群別與科別（年級「${gradeName}」班級「${className}」）`,
         };
       }
 
-      const classes: ClassRow[] = [];
-      const gradeClassNames = new Set<string>();
-      for (let classIndex = 0; classIndex < rawClasses.length; classIndex += 1) {
-        const classItem = rawClasses[classIndex];
-        if (!classItem || typeof classItem !== "object") {
-          return { ok: false, message: `年級「${gradeName}」的班級資料格式錯誤` };
-        }
-        const classEntry = classItem as Record<string, unknown>;
-
-        const classId = typeof classEntry.id === "string" ? classEntry.id.trim() : "";
-        if (!classId) {
-          return {
-            ok: false,
-            message: `年級「${gradeName}」的第 ${classIndex + 1} 個班級缺少班級編號，請重新整理頁面後再試`,
-          };
-        }
-        if (classIds.has(classId)) {
-          return { ok: false, message: "班級編號重複，請重新整理頁面後再試" };
-        }
-        classIds.add(classId);
-
-        const code = typeof classEntry.code === "string" ? classEntry.code.trim() : "";
-        if (!code) {
-          return { ok: false, message: `年級「${gradeName}」第 ${classIndex + 1} 個班級的班級代碼不可空白` };
-        }
-        if (code.length > CLASSES_CODE_MAX) {
-          return { ok: false, message: `班級代碼「${code}」過長（最多 ${CLASSES_CODE_MAX} 字）` };
-        }
-        const codeOwner = classCodeOwners.get(code);
-        if (codeOwner !== undefined) {
-          return { ok: false, message: `班級代碼「${code}」重複（已用於${codeOwner}）` };
-        }
-        classCodeOwners.set(code, `年級「${gradeName}」`);
-
-        const className = typeof classEntry.name === "string" ? classEntry.name.trim() : "";
-        if (!className) {
-          return { ok: false, message: `年級「${gradeName}」第 ${classIndex + 1} 個班級的班級名稱不可空白` };
-        }
-        if (className.length > CLASSES_NAME_MAX) {
-          return { ok: false, message: `班級名稱「${className}」過長（最多 ${CLASSES_NAME_MAX} 字）` };
-        }
-        if (gradeClassNames.has(className)) {
-          return { ok: false, message: `年級「${gradeName}」的班級名稱「${className}」重複` };
-        }
-        gradeClassNames.add(className);
-
-        totalClasses += 1;
-        if (totalClasses > CLASSES_MAX_CLASSES) {
-          return { ok: false, message: `班級總數超過上限（最多 ${CLASSES_MAX_CLASSES} 班）` };
-        }
-
-        const allowVoc = stage === SENIOR_HIGH_STAGE;
-        const group = validateVoc(classEntry.group, "群別");
-        if (!group.ok) {
-          return { ok: false, message: `年級「${gradeName}」班級「${className}」：${group.message}` };
-        }
-        const department = validateVoc(classEntry.department, "科別");
-        if (!department.ok) {
-          return { ok: false, message: `年級「${gradeName}」班級「${className}」：${department.message}` };
-        }
-        if (!allowVoc && (group.value || department.value)) {
-          return {
-            ok: false,
-            message: `僅「高級中等學校」學制的班級可填寫群別與科別（年級「${gradeName}」班級「${className}」）`,
-          };
-        }
-
-        classes.push({
-          id: classId,
-          code,
-          name: className,
-          group: group.value,
-          department: department.value,
-        });
-      }
-
-      grades.push({ id: gradeId, grade, code: gradeCode, name: gradeName, classes });
+      classes.push({
+        id: classId,
+        code,
+        name: className,
+        group: group.value,
+        department: department.value,
+      });
     }
 
-    segments.push({ id, name, stage, grades });
+    grades.push({ id: gradeId, grade, code: gradeCode, name: gradeName, classes });
   }
 
-  if (totalGrades > contextYearsSum(context)) {
-    return {
-      ok: false,
-      message: `年級總數（${totalGrades}）超過校務基本資料的年制總和（${contextYearsSum(context)} 年）`,
-    };
-  }
-
-  return { ok: true, value: { segments, nameStyle } };
+  return { ok: true, value: { grades, nameStyle } };
 }

@@ -52,7 +52,7 @@ const SUB_FEATURE_CARDS = [
     id: "classes",
     href: "/admin/school-settings/classes",
     label: "年段班級設定",
-    description: "設定年段劃分（可分多段）與綁定學制、各年段涵蓋的年級代碼與名稱，並維護各年級的班級清單。",
+    description: "設定年段（一個年段＝一個年級）的代碼與名稱，依學制分區管理，並維護各年級的班級清單。",
     icon: (
       <svg
         className="w-6 h-6"
