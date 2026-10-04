@@ -348,7 +348,6 @@ export default function SchoolClassesEditor() {
       {/* 年段清單 */}
       <section className="border border-themed rounded-lg p-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
-          <h4 className="font-bold text-t1">年段與班級</h4>
           <span className="text-xs text-t3 ml-auto">年級編號總和 {yearsSum}</span>
         </div>
         <p className="text-sm text-t3 mt-1 mb-3">
