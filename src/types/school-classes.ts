@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 年段班級設定（年段＝年級、學制與班級）。
  *
  * 屬「學校基本設定」模組（schoolSettings，超級專屬）的子功能 `schoolSettings.classes`：
@@ -210,6 +210,103 @@ export function incrementLastNumber(value: string, maxLength: number): string | 
   const result = value.slice(0, match.index) + padded + value.slice(match.index + digits.length);
   if (result.length > maxLength) return null;
   return result;
+}
+
+/**
+ * 「複製年級＋1」用：值以原年級編號開頭時，把該前綴換成新年級編號——
+ * `101`→`201`、`102`→`202`、`1 年 1 班`→`2 年 1 班`。
+ * 沒有該前綴回 `null`，由呼叫端決定退回策略。
+ */
+export function swapGradePrefix(value: string, fromGrade: number, toGrade: number): string | null {
+  const prefix = String(fromGrade);
+  if (!value.startsWith(prefix)) return null;
+  return String(toGrade) + value.slice(prefix.length);
+}
+
+/** 產生不與 `used` 撞車的文字：`base`、`base-2`、`base-3`…（全撞或超長則回 base） */
+export function uniqueText(base: string, used: Set<string>, maxLength: number, separator: string): string {
+  if (base.length <= maxLength && !used.has(base)) return base;
+  for (let count = 2; count <= 100; count += 1) {
+    const candidate = `${base}${separator}${count}`;
+    if (candidate.length <= maxLength && !used.has(candidate)) return candidate;
+  }
+  return base;
+}
+
+/**
+ * 依命名慣例推下一個班級代碼：末段數字 +1（保留前導零，`101`→`102`），
+ * 撞到 `used`（全校既有代碼）就繼續 +1；推不出來（沒有數字／超過長度）回空字串。
+ */
+export function nextClassCode(template: string, used: Set<string>): string {
+  const base = template.trim();
+  if (!base) return "";
+  let candidate = incrementLastNumber(base, CLASSES_CODE_MAX);
+  for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
+    candidate = incrementLastNumber(candidate, CLASSES_CODE_MAX);
+  }
+  return candidate ?? "";
+}
+
+/**
+ * 「新增班級」的班級名稱：末段數字 +1（`1 年 1 班`→`1 年 2 班`），
+ * 撞到 `used`（該年級既有名稱）就繼續 +1；名稱沒有數字時回空字串讓使用者填。
+ */
+export function nextClassName(template: string, used: Set<string>): string {
+  const base = template.trim();
+  if (!base) return "";
+  let candidate = incrementLastNumber(base, CLASSES_NAME_MAX);
+  for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
+    candidate = incrementLastNumber(candidate, CLASSES_NAME_MAX);
+  }
+  return candidate ?? "";
+}
+
+/**
+ * 「複製年級＋1」的班級代碼：年級前綴換成新年級編號（`101`→`201`）；
+ * 值不是以原年級編號開頭、或換出來撞到 `used`（全校既有代碼）時，
+ * 退回「末段數字 +1」一直找到不重複值，推不出來回空字串。
+ */
+export function copiedClassCode(
+  template: string,
+  fromGrade: number,
+  toGrade: number,
+  used: Set<string>
+): string {
+  const base = template.trim();
+  if (!base) return "";
+  const swapped = swapGradePrefix(base, fromGrade, toGrade);
+  let candidate =
+    swapped && swapped.length <= CLASSES_CODE_MAX && !used.has(swapped)
+      ? swapped
+      : incrementLastNumber(swapped ?? base, CLASSES_CODE_MAX);
+  for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
+    candidate = incrementLastNumber(candidate, CLASSES_CODE_MAX);
+  }
+  return candidate ?? "";
+}
+
+/**
+ * 「複製年級＋1」的班級名稱：年級前綴換成新年級編號（`1 年 1 班`→`2 年 1 班`）；
+ * 值不是以原年級編號開頭、或換出來撞到 `used`（新年級內）時，
+ * 退回「末段數字 +1」，推不出不重複值就回空字串讓使用者填。
+ */
+export function copiedClassName(
+  template: string,
+  fromGrade: number,
+  toGrade: number,
+  used: Set<string>
+): string {
+  const base = template.trim();
+  if (!base) return "";
+  const swapped = swapGradePrefix(base, fromGrade, toGrade);
+  let candidate: string | null = swapped && swapped.length <= CLASSES_NAME_MAX ? swapped : base;
+  if (used.has(candidate)) {
+    candidate = incrementLastNumber(candidate, CLASSES_NAME_MAX);
+    for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
+      candidate = incrementLastNumber(candidate, CLASSES_NAME_MAX);
+    }
+  }
+  return candidate ?? "";
 }
 
 export function defaultSchoolClasses(): SchoolClassesSetting {

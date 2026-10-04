@@ -18,18 +18,22 @@ import {
   SENIOR_HIGH_STAGE,
   VocField,
   contextYearsSum,
+  copiedClassCode,
+  copiedClassName,
   defaultGradeCode,
   defaultGradeName,
   emptyContext,
   freeGradeNumbers,
   gradeRangeOf,
-  incrementLastNumber,
   newClassId,
   newGradeId,
+  nextClassCode,
+  nextClassName,
   readSchoolClasses,
   stageName,
   stageOfGrade,
   totalClassCount,
+  uniqueText,
   validateSchoolClasses,
 } from "@/types/school-classes";
 import { StageValue } from "@/types/school-profile";
@@ -49,60 +53,6 @@ type ClassesResponse = {
   setting?: unknown;
   stages?: SchoolClassesContext["stages"];
 };
-
-/** 產生不與 `used` 撞車的文字：`base`、`base-2`、`base-3`…（全撞或超長則回 base） */
-function uniqueText(base: string, used: Set<string>, maxLength: number, separator: string): string {
-  if (base.length <= maxLength && !used.has(base)) return base;
-  for (let count = 2; count <= 100; count += 1) {
-    const candidate = `${base}${separator}${count}`;
-    if (candidate.length <= maxLength && !used.has(candidate)) return candidate;
-  }
-  return base;
-}
-
-/**
- * 依命名慣例推下一個班級代碼：末段數字 +1（保留前導零，`101`→`102`），
- * 撞到 `used`（全校既有代碼）就繼續 +1；推不出來（沒有數字／超過長度）回空字串。
- */
-function nextClassCode(template: string, used: Set<string>): string {
-  const base = template.trim();
-  if (!base) return "";
-  let candidate = incrementLastNumber(base, CLASSES_CODE_MAX);
-  for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
-    candidate = incrementLastNumber(candidate, CLASSES_CODE_MAX);
-  }
-  return candidate ?? "";
-}
-
-/**
- * 「新增班級」的班級名稱：末段數字 +1（`1 年 1 班`→`1 年 2 班`），
- * 撞到 `used`（該年級既有名稱）就繼續 +1；名稱沒有數字時回空字串讓使用者填。
- */
-function nextClassName(template: string, used: Set<string>): string {
-  const base = template.trim();
-  if (!base) return "";
-  let candidate = incrementLastNumber(base, CLASSES_NAME_MAX);
-  for (let guard = 0; candidate && used.has(candidate) && guard < 1000; guard += 1) {
-    candidate = incrementLastNumber(candidate, CLASSES_NAME_MAX);
-  }
-  return candidate ?? "";
-}
-
-/**
- * 「複製年級＋1」的班級名稱：末段數字 +1、撞到 `used`（新年級）就繼續 +1；
- * 模板名稱沒有數字時沿用原名（新年級是空的，原名必然可用），仍重複才回空字串。
- */
-function copiedClassName(template: string, used: Set<string>): string {
-  const base = template.trim();
-  if (!base) return "";
-  let candidate = incrementLastNumber(base, CLASSES_NAME_MAX) ?? base;
-  for (let guard = 0; used.has(candidate) && guard < 1000; guard += 1) {
-    const bumped = incrementLastNumber(candidate, CLASSES_NAME_MAX);
-    if (!bumped) return "";
-    candidate = bumped;
-  }
-  return candidate;
-}
 
 /**
  * 年段班級設定編輯器（學校基本設定的子功能）。
@@ -247,10 +197,10 @@ export default function SchoolClassesEditor() {
   }
 
   /**
-   * 複製年級＋1：以此年級為範本，在編號 +1 處建立新年級與其班級
-   * （代碼、名稱依命名慣例 +1，群別／科別沿用）。
-   * 目標編號已占用、超出該學制編號範圍、或年段／班級數將超過上限時，
-   * 跳出提示且不做任何搬移。
+   * 複製年級＋1：以此年級為範本，在編號 +1 處建立新年級與其班級。
+   * 班級代碼與名稱把年級前綴換成新年級編號（`101`→`201`、`1 年 1 班`→`2 年 1 班`），
+   * 群別／科別沿用；目標編號已占用、超出該學制編號範圍、
+   * 或年段／班級數將超過上限時，跳出提示且不做任何搬移。
    */
   function duplicateGrade(grade: number) {
     if (!draft) return;
@@ -313,9 +263,9 @@ export default function SchoolClassesEditor() {
     const usedClassNames = new Set<string>();
     const classes: ClassRow[] = [];
     for (const source of row.classes) {
-      const code = nextClassCode(source.code, usedClassCodes);
+      const code = copiedClassCode(source.code, grade, target, usedClassCodes);
       if (code) usedClassCodes.add(code);
-      const name = copiedClassName(source.name, usedClassNames);
+      const name = copiedClassName(source.name, grade, target, usedClassNames);
       if (name) usedClassNames.add(name);
       classes.push({
         id: newClassId(),
@@ -664,7 +614,7 @@ export default function SchoolClassesEditor() {
                             <button
                               type="button"
                               onClick={() => duplicateGrade(row.grade)}
-                              title="以此年級為範本，在編號 +1 處新增一個年級與其班級"
+                              title="以此年級為範本，在編號 +1 處新增年級與班級；代碼／名稱的年級前綴跟著 +1（101→201）"
                               className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer"
                             >
                               複製年級+1
