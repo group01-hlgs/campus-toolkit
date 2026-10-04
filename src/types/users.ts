@@ -128,8 +128,8 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
  * 清單由功能模組註冊表（`types/modules.ts` 的 `MODULES`）派生——
  * 新增／調整模組請改註冊表，此處只做投影，不要另立清單。
  * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示；
- * 另見 BASE_ADMIN_MODULES（scope＝core：系統設定、功能模組管理）＝不需指派的基本模組，每位管理員皆有；
- * SUPER_ONLY_ADMIN_MODULES（scope＝superOnly：學校基本設定）＝僅超級管理員可用，不開放指派。
+ * 另見 BASE_ADMIN_MODULES（scope＝core：系統設定）＝不需指派的基本模組，每位管理員皆有；
+ * SUPER_ONLY_ADMIN_MODULES（scope＝superOnly：學校基本設定、功能模組管理）＝僅超級管理員可用，不開放指派。
  */
 export type AdminModule = ModuleValue;
 
@@ -143,7 +143,7 @@ export const ADMIN_MODULE_VALUES: AdminModule[] = ADMIN_MODULES.map((item) => it
 /**
  * 管理員的「基本模組」（註冊表 scope＝core）：不需指派、每位管理員（含一般屬性）一律具備，
  * 用途＝首頁固定顯示該入口（系統設定的讀寫另由超級管理員判定，見 hasSettingsManage）。
- * 「系統設定」「功能模組管理」是每個管理員都有的入口。
+ * 「系統設定」是每個管理員都有的入口。
  */
 export const BASE_ADMIN_MODULES: AdminModule[] = MODULES.filter(
   (item) => item.scope === "core"

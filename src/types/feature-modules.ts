@@ -13,10 +13,14 @@
  * （與身分開關 `roleEnabled` 同一文件、同一套覆寫保留策略），
  * 僅超級管理員可在功能模組管理頁切換；內建模組恒為啟用、不入此欄位。
  * 欄位不存在＝選用模組一律未啟用（fail-safe：未經允許不啟用）。
- * 變更歷史另記錄於稽核紀錄（`feature_module_updated`）。
+ * 每個模組（內建＋選用）對四種身分的開關存於同文件的 `featureModuleRoles` 欄位
+ * （`Record<模組代碼, Record<身分, boolean>>`），欄位不存在＝一律啟用（fail-safe：預設全開）。
+ * 本頁目前只維護設定資料，各身分端的實際攔截另行接上。
+ * 變更歷史另記錄於稽核紀錄（`feature_module_updated`／`feature_module_role_updated`）。
  */
 
 import { MODULES, type ModuleStatus } from "./modules";
+import { ALL_ROLES, type UserRole } from "./users";
 
 /** 內建（隨主程式提供、一律啟用）／選用（由超級管理員決定是否啟用） */
 export type FeatureModuleKind = "builtin" | "optional";
@@ -169,6 +173,35 @@ export function readFeatureModulesEnabled(raw: unknown): FeatureModulesEnabledMa
   for (const item of FEATURE_MODULES) {
     if (item.kind !== "optional") continue;
     out[item.value] = data ? data[item.value] === true : false;
+  }
+  return out;
+}
+
+/** `settings/system` 上存「模組 × 身分」開關的欄位名 */
+export const FEATURE_MODULE_ROLES_FIELD = "featureModuleRoles";
+
+/** 單一模組對四種身分的啟用狀態 */
+export type FeatureModuleRoleSwitches = Record<UserRole, boolean>;
+
+/** 全部功能模組 × 四種身分的啟用狀態（鍵＝模組代碼） */
+export type FeatureModuleRolesMap = Record<string, FeatureModuleRoleSwitches>;
+
+/**
+ * 讀回「模組 × 身分」開關：以註冊表為準逐模組、逐身分解析，
+ * 只有明確存著 `false` 才視為關閉（僅承認布林值）；
+ * 欄位不存在、該模組未存或值毀損＝一律視為啟用（fail-safe：預設全開）。
+ */
+export function readFeatureModuleRoles(raw: unknown): FeatureModuleRolesMap {
+  const out: FeatureModuleRolesMap = {};
+  const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  for (const item of FEATURE_MODULES) {
+    const row = data ? data[item.value] : undefined;
+    const rowData = row && typeof row === "object" ? (row as Record<string, unknown>) : null;
+    const switches = {} as FeatureModuleRoleSwitches;
+    for (const role of ALL_ROLES) {
+      switches[role] = !(rowData && rowData[role] === false);
+    }
+    out[item.value] = switches;
   }
   return out;
 }

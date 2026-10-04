@@ -905,7 +905,7 @@ export default function AccountsPage() {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
-    // 基本模組（系統設定）與超級專屬模組（學校基本設定）都不列入指派
+    // 基本模組（系統設定）與超級專屬模組（學校基本設定、功能模組管理）都不列入指派
     const assignable = ADMIN_MODULES.filter(
       (module) =>
         !(BASE_ADMIN_MODULES as readonly string[]).includes(module.value) &&

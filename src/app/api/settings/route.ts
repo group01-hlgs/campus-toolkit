@@ -13,7 +13,7 @@ import { Settings, defaultSettings } from "@/types/settings";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateSettingsCache } from "@/lib/settings-server";
 import { ROLE_ENABLED_FIELD } from "@/types/role-settings";
-import { FEATURE_MODULES_FIELD } from "@/types/feature-modules";
+import { FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD } from "@/types/feature-modules";
 
 const SETTINGS_DOC = { collection: "settings", id: "system" };
 const MAX_SETTINGS = 200_000;
@@ -138,14 +138,15 @@ export async function PUT(request: NextRequest) {
 
     // 不使用 merge：整份覆寫，讓已廢棄欄位（例如 oauthClientId）
     // 在下次儲存設定時自動從 Firestore settings/system 清除。
-    // 身分開關（roleEnabled）與功能模組啟用狀態（featureModulesEnabled）不屬於本表單欄位，
-    // 覆寫時保留，避免儲存系統設定把它們重置。
+    // 身分開關（roleEnabled）、功能模組啟用狀態（featureModulesEnabled）與
+    // 模組身分開關（featureModuleRoles）不屬於本表單欄位，覆寫時保留，
+    // 避免儲存系統設定把它們重置。
     const ref = getAdminDb().collection(SETTINGS_DOC.collection).doc(SETTINGS_DOC.id);
     const existing = await ref.get();
     const preserved: Record<string, unknown> = {};
     if (existing.exists) {
       const raw = existing.data() as Record<string, unknown>;
-      for (const field of [ROLE_ENABLED_FIELD, FEATURE_MODULES_FIELD]) {
+      for (const field of [ROLE_ENABLED_FIELD, FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD]) {
         if (raw[field] !== undefined) preserved[field] = raw[field];
       }
     }

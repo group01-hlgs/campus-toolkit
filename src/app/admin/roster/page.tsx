@@ -938,7 +938,7 @@ export default function RosterPage() {
       .map((item) => item.trim())
       .filter(Boolean);
     // 基本模組（系統設定）不列入指派：入口對每位管理員顯示，可用功能僅超級管理員
-    // 超級專屬模組（學校基本設定）不列入指派：僅超級管理員可用，由屬性判定
+    // 超級專屬模組（學校基本設定、功能模組管理）不列入指派：僅超級管理員可用，由屬性判定
     const assignable = ADMIN_MODULES.filter(
       (module) =>
         !(BASE_ADMIN_MODULES as readonly string[]).includes(module.value) &&
@@ -962,7 +962,7 @@ export default function RosterPage() {
           ))}
           <span className="w-full text-xs text-t3">
             可選欄位：只記錄您實際勾選的內容，未勾選也能儲存；「系統設定」入口一律顯示、但可用功能僅超級管理員，故不列入指派；
-            「學校基本設定」僅超級管理員可用，同樣不列入指派；超級管理員＝全開，由屬性判定、不看此欄位。
+            「學校基本設定」「功能模組管理」僅超級管理員可用，同樣不列入指派；超級管理員＝全開，由屬性判定、不看此欄位。
           </span>
         </div>
       </div>

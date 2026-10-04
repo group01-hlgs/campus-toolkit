@@ -7,8 +7,11 @@ import {
   FEATURE_MODULES,
   FEATURE_MODULE_STATUS_LABELS,
   type FeatureModuleMeta,
+  type FeatureModuleRoleSwitches,
+  type FeatureModuleRolesMap,
   type FeatureModulesEnabledMap,
 } from "@/types/feature-modules";
+import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -16,6 +19,7 @@ interface FeatureModulesResponse {
   success?: boolean;
   message?: string;
   enabled?: FeatureModulesEnabledMap;
+  roles?: FeatureModuleRolesMap;
 }
 
 /** 小標籤（已上線／開發中／規劃中） */
@@ -27,49 +31,169 @@ function Badge({ text, className = "" }: { text: string; className?: string }) {
   );
 }
 
-/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入 */
-function BuiltinRow({ item, onOpen }: { item: FeatureModuleMeta; onOpen: (href: string) => void }) {
-  const enterable = item.status === "live" && item.href !== "";
+/** 模組名稱旁的「說明」按鈕（? 圓圈 SVG）：點擊展開／收合該列下方的說明列 */
+function HelpToggle({
+  label,
+  open,
+  onToggle,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <tr className={`border-b border-themed last:border-0 text-t1${enterable ? "" : " opacity-70"}`}>
-      <td className="px-3 py-2 whitespace-nowrap font-medium">{item.label}</td>
-      <td className="px-3 py-2 text-t3">{item.description}</td>
-      <td className="px-3 py-2 whitespace-nowrap">
-        <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
-      </td>
-      <td className="px-3 py-2 whitespace-nowrap text-right">
-        {enterable ? (
-          <button
-            type="button"
-            onClick={() => onOpen(item.href)}
-            className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
-          >
-            前往 →
-          </button>
-        ) : (
-          <span className="text-xs text-t3">尚未提供，敬請期待</span>
-        )}
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={`查看「${label}」說明`}
+      title="查看說明"
+      className="inline-flex items-center justify-center align-middle w-5 h-5 rounded-full border border-themed text-t3 hover:text-t1 hover:border-t1 cursor-pointer"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="12"
+        height="12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="M9.2 9.2a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.7v.4" />
+        <path d="M12 17.4v.01" />
+      </svg>
+      <span className="sr-only">{open ? "收合說明" : "展開說明"}</span>
+    </button>
+  );
+}
+
+/** 展開時插在該列下方的說明列（只在展開時渲染） */
+function DescriptionRow({ item, open, colSpan }: { item: FeatureModuleMeta; open: boolean; colSpan: number }) {
+  if (!open) return null;
+  return (
+    <tr className="border-b border-themed last:border-0">
+      <td colSpan={colSpan} className="px-3 py-2 text-xs text-t3 bg-surface">
+        {item.description}
       </td>
     </tr>
   );
 }
 
-/** 選用功能模組列表列：僅超級管理員可切換，且只有已上線者才能啟用 */
-function OptionalRow({
+/** 四種身分的開關（checkbox），一列共四格 */
+function RoleCells({
   item,
-  enabled,
-  isSuper,
-  saving,
+  switches,
+  disabled,
   onToggle,
 }: {
   item: FeatureModuleMeta;
+  switches: FeatureModuleRoleSwitches | undefined;
+  disabled: boolean;
+  onToggle: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
+}) {
+  return (
+    <>
+      {ALL_ROLES.map((role) => (
+        <td key={role} className="px-3 py-2 text-center">
+          <input
+            type="checkbox"
+            checked={switches?.[role] === true}
+            disabled={disabled}
+            onChange={(event) => onToggle(item, role, event.target.checked)}
+            aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分`}
+            title={disabled ? "僅超級管理員可調整，且同一時間只能處理一筆變更" : undefined}
+            className="accent-current cursor-pointer disabled:opacity-50"
+          />
+        </td>
+      ))}
+    </>
+  );
+}
+
+/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入，身分開關決定哪些身分可用 */
+function BuiltinRow({
+  item,
+  open,
+  onToggleHelp,
+  switches,
+  disabled,
+  onToggleRole,
+  onOpen,
+}: {
+  item: FeatureModuleMeta;
+  open: boolean;
+  onToggleHelp: (value: string) => void;
+  switches: FeatureModuleRoleSwitches | undefined;
+  disabled: boolean;
+  onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
+  onOpen: (href: string) => void;
+}) {
+  const enterable = item.status === "live" && item.href !== "";
+  return (
+    <>
+      <tr className={`border-b border-themed last:border-0 text-t1${enterable ? "" : " opacity-70"}`}>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="flex items-center gap-2">
+            <span className="font-medium">{item.label}</span>
+            <HelpToggle
+              label={item.label}
+              open={open}
+              onToggle={() => onToggleHelp(item.value)}
+            />
+          </span>
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
+        </td>
+        <RoleCells
+          item={item}
+          switches={switches}
+          disabled={disabled}
+          onToggle={onToggleRole}
+        />
+        <td className="px-3 py-2 whitespace-nowrap text-right">
+          {enterable ? (
+            <button
+              type="button"
+              onClick={() => onOpen(item.href)}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
+            >
+              前往 →
+            </button>
+          ) : (
+            <span className="text-xs text-t3">尚未提供，敬請期待</span>
+          )}
+        </td>
+      </tr>
+      <DescriptionRow item={item} open={open} colSpan={7} />
+    </>
+  );
+}
+
+/** 選用功能模組列表列：總開關＋四種身分開關，僅超級管理員可切換 */
+function OptionalRow({
+  item,
+  open,
+  onToggleHelp,
+  enabled,
+  switches,
+  isSuper,
+  saving,
+  onToggleMaster,
+  onToggleRole,
+}: {
+  item: FeatureModuleMeta;
+  open: boolean;
+  onToggleHelp: (value: string) => void;
   enabled: boolean;
+  switches: FeatureModuleRoleSwitches | undefined;
   isSuper: boolean;
   saving: boolean;
-  onToggle: (item: FeatureModuleMeta, next: boolean) => void;
+  onToggleMaster: (item: FeatureModuleMeta, next: boolean) => void;
+  onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
 }) {
   const live = item.status === "live";
-  const canToggle = live && isSuper && !saving;
   const stateText = !live ? "未上線" : enabled ? "已啟用" : "未啟用";
   const stateClass = !live ? "text-t3" : enabled ? "text-success" : "text-t2";
   const disabledReason = !live
@@ -80,43 +204,70 @@ function OptionalRow({
         ? "處理中..."
         : undefined;
   return (
-    <tr className={`border-b border-themed last:border-0 text-t1${live ? "" : " opacity-70"}`}>
-      <td className="px-3 py-2 whitespace-nowrap font-medium">{item.label}</td>
-      <td className="px-3 py-2 text-t3">{item.description}</td>
-      <td className="px-3 py-2 whitespace-nowrap">
-        <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
-      </td>
-      <td className={`px-3 py-2 whitespace-nowrap text-sm font-medium ${stateClass}`}>{stateText}</td>
-      <td className="px-3 py-2 whitespace-nowrap text-right">
-        {live ? (
-          <button
-            type="button"
-            onClick={() => onToggle(item, !enabled)}
-            disabled={!canToggle}
-            title={disabledReason}
-            className={
-              enabled
-                ? "btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-                : "btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-            }
-          >
-            {saving ? "處理中..." : enabled ? "停用" : "啟用"}
-          </button>
-        ) : (
-          <span className="text-xs text-t3">尚未提供</span>
-        )}
-      </td>
-    </tr>
+    <>
+      <tr className={`border-b border-themed last:border-0 text-t1${live ? "" : " opacity-70"}`}>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="flex items-center gap-2">
+            <span className="font-medium">{item.label}</span>
+            <HelpToggle
+              label={item.label}
+              open={open}
+              onToggle={() => onToggleHelp(item.value)}
+            />
+          </span>
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="flex items-center gap-2">
+            <span className={`text-sm font-medium ${stateClass}`}>{stateText}</span>
+            {live ? (
+              <button
+                type="button"
+                onClick={() => onToggleMaster(item, !enabled)}
+                disabled={!isSuper || saving}
+                title={disabledReason}
+                className={
+                  enabled
+                    ? "btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+                    : "btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+                }
+              >
+                {saving ? "處理中..." : enabled ? "停用" : "啟用"}
+              </button>
+            ) : (
+              <span className="text-xs text-t3">尚未提供</span>
+            )}
+          </span>
+        </td>
+        <RoleCells
+          item={item}
+          switches={switches}
+          disabled={!isSuper || saving}
+          onToggle={onToggleRole}
+        />
+      </tr>
+      <DescriptionRow item={item} open={open} colSpan={7} />
+    </>
   );
 }
 
-/** 「功能模組管理」入口：內建／選用兩份功能模組列表＋選用模組啟用開關 */
+/**
+ * 「功能模組管理」入口（僅超級管理員）：
+ * 內建／選用兩份功能模組列表，說明由名稱旁 ? 就地展開；
+ * 選用模組有總開關，所有模組另有四種身分各自的開關
+ * （身分開關目前僅維護設定資料，各身分端的套用隨模組上線進度接上）。
+ */
 export default function ModulesPage() {
   const router = useRouter();
-  // 選用模組啟用狀態：null＝載入中（fail-closed，先當全部未啟用）
+  // 總開關與身分開關：null＝載入中（fail-closed，先當全部未啟用）
   const [enabled, setEnabled] = useState<FeatureModulesEnabledMap | null>(null);
+  const [roles, setRoles] = useState<FeatureModuleRolesMap | null>(null);
   const [isSuper, setIsSuper] = useState(false);
+  // 處理中的鍵：總開關＝模組代碼；身分開關＝「模組代碼:身分」
   const [saving, setSaving] = useState<string | null>(null);
+  const [openDesc, setOpenDesc] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
 
   useEffect(() => {
@@ -127,9 +278,13 @@ export default function ModulesPage() {
       .then((data) => {
         if (cancelled) return;
         setEnabled(data?.success && data.enabled ? data.enabled : {});
+        setRoles(data?.success && data.roles ? data.roles : {});
       })
       .catch(() => {
-        if (!cancelled) setEnabled({});
+        if (!cancelled) {
+          setEnabled({});
+          setRoles({});
+        }
       });
 
     fetchSession().then((session) => {
@@ -141,21 +296,23 @@ export default function ModulesPage() {
     };
   }, []);
 
-  async function toggle(item: FeatureModuleMeta, next: boolean) {
+  /** 送出 PATCH，成功後依回應更新總開關或身分開關 */
+  async function patch(body: Record<string, unknown>, key: string) {
     if (saving) return;
-    setSaving(item.value);
+    setSaving(key);
     setFlash(null);
     try {
       const res = await fetch("/api/admin/feature-modules", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: item.value, enabled: next }),
+        body: JSON.stringify(body),
       });
       const data: FeatureModulesResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || `操作失敗（HTTP ${res.status}）`);
       }
-      setEnabled(data.enabled ?? {});
+      if (data.enabled) setEnabled(data.enabled);
+      if (data.roles) setRoles(data.roles);
       setFlash({ type: "success", text: data.message || "已更新" });
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
@@ -164,38 +321,86 @@ export default function ModulesPage() {
     }
   }
 
+  /** 選用模組總開關 */
+  function toggleMaster(item: FeatureModuleMeta, next: boolean) {
+    void patch({ value: item.value, enabled: next }, item.value);
+  }
+
+  /** 模組 × 身分開關 */
+  function toggleRole(item: FeatureModuleMeta, role: UserRole, next: boolean) {
+    void patch({ value: item.value, role, enabled: next }, `${item.value}:${role}`);
+  }
+
+  function toggleHelp(value: string) {
+    setOpenDesc((current) => (current === value ? null : value));
+  }
+
   const builtins = FEATURE_MODULES.filter((item) => item.kind === "builtin");
   const optionals = FEATURE_MODULES.filter((item) => item.kind === "optional");
+  const loading = enabled === null || roles === null;
+  const loadingText = loading ? "啟用狀態載入中..." : "";
 
   return (
     <div className="w-full max-w-5xl mb-8 space-y-6">
+      {flash && (
+        <p
+          className={`text-sm ${flash.type === "success" ? "text-success" : "text-danger"}`}
+          role="status"
+        >
+          {flash.text}
+        </p>
+      )}
+
       {/* 內建功能模組 */}
       <section>
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
-          <p className="text-xs text-t3">隨主程式提供、一律啟用；已上線的模組可直接進入。</p>
+          <p className="text-xs text-t3">
+            隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的 ? 可展開說明，
+            四種身分開關決定哪些身分可用此功能（目前先記錄設定，實際套用隨各模組上線進度接上）。
+          </p>
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="border-b border-themed">
               <tr className="text-t2">
                 <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
-                <th className="px-3 py-2 font-medium">說明</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
+                {ALL_ROLES.map((role) => (
+                  <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
+                    {ROLE_LABELS[role]}
+                  </th>
+                ))}
                 <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
               </tr>
             </thead>
             <tbody>
-              {builtins.length === 0 && (
+              {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
+                    {loadingText}
+                  </td>
+                </tr>
+              ) : builtins.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
                     沒有內建功能模組
                   </td>
                 </tr>
+              ) : (
+                builtins.map((item) => (
+                  <BuiltinRow
+                    key={item.value}
+                    item={item}
+                    open={openDesc === item.value}
+                    onToggleHelp={toggleHelp}
+                    switches={roles[item.value]}
+                    disabled={!isSuper || saving !== null}
+                    onToggleRole={toggleRole}
+                    onOpen={(href) => router.push(href)}
+                  />
+                ))
               )}
-              {builtins.map((item) => (
-                <BuiltinRow key={item.value} item={item} onOpen={(href) => router.push(href)} />
-              ))}
             </tbody>
           </table>
         </div>
@@ -206,40 +411,36 @@ export default function ModulesPage() {
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">選用功能模組</h3>
           <p className="text-xs text-t3">
-            由超級管理員啟用／停用；尚未上線的模組無法啟用。啟用狀態為現行設定，變更會記錄於稽核紀錄。
+            每個模組有一個總開關，由超級管理員啟用／停用（尚未上線者不可啟用）；
+            總開關之外，四種身分開關可隨時個別調整（目前先記錄設定，實際套用隨各模組上線進度接上）。
+            設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
-
-        {flash && (
-          <p
-            className={`text-sm mb-3 ${flash.type === "success" ? "text-success" : "text-danger"}`}
-            role="status"
-          >
-            {flash.text}
-          </p>
-        )}
 
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="border-b border-themed">
               <tr className="text-t2">
                 <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
-                <th className="px-3 py-2 font-medium">說明</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">啟用狀態</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">總開關</th>
+                {ALL_ROLES.map((role) => (
+                  <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
+                    {ROLE_LABELS[role]}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {enabled === null ? (
+              {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-t3">
-                    啟用狀態載入中...
+                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
+                    {loadingText}
                   </td>
                 </tr>
               ) : optionals.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
                     沒有選用功能模組
                   </td>
                 </tr>
@@ -248,10 +449,14 @@ export default function ModulesPage() {
                   <OptionalRow
                     key={item.value}
                     item={item}
+                    open={openDesc === item.value}
+                    onToggleHelp={toggleHelp}
                     enabled={enabled[item.value] === true}
+                    switches={roles[item.value]}
                     isSuper={isSuper}
                     saving={saving === item.value}
-                    onToggle={toggle}
+                    onToggleMaster={toggleMaster}
+                    onToggleRole={toggleRole}
                   />
                 ))
               )}
@@ -270,7 +475,7 @@ export default function ModulesPage() {
         <ul className="text-sm text-t2 space-y-1.5 list-disc pl-5">
           <li>
             <span className="font-bold text-t1">核心</span>
-            ：不需指派、每位管理員皆具備（系統設定、功能模組管理）。
+            ：不需指派、每位管理員皆具備（系統設定）。
           </li>
           <li>
             <span className="font-bold text-t1">可指派</span>
@@ -278,7 +483,7 @@ export default function ModulesPage() {
           </li>
           <li>
             <span className="font-bold text-t1">僅超級管理員</span>
-            ：不開放指派，只有超級屬性可用（學校基本設定）。
+            ：不開放指派，只有超級屬性可用（學校基本設定、功能模組管理）。
           </li>
           <li>
             此層權限決定管理員首頁卡片是否顯示，以及對應 API 是否放行（未具備一律 403）。

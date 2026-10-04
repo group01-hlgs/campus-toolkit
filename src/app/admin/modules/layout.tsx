@@ -9,10 +9,10 @@ import AdSense from "@/components/AdSense";
 
 /**
  * 「功能模組管理」共用外殼（標題、權限閘門、頁尾）。
- * 本頁展示產品層級的功能模組（內建／選用、子功能與啟用狀態），
- * 「功能模組管理」是核心權限模組（modules 為 scope＝core，每位管理員皆可檢視，
- * 頁面層仍擋一次；啟用／停用的寫入 API 另以 requireAdminModule("modules")＋僅超級把關）。
- * 內建／選用卡片牆頁面包在這個 layout 裡。
+ * 本頁展示產品層級的功能模組（內建／選用列表、總開關與各身分開關），
+ * 「功能模組管理」是超級專屬權限模組（modules 為 scope＝superOnly，
+ * 一般管理員的 adminModules 不含它，卡片、頁面與 API 皆只對超級開放；
+ * 頁面層仍擋一次，寫入 API 另以 requireAdminModule("modules")＋isSuperAdmin 把關）。
  */
 export default function ModulesLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -20,7 +20,7 @@ export default function ModulesLayout({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   // 可用模組清單（同「使用者帳號管理」的 fail-closed：讀不到＝視為無權限）
   const [adminModules, setAdminModules] = useState<string[] | null>(null);
-  // 核心模組：每位管理員皆有，缺權限代表權限資料讀取失敗
+  // 超級專屬模組：僅超級管理員的權限清單含它，其他人顯示權限不足
   const allowed = adminModules !== null && adminModules.includes("modules");
 
   useEffect(() => {
@@ -84,7 +84,7 @@ export default function ModulesLayout({ children }: { children: ReactNode }) {
       <div className="w-full max-w-4xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">功能模組管理</h2>
         <p className="text-sm text-t3 mt-1">
-          系統的功能模組架構：內建與選用的分類、各模組的子功能，以及選用模組的啟用狀態。
+          系統的功能模組架構：內建與選用的分類、選用模組的總開關，以及每個模組對四種身分的開關。
         </p>
       </div>
 
@@ -106,14 +106,14 @@ export default function ModulesLayout({ children }: { children: ReactNode }) {
 
       <hr className="w-full max-w-4xl border-themed mb-4" />
 
-      {/* 內容：模組分類卡片牆 */}
+      {/* 內容：內建／選用功能模組列表 */}
       {allowed ? (
         children
       ) : (
         <div className="w-full max-w-4xl border border-themed rounded-lg p-8 bg-card text-center space-y-2 mb-8">
           <p className="text-lg font-bold text-t1">權限不足</p>
           <p className="text-sm text-t2">
-            「功能模組管理」為核心模組、所有管理員皆具備，顯示此訊息代表權限資料讀取失敗，請重新整理。
+            「功能模組管理」僅超級管理員可使用。若顯示此訊息但您具超級屬性，代表權限資料讀取失敗，請重新整理。
           </p>
         </div>
       )}

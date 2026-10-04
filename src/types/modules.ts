@@ -16,7 +16,8 @@
  * 欄位約定（每個模組的鍵都要齊，聯合型別才能安全取值）：
  * - `href`：入口路由，空字串＝尚未建頁（如僅 API 已上線的稽核紀錄）；
  * - `children`：子功能入口，空陣列＝無子功能；
- * - `scope`：core＝核心（不需指派、每位管理員皆有）；assignable＝可指派；superOnly＝僅超級管理員；
+ * - `scope`：core＝核心（不需指派、每位管理員皆有）；assignable＝可指派；superOnly＝僅超級管理員
+ *   （含學校基本設定與功能模組管理——入口卡片、頁面與 API 皆只對超級開放）；
  * - `status`：built＝已上線；apiOnly＝API 已上線、頁面未建；planned＝規劃中。
  */
 
@@ -109,8 +110,8 @@ export const MODULES = [
     value: "modules",
     label: "功能模組管理",
     category: "系統與紀錄",
-    description: "總覽所有功能模組的分類、權限範圍與入口（唯讀）。",
-    scope: "core",
+    description: "管理各功能模組的總開關，以及對四種身分的啟用狀態。",
+    scope: "superOnly",
     status: "built",
     href: "/admin/modules",
     children: [],
