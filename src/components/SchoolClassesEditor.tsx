@@ -379,17 +379,10 @@ export default function SchoolClassesEditor() {
         {dirty ? "有尚未儲存的變更，記得按「儲存變更」。" : "已與伺服器同步。"}
       </p>
 
-      {/* 年段清單 */}
-      <section className="border border-themed rounded-lg p-4">
-        <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className="text-xs text-t3 ml-auto">年級編號總和 {yearsSum}</span>
-        </div>
-        <p className="text-sm text-t3 mt-1 mb-3">
-          一個年段＝一個年級（例：國一、高一），學制由年級編號自動推導，不必另選。
-          下方依校務基本資料的學制分區，各區的年級編號範圍由年制展開，按區塊內「新增年段」會帶入
-          該學制第一個未占用的編號與預設名稱；可建立的年段總數受年制總和限制。
-          年級代碼與名稱可自行修改；高級中等學校學制的班級另可填寫群別與科別。
-        </p>
+      {/* 年段清單（不加外框與說明文字，各學制分區本身已有框線） */}
+      <div className="flex flex-wrap items-center gap-2 mb-1">
+        <span className="text-xs text-t3 ml-auto">年級編號總和 {yearsSum}</span>
+      </div>
 
         {context.stages.length === 0 && (
           <div className="alert-danger p-4 text-sm mb-3">
@@ -743,7 +736,6 @@ export default function SchoolClassesEditor() {
             </div>
           </div>
         )}
-      </section>
 
       {/* 儲存遮罩：儲存期間覆蓋畫面、阻擋重複操作 */}
       {saving && <BlockingMask text="儲存中，請稍候…" />}
