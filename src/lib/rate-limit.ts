@@ -199,6 +199,8 @@ export const RATE = {
   SCHOOL_CODES_GET: { limit: 60, windowMs: 60_000 },
   /** 學校基本設定：儲存各式代碼表（整份覆寫，科別可達千筆） */
   SCHOOL_CODES_MUTATE: { limit: 20, windowMs: 60_000 },
+  /** 班級管理：讀取班級清單與學生人數總覽 */
+  CLASSES_GET: { limit: 60, windowMs: 60_000 },
   /** 功能模組管理：讀取選用模組的啟用狀態與身分開關 */
   FEATURE_MODULES_GET: { limit: 60, windowMs: 60_000 },
   /** 功能模組管理：總開關與各身分開關的切換（僅超級管理員，一列即有多個身分開關） */

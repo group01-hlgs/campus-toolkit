@@ -97,6 +97,16 @@ export const MODULES = [
     ],
   },
   {
+    value: "classes",
+    label: "班級管理",
+    category: "校務資料",
+    description: "檢視各年級班級清單與每班學生人數（班級結構於學校基本設定維護）。",
+    scope: "assignable",
+    status: "built",
+    href: "/admin/classes",
+    children: [],
+  },
+  {
     value: "activity",
     label: "稽核紀錄",
     category: "系統與紀錄",
