@@ -85,6 +85,7 @@ export async function PUT(request: NextRequest) {
       .doc(PROFILE_DOC.id)
       .set({
         stages: profile.stages,
+        seniorHighTypes: profile.seniorHighTypes,
         principal: profile.principal,
         vicePrincipals: profile.vicePrincipals,
         campuses: profile.campuses,

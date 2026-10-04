@@ -19,12 +19,22 @@ import {
   readSchoolProfile,
   validateSchoolProfile,
 } from "@/types/school-profile";
+import { defaultSchoolCodes, readSchoolCodes, type VocCodeRow } from "@/types/school-codes";
 
 type Modal = { type: "success" | "error"; text: string } | null;
 
 /** 儲存結果過場視窗的停留時間 */
 const MODAL_DURATION_MS = 2000;
 type ProfileResponse = { success?: boolean; message?: string; profile?: unknown };
+type CodesResponse = { success?: boolean; message?: string; setting?: unknown };
+
+/** 高級中等學校的階段值（類型複選區只在勾選此階段時出現） */
+const SENIOR_HIGH_STAGE: StageValue = "seniorHigh";
+
+/** 一筆「代碼＋名稱」的識別鍵（複選判重用） */
+function typeKey(item: VocCodeRow): string {
+  return `${item.code}\u0000${item.name}`;
+}
 
 /**
  * 校務基本資料編輯器（學校基本設定的子功能）。
@@ -42,12 +52,19 @@ export default function SchoolProfileEditor() {
   const modalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 年制輸入框的暫存字串：允許清空後重打，失焦或輸入無效值時回復現值 */
   const [yearInputs, setYearInputs] = useState<Record<string, string>>({});
+  /** 高級中等學校類型的候選清單（取自各式代碼表；讀取失敗退回內建官方清單） */
+  const [typeOptions, setTypeOptions] = useState<VocCodeRow[]>(
+    () => defaultSchoolCodes().schoolTypes
+  );
 
   async function load() {
     setLoading(true);
     setLoadError("");
     try {
-      const res = await fetch("/api/admin/school/profile", { cache: "no-store" });
+      const [res, codesRes] = await Promise.all([
+        fetch("/api/admin/school/profile", { cache: "no-store" }),
+        fetch("/api/admin/school/codes", { cache: "no-store" }).catch(() => null),
+      ]);
       const data: ProfileResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success || !data.profile) {
         throw new Error(data?.message || `讀取失敗（HTTP ${res.status}）`);
@@ -55,6 +72,12 @@ export default function SchoolProfileEditor() {
       const profile = readSchoolProfile(data.profile);
       setSaved(profile);
       setDraft(profile);
+      if (codesRes && codesRes.ok) {
+        const codesData: CodesResponse | null = await codesRes.json().catch(() => null);
+        if (codesData?.success && codesData.setting) {
+          setTypeOptions(readSchoolCodes(codesData.setting).schoolTypes);
+        }
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "讀取失敗");
     } finally {
@@ -130,6 +153,25 @@ export default function SchoolProfileEditor() {
       ...draft,
       stages: draft.stages.map((item) => (item.stage === stage ? { ...item, years } : item)),
     });
+  }
+
+  /** 高級中等學校類型複選：以「代碼＋名稱」判重，勾選即加入、取消即移除 */
+  function toggleSeniorType(option: VocCodeRow, checked: boolean) {
+    if (!draft) return;
+    setModal(null);
+    const exists = draft.seniorHighTypes.some((item) => typeKey(item) === typeKey(option));
+    if (checked && !exists) {
+      setDraft({ ...draft, seniorHighTypes: [...draft.seniorHighTypes, { ...option }] });
+      return;
+    }
+    if (!checked && exists) {
+      setDraft({
+        ...draft,
+        seniorHighTypes: draft.seniorHighTypes.filter(
+          (item) => typeKey(item) !== typeKey(option)
+        ),
+      });
+    }
   }
 
   function changePrincipal(value: string) {
@@ -246,6 +288,16 @@ export default function SchoolProfileEditor() {
   if (!draft || !validation) return null;
 
   const stageValues = new Set(draft.stages.map((item) => item.stage));
+  const showSeniorTypes = stageValues.has(SENIOR_HIGH_STAGE);
+  const seniorSelectedKeys = new Set(draft.seniorHighTypes.map(typeKey));
+  const seniorOptions: VocCodeRow[] = [...typeOptions];
+  const seniorOptionKeys = new Set(seniorOptions.map(typeKey));
+  for (const item of draft.seniorHighTypes) {
+    if (!seniorOptionKeys.has(typeKey(item))) {
+      seniorOptionKeys.add(typeKey(item));
+      seniorOptions.push(item);
+    }
+  }
 
   return (
     <div className="mt-4">
@@ -330,6 +382,46 @@ export default function SchoolProfileEditor() {
             );
           })}
         </div>
+        {showSeniorTypes && (
+          <div className="border-t border-themed mt-3 pt-3">
+            <p className="text-sm text-t2">高級中等學校類型清單（可複選）</p>
+            <p className="text-xs text-t3 mt-1 mb-2">
+              勾選本校辦理的類型，只描述學校辦理哪些類型學制，與年制設定無關；
+              選項可在「學校基本設定 → 各式代碼表」維護。
+            </p>
+            {seniorOptions.length === 0 ? (
+              <p className="text-xs text-t3">
+                類型清單目前沒有選項，請先到「各式代碼表」新增「高級中等學校類型」。
+              </p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {seniorOptions.map((option) => {
+                  const checked = seniorSelectedKeys.has(typeKey(option));
+                  return (
+                    <label
+                      key={typeKey(option)}
+                      className="flex items-center gap-2 border border-themed rounded-lg px-3 py-2 text-sm cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => toggleSeniorType(option, event.target.checked)}
+                        className="cursor-pointer"
+                      />
+                      <span className="text-xs text-t3">{option.code}</span>
+                      <span className={checked ? "text-t1" : "text-t2"}>{option.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-xs text-t3 mt-2">
+              {draft.seniorHighTypes.length === 0
+                ? "尚未勾選類型（可留白）。"
+                : `已勾選 ${draft.seniorHighTypes.length} 種。`}
+            </p>
+          </div>
+        )}
         {draft.stages.length === 0 && (
           <p className="text-xs text-t3 mt-2">尚未選擇教育階段，可先留白、日後再補。</p>
         )}
