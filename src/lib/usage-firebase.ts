@@ -41,18 +41,35 @@ const METRICS = {
 
 const SETUP_HINT = `設定步驟：
 1. 取得服務帳號信箱（FIREBASE_SERVICE_ACCOUNT_KEY JSON 內的 client_email）
-2. 在 Google Cloud Console 執行（或本機安裝 gcloud 後執行）：
-   gcloud projects add-iam-policy-binding <專案ID> \\
-     --member="serviceAccount:<client_email>" \\
-     --role="roles/monitoring.viewer"
+2. 授予 Cloud Monitoring 檢視權限（下方指引已自動帶入專案與服務帳號）
 3. 重新部署／重啟後再重新整理本頁
 （Cloud Monitoring 指標資料通常有 1～2 分鐘延遲，剛部署時可能尚無資料。）`;
 
-const PERMISSION_HINT = `服務帳號缺少 Cloud Monitoring 權限。請授予 roles/monitoring.viewer：
-gcloud projects add-iam-policy-binding <專案ID> \\
-  --member="serviceAccount:<client_email>" \\
+/** 依實際專案／服務帳號產生的授權指引（指令與 Console 路徑都可直接照做） */
+function permissionHint(projectId: string, clientEmail: string): string {
+  return `服務帳號缺少 Cloud Monitoring 權限。兩種授予方式（任選其一）：
+
+【方式一·Console】
+1. 開啟 https://console.cloud.google.com/iam-admin/iam?project=${projectId}
+2. 找到 ${clientEmail} → 按鉛筆（編輯）→ 新增角色
+3. 選「Cloud Monitoring Viewer（Cloud Monitoring 檢視者）」→ 儲存
+
+【方式二·gcloud】
+gcloud projects add-iam-policy-binding ${projectId} \\
+  --member="serviceAccount:${clientEmail}" \\
   --role="roles/monitoring.viewer"
-${"授予後約 1～2 分鐘生效，再重新整理本頁。"}`;
+
+授予後約 1～2 分鐘生效，再重新整理本頁。`;
+}
+
+/** Cloud Monitoring API 未啟用的指引 */
+function apiDisabledHint(projectId: string): string {
+  return `Cloud Monitoring API 未啟用。請執行：
+gcloud services enable monitoring.googleapis.com --project=${projectId}
+
+或在 Console 開啟 https://console.cloud.google.com/apis/library/monitoring.googleapis.com?project=${projectId} 按「啟用」。
+啟用後約 1～2 分鐘生效，再重新整理本頁。`;
+}
 
 // ---------------------------------------------------------------------------
 // 太平洋時間日曆日工具（額度以太平洋午夜重置）
@@ -130,18 +147,31 @@ interface TimeSeriesResponse {
   }>;
 }
 
-/** 解析 Google API 錯誤回應的可讀訊息（`{"error":{"code","message","status"}}`） */
-function readGoogleError(body: string): string {
+/** 解析 Google API 錯誤回應（`{"error":{"code","message","status","details"}}`） */
+interface GoogleApiError {
+  message: string;
+  /** `error.details[].reason`（如 `SERVICE_DISABLED`、`ACCESS_NOT_GRANTED`） */
+  reasons: string[];
+}
+
+function parseGoogleError(body: string): GoogleApiError | null {
   try {
-    const parsed = JSON.parse(body) as { error?: { code?: unknown; message?: unknown; status?: unknown } };
+    const parsed = JSON.parse(body) as {
+      error?: { message?: unknown; status?: unknown; details?: { reason?: unknown }[] };
+    };
     const err = parsed?.error;
-    if (!err || typeof err !== "object") return "";
-    const parts = [err.status, err.message]
+    if (!err || typeof err !== "object") return null;
+    const text = [err.status, err.message]
       .map((p) => (typeof p === "string" && p.trim() ? p.trim() : ""))
+      .filter(Boolean)
+      .join("：");
+    const reasons = (Array.isArray(err.details) ? err.details : [])
+      .map((d) => (typeof d?.reason === "string" ? d.reason : ""))
       .filter(Boolean);
-    return parts.join("：");
+    if (!text && !reasons.length) return null;
+    return { message: text, reasons };
   } catch {
-    return "";
+    return null;
   }
 }
 
@@ -206,7 +236,9 @@ async function fetchDailyCounts(
   metricType: string,
   startTime: string,
   endTime: string
-): Promise<{ daily: Map<string, number> } | { error: { status: number; message: string } }> {
+): Promise<
+  { daily: Map<string, number> } | { error: { status: number; message: string; reasons: string[] } }
+> {
   const token = await getAccessToken();
   const url = new URL(`${MONITORING_BASE}/projects/${encodeURIComponent(projectId)}/timeSeries`);
   url.searchParams.set("filter", `metric.type = "${metricType}" AND resource.type = "firestore_instance"`);
@@ -225,7 +257,14 @@ async function fetchDailyCounts(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    return { error: { status: res.status, message: readGoogleError(body) || body.slice(0, 300) } };
+    const parsed = parseGoogleError(body);
+    return {
+      error: {
+        status: res.status,
+        message: parsed?.message || body.slice(0, 300),
+        reasons: parsed?.reasons ?? [],
+      },
+    };
   }
   const body = (await res.json()) as TimeSeriesResponse;
   const daily = new Map<string, number>();
@@ -293,9 +332,12 @@ async function loadFirebaseUsage(): Promise<FirebaseUsage> {
       )
     );
 
-    const failure = results.find((result): result is { error: { status: number; message: string } } => "error" in result);
+    const failure = results.find(
+      (result): result is { error: { status: number; message: string; reasons: string[] } } => "error" in result
+    );
     if (failure) {
-      const { status, message } = failure.error;
+      const { status, message, reasons } = failure.error;
+      const reasonText = reasons.length ? `（${reasons.join("、")}）` : "";
       const diagnostics = [
         "診斷資訊：",
         `- 端點：GET ${MONITORING_BASE}/projects/${projectId}/timeSeries`,
@@ -303,13 +345,16 @@ async function loadFirebaseUsage(): Promise<FirebaseUsage> {
         `- 區間：${startTime} ~ ${endTime}（UTC）`,
         `- 參數：alignmentPeriod=${HOUR_SECONDS}s、perSeriesAligner=ALIGN_SUM、crossSeriesReducer=REDUCE_SUM`,
         `- 指標：${Object.values(METRICS).join("、")}`,
-        `- 回應：HTTP ${status}${message ? `：${message}` : ""}`,
+        `- 回應：HTTP ${status}${message ? `：${message}` : ""}${reasonText}`,
       ].join("\n");
       if (status === 401 || status === 403) {
+        const apiDisabled = reasons.includes("SERVICE_DISABLED");
         return emptyUsage({
           configured: true,
-          message: `服務帳號缺少 Cloud Monitoring 權限（${status}），無法讀取 Firestore 用量。`,
-          hint: `${PERMISSION_HINT}\n\n${diagnostics}`,
+          message: apiDisabled
+            ? `Cloud Monitoring API 未啟用${reasonText}，無法讀取 Firestore 用量。`
+            : `服務帳號缺少 Cloud Monitoring 權限${reasonText}（${status}），無法讀取 Firestore 用量。`,
+          hint: `${apiDisabled ? apiDisabledHint(projectId) : permissionHint(projectId, resolved.credentials.clientEmail)}\n\n${diagnostics}`,
         });
       }
       const guidance =
@@ -351,8 +396,8 @@ async function loadFirebaseUsage(): Promise<FirebaseUsage> {
     const msg = error instanceof Error ? error.message : String(error);
     return emptyUsage({
       configured: true,
-      message: `讀取 Firestore 用量失敗：${process.env.NODE_ENV === "production" ? "連線 Cloud Monitoring 錯誤" : msg}`,
-      hint: PERMISSION_HINT,
+      message: `讀取 Firestore 用量失敗：${msg}`,
+      hint: permissionHint(projectId, resolved.credentials.clientEmail),
     });
   }
 }
