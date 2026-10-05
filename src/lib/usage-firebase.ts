@@ -130,6 +130,21 @@ interface TimeSeriesResponse {
   }>;
 }
 
+/** 解析 Google API 錯誤回應的可讀訊息（`{"error":{"code","message","status"}}`） */
+function readGoogleError(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { code?: unknown; message?: unknown; status?: unknown } };
+    const err = parsed?.error;
+    if (!err || typeof err !== "object") return "";
+    const parts = [err.status, err.message]
+      .map((p) => (typeof p === "string" && p.trim() ? p.trim() : ""))
+      .filter(Boolean);
+    return parts.join("：");
+  } catch {
+    return "";
+  }
+}
+
 let tokenCache: { token: string; at: number } | null = null;
 
 interface Credentials {
@@ -197,18 +212,20 @@ async function fetchDailyCounts(
   url.searchParams.set("filter", `metric.type = "${metricType}" AND resource.type = "firestore_instance"`);
   url.searchParams.set("interval.startTime", startTime);
   url.searchParams.set("interval.endTime", endTime);
-  url.searchParams.set("aggregation.alignmentPeriod", String(HOUR_SECONDS));
+  // 時期須為 Google Duration 字串（"3600s"），寫成 "3600" 會回 400
+  url.searchParams.set("aggregation.alignmentPeriod", `${HOUR_SECONDS}s`);
   url.searchParams.set("aggregation.perSeriesAligner", "ALIGN_SUM");
-  url.searchParams.set("aggregation.crossSeriesReducer", "SUM");
-  url.searchParams.set("pageSize", "1000");
+  // reducer 是 REDUCE_* 常數，寫成 "SUM" 會回 400
+  url.searchParams.set("aggregation.crossSeriesReducer", "REDUCE_SUM");
+  url.searchParams.set("pageSize", "256");
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
   if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    return { error: { status: res.status, message: detail.slice(0, 300) } };
+    const body = await res.text().catch(() => "");
+    return { error: { status: res.status, message: readGoogleError(body) || body.slice(0, 300) } };
   }
   const body = (await res.json()) as TimeSeriesResponse;
   const daily = new Map<string, number>();
@@ -279,17 +296,34 @@ async function loadFirebaseUsage(): Promise<FirebaseUsage> {
     const failure = results.find((result): result is { error: { status: number; message: string } } => "error" in result);
     if (failure) {
       const { status, message } = failure.error;
+      const diagnostics = [
+        "診斷資訊：",
+        `- 端點：GET ${MONITORING_BASE}/projects/${projectId}/timeSeries`,
+        `- 專案：${projectId}；服務帳號：${resolved.credentials.clientEmail}`,
+        `- 區間：${startTime} ~ ${endTime}（UTC）`,
+        `- 參數：alignmentPeriod=${HOUR_SECONDS}s、perSeriesAligner=ALIGN_SUM、crossSeriesReducer=REDUCE_SUM`,
+        `- 指標：${Object.values(METRICS).join("、")}`,
+        `- 回應：HTTP ${status}${message ? `：${message}` : ""}`,
+      ].join("\n");
       if (status === 401 || status === 403) {
         return emptyUsage({
           configured: true,
-          message: "服務帳號缺少 Cloud Monitoring 權限（403），無法讀取 Firestore 用量。",
-          hint: PERMISSION_HINT,
+          message: `服務帳號缺少 Cloud Monitoring 權限（${status}），無法讀取 Firestore 用量。`,
+          hint: `${PERMISSION_HINT}\n\n${diagnostics}`,
         });
       }
+      const guidance =
+        status === 404
+          ? "找不到專案或 Cloud Monitoring API 未啟用：請在 Google Cloud Console 啟用 Cloud Monitoring API（gcloud services enable monitoring.googleapis.com），並確認 FIREBASE_SERVICE_ACCOUNT_KEY 內的 project_id 正確。"
+          : status === 429
+            ? "已達 Cloud Monitoring API 速率限制，請稍後再試（本頁伺服端每 5 分鐘快取一次）。"
+            : status === 400
+              ? "查詢參數被拒（400）：請附上下方回應訊息回報，並確認 Cloud Monitoring API 已啟用。"
+              : "請稍後再試；若持續失敗，請附上下方診斷資訊回報。";
       return emptyUsage({
         configured: true,
-        message: `讀取 Firestore 用量失敗：Cloud Monitoring API 回 ${status}${process.env.NODE_ENV === "production" ? "" : `（${message}）`}`,
-        hint: "請稍後再試；若持續失敗，確認 Cloud Monitoring API 已啟用且專案無誤。",
+        message: `讀取 Firestore 用量失敗：Cloud Monitoring API 回 ${status}${message ? `：${message}` : ""}`,
+        hint: `${guidance}\n\n${diagnostics}`,
       });
     }
 
