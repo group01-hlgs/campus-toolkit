@@ -10,7 +10,32 @@ import { adminAttributeGuard, adminModulesOf, getRosterEntry, isActiveEntry } fr
 import { isRoleEnabled } from "@/lib/role-settings";
 import { AdminModule, isAccountActive, USER_COLLECTION, UserRole } from "@/types/users";
 
-export async function verifySession(): Promise<SessionPayload | null> {
+/**
+ * verifySession 回傳的 session 會掛上「同請求內已讀取」的資料：
+ * `__user`＝使用者文件、`__entry`＝當期身分名冊條目。
+ * 同請求後續的權限判定（hasAdminModule／isSuperAdmin）與端點（/api/auth/me 等）
+ * 一律優先復用，避免重複讀取同一文件（見 docs/資料庫讀取規範.md 鐵律 5）。
+ * 這兩個欄位只存在於伺服器記憶體：signSessionToken 只取固定欄位（不會進 JWT），
+ * 且回傳給前端前必須一併剝除（含 passwordHash 等敏感欄位）。
+ */
+export type VerifiedSession = SessionPayload & {
+  __user?: Record<string, unknown> | null;
+  __entry?: Record<string, unknown> | null;
+};
+
+/**
+ * 取得該 session 當期的管理員名冊條目（僅限 `role === "admin"` 的呼叫者）：
+ * 優先復用 verifySession 已讀的 `__entry`，沒有才補讀一次並掛回 session。
+ */
+async function adminEntryOf(session: SessionPayload): Promise<Record<string, unknown> | null> {
+  const cached = (session as VerifiedSession).__entry;
+  if (cached !== undefined && session.role === "admin") return cached;
+  const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
+  (session as VerifiedSession).__entry = entry;
+  return entry;
+}
+
+export async function verifySession(): Promise<VerifiedSession | null> {
   const session = await getSession();
   if (!session) return null;
 
@@ -55,7 +80,11 @@ export async function verifySession(): Promise<SessionPayload | null> {
       if (!lockIp || !currentIp || lockIp === currentIp) return null;
     }
 
-    return session;
+    // 掛上同請求已讀取的資料，供權限判定與端點復用（見 VerifiedSession 說明）
+    const verified = session as VerifiedSession;
+    verified.__user = data ?? null;
+    verified.__entry = entry ?? null;
+    return verified;
   } catch {
     return null;
   }
@@ -101,7 +130,7 @@ export async function hasAdminModule(
 ): Promise<boolean> {
   if (session.role !== "admin") return false;
   try {
-    const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
+    const entry = await adminEntryOf(session);
     return adminModulesOf(entry).includes(module);
   } catch {
     // fail-closed：讀不到權限資訊一律視為無權限
@@ -127,7 +156,7 @@ export async function requireAdminModule(module: AdminModule): Promise<
 export async function isSuperAdmin(session: SessionPayload): Promise<boolean> {
   if (session.role !== "admin") return false;
   try {
-    const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
+    const entry = await adminEntryOf(session);
     const attribute = entry && typeof entry.attribute === "string" ? entry.attribute : "";
     return attribute === "超級";
   } catch {

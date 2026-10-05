@@ -7,6 +7,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
+import { invalidateReadCache } from "@/lib/read-cache";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
 import { SchoolPeriod } from "@/types/settings";
 import {
@@ -42,15 +43,17 @@ import {
 } from "@/types/roster";
 import {
   AccountFields,
+  AdminGuardContext,
   RosterData,
   RosterIndex,
-  accountStatusGuard,
+  accountStatusGuardFrom,
   adminAttributeGuard,
   buildAccountRecord,
   buildRosterEntry,
   checkRosterConflict,
   hashRosterPassword,
   linkOrphanEntries,
+  loadAdminGuardContext,
   rosterEntryId,
   syncEntryIdentity,
   validateAccountInput,
@@ -61,6 +64,8 @@ export const maxDuration = 300;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 900;
 const DELETE_CHUNK = 400;
+/** Firestore in／not-in 子句的比較值上限 */
+const IN_CHUNK = 30;
 /** 各模式每批處理列數：單批須在 300 秒（Vercel maxDuration）內完成，故依模式切割、由前端依 progress 迴圈送下一批 */
 const CHUNK_SIZE: Record<AccountBatchMode, number> = {
   create: 120,
@@ -414,7 +419,8 @@ async function planUpdate(
   index: RosterIndex,
   byUid: Map<string, AccountSnapshot>,
   seen: Set<string>,
-  sessionUid: string
+  sessionUid: string,
+  adminGuard: AdminGuardContext | null
 ): Promise<PlannedRow> {
   const resolved = resolveUid(fields, index);
   if (!resolved.uid) return skipRow(row, fields, resolved.error ?? "查無此帳號");
@@ -453,14 +459,15 @@ async function planUpdate(
   if (fields.status) {
     const status = parseStatus(fields.status);
     if (!status) return skipRow(row, fields, "狀態無法辨識（有效／停用）");
-    if (status !== current.status) {
-      changes.push({ label: "狀態", from: statusLabel(current.status), to: statusLabel(status) });
-      patch.status = status;
-      if (status !== ACTIVE_STATUS) {
-        const guard = await accountStatusGuard(uid, sessionUid);
-        if (guard) return skipRow(row, fields, guard);
+      if (status !== current.status) {
+        changes.push({ label: "狀態", from: statusLabel(current.status), to: statusLabel(status) });
+        patch.status = status;
+        if (status !== ACTIVE_STATUS) {
+          if (!adminGuard) return skipRow(row, fields, "管理員守門資料未載入");
+          const guard = accountStatusGuardFrom(adminGuard, uid, sessionUid);
+          if (guard) return skipRow(row, fields, guard);
+        }
       }
-    }
   }
 
   if (fields.preferredRole) {
@@ -486,13 +493,15 @@ async function planDelete(
   fields: BatchFields,
   index: RosterIndex,
   seen: Set<string>,
-  sessionUid: string
+  sessionUid: string,
+  adminGuard: AdminGuardContext | null
 ): Promise<PlannedRow> {
   const resolved = resolveUid(fields, index);
   if (!resolved.uid) return skipRow(row, fields, resolved.error ?? "查無此帳號");
   const uid = resolved.uid;
   if (seen.has(uid)) return skipRow(row, fields, "檔案中重複對應到同一帳號");
-  const guard = await accountStatusGuard(uid, sessionUid);
+  if (!adminGuard) return skipRow(row, fields, "管理員守門資料未載入");
+  const guard = accountStatusGuardFrom(adminGuard, uid, sessionUid);
   if (guard) return skipRow(row, fields, "無法刪除自己或最後一位有效管理員");
   seen.add(uid);
   return { row, action: "delete", key: resolved.key, uid };
@@ -619,23 +628,34 @@ async function executePlan(
     const targets = new Set(deleteUids);
     const refs = deleteUids.map((uid) => users.doc(uid));
     // 名冊條目：none＝完全保留（只刪帳號）；current＝僅本學期；all＝所有學期
+    // 範圍下推成 Firestore 查詢：uid in＋（current 時）學期等值條件，
+    // 只讀命中的列，不再把四張名冊整表抓回來過濾（鐵律 3：查詢回傳幾筆＝幾次讀取）
     if (rosterScope !== "none") {
       const collections = ["rosterStudents", "rosterParents", "rosterStaff", "rosterAdmins"];
-      const snapshots = await Promise.all(
-        collections.map((name) => db.collection(name).get())
-      );
-      for (const snapshot of snapshots) {
-        for (const doc of snapshot.docs) {
-          const entry = doc.data();
-          if (!targets.has(String(entry.uid ?? ""))) continue;
-          if (
-            rosterScope === "current" &&
-            period &&
-            (entry.academicYear !== period.academicYear || entry.semester !== period.semester)
-          ) {
-            continue;
+      for (const name of collections) {
+        const col = db.collection(name);
+        for (let i = 0; i < deleteUids.length; i += IN_CHUNK) {
+          const chunk = deleteUids.slice(i, i + IN_CHUNK);
+          const query =
+            rosterScope === "current" && period
+              ? col
+                  .where("uid", "in", chunk)
+                  .where("academicYear", "==", period.academicYear)
+                  .where("semester", "==", period.semester)
+              : col.where("uid", "in", chunk);
+          const snapshot = await query.get();
+          for (const doc of snapshot.docs) {
+            const entry = doc.data();
+            if (!targets.has(String(entry.uid ?? ""))) continue;
+            if (
+              rosterScope === "current" &&
+              period &&
+              (entry.academicYear !== period.academicYear || entry.semester !== period.semester)
+            ) {
+              continue;
+            }
+            refs.push(doc.ref);
           }
-          refs.push(doc.ref);
         }
       }
     }
@@ -765,14 +785,18 @@ export async function POST(request: NextRequest) {
     }
 
     const seen = new Set<string>();
+    // 管理員守門上下文：整批只讀一次（刪除、或更新含狀態欄位時才需載入）
+    const needsAdminGuard =
+      mode === "delete" || (mode === "update" && chunkRows.some(({ fields }) => Boolean(fields.status)));
+    const adminGuard = needsAdminGuard ? await loadAdminGuardContext() : null;
     const planned: PlannedRow[] = [];
     for (const { row, fields } of chunkRows) {
       if (mode === "create") {
         planned.push(planCreate(row, fields, index, period, entryIndexes, isSuper));
       } else if (mode === "update") {
-        planned.push(await planUpdate(row, fields, index, byUid, seen, session.uid));
+        planned.push(await planUpdate(row, fields, index, byUid, seen, session.uid, adminGuard));
       } else {
-        planned.push(await planDelete(row, fields, index, seen, session.uid));
+        planned.push(await planDelete(row, fields, index, seen, session.uid, adminGuard));
       }
     }
 
@@ -805,6 +829,7 @@ export async function POST(request: NextRequest) {
     const chunkTotal = Math.ceil(totalRows / CHUNK_SIZE[mode]);
     const chunkNo = Math.min(Math.floor(offset / CHUNK_SIZE[mode]) + 1, chunkTotal);
     const chunkNote = chunkTotal > 1 ? `（第 ${chunkNo}/${chunkTotal} 批）` : "";
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",

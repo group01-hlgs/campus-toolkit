@@ -11,7 +11,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { Settings, defaultSettings } from "@/types/settings";
 import { serverErrorMessage } from "@/lib/api-error";
-import { invalidateSettingsCache } from "@/lib/settings-server";
+import { invalidateSettingsCache, readSystemDoc } from "@/lib/settings-server";
 import { ROLE_ENABLED_FIELD } from "@/types/role-settings";
 import { FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD } from "@/types/feature-modules";
 
@@ -81,12 +81,10 @@ export async function GET(request: NextRequest) {
     // manageable 供「系統設定」頁判斷是否顯示設定表單（一般管理員＝只有入口、頁內無可用項目）
     const manageable = session ? await hasSettingsManage(session) : false;
 
-    const snap = await getAdminDb()
-      .collection(SETTINGS_DOC.collection)
-      .doc(SETTINGS_DOC.id)
-      .get();
-    const data = snap.exists ? (snap.data() as Record<string, unknown>) : {};
-    const settings = pickSettings(data ?? {});
+    // 讀全站共用的 settings/system 快取（同文件已由 verifySession 的設定檢查等讀過，
+    // 不再重複打 Firestore）；寫入後同程序會 invalidateSettingsCache，維持正確性
+    const data = (await readSystemDoc()) ?? {};
+    const settings = pickSettings(data);
     return NextResponse.json(
       {
         success: true,

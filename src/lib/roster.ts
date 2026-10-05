@@ -327,6 +327,54 @@ export function checkRosterConflict(
   return null;
 }
 
+/**
+ * 單筆查重（鐵律 3：查詢回傳幾筆＝幾次讀取）：以電子郵件／帳號／學號精準查詢，
+ * 查無只收空查詢的最低 1 讀；取代整表 loadAccountIndex／loadRosterIndex
+ * （整表索引僅保留給批次匯入——整批列一次建索引才划算）。
+ * `excludeUid`＝忽略此帳號（更新自己時 email/account 學號不算衝突）；
+ * `role`＋`period`＝學號檢查範圍（同身分、同學期；孤兒條目不佔學號）。
+ * 回傳衝突訊息，無衝突回 null。檢查順序與 checkRosterConflict 一致：email → account → 學號。
+ */
+export async function checkAccountConflictDirect(
+  account: AccountFields,
+  roster: RosterData,
+  options: { role?: RosterRole; period?: SchoolPeriod; excludeUid?: string } = {}
+): Promise<string | null> {
+  const db = getAdminDb();
+  const users = db.collection(USER_COLLECTION);
+
+  // 電子郵件／帳號：各一筆等值查詢；limit(2) 保證「排除自己後仍有他人」必被看見
+  const keyed: Array<["email" | "account", string]> = [
+    ["email", account.email],
+    ["account", account.account],
+  ];
+  for (const [field, value] of keyed) {
+    if (!value) continue;
+    const snap = await users.where(field, "==", value).limit(2).get();
+    if (snap.docs.some((doc) => doc.id !== options.excludeUid)) {
+      return field === "email" ? "此電子郵件已被使用" : "此帳號已被使用";
+    }
+  }
+
+  const studentId = typeof roster.studentId === "string" ? roster.studentId : "";
+  if (studentId && options.role && options.period) {
+    const snap = await db
+      .collection(rosterCollection(options.role))
+      .where("studentId", "==", studentId)
+      .where("academicYear", "==", options.period.academicYear)
+      .where("semester", "==", options.period.semester)
+      .get();
+    for (const doc of snap.docs) {
+      const uid = typeof doc.data().uid === "string" ? doc.data().uid : "";
+      if (!uid || uid === options.excludeUid) continue;
+      // 孤兒條目（帳號已刪除）不佔學號，與 loadRosterIndex 語意一致
+      if (!(await users.doc(uid).get()).exists) continue;
+      return "此學號已被使用";
+    }
+  }
+  return null;
+}
+
 /** 組出「使用者帳號」文件：四種身分共用同一張 users 表（名冊欄位於名冊四表） */
 export function buildAccountRecord(
   account: AccountFields,
@@ -532,8 +580,14 @@ export async function moveEntriesUid(
       const targetId = rosterEntryId(toUid, { academicYear, semester });
       if (targetId === doc.id) continue;
       const targetRef = col.doc(targetId);
-      if ((await targetRef.get()).exists) continue;
-      await targetRef.set({ ...data, uid: toUid });
+      // 用 create 取代「先 get 判存在再 set」：存在即 ALREADY_EXISTS 跳過、不覆寫，
+      // 語意相同但省下每條 1 次點查讀取
+      try {
+        await targetRef.create({ ...data, uid: toUid });
+      } catch (error) {
+        if ((error as { code?: unknown }).code === "already-exists") continue;
+        throw error;
+      }
       await doc.ref.delete();
       moved += 1;
     }
@@ -660,10 +714,22 @@ export function isAccountFieldKey(key: RosterFieldKey): boolean {
 }
 
 /**
- * 當期「其他有效管理員」人數：名冊條目有效 ＋ 使用者帳號有效。
- * 用於擋停用／刪除最後一位管理員，避免把自己鎖在門外。
+ * 管理員守門上下文：整批作業只讀一次「當期管理員名冊＋其使用者帳號」，
+ * 之後每列的守門判定全是純計算（docs/資料庫讀取規範.md 鐵律 4：禁止 N+1）。
+ * 原本批次每列各查一次管理員名冊＋getAll，400 列即可放大成數千次讀取。
  */
-export async function countOtherActiveAdmins(excludeUid: string): Promise<number> {
+export interface AdminGuardContext {
+  period: SchoolPeriod;
+  /** 當期管理員條目（uid → entry，含有效與無效） */
+  entries: Map<string, Record<string, unknown>>;
+  /** 條目有效 ＋ 使用者帳號有效 的管理員 uid */
+  activeAdminUids: Set<string>;
+  /** 上者之中屬性＝超級者 */
+  activeSuperUids: Set<string>;
+}
+
+/** 載入管理員守門上下文（讀 1 次當期管理員名冊＋分塊 getAll 使用者帳號） */
+export async function loadAdminGuardContext(): Promise<AdminGuardContext> {
   const db = getAdminDb();
   const period = await getCurrentPeriod();
   const snapshot = await db
@@ -672,66 +738,101 @@ export async function countOtherActiveAdmins(excludeUid: string): Promise<number
     .where("semester", "==", period.semester)
     .get();
 
-  const uids = snapshot.docs
-    .map((doc) => doc.data())
-    .filter((data) => isActiveEntry(data) && typeof data.uid === "string" && data.uid !== excludeUid)
-    .map((data) => data.uid as string);
-  if (uids.length === 0) return 0;
+  const entries = new Map<string, Record<string, unknown>>();
+  const activeUids: string[] = [];
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const uid = typeof data.uid === "string" ? data.uid : "";
+    if (!uid) continue;
+    entries.set(uid, data);
+    if (isActiveEntry(data)) activeUids.push(uid);
+  }
 
-  const docs = await db.getAll(
-    ...uids.map((uid) => db.collection(USER_COLLECTION).doc(uid))
-  );
-  return docs.filter((doc) => doc.exists && isAccountActive(doc.data())).length;
+  const activeAdminUids = new Set<string>();
+  const activeSuperUids = new Set<string>();
+  for (let i = 0; i < activeUids.length; i += 200) {
+    const chunk = activeUids.slice(i, i + 200);
+    const snaps = await db.getAll(...chunk.map((uid) => db.collection(USER_COLLECTION).doc(uid)));
+    snaps.forEach((snap, index) => {
+      if (!snap.exists || !isAccountActive(snap.data())) return;
+      const uid = chunk[index];
+      activeAdminUids.add(uid);
+      if (isSuperEntry(entries.get(uid))) activeSuperUids.add(uid);
+    });
+  }
+
+  return { period, entries, activeAdminUids, activeSuperUids };
+}
+
+/** 除本人外的有效管理員數（由上下文純計算） */
+export function countOtherActiveAdminsFrom(ctx: AdminGuardContext, excludeUid: string): number {
+  let count = 0;
+  for (const uid of ctx.activeAdminUids) if (uid !== excludeUid) count += 1;
+  return count;
+}
+
+/** 除本人外的有效超級管理員數（由上下文純計算） */
+export function countOtherActiveSupersFrom(ctx: AdminGuardContext, excludeUid: string): number {
+  let count = 0;
+  for (const uid of ctx.activeSuperUids) if (uid !== excludeUid) count += 1;
+  return count;
+}
+
+/** 最後一位超級守門（由上下文純計算；訊息與 lastSuperGuard 一致） */
+export function lastSuperGuardFrom(ctx: AdminGuardContext, uid: string): string | null {
+  if (countOtherActiveSupersFrom(ctx, uid) === 0) {
+    return "無法動最後一位超級管理員，請先新增另一位超級管理員";
+  }
+  return null;
+}
+
+/** 狀態變更／刪除守門（由上下文純計算；訊息與 accountStatusGuard 一致） */
+export function accountStatusGuardFrom(
+  ctx: AdminGuardContext,
+  uid: string,
+  sessionUid: string
+): string | null {
+  if (uid === sessionUid) return "無法停用自己使用的帳號";
+  const entry = ctx.entries.get(uid) ?? null;
+  if (!isActiveEntry(entry)) return null;
+  if (countOtherActiveAdminsFrom(ctx, uid) === 0) return "無法停用最後一位有效管理員";
+  // 最後一位超級管理員也留著：沒有超級就無法再指派超級（系統設定、學校基本設定將無人可改）
+  if (isSuperEntry(entry) && countOtherActiveSupersFrom(ctx, uid) === 0) {
+    return "無法停用最後一位超級管理員，請先新增另一位超級管理員";
+  }
+  return null;
+}
+
+/**
+ * 當期「其他有效管理員」人數：名冊條目有效 ＋ 使用者帳號有效。
+ * 用於擋停用／刪除最後一位管理員，避免把自己鎖在門外。
+ * 批次作業請改用 loadAdminGuardContext＋countOtherActiveAdminsFrom（整批只讀一次）。
+ */
+export async function countOtherActiveAdmins(excludeUid: string): Promise<number> {
+  return countOtherActiveAdminsFrom(await loadAdminGuardContext(), excludeUid);
 }
 
 /**
  * 當期「其他有效超級管理員」人數：名冊條目有效且屬性＝超級 ＋ 使用者帳號有效。
  * 用於擋降級／停用／刪除最後一位超級管理員。
+ * 批次作業請改用 loadAdminGuardContext＋countOtherActiveSupersFrom（整批只讀一次）。
  */
 export async function countOtherActiveSupers(excludeUid: string): Promise<number> {
-  const db = getAdminDb();
-  const period = await getCurrentPeriod();
-  const snapshot = await db
-    .collection(rosterCollection("admin"))
-    .where("academicYear", "==", period.academicYear)
-    .where("semester", "==", period.semester)
-    .get();
-
-  const uids = snapshot.docs
-    .map((doc) => doc.data())
-    .filter(
-      (data) =>
-        isActiveEntry(data) &&
-        isSuperEntry(data) &&
-        typeof data.uid === "string" &&
-        data.uid !== excludeUid
-    )
-    .map((data) => data.uid as string);
-  if (uids.length === 0) return 0;
-
-  const docs = await db.getAll(
-    ...uids.map((uid) => db.collection(USER_COLLECTION).doc(uid))
-  );
-  return docs.filter((doc) => doc.exists && isAccountActive(doc.data())).length;
+  return countOtherActiveSupersFrom(await loadAdminGuardContext(), excludeUid);
 }
 
 /**
  * 狀態變更／刪除的守門：本人、以及「仍是有效管理員且只剩他一位」。
  * 回傳擋下訊息，null＝放行（訊息用語由呼叫端依情境調整）。
+ * 單筆操作可用本函式；批次作業請改用 loadAdminGuardContext＋accountStatusGuardFrom。
  */
 export async function accountStatusGuard(uid: string, sessionUid: string): Promise<string | null> {
   if (uid === sessionUid) return "無法停用自己使用的帳號";
   const period = await getCurrentPeriod();
   const entry = await getRosterEntry(uid, "admin", period);
-  if (isActiveEntry(entry)) {
-    if ((await countOtherActiveAdmins(uid)) === 0) return "無法停用最後一位有效管理員";
-    // 最後一位超級管理員也留著：沒有超級就無法再指派超級（系統設定、學校基本設定將無人可改）
-    if (isSuperEntry(entry)) {
-      const supers = await countOtherActiveSupers(uid);
-      if (supers === 0) return "無法停用最後一位超級管理員，請先新增另一位超級管理員";
-    }
-  }
-  return null;
+  if (!isActiveEntry(entry)) return null;
+  // 是有效管理員才載入整批上下文（非管理員維持 1 次點查的最低成本）
+  return accountStatusGuardFrom(await loadAdminGuardContext(), uid, sessionUid);
 }
 
 /** 條目是否為超級管理員（`attribute === "超級"`） */
@@ -762,12 +863,10 @@ export function adminAttributeGuard(options: {
 /**
  * 降級／停用／刪除超級管理員前的守門：還得留著最後一位超級管理員。
  * 回傳擋下訊息，null＝放行。
+ * 批次作業請改用 loadAdminGuardContext＋lastSuperGuardFrom（整批只讀一次）。
  */
 export async function lastSuperGuard(uid: string): Promise<string | null> {
-  if ((await countOtherActiveSupers(uid)) === 0) {
-    return "無法動最後一位超級管理員，請先新增另一位超級管理員";
-  }
-  return null;
+  return lastSuperGuardFrom(await loadAdminGuardContext(), uid);
 }
 
 /**

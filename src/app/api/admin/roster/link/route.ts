@@ -5,6 +5,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
+import { invalidateReadCache } from "@/lib/read-cache";
 import { findAccountByKey, isSuperEntry, moveEntriesUid } from "@/lib/roster";
 import { USER_COLLECTION } from "@/types/users";
 import { rosterCollection } from "@/types/roster";
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",

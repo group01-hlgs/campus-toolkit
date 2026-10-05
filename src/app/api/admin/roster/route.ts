@@ -6,6 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
+import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 import {
   AccountStatus,
   ACTIVE_STATUS,
@@ -23,13 +24,12 @@ import {
 } from "@/types/roster";
 import {
   buildRosterEntry,
-  checkRosterConflict,
+  checkAccountConflictDirect,
   countOtherActiveAdmins,
   findAccountByKey,
   getRosterEntry,
   isSuperEntry,
   lastSuperGuard,
-  loadRosterIndex,
   rosterEntryId,
   syncEntryIdentity,
   toRosterMember,
@@ -95,43 +95,55 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 清單＝「當期」該身分名冊條目 join 使用者帳號
+    // 清單＝「當期」該身分名冊條目 join 使用者帳號（每次請求約「當期名冊＋同批使用者」次讀取）
+    // 快取 15 秒：重複進出頁面、緊接的重複請求不再重讀；增修刪後由 invalidateReadCache() 失效
     const period = await getCurrentPeriod();
-    const snapshot = await getAdminDb()
-      .collection(rosterCollection(role))
-      .where("academicYear", "==", period.academicYear)
-      .where("semester", "==", period.semester)
-      .get();
+    const payload = await cachedRead(
+      `admin:roster-list:${role}:${period.academicYear}:${period.semester}`,
+      15_000,
+      async () => {
+        const snapshot = await getAdminDb()
+          .collection(rosterCollection(role))
+          .where("academicYear", "==", period.academicYear)
+          .where("semester", "==", period.semester)
+          .get();
 
-    const uids = [
-      ...new Set(
-        snapshot.docs
-          .map((doc) => doc.data().uid)
-          .filter((uid): uid is string => typeof uid === "string" && !!uid)
-      ),
-    ];
-    const accountDocs = uids.length
-      ? await getAdminDb().getAll(
-          ...uids.map((uid) => getAdminDb().collection(USER_COLLECTION).doc(uid))
-        )
-      : [];
-    const accounts = new Map<string, Record<string, unknown>>();
-    for (const doc of accountDocs) {
-      if (doc.exists) accounts.set(doc.id, doc.data() ?? {});
-    }
+        const uids = [
+          ...new Set(
+            snapshot.docs
+              .map((doc) => doc.data().uid)
+              .filter((uid): uid is string => typeof uid === "string" && !!uid)
+          ),
+        ];
+        // 使用者帳號分塊讀取（200 筆/批），避免整批 getAll 請求體過大（鐵律 4）
+        const accounts = new Map<string, Record<string, unknown>>();
+        const db = getAdminDb();
+        for (let i = 0; i < uids.length; i += 200) {
+          const chunk = uids.slice(i, i + 200);
+          const accountDocs = await db.getAll(
+            ...chunk.map((uid) => db.collection(USER_COLLECTION).doc(uid))
+          );
+          for (const doc of accountDocs) {
+            if (doc.exists) accounts.set(doc.id, doc.data() ?? {});
+          }
+        }
 
-    const members = snapshot.docs
-      .map((doc) => {
-        const entry = doc.data();
-        const uid = typeof entry.uid === "string" ? entry.uid : doc.id;
-        return toRosterMember(role, uid, accounts.get(uid) ?? null, entry);
-      })
-      .sort((a, b) =>
-        a.name.localeCompare(b.name, "zh-Hant") || a.account.localeCompare(b.account)
-      );
+        const members = snapshot.docs
+          .map((doc) => {
+            const entry = doc.data();
+            const uid = typeof entry.uid === "string" ? entry.uid : doc.id;
+            return toRosterMember(role, uid, accounts.get(uid) ?? null, entry);
+          })
+          .sort((a, b) =>
+            a.name.localeCompare(b.name, "zh-Hant") || a.account.localeCompare(b.account)
+          );
+
+        return { members, period };
+      }
+    );
 
     return NextResponse.json(
-      { success: true, members, period },
+      { success: true, ...payload },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
@@ -204,9 +216,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 電子郵件／帳號屬既有帳號，只檢查該身分專屬欄位（如學號）是否衝突
-    const index = await loadRosterIndex(role, period, uid);
-    const conflict = checkRosterConflict(result.account, result.roster, index);
+    // 電子郵件／帳號屬既有帳號，只檢查該身分專屬欄位（如學號）是否衝突；
+    // 精準查詢（排除本人），不整表建索引（鐵律 3）
+    const conflict = await checkAccountConflictDirect(result.account, result.roster, {
+      role,
+      period,
+      excludeUid: uid,
+    });
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
@@ -215,6 +231,7 @@ export async function POST(request: NextRequest) {
       buildRosterEntry(uid, role, period, result.roster, { email, account, name })
     );
 
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -286,8 +303,12 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    const index = await loadRosterIndex(role, period, uid);
-    const conflict = checkRosterConflict(result.account, result.roster, index);
+    // 精準查重（排除本人），不整表建索引（鐵律 3）
+    const conflict = await checkAccountConflictDirect(result.account, result.roster, {
+      role,
+      period,
+      excludeUid: uid,
+    });
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
@@ -321,6 +342,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -402,6 +424,7 @@ export async function PATCH(request: NextRequest) {
     await ref.update({ status, updatedAt: Date.now() });
 
     const account = (await getAdminDb().collection(USER_COLLECTION).doc(uid).get()).data() || {};
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -478,6 +501,7 @@ export async function DELETE(request: NextRequest) {
     await ref.delete();
 
     const account = (await getAdminDb().collection(USER_COLLECTION).doc(uid).get()).data() || {};
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",

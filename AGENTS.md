@@ -8,6 +8,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
+## 資料庫讀取規範（必讀）
+
+新增或修改任何 Firestore 讀取的程式碼前，先讀 `docs/資料庫讀取規範.md`
+（六條鐵律：先問要不要讀、過濾下推、精準查詢、禁 N+1 與分塊、同請求復用、
+快取＋寫後失效）。改完依該文末檢查清單逐項核對，再走下方流程。
+
 ## 修改完成後的流程
 
 1. `npm run lint`（eslint + tsc）確認通過

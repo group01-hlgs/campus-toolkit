@@ -16,8 +16,10 @@ export async function GET() {
   if (!session) return unauthorized();
 
   try {
-    // 資訊卡顯示「當期該身分」的名冊資料
-    const entry = await getRosterEntry(session.uid, session.role, await getCurrentPeriod());
+    // 資訊卡顯示「當期該身分」的名冊資料（優先復用 verifySession 已讀的條目，避免重複查詢）
+    const entry =
+      session.__entry ??
+      (await getRosterEntry(session.uid, session.role, await getCurrentPeriod()));
     if (!entry) {
       return NextResponse.json({ success: false, message: "找不到身分資料" }, { status: 404 });
     }

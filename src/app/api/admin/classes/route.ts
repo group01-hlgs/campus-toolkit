@@ -5,10 +5,15 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION, getCurrentPeriod } from "@/lib/settings-server";
 import { isActiveEntry, loadPeriodEntries } from "@/lib/roster";
+import { rosterCollection } from "@/types/roster";
+import { cachedRead } from "@/lib/read-cache";
 import { CLASSES_DOC_ID, readSchoolClasses } from "@/types/school-classes";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 
 const noStore = { "Cache-Control": "no-store" };
+
+/** 班級總覽快取時間：總覽為唯讀計算結果，30 秒內重複進出頁面不再讀取整份名冊 */
+const OVERVIEW_TTL_MS = 30_000;
 
 /** 名冊條目的字串欄位（缺值或非字串一律視為空字串） */
 function str(value: unknown): string {
@@ -38,6 +43,11 @@ function compareStudents(a: Record<string, unknown>, b: Record<string, unknown>)
  * 班級結構存 `settings/schoolClasses`（維護入口在學校基本設定 → 年段班級設定），
  * 學生人數＝當期 `rosterStudents` 有效條目依 `classCode` 分組計數。
  * 另帶 `?classCode=…` 時回單一班級資料與該班當期有效學生名單（班級學生名單子頁用）。
+ *
+ * 讀取策略（見 docs/資料庫讀取規範.md）：
+ * - 單班模式：`where(classCode)` 過濾下推，只讀該班名冊（鐵律 2），不整份撈回再篩。
+ * - 總覽模式：整份當期名冊僅為計算人數，結果快取 30 秒（鐵律 6）；
+ *   名冊變更路由須呼叫 invalidateReadCache() 讓總覽立即失效。
  */
 export async function GET(request: NextRequest) {
   try {
@@ -54,10 +64,17 @@ export async function GET(request: NextRequest) {
 
     const db = getAdminDb();
     const period = await getCurrentPeriod();
-    const [classesSnap, profileSnap, students] = await Promise.all([
-      db.collection(SETTINGS_COLLECTION).doc(CLASSES_DOC_ID).get(),
-      db.collection(SETTINGS_COLLECTION).doc(PROFILE_DOC_ID).get(),
-      loadPeriodEntries(period, "student"),
+    const classCodeParam = request.nextUrl.searchParams.get("classCode");
+
+    // 班級結構與校務資料：兩份設定文件（各 1 讀；30 秒快取，
+    // 班級／校務資料更新後由 invalidateReadCache() 失效）
+    const [classesSnap, profileSnap] = await Promise.all([
+      cachedRead(`setting-doc:${CLASSES_DOC_ID}`, OVERVIEW_TTL_MS, () =>
+        db.collection(SETTINGS_COLLECTION).doc(CLASSES_DOC_ID).get()
+      ),
+      cachedRead(`setting-doc:${PROFILE_DOC_ID}`, OVERVIEW_TTL_MS, () =>
+        db.collection(SETTINGS_COLLECTION).doc(PROFILE_DOC_ID).get()
+      ),
     ]);
 
     const profile = readSchoolProfile(profileSnap.exists ? profileSnap.data() : null);
@@ -67,7 +84,6 @@ export async function GET(request: NextRequest) {
     const setting = readSchoolClasses(classesSnap.exists ? classesSnap.data() : null, context);
 
     // 單一班級模式（?classCode=…）：回該班資料＋當期有效學生名單，不需組總覽
-    const classCodeParam = request.nextUrl.searchParams.get("classCode");
     if (classCodeParam !== null) {
       const code = classCodeParam.trim();
       const grade = code
@@ -81,8 +97,16 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const list = [...students.values()]
-        .filter((entry) => isActiveEntry(entry) && str(entry.classCode) === code)
+      // 過濾下推：只查該班（當期＋該班級代碼），回傳筆數≈該班人數而非全校人數
+      const snapshot = await db
+        .collection(rosterCollection("student"))
+        .where("academicYear", "==", period.academicYear)
+        .where("semester", "==", period.semester)
+        .where("classCode", "==", code)
+        .get();
+      const list = snapshot.docs
+        .map((doc) => doc.data())
+        .filter((entry) => isActiveEntry(entry))
         .sort(compareStudents);
 
       return NextResponse.json(
@@ -112,50 +136,59 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 班級代碼全集＋依代碼累加學生人數（僅計有效名冊條目）
-    const classCodes = new Set<string>();
-    for (const grade of setting.grades) {
-      for (const item of grade.classes) classCodes.add(item.code);
-    }
-    const counts = new Map<string, number>();
-    let studentCount = 0;
-    let unassignedCount = 0;
-    for (const entry of students.values()) {
-      if (!isActiveEntry(entry)) continue;
-      studentCount += 1;
-      const code = typeof entry.classCode === "string" ? entry.classCode : "";
-      if (code && classCodes.has(code)) {
-        counts.set(code, (counts.get(code) ?? 0) + 1);
-      } else {
-        unassignedCount += 1;
-      }
-    }
+    // 總覽：整份當期名冊只在快取失效後讀取一次，30 秒內重複進出頁面＝ 0 讀取
+    const overview = await cachedRead(
+      `admin:classes-overview:${period.academicYear}:${period.semester}`,
+      OVERVIEW_TTL_MS,
+      async () => {
+        const students = await loadPeriodEntries(period, "student");
 
-    const grades = setting.grades.map((grade) => ({
-      grade: grade.grade,
-      code: grade.code,
-      name: grade.name,
-      classes: grade.classes.map((item) => ({
-        code: item.code,
-        name: item.name,
-        group: item.group,
-        department: item.department,
-        studentCount: counts.get(item.code) ?? 0,
-      })),
-    }));
+        // 班級代碼全集＋依代碼累加學生人數（僅計有效名冊條目）
+        const classCodes = new Set<string>();
+        for (const grade of setting.grades) {
+          for (const item of grade.classes) classCodes.add(item.code);
+        }
+        const counts = new Map<string, number>();
+        let studentCount = 0;
+        let unassignedCount = 0;
+        for (const entry of students.values()) {
+          if (!isActiveEntry(entry)) continue;
+          studentCount += 1;
+          const code = typeof entry.classCode === "string" ? entry.classCode : "";
+          if (code && classCodes.has(code)) {
+            counts.set(code, (counts.get(code) ?? 0) + 1);
+          } else {
+            unassignedCount += 1;
+          }
+        }
+
+        const grades = setting.grades.map((grade) => ({
+          grade: grade.grade,
+          code: grade.code,
+          name: grade.name,
+          classes: grade.classes.map((item) => ({
+            code: item.code,
+            name: item.name,
+            group: item.group,
+            department: item.department,
+            studentCount: counts.get(item.code) ?? 0,
+          })),
+        }));
+
+        return {
+          grades,
+          summary: {
+            gradeCount: setting.grades.length,
+            classCount: classCodes.size,
+            studentCount,
+            unassignedCount,
+          },
+        };
+      }
+    );
 
     return NextResponse.json(
-      {
-        success: true,
-        period,
-        grades,
-        summary: {
-          gradeCount: setting.grades.length,
-          classCount: classCodes.size,
-          studentCount,
-          unassignedCount,
-        },
-      },
+      { success: true, period, ...overview },
       { headers: noStore }
     );
   } catch (error) {

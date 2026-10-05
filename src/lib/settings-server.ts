@@ -6,201 +6,117 @@ export const SETTINGS_COLLECTION = "settings";
 export const SETTINGS_DOC_ID = "system";
 const CACHE_TTL_MS = 30_000;
 
-let timeoutCache: { minutes: number; at: number } | null = null;
-let enabledCache: { enabled: boolean; at: number } | null = null;
-let identityCache: {
-  systemName: string;
-  schoolFullName: string;
-  schoolShortName: string;
-  at: number;
-} | null = null;
-let emailChangeCache: { allowed: boolean; at: number } | null = null;
-let periodCache: { value: SchoolPeriod; at: number } | null = null;
-let oauthCache: { enabled: boolean; at: number } | null = null;
+/**
+ * `settings/system` 整份文件的 30 秒 in-process 快取——**全站唯一一份**。
+ * 各設定欄位的讀取函式（本檔、`role-settings.ts`、`feature-modules.ts`、
+ * `/api/settings` 的 GET）一律走 `readSystemDoc()`，同一文件同一時間只會讀一次
+ * （修正過去「同一份文件掛 7 個獨立快取、冷程序各讀各的」的浪費，
+ * 見 docs/資料庫讀取規範.md 鐵律 6）。任何設定寫入後由 invalidateSettingsCache() 失效。
+ */
+let systemDocCache: { data: Record<string, unknown> | null; at: number } | null = null;
 
-/** 設定儲存後呼叫，讓閒置逾時與系統啟用狀態快取立即失效 */
+/** 任何設定（含 roleEnabled、featureModules 欄位）寫入後呼叫，讓設定快取立即失效 */
 export function invalidateSettingsCache(): void {
-  timeoutCache = null;
-  enabledCache = null;
-  identityCache = null;
-  emailChangeCache = null;
-  periodCache = null;
-  oauthCache = null;
+  systemDocCache = null;
 }
 
 /**
- * 讀取 settings.systemEnabled（維護模式），供伺服器端強制執行。
- * 與閒置逾時共用 30 秒 in-process 快取；讀失敗時回退上次值或預設啟用。
+ * 讀取 `settings/system` 整份文件（30 秒 in-process 快取，全站共用）。
+ * 讀失敗回退上次快取值；從未成功讀取過則回 null，由各讀取函式自行套用預設值
+ * （維持各欄位原本 fail-safe／fail-closed 的預設行為）。
  */
-export async function isSystemEnabled(): Promise<boolean> {
+export async function readSystemDoc(): Promise<Record<string, unknown> | null> {
   const now = Date.now();
-  if (enabledCache && now - enabledCache.at < CACHE_TTL_MS) return enabledCache.enabled;
+  if (systemDocCache && now - systemDocCache.at < CACHE_TTL_MS) return systemDocCache.data;
 
   try {
     const snap = await getAdminDb()
       .collection(SETTINGS_COLLECTION)
       .doc(SETTINGS_DOC_ID)
       .get();
-    const raw = snap.exists
-      ? (snap.data() as Record<string, unknown> | undefined)?.systemEnabled
-      : undefined;
-    const enabled =
-      typeof raw === "boolean" ? raw : defaultSettings.systemEnabled;
-    enabledCache = { enabled, at: now };
-    return enabled;
+    const data = snap.exists
+      ? ((snap.data() as Record<string, unknown> | undefined) ?? null)
+      : null;
+    systemDocCache = { data, at: now };
+    return data;
   } catch (error) {
-    console.error("System enabled settings read error:", error);
-    if (enabledCache) return enabledCache.enabled;
-    return defaultSettings.systemEnabled;
+    console.error("System settings read error:", error);
+    return systemDocCache ? systemDocCache.data : null;
   }
+}
+
+/**
+ * 讀取 settings.systemEnabled（維護模式），供伺服器端強制執行。
+ * 讀同一份 settings/system 快取；欄位缺漏時回預設啟用（fail-safe）。
+ */
+export async function isSystemEnabled(): Promise<boolean> {
+  const raw = await readSystemDoc();
+  return typeof raw?.systemEnabled === "boolean" ? raw.systemEnabled : defaultSettings.systemEnabled;
 }
 
 /**
  * 讀取 settings.oauthEnabled（是否啟用 Google OAuth 登入）。
  * 啟用時首頁才顯示 Google 登入入口，且 Google 登入免兩階段驗證（由 Google 把關）；
  * 帳密登入不受此開關影響，仍照常檢查使用者設定的兩階段驗證。
- * 讀失敗時回退上次值或預設值（預設停用，fail-closed）。
+ * 欄位缺漏＝停用（fail-closed）。
  */
 export async function isGoogleOAuthEnabled(): Promise<boolean> {
-  const now = Date.now();
-  if (oauthCache && now - oauthCache.at < CACHE_TTL_MS) return oauthCache.enabled;
-
-  try {
-    const snap = await getAdminDb()
-      .collection(SETTINGS_COLLECTION)
-      .doc(SETTINGS_DOC_ID)
-      .get();
-    const raw = snap.exists
-      ? (snap.data() as Record<string, unknown> | undefined)?.oauthEnabled
-      : undefined;
-    const enabled =
-      typeof raw === "boolean" ? raw : defaultSettings.oauthEnabled;
-    oauthCache = { enabled, at: now };
-    return enabled;
-  } catch (error) {
-    console.error("Google OAuth settings read error:", error);
-    if (oauthCache) return oauthCache.enabled;
-    return defaultSettings.oauthEnabled;
-  }
+  const raw = await readSystemDoc();
+  return typeof raw?.oauthEnabled === "boolean" ? raw.oauthEnabled : defaultSettings.oauthEnabled;
 }
 
 /**
  * 讀取 settings.sessionTimeout（分鐘），供伺服器端閒置逾時檢查使用。
- * 以 30 秒 in-process 快取避免每個請求都打 Firestore；讀失敗時回退上次值或預設值。
+ * 讀同一份 settings/system 快取；欄位缺漏或值無效時回預設值。
  */
 export async function getSessionTimeoutMinutes(): Promise<number> {
-  const now = Date.now();
-  if (timeoutCache && now - timeoutCache.at < CACHE_TTL_MS) return timeoutCache.minutes;
-
-  try {
-    const snap = await getAdminDb()
-      .collection(SETTINGS_COLLECTION)
-      .doc(SETTINGS_DOC_ID)
-      .get();
-    const raw = snap.exists
-      ? (snap.data() as Record<string, unknown> | undefined)?.sessionTimeout
-      : undefined;
-    const minutes = Number(raw);
-    const value =
-      Number.isFinite(minutes) && minutes >= 1 ? minutes : defaultSettings.sessionTimeout;
-    timeoutCache = { minutes: value, at: now };
-    return value;
-  } catch (error) {
-    console.error("Session timeout settings read error:", error);
-    if (timeoutCache) return timeoutCache.minutes;
-    return defaultSettings.sessionTimeout;
-  }
+  const raw = await readSystemDoc();
+  const minutes = Number(raw?.sessionTimeout);
+  return Number.isFinite(minutes) && minutes >= 1 ? minutes : defaultSettings.sessionTimeout;
 }
 
 /**
  * 讀取 settings.emailChangeAllowed（是否開放使用者自行變更電子郵件地址）。
- * 與閒置逾時共用 30 秒 in-process 快取，避免每個請求都打 Firestore；
- * 讀失敗時回退上次值或預設值（預設開放）。
+ * 讀同一份 settings/system 快取；欄位缺漏＝預設開放。
  */
 export async function isEmailChangeAllowed(): Promise<boolean> {
-  const now = Date.now();
-  if (emailChangeCache && now - emailChangeCache.at < CACHE_TTL_MS) return emailChangeCache.allowed;
-
-  try {
-    const snap = await getAdminDb()
-      .collection(SETTINGS_COLLECTION)
-      .doc(SETTINGS_DOC_ID)
-      .get();
-    const raw = snap.exists
-      ? (snap.data() as Record<string, unknown> | undefined)?.emailChangeAllowed
-      : undefined;
-    const allowed =
-      typeof raw === "boolean" ? raw : defaultSettings.emailChangeAllowed;
-    emailChangeCache = { allowed, at: now };
-    return allowed;
-  } catch (error) {
-    console.error("Email change settings read error:", error);
-    if (emailChangeCache) return emailChangeCache.allowed;
-    return defaultSettings.emailChangeAllowed;
-  }
+  const raw = await readSystemDoc();
+  return typeof raw?.emailChangeAllowed === "boolean"
+    ? raw.emailChangeAllowed
+    : defaultSettings.emailChangeAllowed;
 }
 
 /**
  * 讀取識別名稱用的三個欄位：系統（程式）自命名、學校全稱、學校簡稱。
- * 與其他設定共用 30 秒快取，讀失敗回退上次值或空字串。
+ * 讀同一份 settings/system 快取；欄位缺漏時回空字串。
  */
 async function readIdentity(): Promise<{
   systemName: string;
   schoolFullName: string;
   schoolShortName: string;
 }> {
-  const now = Date.now();
-  if (identityCache && now - identityCache.at < CACHE_TTL_MS) return identityCache;
-
-  try {
-    const snap = await getAdminDb()
-      .collection(SETTINGS_COLLECTION)
-      .doc(SETTINGS_DOC_ID)
-      .get();
-    const raw = snap.exists
-      ? (snap.data() as Record<string, unknown> | undefined)
-      : undefined;
-    const schoolFullName = typeof raw?.schoolFullName === "string" ? raw.schoolFullName.trim() : "";
-    const schoolShortName = typeof raw?.schoolShortName === "string" ? raw.schoolShortName.trim() : "";
-    const systemName = typeof raw?.systemName === "string" ? raw.systemName.trim() : "";
-    identityCache = { systemName, schoolFullName, schoolShortName, at: now };
-    return identityCache;
-  } catch (error) {
-    console.error("Identity settings read error:", error);
-    return identityCache ?? { systemName: "", schoolFullName: "", schoolShortName: "" };
-  }
+  const raw = await readSystemDoc();
+  const schoolFullName = typeof raw?.schoolFullName === "string" ? raw.schoolFullName.trim() : "";
+  const schoolShortName = typeof raw?.schoolShortName === "string" ? raw.schoolShortName.trim() : "";
+  const systemName = typeof raw?.systemName === "string" ? raw.systemName.trim() : "";
+  return { systemName, schoolFullName, schoolShortName };
 }
 
 /**
  * 目前學年度與學期（settings.system 的 academicYear／semester）。
- * 身分名冊（roster 集合）寫入與讀取都以這個期間為準，與其他設定共用 30 秒快取；
+ * 身分名冊（roster 集合）寫入與讀取都以這個期間為準，讀同一份 settings/system 快取；
  * 欄位缺漏或讀失敗時回退依日期推算的值。
  */
 export async function getCurrentPeriod(): Promise<SchoolPeriod> {
-  const now = Date.now();
-  if (periodCache && now - periodCache.at < CACHE_TTL_MS) return periodCache.value;
-
-  try {
-    const snap = await getAdminDb()
-      .collection(SETTINGS_COLLECTION)
-      .doc(SETTINGS_DOC_ID)
-      .get();
-    const raw = snap.exists ? (snap.data() as Record<string, unknown> | undefined) : undefined;
-    const fallback = detectPeriod();
-    const academicYear = Number(raw?.academicYear);
-    const semester = Number(raw?.semester);
-    const value: SchoolPeriod = {
-      academicYear:
-        Number.isFinite(academicYear) && academicYear > 0 ? academicYear : fallback.academicYear,
-      semester: semester === 1 || semester === 2 ? semester : fallback.semester,
-    };
-    periodCache = { value, at: now };
-    return value;
-  } catch (error) {
-    console.error("Current period settings read error:", error);
-    if (periodCache) return periodCache.value;
-    return detectPeriod();
-  }
+  const raw = await readSystemDoc();
+  const fallback = detectPeriod();
+  const academicYear = Number(raw?.academicYear);
+  const semester = Number(raw?.semester);
+  return {
+    academicYear:
+      Number.isFinite(academicYear) && academicYear > 0 ? academicYear : fallback.academicYear,
+    semester: semester === 1 || semester === 2 ? semester : fallback.semester,
+  };
 }
 
 /**

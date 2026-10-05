@@ -6,6 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
+import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 import {
   AccountStatus,
   AccountSummary,
@@ -35,11 +36,9 @@ import {
   adminAttributeGuard,
   buildAccountRecord,
   buildRosterEntry,
-  checkRosterConflict,
+  checkAccountConflictDirect,
   hashRosterPassword,
   linkOrphanEntries,
-  loadAccountIndex,
-  loadRosterIndex,
   rosterEntryId,
   syncEntryIdentity,
   validateAccountInput,
@@ -156,20 +155,29 @@ export async function GET(request: NextRequest) {
 
     const period = await getCurrentPeriod();
     const db = getAdminDb();
-    const [usersSnapshot, rolesByUid] = await Promise.all([
-      db.collection(USER_COLLECTION).get(),
-      loadRolesByUid(period),
-    ]);
+    // 全帳號工作表：一次「全部使用者＋當期四張名冊」的讀取量大，
+    // 快取 15 秒避免重複進出頁面／緊接的重複請求重讀；增修刪後由 invalidateReadCache() 失效
+    const payload = await cachedRead(
+      `admin:accounts-list:${period.academicYear}:${period.semester}`,
+      15_000,
+      async () => {
+        const [usersSnapshot, rolesByUid] = await Promise.all([
+          db.collection(USER_COLLECTION).get(),
+          loadRolesByUid(period),
+        ]);
 
-    const accounts = usersSnapshot.docs.map((doc) =>
-      toAccountSummary(doc.id, doc.data(), rolesByUid.get(doc.id) ?? [])
-    );
-    accounts.sort(
-      (a, b) => a.name.localeCompare(b.name, "zh-Hant") || a.account.localeCompare(b.account)
+        const accounts = usersSnapshot.docs.map((doc) =>
+          toAccountSummary(doc.id, doc.data(), rolesByUid.get(doc.id) ?? [])
+        );
+        accounts.sort(
+          (a, b) => a.name.localeCompare(b.name, "zh-Hant") || a.account.localeCompare(b.account)
+        );
+        return { accounts, period };
+      }
     );
 
     return NextResponse.json(
-      { success: true, accounts, period },
+      { success: true, ...payload },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
@@ -259,15 +267,11 @@ export async function POST(request: NextRequest) {
     }
 
     const period = rosterSection ? await getCurrentPeriod() : null;
-    // 建立身分時需連同學號查重（學號索引取自本學期該身分名冊）
-    const index =
-      rosterSection && period
-        ? await loadRosterIndex(rosterSection.role, period)
-        : await loadAccountIndex();
-    const conflict = checkRosterConflict(
+    // 建立身分時一併查同學號（同身分、本學期）；單筆只做精準查詢，不整表建索引（鐵律 3）
+    const conflict = await checkAccountConflictDirect(
       result.account,
       rosterValidation?.ok ? rosterValidation.roster : {},
-      index
+      rosterSection && period ? { role: rosterSection.role, period } : {}
     );
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
@@ -308,6 +312,7 @@ export async function POST(request: NextRequest) {
     }
 
     const rosterLabel = rosterSection ? `、同時建立本學期${rosterRoleLabel(rosterSection.role)}身分` : "";
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -366,8 +371,8 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: "查無此筆資料" }, { status: 404 });
     }
 
-    const index = await loadAccountIndex(uid);
-    const conflict = checkRosterConflict(result.account, {}, index);
+    // 精準查重（排除自己），不整表建索引（鐵律 3）
+    const conflict = await checkAccountConflictDirect(result.account, {}, { excludeUid: uid });
     if (conflict) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
@@ -418,6 +423,7 @@ export async function PUT(request: NextRequest) {
       : 0;
     const linkedLabel = linked > 0 ? `，已銜接名冊 ${linked} 筆` : "";
 
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -473,6 +479,7 @@ export async function PATCH(request: NextRequest) {
     await ref.update({ status });
 
     const account = snap.data() || {};
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -565,6 +572,7 @@ export async function DELETE(request: NextRequest) {
       if (deletes > 0) await batch.commit();
     }
 
+    invalidateReadCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
