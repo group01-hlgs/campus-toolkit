@@ -233,7 +233,7 @@ export default function ClassesPage() {
                           }
                           aria-label={`查看「${row.name}」學生名單`}
                           title={`查看「${row.name}」學生名單`}
-                          className="group inline-flex items-center align-middle ml-1.5 text-t3 hover:text-t1 cursor-pointer"
+                          className="group icon-link inline-flex items-center align-middle ml-1.5 cursor-pointer"
                         >
                           <svg
                             className="w-4 h-4 transition-transform group-hover:translate-x-0.5"

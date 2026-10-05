@@ -155,6 +155,20 @@ button:disabled, [type="submit"]:disabled, [type="button"]:disabled {
   opacity: 1;
 }
 
+/* 純圖示入口按鈕：蓋過全域按鈕外框與底色，只留圖示本身（如班級列表的進入連結） */
+.icon-link {
+  background: transparent;
+  border: none;
+  color: var(--t3);
+  opacity: 1;
+}
+
+.icon-link:hover {
+  background: transparent;
+  color: var(--t1);
+  opacity: 1;
+}
+
 /* 連結主題 */
 a {
   color: var(--link);
