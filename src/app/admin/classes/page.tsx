@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
+import ModuleIcon from "@/components/ModuleIcon";
 
 type VocField = { code: string; name: string } | null;
 
@@ -235,20 +236,10 @@ export default function ClassesPage() {
                           title={`查看「${row.name}」學生名單`}
                           className="group icon-link inline-flex items-center align-middle ml-1.5 cursor-pointer"
                         >
-                          <svg
+                          <ModuleIcon
+                            value="roster"
                             className="w-4 h-4 transition-transform group-hover:translate-x-0.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
-                            aria-hidden="true"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"
-                            />
-                          </svg>
+                          />
                         </button>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-t3">{row.group?.name || "—"}</td>
