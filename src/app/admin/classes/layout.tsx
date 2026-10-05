@@ -83,7 +83,7 @@ export default function ClassesLayout({ children }: { children: ReactNode }) {
       <div className="w-full max-w-4xl mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">班級管理</h2>
         <p className="text-sm text-t3 mt-1">
-          當期各年級班級與每班學生人數，點選班級名稱可查看該班學生名單；班級結構維護於「學校基本設定
+          當期各年級班級與每班學生人數，班級名稱旁的箭頭可查看該班學生名單；班級結構維護於「學校基本設定
           → 年段班級設定」。
         </p>
       </div>

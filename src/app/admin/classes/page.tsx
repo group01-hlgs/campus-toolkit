@@ -225,6 +225,7 @@ export default function ClassesPage() {
                       <td className="px-3 py-2 whitespace-nowrap">{row.gradeName}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{row.code}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
+                        <span className="font-medium text-t1">{row.name}</span>
                         <button
                           type="button"
                           onClick={() =>
@@ -232,9 +233,8 @@ export default function ClassesPage() {
                           }
                           aria-label={`查看「${row.name}」學生名單`}
                           title={`查看「${row.name}」學生名單`}
-                          className="group inline-flex items-center gap-1 font-medium text-t1 hover:text-t2 cursor-pointer"
+                          className="group inline-flex items-center align-middle ml-1.5 text-t3 hover:text-t1 cursor-pointer"
                         >
-                          {row.name}
                           <svg
                             className="w-4 h-4 transition-transform group-hover:translate-x-0.5"
                             fill="none"
