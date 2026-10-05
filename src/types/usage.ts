@@ -39,6 +39,8 @@ export interface UsageSection {
   hint: string | null;
   /** 資料抓取時間（ISO 8601） */
   fetchedAt: string;
+  /** 成功時的補充說明（如「查無明細」「以帳號 id 查詢」），頁面以提示條顯示 */
+  note?: string | null;
 }
 
 /** Vercel 本月（計費週期）用量 */

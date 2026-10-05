@@ -294,11 +294,16 @@ export default function StatsPage() {
             }
           />
           {vercel.ok ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {vercel.metrics.map((metric) => (
-                <QuotaBar key={metric.key} metric={metric} hint={metric.limit === null ? "此項目無免費額度或按量計費" : undefined} />
-              ))}
-            </div>
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {vercel.metrics.map((metric) => (
+                  <QuotaBar key={metric.key} metric={metric} hint={metric.limit === null ? "此項目無免費額度或按量計費" : undefined} />
+                ))}
+              </div>
+              {vercel.note && (
+                <div className="mt-3 p-3 text-xs whitespace-pre-wrap alert-info text-t2">{vercel.note}</div>
+              )}
+            </>
           ) : (
             <NoticeBox tone={vercel.configured ? "danger" : "info"} message={vercel.message} hint={vercel.hint} />
           )}
