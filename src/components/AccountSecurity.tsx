@@ -43,7 +43,7 @@ interface AccountProfile {
   fields: Record<string, string>;
   /** 慣用身分：多身分共用帳號時登入預設進入的身分（空字串＝未設定） */
   preferredRole: string;
-  /** 同一帳號／信箱同時存在的身分（僅一個時不顯示慣用身分設定） */
+  /** 同一帳號／信箱同時存在的身分（僅一個時「身分」卡改顯示唯讀的目前身分） */
   roleOptions: UserRole[];
 }
 
@@ -94,7 +94,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
 
-  // 帳密管理
+  // 帳號與安全（帳密資料）
   const [email, setEmail] = useState("");
   const [account, setAccount] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -206,7 +206,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     setTotpSecret(next.totpSecret || "");
   }
 
-  // ── 帳密管理：欄位的即時驗證資料（四個身分共用同一份元件） ──
+  // ── 帳號與安全：欄位的即時驗證資料（四個身分共用同一份元件） ──
   const emailValue = email.trim();
   const accountValue = account.trim();
   // 已存的值：用來判斷「是否已被修改」，未修改的值（＝自己的值）不查重
@@ -225,7 +225,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
   const accountChanged = loaded && accountValue !== storedAccount;
   const storedPreferredRole = profile ? profile.preferredRole || "" : "";
   const preferredChanged = loaded && preferredRole !== storedPreferredRole;
-  // 慣用身分僅在同一組帳號／信箱具備多個身分時才需要設定
+  // 同一組帳號／信箱具備多個身分時才開放設定慣用身分，否則身分卡僅顯示目前身分
   const roleOptions = profile ? profile.roleOptions : [];
   // 即時查重結果（僅在值真的變更時才算數）
   const emailTaken = emailChanged && emailDup === "taken";
@@ -330,7 +330,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     }, 1000);
   }
 
-  /** 帳密管理：儲存電子郵件地址／帳號（可一併變更密碼） */
+  /** 帳號與安全（帳密區）：儲存電子郵件地址／帳號（可一併變更密碼） */
   async function handleSaveAccount(e: FormEvent) {
     e.preventDefault();
     setAccountFlash(null);
@@ -438,7 +438,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     }
   }
 
-  /** 慣用身分卡：獨立儲存（僅多身分帳號顯示此卡） */
+  /** 身分卡：獨立儲存（僅多身分帳號開放設定） */
   async function handleSavePreferredRole(e: FormEvent) {
     e.preventDefault();
     setPreferredFlash(null);
@@ -659,108 +659,14 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
         </div>
       </div>
 
-      {/* 帳密管理卡 */}
-      <form
-        onSubmit={handleSaveAccount}
-        noValidate
-        className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4"
-      >
-        <h3 className="font-bold text-t1 mb-4">帳密管理</h3>
-
-        {accountFlash && (
-          <p className={`text-sm mb-3 ${messageClass(accountFlash.type)}`}>{accountFlash.text}</p>
-        )}
-
-        <label className="block text-sm text-t2 mb-1">電子郵件地址</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          readOnly={emailLocked}
-          aria-readonly={emailLocked}
-          aria-invalid={emailInputInvalid || undefined}
-          placeholder={emailValue ? "" : "請輸入電子郵件地址"}
-          className={`w-full input-theme rounded px-4 py-2 mb-1${emailLocked ? " opacity-60 cursor-not-allowed" : ""}${emailInputInvalid ? " is-invalid" : ""}`}
-          autoComplete="email"
-        />
-        <div className="mb-4 space-y-1">
-          <p className="text-xs text-t3">可留空（與帳號至少填一個）；電子郵件若為 Gmail，可以透過 Google 登入</p>
-          {identifierEmpty && (
-            <p className="text-xs text-danger font-medium">{ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE}</p>
-          )}
-          {emailNotice && <p className={`text-xs ${emailNotice.className}`}>{emailNotice.text}</p>}
-          {emailFeedback && <p className={`text-xs ${emailFeedback.className}`}>{emailFeedback.text}</p>}
-        </div>
-
-        <label className="block text-sm text-t2 mb-1">帳號</label>
-        <input
-          type="text"
-          value={account}
-          onChange={(e) => setAccount(e.target.value)}
-          aria-invalid={accountInputInvalid || undefined}
-          className={`w-full input-theme rounded px-4 py-2 mb-1${accountInputInvalid ? " is-invalid" : ""}`}
-          autoComplete="username"
-        />
-        <div className="mb-4 space-y-1">
-          <p className="text-xs text-t3">可留空（與電子郵件至少填一個）；限 2-64 字元的小寫英文、數字與 . _ @ -</p>
-          {accountFeedback && <p className={`text-xs ${accountFeedback.className}`}>{accountFeedback.text}</p>}
-        </div>
-
-        <h4 className="font-bold text-t1 mb-3">變更密碼</h4>
-        <p className="text-xs text-t3 mb-3">
-          已登入狀態下即可變更，不需輸入目前密碼；變更完成後其他裝置的登入狀態會自動失效。
-        </p>
-
-        <label className="block text-sm text-t2 mb-1">新密碼（留空則不變更）</label>
-        <div className="relative mb-3">
-          <input
-            type={showNew ? "text" : "password"}
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            className="w-full input-theme rounded px-4 py-2 pr-12"
-            autoComplete="new-password"
-          />
-          <PasswordToggleButton
-            visible={showNew}
-            onToggle={() => setShowNew(!showNew)}
-            label="顯示或隱藏新密碼"
-          />
-        </div>
-
-        <label className="block text-sm text-t2 mb-1">確認新密碼</label>
-        <div className="relative mb-2">
-          <input
-            type={showConfirm ? "text" : "password"}
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full input-theme rounded px-4 py-2 pr-12"
-            autoComplete="new-password"
-          />
-          <PasswordToggleButton
-            visible={showConfirm}
-            onToggle={() => setShowConfirm(!showConfirm)}
-            label="顯示或隱藏確認新密碼"
-          />
-        </div>
-        <p className="text-xs text-t3 mb-4">{PASSWORD_REQUIREMENT_MESSAGE}</p>
-
-        <button
-          type="submit"
-          disabled={loading || savingAccount || accountBlocked}
-          className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
-        >
-          {savingAccount ? "儲存中..." : "儲存帳密資料"}
-        </button>
-      </form>
-
-      {/* 慣用身分卡：同一組帳號／信箱具備多個身分時才顯示，獨立於帳密管理儲存 */}
-      {roleOptions.length > 1 && (
+      {/* 身分卡：多身分帳號可設定登入預設進入的身分；單一身分帳號顯示目前身分 */}
+      {roleOptions.length > 1 ? (
         <form
           onSubmit={handleSavePreferredRole}
           noValidate
           className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4"
         >
-          <h3 className="font-bold text-t1 mb-4">慣用身分</h3>
+          <h3 className="font-bold text-t1 mb-4">身分</h3>
 
           {preferredFlash && (
             <p className={`text-sm mb-3 ${messageClass(preferredFlash.type)}`}>{preferredFlash.text}</p>
@@ -793,83 +699,185 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
             {savingPreferred ? "儲存中..." : "儲存慣用身分"}
           </button>
         </form>
+      ) : (
+        <div className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4">
+          <h3 className="font-bold text-t1 mb-4">身分</h3>
+          <p className="text-sm mb-2">
+            <span className="text-t2">目前身分：</span>
+            <span className="text-t1">{roleLabel}</span>
+          </p>
+          <p className="text-xs text-t3">此帳號只具備單一身分，登入時將直接以此身分進入。</p>
+        </div>
       )}
 
-      {/* 兩階段驗證卡 */}
-      <form onSubmit={handleSaveTwoFactor} className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4">
-        <h3 className="font-bold text-t1 mb-4">兩階段驗證</h3>
+      {/* 帳號與安全卡：帳密資料與兩階段驗證，各自為獨立表單、分開儲存 */}
+      <div className="w-full max-w-2xl border border-themed rounded-lg p-6 mb-4">
+        <h3 className="font-bold text-t1 mb-4">帳號與安全</h3>
 
-        {twoFactorFlash && (
-          <p className={`text-sm mb-3 ${messageClass(twoFactorFlash.type)}`}>{twoFactorFlash.text}</p>
-        )}
+        <form onSubmit={handleSaveAccount} noValidate>
+          {accountFlash && (
+            <p className={`text-sm mb-3 ${messageClass(accountFlash.type)}`}>{accountFlash.text}</p>
+          )}
 
-        <label className="block text-sm text-t2 mb-1">驗證方式</label>
-        <select
-          value={twoFactor}
-          onChange={(e) => setTwoFactor(e.target.value)}
-          className="w-full input-theme rounded px-4 py-2 mb-2"
-        >
-          {TWO_FACTOR_METHODS.map((method) => (
-            <option
-              key={method.value}
-              value={method.value}
-              disabled={REQUIRES_EMAIL_METHODS.includes(method.value) && !emailValue}
-            >
-              {method.label}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-t3 mb-4">
-          {twoFactor === "email_otp" && profile
-            ? profile.email
-              ? `驗證碼將寄送至 ${profile.email}`
-              : "此帳號尚無電子郵件地址，請先到「帳密管理」填寫信箱"
-            : twoFactor === "email_notify"
-              ? "每次登入成功後寄送通知信，不影響登入流程"
-              : twoFactor === "totp"
-                ? "請使用驗證器 App（如 Google Authenticator、Microsoft Authenticator）掃描下方 QR Code"
-                : "關閉後僅以帳號密碼登入"}
-        </p>
-
-        {twoFactor === "totp" && (
-          <div className="mb-4 border border-themed rounded p-4">
-            {qrDataUrl ? (
-              <img
-                src={qrDataUrl}
-                alt="TOTP QR Code"
-                className="w-40 h-40 mx-auto mb-3 rounded"
-                style={{ background: "#ffffff" }}
-              />
-            ) : (
-              <p className="text-sm text-t3 text-center mb-3">
-                {otpauthUrl ? "QR Code 產生中..." : "儲存後將自動產生 TOTP 密鑰"}
-              </p>
+          <label className="block text-sm text-t2 mb-1">電子郵件地址</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            readOnly={emailLocked}
+            aria-readonly={emailLocked}
+            aria-invalid={emailInputInvalid || undefined}
+            placeholder={emailValue ? "" : "請輸入電子郵件地址"}
+            className={`w-full input-theme rounded px-4 py-2 mb-1${emailLocked ? " opacity-60 cursor-not-allowed" : ""}${emailInputInvalid ? " is-invalid" : ""}`}
+            autoComplete="email"
+          />
+          <div className="mb-4 space-y-1">
+            <p className="text-xs text-t3">可留空（與帳號至少填一個）；電子郵件若為 Gmail，可以透過 Google 登入</p>
+            {identifierEmpty && (
+              <p className="text-xs text-danger font-medium">{ACCOUNT_IDENTIFIER_REQUIRED_MESSAGE}</p>
             )}
-            <p className="text-xs text-t3 mb-1 break-all">
-              金鑰：<span className="font-mono text-t1">{totpSecret || "（尚未產生）"}</span>
-            </p>
-            <p className="text-xs text-t3 mb-3">
-              無法掃描時，可手動將金鑰與帳號加入驗證器 App（型別 TOTP、6 碼、30 秒）。
-            </p>
-            <button
-              type="button"
-              onClick={handleRegenerateSecret}
-              disabled={loading || savingTwoFactor || !totpSecret}
-              className="btn-theme rounded px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-            >
-              重新產生密鑰
-            </button>
+            {emailNotice && <p className={`text-xs ${emailNotice.className}`}>{emailNotice.text}</p>}
+            {emailFeedback && <p className={`text-xs ${emailFeedback.className}`}>{emailFeedback.text}</p>}
           </div>
-        )}
 
-        <button
-          type="submit"
-          disabled={loading || savingTwoFactor}
-          className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
-        >
-          {savingTwoFactor ? "儲存中..." : "儲存設定"}
-        </button>
-      </form>
+          <label className="block text-sm text-t2 mb-1">帳號</label>
+          <input
+            type="text"
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+            aria-invalid={accountInputInvalid || undefined}
+            className={`w-full input-theme rounded px-4 py-2 mb-1${accountInputInvalid ? " is-invalid" : ""}`}
+            autoComplete="username"
+          />
+          <div className="mb-4 space-y-1">
+            <p className="text-xs text-t3">可留空（與電子郵件至少填一個）；限 2-64 字元的小寫英文、數字與 . _ @ -</p>
+            {accountFeedback && <p className={`text-xs ${accountFeedback.className}`}>{accountFeedback.text}</p>}
+          </div>
+
+          <h4 className="font-bold text-t1 mb-3">變更密碼</h4>
+          <p className="text-xs text-t3 mb-3">
+            已登入狀態下即可變更，不需輸入目前密碼；變更完成後其他裝置的登入狀態會自動失效。
+          </p>
+
+          <label className="block text-sm text-t2 mb-1">新密碼（留空則不變更）</label>
+          <div className="relative mb-3">
+            <input
+              type={showNew ? "text" : "password"}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full input-theme rounded px-4 py-2 pr-12"
+              autoComplete="new-password"
+            />
+            <PasswordToggleButton
+              visible={showNew}
+              onToggle={() => setShowNew(!showNew)}
+              label="顯示或隱藏新密碼"
+            />
+          </div>
+
+          <label className="block text-sm text-t2 mb-1">確認新密碼</label>
+          <div className="relative mb-2">
+            <input
+              type={showConfirm ? "text" : "password"}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full input-theme rounded px-4 py-2 pr-12"
+              autoComplete="new-password"
+            />
+            <PasswordToggleButton
+              visible={showConfirm}
+              onToggle={() => setShowConfirm(!showConfirm)}
+              label="顯示或隱藏確認新密碼"
+            />
+          </div>
+          <p className="text-xs text-t3 mb-4">{PASSWORD_REQUIREMENT_MESSAGE}</p>
+
+          <button
+            type="submit"
+            disabled={loading || savingAccount || accountBlocked}
+            className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {savingAccount ? "儲存中..." : "儲存帳密資料"}
+          </button>
+        </form>
+
+        <hr className="border-themed my-4" />
+
+        <form onSubmit={handleSaveTwoFactor}>
+          <h4 className="font-bold text-t1 mb-3">兩階段驗證</h4>
+
+          {twoFactorFlash && (
+            <p className={`text-sm mb-3 ${messageClass(twoFactorFlash.type)}`}>{twoFactorFlash.text}</p>
+          )}
+
+          <label className="block text-sm text-t2 mb-1">驗證方式</label>
+          <select
+            value={twoFactor}
+            onChange={(e) => setTwoFactor(e.target.value)}
+            className="w-full input-theme rounded px-4 py-2 mb-2"
+          >
+            {TWO_FACTOR_METHODS.map((method) => (
+              <option
+                key={method.value}
+                value={method.value}
+                disabled={REQUIRES_EMAIL_METHODS.includes(method.value) && !emailValue}
+              >
+                {method.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-t3 mb-4">
+            {twoFactor === "email_otp" && profile
+              ? profile.email
+                ? `驗證碼將寄送至 ${profile.email}`
+                : "此帳號尚無電子郵件地址，請先在上方填寫信箱"
+              : twoFactor === "email_notify"
+                ? "每次登入成功後寄送通知信，不影響登入流程"
+                : twoFactor === "totp"
+                  ? "請使用驗證器 App（如 Google Authenticator、Microsoft Authenticator）掃描下方 QR Code"
+                  : "關閉後僅以帳號密碼登入"}
+          </p>
+
+          {twoFactor === "totp" && (
+            <div className="mb-4 border border-themed rounded p-4">
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt="TOTP QR Code"
+                  className="w-40 h-40 mx-auto mb-3 rounded"
+                  style={{ background: "#ffffff" }}
+                />
+              ) : (
+                <p className="text-sm text-t3 text-center mb-3">
+                  {otpauthUrl ? "QR Code 產生中..." : "儲存後將自動產生 TOTP 密鑰"}
+                </p>
+              )}
+              <p className="text-xs text-t3 mb-1 break-all">
+                金鑰：<span className="font-mono text-t1">{totpSecret || "（尚未產生）"}</span>
+              </p>
+              <p className="text-xs text-t3 mb-3">
+                無法掃描時，可手動將金鑰與帳號加入驗證器 App（型別 TOTP、6 碼、30 秒）。
+              </p>
+              <button
+                type="button"
+                onClick={handleRegenerateSecret}
+                disabled={loading || savingTwoFactor || !totpSecret}
+                className="btn-theme rounded px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                重新產生密鑰
+              </button>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || savingTwoFactor}
+            className="w-full btn-primary rounded py-2 font-medium transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {savingTwoFactor ? "儲存中..." : "儲存設定"}
+          </button>
+        </form>
+      </div>
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
       <div className="w-full max-w-2xl flex justify-start gap-2 mb-4">{actionButtons}</div>
@@ -888,7 +896,7 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
       {/* 進頁載入遮罩：帳號資料與系統設定到齊前擋住操作，避免搶快使用功能而繞過尚未載入的限制 */}
       {loading && <BlockingMask text="資料載入中，請稍候…" />}
 
-      {/* 儲存遮罩：帳密管理、慣用身分與兩階段驗證儲存期間覆蓋畫面、阻擋重複操作 */}
+      {/* 儲存遮罩：帳號與安全、身分儲存期間覆蓋畫面、阻擋重複操作 */}
       {(savingAccount || savingPreferred || savingTwoFactor) && (
         <BlockingMask text="儲存中，請稍候…" />
       )}

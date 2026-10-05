@@ -34,7 +34,7 @@ export function isValidAccount(value: unknown): boolean {
   return normalizeAccount(value) !== null;
 }
 
-/** 帳密管理卡即時驗證訊息（客戶端與伺服器共用，兩側文字需一致） */
+/** 帳號與安全卡即時驗證訊息（客戶端與伺服器共用，兩側文字需一致） */
 export const EMAIL_FORMAT_MESSAGE = "電子郵件格式無效，例如 name@example.com";
 export const ACCOUNT_FORMAT_MESSAGE =
   "帳號格式無效：2-64 字元，限小寫英文、數字與 . _ @ -";

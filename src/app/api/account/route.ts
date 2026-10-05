@@ -52,7 +52,7 @@ export interface AccountProfile {
   fields: Record<string, string>;
   /** 慣用身分：多身分共用帳號時登入預設進入的身分（空字串＝未設定） */
   preferredRole: string;
-  /** 慣用身分可選範圍：當期名冊中有效的身分（僅一個時介面不顯示設定） */
+  /** 慣用身分可選範圍：當期名冊中有效的身分（僅一個時介面改顯示目前身分） */
   roleOptions: UserRole[];
 }
 

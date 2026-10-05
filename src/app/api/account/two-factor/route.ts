@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "此帳號尚無電子郵件地址，請先到「帳密管理」填寫信箱，或改用驗證碼APP",
+          message: "此帳號尚無電子郵件地址，請先到「帳號與安全」填寫信箱，或改用驗證碼APP",
         },
         { status: 400 }
       );

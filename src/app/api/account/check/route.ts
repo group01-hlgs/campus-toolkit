@@ -8,7 +8,7 @@ import { USER_COLLECTION } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 
 /**
- * GET：帳密管理卡的即時查重（帳號與電子郵件全站唯一，排除自己）。
+ * GET：帳號與安全卡的即時查重（帳號與電子郵件全站唯一，排除自己）。
  * 參數可只給其中一項，未給或格式無效的欄位一律回 taken=false，
  * 格式錯誤由前端先擋，不在這裡回錯，避免輸入途中不斷收到 4xx。
  */
