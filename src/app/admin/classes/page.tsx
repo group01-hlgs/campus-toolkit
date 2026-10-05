@@ -224,7 +224,33 @@ export default function ClassesPage() {
                     <tr key={row.code} className="border-b border-themed last:border-0 text-t1">
                       <td className="px-3 py-2 whitespace-nowrap">{row.gradeName}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{row.code}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{row.name}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(`/admin/classes/${encodeURIComponent(row.code)}`)
+                          }
+                          aria-label={`查看「${row.name}」學生名單`}
+                          title={`查看「${row.name}」學生名單`}
+                          className="group inline-flex items-center gap-1 font-medium text-t1 hover:text-t2 cursor-pointer"
+                        >
+                          {row.name}
+                          <svg
+                            className="w-4 h-4 transition-transform group-hover:translate-x-0.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"
+                            />
+                          </svg>
+                        </button>
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap text-t3">{row.group?.name || "—"}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-t3">
                         {row.department?.name || "—"}
