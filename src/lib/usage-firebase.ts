@@ -1,7 +1,7 @@
 import "server-only";
 import { GoogleAuth } from "google-auth-library";
 import { parseServiceAccount } from "@/lib/firebase-admin";
-import type { FirebaseUsage, FirestoreDayUsage } from "@/types/usage";
+import type { FirebaseUsage, FirestoreDayUsage, UsageLink } from "@/types/usage";
 
 /**
  * Firebase（Firestore）用量抓取（僅伺服器端）。
@@ -72,6 +72,25 @@ gcloud services enable monitoring.googleapis.com --project=${projectId}
 
 或在 Console 開啟 https://console.cloud.google.com/apis/library/monitoring.googleapis.com?project=${projectId} 按「啟用」。
 啟用後約 1～2 分鐘生效，再重新整理本頁。`;
+}
+
+/**
+ * 官方用量頁連結（失敗／未設定時給管理人員自行查看額度）。
+ * 網址皆取自 Firebase／GCP 官方文件的 Console 連結，專案 id 未知時用 `_`（Console 會讓你選專案）。
+ */
+function firebaseUsageLinks(projectId: string): UsageLink[] {
+  const id = projectId || "_";
+  return [
+    {
+      label: "Firebase 控制台・Firestore 用量（讀／寫／刪，太平洋日重置）",
+      url: `https://console.firebase.google.com/project/${id}/firestore/usage`,
+    },
+    { label: "Firebase 控制台・用量與帳單", url: `https://console.firebase.google.com/project/${id}/usage` },
+    {
+      label: "Google Cloud・專案 Firestore 用量",
+      url: `https://console.cloud.google.com/firestore/project-usage?project=${encodeURIComponent(id)}`,
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +327,7 @@ function emptyUsage(partial?: Partial<FirebaseUsage>): FirebaseUsage {
     configured: false,
     message: null,
     hint: null,
+    links: [],
     fetchedAt: new Date().toISOString(),
     today: { reads: 0, writes: 0, deletes: 0 },
     limits: { ...FIRESTORE_FREE_LIMITS },
@@ -319,7 +339,12 @@ function emptyUsage(partial?: Partial<FirebaseUsage>): FirebaseUsage {
 async function loadFirebaseUsage(): Promise<FirebaseUsage> {
   const resolved = resolveCredentials();
   if (!resolved.ok) {
-    return emptyUsage({ configured: false, message: resolved.message, hint: SETUP_HINT });
+    return emptyUsage({
+      configured: false,
+      message: resolved.message,
+      hint: SETUP_HINT,
+      links: firebaseUsageLinks((process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "").trim()),
+    });
   }
 
   const now = new Date();
@@ -358,6 +383,7 @@ async function loadFirebaseUsage(): Promise<FirebaseUsage> {
             ? `Cloud Monitoring API 未啟用${reasonText}，無法讀取 Firestore 用量。`
             : `服務帳號缺少 Cloud Monitoring 權限${reasonText}（${status}），無法讀取 Firestore 用量。`,
           hint: `${apiDisabled ? apiDisabledHint(projectId) : permissionHint(projectId, resolved.credentials.clientEmail)}\n\n${diagnostics}`,
+          links: firebaseUsageLinks(projectId),
         });
       }
       const guidance =
@@ -372,6 +398,7 @@ async function loadFirebaseUsage(): Promise<FirebaseUsage> {
         configured: true,
         message: `讀取 Firestore 用量失敗：Cloud Monitoring API 回 ${status}${message ? `：${message}` : ""}`,
         hint: `${guidance}\n\n${diagnostics}`,
+        links: firebaseUsageLinks(projectId),
       });
     }
 
@@ -401,6 +428,7 @@ async function loadFirebaseUsage(): Promise<FirebaseUsage> {
       configured: true,
       message: `讀取 Firestore 用量失敗：${msg}`,
       hint: permissionHint(projectId, resolved.credentials.clientEmail),
+      links: firebaseUsageLinks(projectId),
     });
   }
 }

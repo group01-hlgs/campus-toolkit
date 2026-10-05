@@ -6,6 +6,7 @@ import {
   type FirebaseUsage,
   type QuotaMetric,
   type StatsResponse,
+  type UsageLink,
   type VercelUsage,
 } from "@/types/usage";
 
@@ -84,17 +85,19 @@ function QuotaBar({ metric, hint }: { metric: QuotaMetric; hint?: string }) {
   );
 }
 
-/** 未設定／失敗提示（附設定指引） */
+/** 未設定／失敗提示（附設定指引與官方用量頁連結） */
 function NoticeBox({
   tone,
   message,
   hint,
+  links,
 }: {
   tone: "info" | "danger";
   message: string | null;
   hint: string | null;
+  links?: UsageLink[];
 }) {
-  if (!message && !hint) return null;
+  if (!message && !hint && !links?.length) return null;
   return (
     <div className={`p-4 text-sm whitespace-pre-wrap ${tone === "danger" ? "alert-danger" : "alert-info"} text-t2`}>
       {message}
@@ -103,6 +106,24 @@ function NoticeBox({
           {"\n\n"}
           {hint}
         </>
+      )}
+      {links && links.length > 0 && (
+        <div className="mt-3 whitespace-normal">
+          <p className="mb-1.5">額度與用量請到官方頁面自行查看：</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {links.map((link) => (
+              <a
+                key={link.url}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2"
+              >
+                {link.label} ↗
+              </a>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -303,9 +324,30 @@ export default function StatsPage() {
               {vercel.note && (
                 <div className="mt-3 p-3 text-xs whitespace-pre-wrap alert-info text-t2">{vercel.note}</div>
               )}
+              {!!vercel.links?.length && (
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-t3">
+                  <span>官方用量頁：</span>
+                  {vercel.links.map((link) => (
+                    <a
+                      key={link.url}
+                      href={link.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-2"
+                    >
+                      {link.label} ↗
+                    </a>
+                  ))}
+                </div>
+              )}
             </>
           ) : (
-            <NoticeBox tone={vercel.configured ? "danger" : "info"} message={vercel.message} hint={vercel.hint} />
+            <NoticeBox
+              tone={vercel.configured ? "danger" : "info"}
+              message={vercel.message}
+              hint={vercel.hint}
+              links={vercel.links}
+            />
           )}
         </section>
       )}
@@ -348,7 +390,12 @@ export default function StatsPage() {
               />
             </div>
           ) : (
-            <NoticeBox tone={firebase.configured ? "danger" : "info"} message={firebase.message} hint={firebase.hint} />
+            <NoticeBox
+              tone={firebase.configured ? "danger" : "info"}
+              message={firebase.message}
+              hint={firebase.hint}
+              links={firebase.links}
+            />
           )}
         </section>
       )}

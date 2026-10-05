@@ -28,6 +28,12 @@ export interface QuotaMetric {
   rawUnit?: string;
 }
 
+/** 官方用量頁連結（失敗／未設定時提供給管理人員自行查看） */
+export interface UsageLink {
+  label: string;
+  url: string;
+}
+
 /** 各資料來源共用的區塊狀態 */
 export interface UsageSection {
   ok: boolean;
@@ -41,6 +47,8 @@ export interface UsageSection {
   fetchedAt: string;
   /** 成功時的補充說明（如「查無明細」「以帳號 id 查詢」），頁面以提示條顯示 */
   note?: string | null;
+  /** 官方用量頁連結（失敗／未設定時顯示，供管理人員自行查看額度） */
+  links?: UsageLink[];
 }
 
 /** Vercel 本月（計費週期）用量 */

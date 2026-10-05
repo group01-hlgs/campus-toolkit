@@ -1,5 +1,5 @@
 import "server-only";
-import type { QuotaMetric, QuotaUnit, VercelUsage } from "@/types/usage";
+import type { QuotaMetric, QuotaUnit, UsageLink, VercelUsage } from "@/types/usage";
 
 /**
  * Vercel 用量抓取（僅伺服器端，`VERCEL_TOKEN` 不外流）。
@@ -175,12 +175,26 @@ function emptyUsage(partial?: Partial<VercelUsage>): VercelUsage {
     message: null,
     hint: null,
     note: null,
+    links: [],
     fetchedAt: new Date().toISOString(),
     plan: "hobby",
     period: { from: "", to: "" },
     metrics: [],
     ...partial,
   };
+}
+
+/** 官方用量頁連結（失敗／未設定時給管理人員自行查看；有團隊 slug 就給精準網址） */
+function vercelUsageLinks(teams: TeamInfo[] | null): UsageLink[] {
+  const preferred = [...(teams ?? [])].sort(
+    (a, b) => Number(b.plan === "hobby") - Number(a.plan === "hobby")
+  );
+  const slug = preferred.find((t) => t.slug)?.slug;
+  return [
+    slug
+      ? { label: `Vercel 官方用量頁（${slug}）`, url: `https://vercel.com/${slug}/~/usage` }
+      : { label: "Vercel 控制台 Dashboard（進去後選 Usage）", url: "https://vercel.com/dashboard" },
+  ];
 }
 
 /** token 僅顯示前綴（供診斷確認環境變數讀得到，不外洩完整值） */
@@ -364,6 +378,7 @@ async function loadVercelUsage(): Promise<VercelUsage> {
       plan,
       message: "尚未設定 Vercel Token，無法讀取 Vercel 用量。",
       hint: SETUP_HINT,
+      links: vercelUsageLinks(null),
     });
   }
 
@@ -405,7 +420,7 @@ async function loadVercelUsage(): Promise<VercelUsage> {
   const failures: { label: string; error: ApiError }[] = [];
   let outcome = await fetchCharges(makeUrl(candidates[0].apply), token);
   let used = candidates[0];
-  let usageUrl: string | null = null;
+  let knownTeams: TeamInfo[] | null = null;
 
   // 首次失敗（且 token 本身有效）→ 找出正確的團隊 scope 再逐個重試
   if (!outcome.ok && !teamId && !outcome.error.invalidToken) {
@@ -429,6 +444,7 @@ async function loadVercelUsage(): Promise<VercelUsage> {
 
     const { teams, status } = await fetchTeams(token);
     if (teams.length) {
+      knownTeams = teams;
       diagnostics.push(
         `- /v2/teams：${teams
           .map((t) => `${t.slug || t.name}(${t.id}${t.plan ? `，${t.plan}` : ""})`)
@@ -443,8 +459,6 @@ async function loadVercelUsage(): Promise<VercelUsage> {
           apply: (u) => u.searchParams.set("teamId", t.id),
         });
       }
-      const first = preferred[0];
-      if (first?.slug) usageUrl = `https://vercel.com/${first.slug}/~/usage`;
     } else {
       diagnostics.push(`- /v2/teams：失敗（${status ? `HTTP ${status}` : "連線錯誤"}）`);
     }
@@ -470,10 +484,13 @@ async function loadVercelUsage(): Promise<VercelUsage> {
       ...failures.map((f) => `- ${f.label} → HTTP ${f.error.status}：${f.error.detail}`),
       `- 狀態：${failures.map((f) => f.error.status).join(" → ")}`
     );
+    let teamsForLink = knownTeams;
+    if (!teamsForLink && !invalidToken) teamsForLink = (await fetchTeams(token)).teams;
+    const links = vercelUsageLinks(teamsForLink);
     const guidance = invalidToken
       ? TOKEN_GUIDANCE
       : noCosts
-        ? `此帳號在 Vercel 查無計費明細（costs_not_found）：計費 API 只回覆有帳單資料的帳號，免費 Hobby 個人帳號通常沒有帳單明細，因此無法以 API 讀取用量。${usageUrl ? `用量請到 Vercel 控制台查看：${usageUrl}` : "用量請到 Vercel 控制台的 Usage 頁人工查看。"}`
+        ? `此帳號在 Vercel 查無計費明細（costs_not_found）：計費 API 只回覆有帳單資料的帳號，免費 Hobby 個人帳號通常沒有帳單明細，因此無法以 API 讀取用量。額度請改看下方官方用量頁連結。`
         : statusGuidance(primary.status);
     return emptyUsage({
       configured: true,
@@ -481,6 +498,7 @@ async function loadVercelUsage(): Promise<VercelUsage> {
       period,
       message: `讀取 Vercel 用量失敗（HTTP ${primary.status}）：${primary.detail}`,
       hint: `${guidance}\n\n${diagnostics.join("\n")}${needsSetup ? `\n\n${SETUP_HINT}` : ""}`,
+      links,
     });
   }
 
@@ -490,7 +508,8 @@ async function loadVercelUsage(): Promise<VercelUsage> {
   if (used.suggest) {
     notes.push(`已自動以 ${used.label} 查詢（未設定 VERCEL_TEAM_ID）；建議設定 VERCEL_TEAM_ID=${used.suggest} 固定查詢對象。`);
   }
-  if (charges.length === 0) {
+  const zeroRows = charges.length === 0;
+  if (zeroRows) {
     notes.push("查詢成功，但此區間沒有任何計費明細——免費（Hobby）帳號通常沒有帳單資料，下列用量皆為 0。");
   }
   return {
@@ -499,6 +518,7 @@ async function loadVercelUsage(): Promise<VercelUsage> {
     message: null,
     hint: null,
     note: notes.length ? notes.join("\n") : null,
+    links: zeroRows ? vercelUsageLinks(knownTeams) : [],
     fetchedAt: new Date().toISOString(),
     plan,
     period,
