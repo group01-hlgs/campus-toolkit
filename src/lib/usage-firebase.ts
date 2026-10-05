@@ -49,10 +49,13 @@ const SETUP_HINT = `設定步驟：
 function permissionHint(projectId: string, clientEmail: string): string {
   return `服務帳號缺少 Cloud Monitoring 權限。兩種授予方式（任選其一）：
 
-【方式一·Console】
+【方式一·Google Cloud Console】
 1. 開啟 https://console.cloud.google.com/iam-admin/iam?project=${projectId}
-2. 找到 ${clientEmail} → 按鉛筆（編輯）→ 新增角色
-3. 選「Cloud Monitoring Viewer（Cloud Monitoring 檢視者）」→ 儲存
+   （是 Google Cloud Console 的「IAM」頁，不是 Firebase Console 的服務帳號頁——後者的角色清單只有 Firebase 相關角色）
+2. 找到 ${clientEmail} → 按鉛筆（編輯）→ 「新增角色」
+3. 搜尋框輸入 Monitoring Viewer（角色 ID：roles/monitoring.viewer，位於 Monitoring／Cloud Monitoring 分類下；
+   Console 顯示名稱是 Monitoring Viewer，不是「Cloud Monitoring Viewer」）→ 選取 → 儲存
+4. 若搜尋不到或無法儲存，代表你的帳號不是專案 Owner（授予角色需 Owner），請找專案 Owner 代為授予
 
 【方式二·gcloud】
 gcloud projects add-iam-policy-binding ${projectId} \\

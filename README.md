@@ -270,7 +270,7 @@ npm run dev
 | 變數 | 必填 | 說明 |
 |------|------|------|
 | `VERCEL_TOKEN` | 否 | Vercel Personal Access Token，用來讀取本月用量（`GET /v1/billing/charges`）。建立路徑：帳號設定的**齒輪圖示**（畫面右上角帳號選單 → Settings，**帳號層級**，不是全站設定、也不是專案的 Settings）→ 左側 **Tokens** → Create Token（**Scope 選 Full Account**——用量屬帳號／團隊層級，選單一專案讀不到） |
-| `VERCEL_TEAM_ID` | 團隊專案 | 團隊首頁網址 `team_xxx`；個人帳號專案可留空 |
+| `VERCEL_TEAM_ID` | 否 | 團隊首頁網址 `team_xxx`；可留空——首次查詢失敗時程式會自動用 `/v2/user` 與 `/v2/teams` 探索帳號底下的團隊並逐個重試（含個人 Hobby 團隊） |
 | `VERCEL_PLAN` | 否 | 對照的免費額度表：`hobby`（預設）或 `pro` |
 
 Firestore 用量走 Cloud Monitoring，**服務帳號需具 `roles/monitoring.viewer`**，否則儀表板會顯示授予指令：
@@ -280,6 +280,8 @@ gcloud projects add-iam-policy-binding <專案ID> \
   --member="serviceAccount:<FIREBASE_SERVICE_ACCOUNT_KEY 內的 client_email>" \
   --role="roles/monitoring.viewer"
 ```
+
+也可在 **Google Cloud Console**（不是 Firebase Console 的服務帳號頁）→ 左側「IAM」→ 找到該服務帳號 → 編輯 → 新增角色 → 搜尋 **Monitoring Viewer**（角色 ID `roles/monitoring.viewer`，位於 Monitoring／Cloud Monitoring 分類；Console 顯示名稱不是「Cloud Monitoring Viewer」）→ 儲存。授予角色需專案 **Owner**。
 
 ## Firebase 專案設定
 
