@@ -87,7 +87,7 @@ const PLAN_HINT = `額度表：
 （方案若非 Hobby，請設定環境變數 VERCEL_PLAN=hobby 或 pro 對照正確額度。）`;
 
 const SETUP_HINT = `設定步驟：
-1. 建立 Token：先找到「帳號設定」的齒輪圖示（畫面右上角帳號選單 → Settings），這是帳號層級的設定，不是全站設定、也不是專案的 Settings → 左側選單 Tokens → Create Token（建議選 Team scope、期限 Never expire）
+1. 建立 Token：先找到「帳號設定」的齒輪圖示（畫面右上角帳號選單 → Settings），這是帳號層級的設定，不是全站設定、也不是專案的 Settings → 左側選單 Tokens → Create Token（Scope 選 Full Account——用量屬帳號／團隊層級，選單一專案讀不到；期限建議 Never expire）
 2. 將 token 存入環境變數 VERCEL_TOKEN（Vercel 專案 Environment Variables 或本機 .env.local）
 3. 團隊專案另需 VERCEL_TEAM_ID（團隊首頁網址 team_xxx；個人專案可不設）
 4. 重新部署／重啟後再重新整理本頁
