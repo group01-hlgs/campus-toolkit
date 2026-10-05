@@ -269,7 +269,7 @@ npm run dev
 
 | 變數 | 必填 | 說明 |
 |------|------|------|
-| `VERCEL_TOKEN` | 否 | Vercel Personal Access Token（Settings → Tokens → Create Token，建議 Team scope），用來讀取本月用量（`GET /v1/billing/charges`） |
+| `VERCEL_TOKEN` | 否 | Vercel Personal Access Token，用來讀取本月用量（`GET /v1/billing/charges`）。建立路徑：帳號設定的**齒輪圖示**（畫面右上角帳號選單 → Settings，**帳號層級**，不是全站設定、也不是專案的 Settings）→ 左側 **Tokens** → Create Token（建議 Team scope） |
 | `VERCEL_TEAM_ID` | 團隊專案 | 團隊首頁網址 `team_xxx`；個人帳號專案可留空 |
 | `VERCEL_PLAN` | 否 | 對照的免費額度表：`hobby`（預設）或 `pro` |
 
