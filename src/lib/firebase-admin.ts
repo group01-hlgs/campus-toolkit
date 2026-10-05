@@ -7,7 +7,8 @@ let adminApp: App | null = null;
 let adminDb: Firestore | null = null;
 let adminAuth: Auth | null = null;
 
-function parseServiceAccount(raw: string): ServiceAccount {
+/** 解析 `FIREBASE_SERVICE_ACCOUNT_KEY`（純 JSON／引號包覆 JSON／base64 皆可）；「統計儀表板」取用以呼叫 Cloud Monitoring */
+export function parseServiceAccount(raw: string): ServiceAccount {
   let text = raw.trim();
 
   // 去掉可能包在外面的一層引號

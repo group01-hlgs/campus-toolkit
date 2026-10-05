@@ -129,7 +129,7 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
  * 新增／調整模組請改註冊表，此處只做投影，不要另立清單。
  * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示；
  * 另見 BASE_ADMIN_MODULES（scope＝core：系統設定）＝不需指派的基本模組，每位管理員皆有；
- * SUPER_ONLY_ADMIN_MODULES（scope＝superOnly：學校基本設定、功能模組管理）＝僅超級管理員可用，不開放指派。
+ * SUPER_ONLY_ADMIN_MODULES（scope＝superOnly：學校基本設定、功能模組管理、統計儀表板）＝僅超級管理員可用，不開放指派。
  */
 export type AdminModule = ModuleValue;
 

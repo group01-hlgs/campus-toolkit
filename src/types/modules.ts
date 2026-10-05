@@ -17,7 +17,7 @@
  * - `href`：入口路由，空字串＝尚未建頁（如僅 API 已上線的稽核紀錄）；
  * - `children`：子功能入口，空陣列＝無子功能；
  * - `scope`：core＝核心（不需指派、每位管理員皆有）；assignable＝可指派；superOnly＝僅超級管理員
- *   （含學校基本設定與功能模組管理——入口卡片、頁面與 API 皆只對超級開放）；
+ *   （含學校基本設定、功能模組管理與統計儀表板——入口卡片、頁面與 API 皆只對超級開放）；
  * - `status`：built＝已上線；apiOnly＝API 已上線、頁面未建；planned＝規劃中。
  */
 
@@ -124,6 +124,16 @@ export const MODULES = [
     scope: "superOnly",
     status: "built",
     href: "/admin/modules",
+    children: [],
+  },
+  {
+    value: "stats",
+    label: "統計儀表板",
+    category: "系統與紀錄",
+    description: "檢視 Vercel 與 Firebase（Firestore）的用量，對照免費額度與近期趨勢。",
+    scope: "superOnly",
+    status: "built",
+    href: "/admin/stats",
     children: [],
   },
 ] as const satisfies readonly ModuleMeta[];

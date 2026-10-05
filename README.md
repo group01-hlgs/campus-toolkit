@@ -263,6 +263,24 @@ npm run dev
 | `APP_BASE_URL` | 正式環境建議 | 站台對外網址，用於信件中的重設連結。未設定時改用請求來源，Host 遭偽造可能使連結指向攻擊者網域 |
 | `TRUST_PROXY` | 否 | 僅在可信反向代理／平台（如 Vercel，自動 `VERCEL=1`）覆寫 forwarding header 時設 `true`；直接 `next start` 暴露請維持不設 |
 
+### 統計儀表板（`/admin/stats`，僅超級管理員）
+
+不設定也能使用，只是儀表板會改顯示「設定指引」卡而非實際用量。
+
+| 變數 | 必填 | 說明 |
+|------|------|------|
+| `VERCEL_TOKEN` | 否 | Vercel Personal Access Token（Settings → Tokens → Create Token，建議 Team scope），用來讀取本月用量（`GET /v1/billing/charges`） |
+| `VERCEL_TEAM_ID` | 團隊專案 | 團隊首頁網址 `team_xxx`；個人帳號專案可留空 |
+| `VERCEL_PLAN` | 否 | 對照的免費額度表：`hobby`（預設）或 `pro` |
+
+Firestore 用量走 Cloud Monitoring，**服務帳號需具 `roles/monitoring.viewer`**，否則儀表板會顯示授予指令：
+
+```bash
+gcloud projects add-iam-policy-binding <專案ID> \
+  --member="serviceAccount:<FIREBASE_SERVICE_ACCOUNT_KEY 內的 client_email>" \
+  --role="roles/monitoring.viewer"
+```
+
 ## Firebase 專案設定
 
 1. **建立專案**：Firebase Console 新增專案（Analytics 可關）。
