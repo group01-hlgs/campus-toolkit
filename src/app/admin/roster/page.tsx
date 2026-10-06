@@ -265,6 +265,7 @@ export default function RosterPage() {
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
   // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留，切換身分不重問）
+  // 寫入後僅在列表已顯示時才重整；閘門仍關著時不自動載入
   const [loadedRole, setLoadedRole] = useState<RosterRole | null>(null);
   const gating = saverOn && loadedRole === null;
   const [flash, setFlash] = useState<Flash>(null);
@@ -601,7 +602,8 @@ export default function RosterPage() {
       setLinkTarget(null);
       setFlash({ type: "success", text: message });
       showSuccessModal(message);
-      await loadMembers(role);
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadMembers(role);
     } catch (error) {
       setLinkError(error instanceof Error ? error.message : "銜接失敗");
     } finally {
@@ -693,7 +695,8 @@ export default function RosterPage() {
       setFlash({ type: "success", text: data.message || "已儲存" });
       showSuccessModal(data.message || "已儲存");
       closeForm();
-      await loadMembers(role);
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadMembers(role);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "儲存失敗");
     } finally {
@@ -728,7 +731,8 @@ export default function RosterPage() {
       setFlash({ type: "success", text: data.message || "已刪除" });
       showSuccessModal(data.message || "已刪除");
       if (editingUid === member.uid) closeForm();
-      await loadMembers(role);
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadMembers(role);
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
@@ -768,7 +772,8 @@ export default function RosterPage() {
       setFlash({ type: "success", text: data.message || "狀態已更新" });
       showSuccessModal(data.message || "狀態已更新");
       if (editingUid === member.uid) closeForm();
-      await loadMembers(role);
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadMembers(role);
     } catch (error) {
       setFlash({
         type: "error",
@@ -866,7 +871,8 @@ export default function RosterPage() {
         setBatchResult(data.result ?? null);
         setBatchFile(null);
         if (batchFileRef.current) batchFileRef.current.value = "";
-        if (batchRole === role) await loadMembers(role);
+        // 省流閘門仍關著時不重整列表（不因批次完成而自動載入）
+        if (batchRole === role && !gating) await loadMembers(role);
         showSuccessModal(data.message || "批次作業完成");
       }
     } catch (error) {

@@ -222,6 +222,7 @@ export default function AccountsPage() {
   const [listError, setListError] = useState("");
   // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留）
   const [listLoaded, setListLoaded] = useState(false);
+  // 寫入後僅在列表已顯示時才重整；閘門仍關著時不自動載入
   const gating = saverOn && !listLoaded;
   const [flash, setFlash] = useState<Flash>(null);
 
@@ -564,7 +565,8 @@ export default function AccountsPage() {
         return;
       }
       closeForm();
-      await loadAccounts();
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadAccounts();
       if (data.partial) {
         const text = data.message || "帳號已建立，但身分名冊條目未建立，請至「身分名冊管理」補建";
         setFlash({ type: "error", text });
@@ -619,7 +621,8 @@ export default function AccountsPage() {
       setResetTarget(null);
       setResetPassword("");
       setResetConfirm("");
-      await loadAccounts();
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadAccounts();
     } catch (error) {
       setResetError(error instanceof Error ? error.message : "重設失敗");
     } finally {
@@ -656,7 +659,8 @@ export default function AccountsPage() {
       setFlash({ type: "success", text: data.message || "狀態已更新" });
       showSuccessModal(data.message || "狀態已更新");
       if (editingUid === target.uid) closeForm();
-      await loadAccounts();
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadAccounts();
     } catch (error) {
       setFlash({
         type: "error",
@@ -689,7 +693,8 @@ export default function AccountsPage() {
       setFlash({ type: "success", text: data.message || "已刪除" });
       showSuccessModal(data.message || "已刪除");
       if (editingUid === target.uid) closeForm();
-      await loadAccounts();
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
+      if (!gating) await loadAccounts();
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
@@ -823,7 +828,8 @@ export default function AccountsPage() {
       setBatchFile(null);
       setBatchProgress(null);
       if (batchFileRef.current) batchFileRef.current.value = "";
-      await loadAccounts();
+      // 省流閘門仍關著時不重整列表（不因批次完成而自動載入）
+      if (!gating) await loadAccounts();
       showSuccessModal(composeBatchMessage(mode, aggregated, rosterScope));
     } catch (error) {
       const base = error instanceof Error ? error.message : "批次作業失敗";
