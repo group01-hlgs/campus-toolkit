@@ -89,12 +89,13 @@ export default function ForceChangePassword() {
     >
       <form
         onSubmit={handleSubmit}
-        className="bg-card border border-themed rounded-2xl p-8 space-y-4 shadow-lg animate-fade-in w-full max-w-md"
+        className="bg-card border border-themed rounded-lg p-8 space-y-4 animate-fade-in w-full max-w-md"
         style={{ boxShadow: "var(--sh)" }}
       >
         <div className="flex justify-center">
           <svg
-            className="w-12 h-12 text-warning"
+            className="w-12 h-12"
+            style={{ color: "var(--primary)" }}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -134,7 +135,7 @@ export default function ForceChangePassword() {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               autoFocus
-              className="w-full input-theme rounded px-4 py-2 pr-12"
+              className="w-full input-theme rounded px-4 py-3 pr-12"
             />
             <PasswordToggleButton
               visible={showPassword}
@@ -155,7 +156,7 @@ export default function ForceChangePassword() {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="new-password"
-              className="w-full input-theme rounded px-4 py-2 pr-12"
+              className="w-full input-theme rounded px-4 py-3 pr-12"
             />
             <PasswordToggleButton
               visible={showPassword}
@@ -165,26 +166,26 @@ export default function ForceChangePassword() {
           </div>
         </div>
 
-        <p className="text-xs text-t3">{PASSWORD_REQUIREMENT_MESSAGE}</p>
+        <p className="text-xs text-t3 text-center">{PASSWORD_REQUIREMENT_MESSAGE}</p>
 
         {error && (
-          <p className="text-sm text-t1 border border-themed rounded px-3 py-2" role="alert">
+          <p className="text-sm text-danger text-center" role="alert">
             {error}
           </p>
         )}
 
-        <div className="flex gap-3 pt-1">
+        <div className="flex flex-col gap-3 pt-1">
           <button
             type="submit"
             disabled={saving}
-            className="flex-1 btn-primary rounded-lg px-4 py-2 text-sm font-medium cursor-pointer disabled:opacity-50"
+            className="w-full btn-primary rounded py-3 font-medium transition-colors disabled:opacity-50 cursor-pointer"
           >
             {saving ? "儲存中..." : "確認修改"}
           </button>
           <button
             type="button"
             onClick={handleLogout}
-            className="btn-danger rounded-lg px-4 py-2 text-sm font-medium cursor-pointer"
+            className="w-full btn-theme rounded py-3 text-sm cursor-pointer"
           >
             登出
           </button>
