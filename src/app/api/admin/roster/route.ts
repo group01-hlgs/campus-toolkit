@@ -25,11 +25,14 @@ import {
 import {
   buildRosterEntry,
   checkAccountConflictDirect,
-  countOtherActiveAdmins,
+  countOtherActiveAdminsFrom,
   findAccountByKey,
   getRosterEntry,
+  isAlreadyExistsError,
   isSuperEntry,
   lastSuperGuard,
+  lastSuperGuardFrom,
+  loadAdminGuardContext,
   rosterEntryId,
   syncEntryIdentity,
   toRosterMember,
@@ -208,14 +211,6 @@ export async function POST(request: NextRequest) {
     );
     if (attrDenial) return toAuthResponse(attrDenial);
 
-    const entryRef = db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
-    if ((await entryRef.get()).exists) {
-      return NextResponse.json(
-        { success: false, message: `此帳號本期已具備${rosterRoleLabel(role)}身分` },
-        { status: 409 }
-      );
-    }
-
     // 電子郵件／帳號屬既有帳號，只檢查該身分專屬欄位（如學號）是否衝突；
     // 精準查詢（排除本人），不整表建索引（鐵律 3）
     const conflict = await checkAccountConflictDirect(result.account, result.roster, {
@@ -227,9 +222,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: conflict }, { status: 409 });
     }
 
-    await entryRef.set(
-      buildRosterEntry(uid, role, period, result.roster, { email, account, name })
-    );
+    const entryRef = db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
+    // 用 create() 一次完成「判存在＋寫入」：已存在即 ALREADY_EXISTS → 409，
+    // 免先點查判存在（點查 1 讀；create 撞到＝ 0 讀），同 moveEntriesUid 的做法
+    try {
+      await entryRef.create(
+        buildRosterEntry(uid, role, period, result.roster, { email, account, name })
+      );
+    } catch (error) {
+      if (isAlreadyExistsError(error)) {
+        return NextResponse.json(
+          { success: false, message: `此帳號本期已具備${rosterRoleLabel(role)}身分` },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
 
     invalidateReadCache();
     await logActivity({
@@ -329,7 +337,8 @@ export async function PUT(request: NextRequest) {
     });
 
     // 名冊專屬欄位寫入「目前學年度學期」的條目，歷史學期不受影響
-    if ((await entryRef.get()).exists) {
+    //（是否存在沿用上方已讀的 entrySnap，不重複點查——鐵律 5）
+    if (entrySnap.exists) {
       const patch: Record<string, unknown> = { ...result.roster, updatedAt: Date.now() };
       await entryRef.update(patch);
     } else {
@@ -393,14 +402,16 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    if (status !== ACTIVE_STATUS && role === "admin") {
-      // 停用管理員名冊前先確認還有其他有效管理員，避免把自己鎖在門外
-      if ((await countOtherActiveAdmins(uid)) === 0) {
-        return NextResponse.json(
-          { success: false, message: "無法停用最後一位有效管理員" },
-          { status: 400 }
-        );
-      }
+    // 管理員守門（其有效人數、最後一位超級）共用同一份上下文：
+    // 整個請求只讀一次「當期管理員名冊＋其帳號」，其後判定全是純計算
+    //（鐵律 4／5：同請求內復用，不逐項重載）
+    const guardContext =
+      status !== ACTIVE_STATUS && role === "admin" ? await loadAdminGuardContext() : null;
+    if (guardContext && countOtherActiveAdminsFrom(guardContext, uid) === 0) {
+      return NextResponse.json(
+        { success: false, message: "無法停用最後一位有效管理員" },
+        { status: 400 }
+      );
     }
 
     const period = await getCurrentPeriod();
@@ -414,8 +425,8 @@ export async function PATCH(request: NextRequest) {
     // 屬性層級守門：非超級管理員不得動超級條目；停用最後一位超級管理員也要擋
     const statusDenial = await checkAdminAttribute(session, null, attributeOf(statusEntry));
     if (statusDenial) return toAuthResponse(statusDenial);
-    if (status !== ACTIVE_STATUS && role === "admin" && isSuperEntry(statusEntry)) {
-      const lastSuper = await lastSuperGuard(uid);
+    if (guardContext && isSuperEntry(statusEntry)) {
+      const lastSuper = lastSuperGuardFrom(guardContext, uid);
       if (lastSuper) {
         return NextResponse.json({ success: false, message: lastSuper }, { status: 400 });
       }
@@ -481,17 +492,19 @@ export async function DELETE(request: NextRequest) {
     }
     const entry = snap.data() || {};
 
-    // 屬性層級守門：非超級管理員不得刪除超級條目；刪除最後一位超級管理員也要擋
+    // 屬性層級守門：非超級管理員不得刪除超級條目；刪除最後一位超級管理員也要擋。
+    // 兩項判定共用同一份上下文，整個請求只讀一次（不重複載入整張當期管理員名冊）
     const attrDenial = await checkAdminAttribute(session, null, attributeOf(entry));
     if (attrDenial) return toAuthResponse(attrDenial);
-    if (role === "admin" && isSuperEntry(entry)) {
-      const lastSuper = await lastSuperGuard(uid);
+    const guardContext = role === "admin" ? await loadAdminGuardContext() : null;
+    if (guardContext && isSuperEntry(entry)) {
+      const lastSuper = lastSuperGuardFrom(guardContext, uid);
       if (lastSuper) {
         return NextResponse.json({ success: false, message: lastSuper }, { status: 400 });
       }
     }
 
-    if (role === "admin" && (await countOtherActiveAdmins(uid)) === 0) {
+    if (guardContext && countOtherActiveAdminsFrom(guardContext, uid) === 0) {
       return NextResponse.json(
         { success: false, message: "無法刪除最後一位有效管理員" },
         { status: 400 }

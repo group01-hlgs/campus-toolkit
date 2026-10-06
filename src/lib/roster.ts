@@ -218,26 +218,6 @@ export interface RosterIndex {
   accounts: Map<string, string>;
   studentIds: Map<string, string>;
 }
-
-/** 只查 email／account 的帳號查重索引（工作表新增帳號用） */
-export async function loadAccountIndex(excludeUid = ""): Promise<RosterIndex> {
-  const index: RosterIndex = {
-    emails: new Map(),
-    accounts: new Map(),
-    studentIds: new Map(),
-  };
-  const usersSnapshot = await getAdminDb().collection(USER_COLLECTION).get();
-  for (const doc of usersSnapshot.docs) {
-    if (doc.id === excludeUid) continue;
-    const data = doc.data();
-    const email = typeof data.email === "string" ? data.email : "";
-    const account = typeof data.account === "string" ? data.account : "";
-    if (email) index.emails.set(email, doc.id);
-    if (account) index.accounts.set(account, doc.id);
-  }
-  return index;
-}
-
 /**
  * 以電子郵件或帳號找出現有使用者帳號（綁定既有帳號用）；查無回 null。
  */
@@ -271,48 +251,6 @@ export async function findAccountByKey(key: string): Promise<{
   return null;
 }
 
-export async function loadRosterIndex(
-  role: RosterRole,
-  period: SchoolPeriod,
-  excludeUid = ""
-): Promise<RosterIndex> {
-  const index: RosterIndex = {
-    emails: new Map(),
-    accounts: new Map(),
-    studentIds: new Map(),
-  };
-
-  const usersSnapshot = await getAdminDb().collection(USER_COLLECTION).get();
-  const liveUids = new Set(usersSnapshot.docs.map((doc) => doc.id));
-  for (const doc of usersSnapshot.docs) {
-    if (doc.id === excludeUid) continue;
-    const data = doc.data();
-    const email = typeof data.email === "string" ? data.email : "";
-    const account = typeof data.account === "string" ? data.account : "";
-    if (email) index.emails.set(email, doc.id);
-    if (account) index.accounts.set(account, doc.id);
-  }
-
-  if (ROSTER_ENTRY_FIELDS[role].includes("studentId")) {
-    const entries = await getAdminDb()
-      .collection(rosterCollection(role))
-      .where("academicYear", "==", period.academicYear)
-      .where("semester", "==", period.semester)
-      .get();
-    for (const doc of entries.docs) {
-      const data = doc.data();
-      const uid = typeof data.uid === "string" ? data.uid : "";
-      if (uid === excludeUid) continue;
-      // 孤兒條目（帳號已刪除）不佔學號：重建同辨識鍵的帳號時由自動銜接接手
-      if (!liveUids.has(uid)) continue;
-      const studentId = typeof data.studentId === "string" ? data.studentId : "";
-      if (studentId) index.studentIds.set(studentId, uid);
-    }
-  }
-
-  return index;
-}
-
 /** 回傳衝突訊息（無衝突回 null） */
 export function checkRosterConflict(
   account: AccountFields,
@@ -329,8 +267,8 @@ export function checkRosterConflict(
 
 /**
  * 單筆查重（鐵律 3：查詢回傳幾筆＝幾次讀取）：以電子郵件／帳號／學號精準查詢，
- * 查無只收空查詢的最低 1 讀；取代整表 loadAccountIndex／loadRosterIndex
- * （整表索引僅保留給批次匯入——整批列一次建索引才划算）。
+ * 查無只收空查詢的最低 1 讀；取代整表掃描建索引（批次匯入也只對本批列的
+ * 辨識鍵做 `where in` 查詢，不再整表掃）。
  * `excludeUid`＝忽略此帳號（更新自己時 email/account 學號不算衝突）；
  * `role`＋`period`＝學號檢查範圍（同身分、同學期；孤兒條目不佔學號）。
  * 回傳衝突訊息，無衝突回 null。檢查順序與 checkRosterConflict 一致：email → account → 學號。
@@ -367,7 +305,7 @@ export async function checkAccountConflictDirect(
     for (const doc of snap.docs) {
       const uid = typeof doc.data().uid === "string" ? doc.data().uid : "";
       if (!uid || uid === options.excludeUid) continue;
-      // 孤兒條目（帳號已刪除）不佔學號，與 loadRosterIndex 語意一致
+      // 孤兒條目（帳號已刪除）不佔學號，與批次匯入的學號查重同一語意
       if (!(await users.doc(uid).get()).exists) continue;
       return "此學號已被使用";
     }
@@ -548,6 +486,16 @@ export async function syncEntryIdentity(
 const ROSTER_ROLES_ALL: RosterRole[] = ["student", "parent", "staff", "admin"];
 
 /**
+ * `create()` 撞到已存在文件（ALREADY_EXISTS）的判定。
+ * gRPC 狀態碼為數字 6（`@grpc/grpc-js` Status），部分執行環境／REST fallback
+ * 回字串別名，三者都認，避免「已存在＝跳過」的分支被漏接而拋錯。
+ */
+export function isAlreadyExistsError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return code === 6 || code === "already-exists" || code === "ALREADY_EXISTS";
+}
+
+/**
  * 把 fromUid 的名冊條目（四張名冊、所有學年度學期）改掛到 toUid：
  * 改寫 uid 欄位與 doc id（`toUid_學年度_學期`）；toUid 已有的條目跳過（不覆寫）。
  * `allowSuper＝false` 時跳過「超級」管理員條目（銜接＝授予超級，非超級操作者不得為之）。
@@ -585,7 +533,7 @@ export async function moveEntriesUid(
       try {
         await targetRef.create({ ...data, uid: toUid });
       } catch (error) {
-        if ((error as { code?: unknown }).code === "already-exists") continue;
+        if (isAlreadyExistsError(error)) continue;
         throw error;
       }
       await doc.ref.delete();
@@ -801,24 +749,6 @@ export function accountStatusGuardFrom(
     return "無法停用最後一位超級管理員，請先新增另一位超級管理員";
   }
   return null;
-}
-
-/**
- * 當期「其他有效管理員」人數：名冊條目有效 ＋ 使用者帳號有效。
- * 用於擋停用／刪除最後一位管理員，避免把自己鎖在門外。
- * 批次作業請改用 loadAdminGuardContext＋countOtherActiveAdminsFrom（整批只讀一次）。
- */
-export async function countOtherActiveAdmins(excludeUid: string): Promise<number> {
-  return countOtherActiveAdminsFrom(await loadAdminGuardContext(), excludeUid);
-}
-
-/**
- * 當期「其他有效超級管理員」人數：名冊條目有效且屬性＝超級 ＋ 使用者帳號有效。
- * 用於擋降級／停用／刪除最後一位超級管理員。
- * 批次作業請改用 loadAdminGuardContext＋countOtherActiveSupersFrom（整批只讀一次）。
- */
-export async function countOtherActiveSupers(excludeUid: string): Promise<number> {
-  return countOtherActiveSupersFrom(await loadAdminGuardContext(), excludeUid);
 }
 
 /**

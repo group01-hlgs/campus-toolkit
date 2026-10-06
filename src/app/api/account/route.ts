@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
-import { verifySession } from "@/lib/dal";
+import { verifySession, VerifiedSession } from "@/lib/dal";
 import {
   createSession,
   getSession,
@@ -57,16 +57,15 @@ export interface AccountProfile {
 }
 
 async function buildProfile(
-  role: UserRole,
-  uid: string,
-  sessionEmail: string,
-  sessionAccount: string,
-  sessionName: string,
+  session: VerifiedSession,
   data: Record<string, unknown>
 ): Promise<AccountProfile> {
+  const { role, uid } = session;
   // 名冊專屬欄位（學號、班級、職稱、管理員模組等）取目前學年度學期的條目
   const period = await getCurrentPeriod();
-  const entry = await getRosterEntry(uid, role, period);
+  // 復用 verifySession 已讀的當期自身條目，不重複點查（鐵律 5：同請求內復用）
+  const entry =
+    session.__entry !== undefined ? session.__entry : await getRosterEntry(uid, role, period);
   const fields: Record<string, string> = {};
   for (const field of ROLE_INFO_FIELDS[role]) {
     if (field.key === "modules") {
@@ -82,8 +81,8 @@ async function buildProfile(
     ? data.loginRecords.filter((value): value is number => typeof value === "number")
     : [];
 
-  const effectiveEmail = typeof data.email === "string" ? data.email : sessionEmail;
-  const effectiveAccount = typeof data.account === "string" ? data.account : sessionAccount;
+  const effectiveEmail = typeof data.email === "string" ? data.email : session.email;
+  const effectiveAccount = typeof data.account === "string" ? data.account : session.account;
 
   // 慣用身分的可選範圍：當期名冊中「有效」的身分（自身身分恆為首項）
   const activeOptions = await getActiveRoleOptions(uid, period, role);
@@ -94,7 +93,7 @@ async function buildProfile(
     uid,
     role,
     roleLabel: ROLE_LABELS[role],
-    name: entryName || (typeof data.name === "string" && data.name ? data.name : sessionName),
+    name: entryName || (typeof data.name === "string" && data.name ? data.name : session.displayName),
     email: effectiveEmail,
     account: effectiveAccount,
     loginCount: typeof data.loginCount === "number" ? data.loginCount : 0,
@@ -106,7 +105,7 @@ async function buildProfile(
     otpauthUrl: totpSecret
       ? buildOtpauthUrl({
           secret: totpSecret,
-          account: sessionAccount,
+          account: session.account,
           issuer: await getTotpIssuer(),
         })
       : "",
@@ -147,25 +146,21 @@ export async function GET(request: NextRequest) {
     const session = await verifySession();
     if (!session) return unauthorized();
 
-    const snap = await getAdminDb()
-      .collection(USER_COLLECTION)
-      .doc(session.uid)
-      .get();
-    if (!snap.exists) {
+    // 復用 verifySession 已讀的使用者文件（鐵律 5），不再重讀同一件事；
+    // __user 未掛上時（例外路徑）才補讀一次，null＝使用者文件已不存在
+    const cachedUser = session.__user;
+    const data =
+      cachedUser !== undefined
+        ? cachedUser
+        : (await getAdminDb().collection(USER_COLLECTION).doc(session.uid).get()).data() ?? null;
+    if (!data) {
       return NextResponse.json(
         { success: false, message: "找不到使用者資料" },
         { status: 404 }
       );
     }
 
-    const profile = await buildProfile(
-      session.role,
-      session.uid,
-      session.email,
-      session.account,
-      session.displayName,
-      snap.data() ?? {}
-    );
+    const profile = await buildProfile(session, data);
 
     return NextResponse.json(
       { success: true, profile },
@@ -381,14 +376,11 @@ export async function PUT(request: NextRequest) {
         .join("、")}`,
     });
 
-    const profile = await buildProfile(
-      session.role,
-      session.uid,
-      typeof updateData.email === "string" ? updateData.email : session.email,
-      typeof updateData.account === "string" ? updateData.account : session.account,
-      session.displayName,
-      (await userRef.get()).data() ?? {}
-    );
+    // 回傳更新後的 profile：直接以更新前快照＋本次變更欄位組出，
+    // 不再重讀使用者文件（updateData 只含 email／account／preferredRole，
+    // 其餘欄位本次未變動；preferredRole 清除＝ FieldValue sentinel，
+    // isUserRole 判否 → profile 顯示空字串，與實際狀態一致）
+    const profile = await buildProfile(session, { ...userData, ...updateData });
 
     return NextResponse.json(
       { success: true, message: "儲存成功", profile },

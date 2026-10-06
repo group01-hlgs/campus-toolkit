@@ -90,6 +90,33 @@ export async function verifySession(): Promise<VerifiedSession | null> {
   }
 }
 
+/**
+ * 續期（keepalive）用的輕量驗證——鐵律 1「先自問真的需要讀嗎」：
+ * 續期只要確認 ①token 簽章與絕對／閒置時限有效 ②jti 未被撤銷 ③系統未停用，
+ * 三者都不必重讀使用者文件與名冊條目（合計 **0 次讀取**；jti 點查不存在＝0 讀、
+ * 設定走 readSystemDoc 快取）。
+ *
+ * 帳號被停用、名冊條目被移除、tokenVersion 變更等**權限層變更，
+ * 仍會由下一次完整 verifySession（任何實際請求）擋下**——續期不授予任何權限，
+ * 只滑動更新 JWT 的 lastActivityAt，故省下的 2 讀不影響安全性。
+ * 對應每次 keepalive 約省 2 讀（≈240 讀/小時/在線使用者）。
+ */
+export async function verifySessionForRenewal(): Promise<SessionPayload | null> {
+  const session = await getSession();
+  if (!session) return null;
+
+  // fail-closed：缺 jti 的 token 無法查詢撤銷狀態，直接拒絕
+  if (!session.jti) return null;
+  if (await isJtiRevoked(session.jti)) return null;
+
+  if (session.role !== "admin" && !(await isSystemEnabled())) return null;
+
+  const idleTimeoutMs = (await getSessionTimeoutMinutes()) * 60 * 1000;
+  if (Date.now() - session.lastActivityAt > idleTimeoutMs) return null;
+
+  return session;
+}
+
 export async function verifyRole(role: UserRole): Promise<SessionPayload | null> {
   const session = await verifySession();
   if (!session || session.role !== role) return null;

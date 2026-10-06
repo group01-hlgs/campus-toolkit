@@ -135,31 +135,85 @@ interface BatchContext {
   entries: Map<string, Record<string, unknown>>;
 }
 
+/** Firestore in／not-in 子句的比較值上限 */
+const IN_CHUNK = 30;
+/** `getAll` 分塊（鐵律 4：請求體上限） */
+const GET_ALL_CHUNK = 200;
+
 async function loadBatchContext(
   role: RosterRole,
-  period: SchoolPeriod
+  period: SchoolPeriod,
+  rows: RosterInput[],
+  /** 覆蓋模式要整期條目（清空比對）；其餘只要本批列對應到的條目 */
+  needAllEntries: boolean
 ): Promise<BatchContext> {
   const db = getAdminDb();
+  const users = db.collection(USER_COLLECTION);
   // 名冊批次以電子郵件地址或帳號辨識既有帳號（密碼屬使用者帳號管理，本流程不碰）
   const index: RosterIndex = { emails: new Map(), accounts: new Map(), studentIds: new Map() };
   const byUid = new Map<string, AccountSnapshot>();
 
-  const usersSnapshot = await db.collection(USER_COLLECTION).get();
-  for (const doc of usersSnapshot.docs) {
-    const data = doc.data();
-    const email = typeof data.email === "string" ? data.email : "";
-    const account = typeof data.account === "string" ? data.account : "";
-    if (email) index.emails.set(email, doc.id);
-    if (account) index.accounts.set(account, doc.id);
-    byUid.set(doc.id, {
-      uid: doc.id,
-      email,
-      account,
-      name: typeof data.name === "string" ? data.name : "",
-    });
+  const collect = (snapshot: {
+    docs: Array<{ id: string; data: () => Record<string, unknown> }>;
+  }) => {
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      const email = typeof data.email === "string" ? data.email : "";
+      const account = typeof data.account === "string" ? data.account : "";
+      if (email) index.emails.set(email, doc.id);
+      if (account) index.accounts.set(account, doc.id);
+      byUid.set(doc.id, {
+        uid: doc.id,
+        email,
+        account,
+        name: typeof data.name === "string" ? data.name : "",
+      });
+    }
+  };
+
+  // 辨識鍵只查本批列會用到的（in 分塊 30 值／批），不再整表掃描使用者。
+  // 電子郵件先查：命中的文件已帶出帳號欄位，帳號鍵若已在索引就不再查
+  //（一列常同時填兩者且指向同一帳號，避免同一帳號被兩次查詢各算 1 讀）
+  const emailKeys = [
+    ...new Set(rows.map((input) => normalizeEmail(input.email))),
+  ].filter((key): key is string => Boolean(key));
+  for (let i = 0; i < emailKeys.length; i += IN_CHUNK) {
+    collect(await users.where("email", "in", emailKeys.slice(i, i + IN_CHUNK)).get());
+  }
+  const accountKeys = [
+    ...new Set(rows.map((input) => normalizeAccount(input.account))),
+  ].filter((key): key is string => key !== null && !index.accounts.has(key));
+  for (let i = 0; i < accountKeys.length; i += IN_CHUNK) {
+    collect(await users.where("account", "in", accountKeys.slice(i, i + IN_CHUNK)).get());
   }
 
-  const entries = await loadPeriodEntries(period, role);
+  // 條目：覆蓋模式整期讀一次（要清空全部）；其餘逐 uid 點查（點查不存在＝0 讀）
+  const entries = new Map<string, Record<string, unknown>>();
+  if (needAllEntries) {
+    for (const [uid, data] of await loadPeriodEntries(period, role)) entries.set(uid, data);
+  } else {
+    const uids = new Set<string>();
+    for (const input of rows) {
+      const resolved = resolveUid(input, index);
+      if (resolved.uid) uids.add(resolved.uid);
+    }
+    const col = db.collection(rosterCollection(role));
+    const refs = [...uids].map((uid) => ({ uid, ref: col.doc(rosterEntryId(uid, period)) }));
+    for (let i = 0; i < refs.length; i += GET_ALL_CHUNK) {
+      const chunk = refs.slice(i, i + GET_ALL_CHUNK);
+      const docs = await db.getAll(...chunk.map((item) => item.ref));
+      const uidByDocId = new Map(chunk.map((item) => [item.ref.id, item.uid]));
+      for (const doc of docs) {
+        if (!doc.exists) continue;
+        const uid = uidByDocId.get(doc.id);
+        if (!uid) continue;
+        const data = doc.data() ?? {};
+        // 同 getRosterEntry：文件的 uid 欄位須對得上才視為該帳號的條目
+        if (data.uid === uid) entries.set(uid, data);
+      }
+    }
+  }
+
   return { index, byUid, entries };
 }
 
@@ -630,7 +684,14 @@ export async function POST(request: NextRequest) {
     }
 
     const period = await getCurrentPeriod();
-    const context = await loadBatchContext(role, period);
+    // 覆蓋模式要整期條目（清空比對）；其餘只取本批列會對應到的條目（鐵律 3）
+    const needAllEntries = mode === "create" && strategy === "replace";
+    const context = await loadBatchContext(
+      role,
+      period,
+      dataRows.map((item) => item.input),
+      needAllEntries
+    );
     // 管理員屬性的層級守門需知道操作者是否為超級管理員（其餘身分不涉及）
     const isSuper = role === "admin" ? await isSuperAdmin(session) : false;
     // 管理員守門上下文：整批只讀一次（更新／刪除／覆蓋會用到；純新增追加不需）

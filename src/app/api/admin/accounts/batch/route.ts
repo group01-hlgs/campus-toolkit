@@ -187,27 +187,73 @@ interface AccountSnapshot {
   preferredRole: UserRole | null;
 }
 
-async function loadAccounts(): Promise<{
+/**
+ * 辨識鍵的正規化：與 resolveUid（直接正規化）及 validateAccountInput（先截 64 字元再正規化）
+ * 的寫法取聯集——兩者僅在超過 64 字元時不同，聯集可保證所有查重查詢都查得到。
+ */
+function lookupKeys(kind: "email" | "account", value: string): string[] {
+  if (!value) return [];
+  const keys = new Set<string>();
+  const normalize = kind === "email" ? normalizeEmail : normalizeAccount;
+  const push = (raw: string | null) => {
+    if (raw) keys.add(raw);
+  };
+  push(normalize(value));
+  push(normalize(value.trim().slice(0, 64)));
+  return [...keys];
+}
+
+/**
+ * 本批列的帳號索引（鐵律 3：查詢回傳幾筆＝幾次讀取）：
+ * 只以 where in 精準查「本批列會查到的辨識鍵」（30 值／批），不再整表掃描 users。
+ * 查無的鍵不會出現在索引裡，語意與整表索引一致；命中的文件照舊
+ * 以「實際存的 email／account」入索引，查重訊息與原本相同。
+ */
+async function loadAccountsFor(
+  rows: BatchFields[]
+): Promise<{
   index: RosterIndex;
   byUid: Map<string, AccountSnapshot>;
 }> {
-  const snapshot = await getAdminDb().collection(USER_COLLECTION).get();
+  const users = getAdminDb().collection(USER_COLLECTION);
+  const wanted: Record<"email" | "account", Set<string>> = {
+    email: new Set(),
+    account: new Set(),
+  };
+  for (const fields of rows) {
+    for (const key of lookupKeys("email", fields.email)) wanted.email.add(key);
+    for (const key of lookupKeys("account", fields.account)) wanted.account.add(key);
+  }
+
   const index: RosterIndex = { emails: new Map(), accounts: new Map(), studentIds: new Map() };
   const byUid = new Map<string, AccountSnapshot>();
-  for (const doc of snapshot.docs) {
-    const data = doc.data();
-    const email = typeof data.email === "string" ? data.email : "";
-    const account = typeof data.account === "string" ? data.account : "";
-    if (email) index.emails.set(email, doc.id);
-    if (account) index.accounts.set(account, doc.id);
-    byUid.set(doc.id, {
-      uid: doc.id,
-      email,
-      account,
-      name: typeof data.name === "string" ? data.name : "",
-      status: normalizeAccountStatus(data.status),
-      preferredRole: isUserRole(data.preferredRole) ? data.preferredRole : null,
-    });
+  const collect = (snapshot: { docs: Array<{ id: string; data: () => Record<string, unknown> }> }) => {
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      const email = typeof data.email === "string" ? data.email : "";
+      const account = typeof data.account === "string" ? data.account : "";
+      if (email) index.emails.set(email, doc.id);
+      if (account) index.accounts.set(account, doc.id);
+      byUid.set(doc.id, {
+        uid: doc.id,
+        email,
+        account,
+        name: typeof data.name === "string" ? data.name : "",
+        status: normalizeAccountStatus(data.status),
+        preferredRole: isUserRole(data.preferredRole) ? data.preferredRole : null,
+      });
+    }
+  };
+
+  // 電子郵件先查：命中的文件已帶出帳號欄位，帳號鍵若已在索引就不再查
+  //（一列常同時填兩者且指向同一帳號，避免同一帳號被兩次查詢各算 1 讀）
+  const emailKeys = [...wanted.email];
+  for (let i = 0; i < emailKeys.length; i += IN_CHUNK) {
+    collect(await users.where("email", "in", emailKeys.slice(i, i + IN_CHUNK)).get());
+  }
+  const accountKeys = [...wanted.account].filter((key) => !index.accounts.has(key));
+  for (let i = 0; i < accountKeys.length; i += IN_CHUNK) {
+    collect(await users.where("account", "in", accountKeys.slice(i, i + IN_CHUNK)).get());
   }
   return { index, byUid };
 }
@@ -269,34 +315,54 @@ function parseRosterRole(value: string): { role?: RosterRole; error?: string } {
 }
 
 /**
- * 本學期「該身分」名冊的學號索引（學號查重只在同身分內比對；
+ * 本批列會用到的學號查重索引（學號查重只在同身分內比對；
  * 家長的學號是其子女學號，故不跨表比對）。
+ * 只以 where in 精準查本批列填的學號（同身分＋同學期），不再整表掃描名冊；
  * 孤兒條目（帳號已刪除）不佔學號：重建同辨識鍵的帳號時由自動銜接接手。
  */
-async function loadPeriodStudentIds(
+async function loadPeriodStudentIdsFor(
   role: RosterRole,
-  period: SchoolPeriod
+  period: SchoolPeriod,
+  rows: BatchFields[]
 ): Promise<RosterIndex> {
   const index: RosterIndex = { emails: new Map(), accounts: new Map(), studentIds: new Map() };
-  const snapshot = await getAdminDb()
-    .collection(rosterCollection(role))
-    .where("academicYear", "==", period.academicYear)
-    .where("semester", "==", period.semester)
-    .get();
+  if (!ROSTER_ENTRY_FIELDS[role].includes("studentId")) return index;
+
+  const wanted = new Set<string>();
+  for (const fields of rows) {
+    // 學號鍵＝validateRosterInput 的 text(...)（trim＋截 64 字元），與查重比對值一致
+    const studentId =
+      typeof fields.studentId === "string" ? fields.studentId.trim().slice(0, 64) : "";
+    if (studentId) wanted.add(studentId);
+  }
+  if (wanted.size === 0) return index;
+
+  const db = getAdminDb();
+  const users = db.collection(USER_COLLECTION);
+  const col = db.collection(rosterCollection(role));
+  const keys = [...wanted];
   const uidOf = (doc: { data: () => Record<string, unknown>; id: string }) =>
     typeof doc.data().uid === "string" && doc.data().uid ? (doc.data().uid as string) : doc.id;
-  const uids = [...new Set(snapshot.docs.map(uidOf))];
-  const userDocs = uids.length
-    ? await getAdminDb().getAll(
-        ...uids.map((uid) => getAdminDb().collection(USER_COLLECTION).doc(uid))
-      )
-    : [];
-  const liveUids = new Set(userDocs.filter((doc) => doc.exists).map((doc) => doc.id));
-  for (const doc of snapshot.docs) {
-    const uid = uidOf(doc);
-    if (!liveUids.has(uid)) continue;
-    const studentId = typeof doc.data().studentId === "string" ? doc.data().studentId : "";
-    if (studentId) index.studentIds.set(studentId, uid);
+
+  for (let i = 0; i < keys.length; i += IN_CHUNK) {
+    const batch = keys.slice(i, i + IN_CHUNK);
+    const snapshot = await col
+      .where("studentId", "in", batch)
+      .where("academicYear", "==", period.academicYear)
+      .where("semester", "==", period.semester)
+      .get();
+    if (snapshot.empty) continue;
+    const uids = [...new Set(snapshot.docs.map(uidOf))];
+    const userDocs = uids.length
+      ? await db.getAll(...uids.map((uid) => users.doc(uid)))
+      : [];
+    const liveUids = new Set(userDocs.filter((doc) => doc.exists).map((doc) => doc.id));
+    for (const doc of snapshot.docs) {
+      const uid = uidOf(doc);
+      if (!liveUids.has(uid)) continue;
+      const studentId = typeof doc.data().studentId === "string" ? doc.data().studentId : "";
+      if (studentId) index.studentIds.set(studentId, uid);
+    }
   }
   return index;
 }
@@ -750,7 +816,9 @@ export async function POST(request: NextRequest) {
     const totalRows = dataRows.length;
     const chunkRows = dryRun ? dataRows : dataRows.slice(offset, offset + CHUNK_SIZE[mode]);
 
-    const { index, byUid } = await loadAccounts();
+    // 只對「本批列」建索引（整檔預覽＝整檔列；執行＝offset 那一批），不再整表掃描
+    const chunkFields = chunkRows.map(({ fields }) => fields);
+    const { index, byUid } = await loadAccountsFor(chunkFields);
     // 操作者是否為超級管理員（管理員屬性守門與孤兒銜接的超級條目處理共用）
     const isSuper = await isSuperAdmin(session);
 
@@ -775,9 +843,7 @@ export async function POST(request: NextRequest) {
       }
       period = await getCurrentPeriod();
       for (const role of wantedRoles) {
-        if (ROSTER_ENTRY_FIELDS[role].includes("studentId")) {
-          entryIndexes.set(role, await loadPeriodStudentIds(role, period));
-        }
+        entryIndexes.set(role, await loadPeriodStudentIdsFor(role, period, chunkFields));
       }
     } else if (mode === "delete" && rosterScope === "current") {
       // 只刪本學期名冊條目：需取得目前學年度學期做比對

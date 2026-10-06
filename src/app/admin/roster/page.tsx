@@ -258,6 +258,9 @@ export default function RosterPage() {
   const [role, setRole] = useState<RosterRole>("student");
   const [members, setMembers] = useState<RosterMember[]>([]);
   const [keyword, setKeyword] = useState("");
+  // 清單分頁（純前端切片，不增加任何 Firestore 讀取）
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
   const [flash, setFlash] = useState<Flash>(null);
@@ -1015,6 +1018,19 @@ export default function RosterPage() {
   }, [members, keyword]);
 
   const columns = ROSTER_COLUMNS[role];
+
+  // 切換身分（名冊換一批資料）後回到第一頁
+  useEffect(() => {
+    setPage(1);
+  }, [role]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize]
+  );
+
   const menuTarget = menu ? members.find((item) => item.uid === menu.uid) : null;
   // 家長不提供檔案匯入：新增模式下鎖住檔案選擇與上傳預覽
   const batchCreateBlocked = batchMode === "create" && !isImportableRole(batchRole);
@@ -1479,7 +1495,7 @@ export default function RosterPage() {
                   </td>
                 </tr>
               )}
-              {filtered.map((member) => (
+              {paged.map((member) => (
                 <tr key={member.uid} className="border-b border-themed last:border-0 text-t1">
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span
@@ -1570,6 +1586,67 @@ export default function RosterPage() {
           </table>
         )}
       </div>
+
+      {/* 分頁列：每頁筆數選擇與頁次切換（純前端切片） */}
+      {!loading && !listError && filtered.length > 0 && (
+        <div className="w-full max-w-5xl flex flex-wrap items-center justify-between gap-3 mb-4 text-sm text-t2">
+          <div className="flex items-center gap-2">
+            <label htmlFor="roster-page-size">每頁</label>
+            <select
+              id="roster-page-size"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              className="input-theme rounded px-2 py-1 cursor-pointer"
+            >
+              {[10, 20, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span>
+              筆，共 {filtered.length} 筆
+              {filtered.length !== members.length && `（全部 ${members.length} 筆）`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(1)}
+              disabled={currentPage <= 1}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              第一頁
+            </button>
+            <button
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage <= 1}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              上一頁
+            </button>
+            <span>
+              第 {currentPage} / {totalPages} 頁
+            </span>
+            <button
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage >= totalPages}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              下一頁
+            </button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={currentPage >= totalPages}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              最後一頁
+            </button>
+          </div>
+        </div>
+      )}
 
       {menu && menuTarget && (
         <div

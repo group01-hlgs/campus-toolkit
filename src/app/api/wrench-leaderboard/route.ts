@@ -6,10 +6,14 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { ROLE_LABELS, UserRole } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
+import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 
 const COLLECTION = "wrenchLeaderboard";
 const TOP_N = 100;
 const MAX_SCORE = 1_000_000;
+/** 前 100 名榜單的讀取快取（鐵律 6）：純展示，送出成績後立即失效 */
+const TOP_TTL_MS = 15_000;
+const TOP_CACHE_KEY = `leaderboard:top:${COLLECTION}`;
 
 export interface LeaderboardEntry {
   uid: string;
@@ -40,7 +44,10 @@ export async function GET(request: NextRequest) {
     if (limited) return limited;
 
     const col = getAdminDb().collection(COLLECTION);
-    const topSnap = await col.orderBy("score", "desc").limit(TOP_N).get();
+    // 前100名＝所有人共用的展示資料：15 秒內的重複瀏覽不重讀（「我的名次」不快取，逐使用者精準查）
+    const topSnap = await cachedRead(TOP_CACHE_KEY, TOP_TTL_MS, () =>
+      col.orderBy("score", "desc").limit(TOP_N).get()
+    );
 
     // 公開榜單不回傳 uid（僅伺服器端用來計算我的名次）
     const top = topSnap.docs.map((d, index) => {
@@ -164,6 +171,8 @@ export async function POST(request: NextRequest) {
     } else {
       await col.add(payload);
     }
+    // 榜單已變更：立刻失效，下次瀏覽重新讀取
+    invalidateReadCache("leaderboard:top:");
 
     // 清理：用 offset 只取前 100 名之後的文件（不整表撈回全部欄位）
     const excessSnap = await col
@@ -175,15 +184,21 @@ export async function POST(request: NextRequest) {
       await Promise.all(excessSnap.docs.map((d) => d.ref.delete()));
     }
 
-    const refreshed = await col.orderBy("score", "desc").limit(TOP_N).get();
-    const rank = refreshed.docs.findIndex((d) => d.data().uid === session.uid);
+    // 名次直接用「寫入前的前100」＋本次分數算：只有自己的分數變動，
+    // 不必再讀一次榜單（省 TOP_N 次讀取）
+    const others = topSnap.docs
+      .map((d) => d.data() as LeaderboardEntry)
+      .filter((d) => d.uid !== session.uid);
+    const higher = others.filter((d) => (Number(d.score) || 0) > newScore).length;
+    const ranked = others.length < TOP_N || higher < TOP_N;
+    const rank = ranked ? higher + 1 : null;
 
     return NextResponse.json({
       success: true,
       score: newScore,
       improved: true,
-      ranked: rank >= 0,
-      rank: rank >= 0 ? rank + 1 : null,
+      ranked,
+      rank,
     });
   } catch (error) {
     return NextResponse.json(
