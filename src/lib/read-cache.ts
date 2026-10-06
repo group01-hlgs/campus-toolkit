@@ -57,3 +57,19 @@ export function invalidateReadCache(prefix?: string): void {
     if (key.startsWith(prefix)) store.delete(key);
   }
 }
+
+/** 設定類文件（settings 子文件）的快取時間：寫入後 invalidateReadCache() 失效，30 秒為跨實例陳舊上限 */
+export const SETTING_DOC_TTL_MS = 30_000;
+
+/**
+ * 設定類文件（settings 子文件）的 30 秒快取，key＝`setting-doc:<docId>`。
+ * 同一份文件不管從哪個路由讀（api/admin/classes 與 api/admin/school/*）都命中同一份；
+ * 寫入路徑呼叫 invalidateAdminListCache()（內部 invalidateReadCache()）即清。
+ * 注意：驗證需要「改完立刻看到新值」的路徑（如 school/classes PUT 的 context）不要走這裡。
+ */
+export async function cachedSettingDoc<T>(
+  docId: string,
+  load: () => Promise<T>
+): Promise<T> {
+  return cachedRead(`setting-doc:${docId}`, SETTING_DOC_TTL_MS, load);
+}

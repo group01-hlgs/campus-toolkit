@@ -6,6 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateAdminListCache } from "@/lib/list-cache";
+import { cachedSettingDoc } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 import {
@@ -30,7 +31,8 @@ const noStore = { "Cache-Control": "no-store" };
  * 驗證上限取自校務基本資料（學制與年制），故讀寫前都先取一次 context。
  */
 
-/** 讀校務基本資料組成驗證上下文（學制是否勾選、年級編號範圍、年數總和） */
+/** 讀校務基本資料組成驗證上下文（學制是否勾選、年級編號範圍、年數總和）。
+ * 僅供 PUT 驗證使用：改完學制要立刻看到新值，故不走快取（GET 另走 cachedSettingDoc）。 */
 async function loadContext(): Promise<SchoolClassesContext> {
   const snap = await getAdminDb().collection(PROFILE_DOC.collection).doc(PROFILE_DOC.id).get();
   const profile = readSchoolProfile(snap.exists ? snap.data() : null);
@@ -51,10 +53,21 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("schoolSettings");
     if (denial) return toAuthResponse(denial);
 
-    const [snap, context] = await Promise.all([
-      getAdminDb().collection(CLASSES_DOC.collection).doc(CLASSES_DOC.id).get(),
-      loadContext(),
+    // 兩份設定文件皆 30 秒快取（setting-doc key，與 api/admin/classes 同源）；
+    // PUT 成功後由 invalidateAdminListCache() 失效。PUT 的驗證 context 不走快取（見 loadContext）
+    const db = getAdminDb();
+    const [snap, profileSnap] = await Promise.all([
+      cachedSettingDoc(CLASSES_DOC_ID, () =>
+        db.collection(CLASSES_DOC.collection).doc(CLASSES_DOC.id).get()
+      ),
+      cachedSettingDoc(PROFILE_DOC_ID, () =>
+        db.collection(PROFILE_DOC.collection).doc(PROFILE_DOC.id).get()
+      ),
     ]);
+    const profile = readSchoolProfile(profileSnap.exists ? profileSnap.data() : null);
+    const context: SchoolClassesContext = {
+      stages: profile.stages.map((item) => ({ stage: item.stage, years: item.years })),
+    };
     const setting = readSchoolClasses(snap.exists ? snap.data() : null, context);
     return NextResponse.json(
       { success: true, setting, stages: context.stages },

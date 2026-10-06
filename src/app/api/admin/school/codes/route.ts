@@ -7,6 +7,7 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { invalidateAdminListCache } from "@/lib/list-cache";
+import { cachedSettingDoc } from "@/lib/read-cache";
 import { CODES_DOC_ID, readSchoolCodes, validateSchoolCodes } from "@/types/school-codes";
 
 const CODES_DOC = { collection: SETTINGS_COLLECTION, id: CODES_DOC_ID };
@@ -36,7 +37,11 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("schoolSettings");
     if (denial) return toAuthResponse(denial);
 
-    const snap = await getAdminDb().collection(CODES_DOC.collection).doc(CODES_DOC.id).get();
+    // 代碼表（系統基礎資料庫）：30 秒快取（setting-doc key），
+    // PUT 成功後由 invalidateAdminListCache() 失效
+    const snap = await cachedSettingDoc(CODES_DOC_ID, () =>
+      getAdminDb().collection(CODES_DOC.collection).doc(CODES_DOC.id).get()
+    );
     const setting = readSchoolCodes(snap.exists ? snap.data() : null);
     return NextResponse.json({ success: true, setting }, { headers: noStore });
   } catch (error) {

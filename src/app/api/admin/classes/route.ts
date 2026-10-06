@@ -6,15 +6,12 @@ import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION, getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
 import { isActiveEntry, loadPeriodEntries } from "@/lib/roster";
 import { rosterCollection } from "@/types/roster";
-import { cachedRead } from "@/lib/read-cache";
+import { cachedSettingDoc } from "@/lib/read-cache";
 import { cachedListRead } from "@/lib/list-cache";
 import { CLASSES_DOC_ID, readSchoolClasses } from "@/types/school-classes";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 
 const noStore = { "Cache-Control": "no-store" };
-
-/** 設定文件（班級結構／校務資料）的快取時間：變更由 invalidateReadCache() 失效，30 秒為跨實例陳舊上限 */
-const OVERVIEW_TTL_MS = 30_000;
 
 /** 名冊條目的字串欄位（缺值或非字串一律視為空字串） */
 function str(value: unknown): string {
@@ -69,12 +66,13 @@ export async function GET(request: NextRequest) {
     const classCodeParam = request.nextUrl.searchParams.get("classCode");
 
     // 班級結構與校務資料：兩份設定文件（各 1 讀；30 秒快取，
-    // 班級／校務資料更新後由 invalidateAdminListCache() 失效）
+    // 班級／校務資料更新後由 invalidateAdminListCache() 失效；
+    // 與 api/admin/school/* 共用同一 setting-doc key）
     const [classesSnap, profileSnap] = await Promise.all([
-      cachedRead(`setting-doc:${CLASSES_DOC_ID}`, OVERVIEW_TTL_MS, () =>
+      cachedSettingDoc(CLASSES_DOC_ID, () =>
         db.collection(SETTINGS_COLLECTION).doc(CLASSES_DOC_ID).get()
       ),
-      cachedRead(`setting-doc:${PROFILE_DOC_ID}`, OVERVIEW_TTL_MS, () =>
+      cachedSettingDoc(PROFILE_DOC_ID, () =>
         db.collection(SETTINGS_COLLECTION).doc(PROFILE_DOC_ID).get()
       ),
     ]);

@@ -6,6 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateAdminListCache } from "@/lib/list-cache";
+import { cachedSettingDoc } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import {
   PROFILE_DOC_ID,
@@ -37,7 +38,11 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("schoolSettings");
     if (denial) return toAuthResponse(denial);
 
-    const snap = await getAdminDb().collection(PROFILE_DOC.collection).doc(PROFILE_DOC.id).get();
+    // 結構性資料：30 秒快取（key 與 api/admin/classes 同源），
+    // PUT 成功後由 invalidateAdminListCache() 失效（同實例立即、跨實例 ≤30 秒）
+    const snap = await cachedSettingDoc(PROFILE_DOC_ID, () =>
+      getAdminDb().collection(PROFILE_DOC.collection).doc(PROFILE_DOC.id).get()
+    );
     const profile = readSchoolProfile(snap.exists ? snap.data() : null);
     return NextResponse.json({ success: true, profile }, { headers: noStore });
   } catch (error) {

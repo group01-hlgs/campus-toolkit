@@ -7,6 +7,7 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { invalidateAdminListCache } from "@/lib/list-cache";
+import { cachedSettingDoc } from "@/lib/read-cache";
 import { ORG_DOC_ID, readOrgStructure, validateOrgStructure } from "@/types/org";
 
 const ORG_DOC = { collection: SETTINGS_COLLECTION, id: ORG_DOC_ID };
@@ -33,7 +34,10 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("schoolSettings");
     if (denial) return toAuthResponse(denial);
 
-    const snap = await getAdminDb().collection(ORG_DOC.collection).doc(ORG_DOC.id).get();
+    // 結構性資料：30 秒快取（setting-doc key），PUT 成功後 invalidateAdminListCache() 失效
+    const snap = await cachedSettingDoc(ORG_DOC_ID, () =>
+      getAdminDb().collection(ORG_DOC.collection).doc(ORG_DOC.id).get()
+    );
     const org = readOrgStructure(snap.exists ? snap.data() : null);
     return NextResponse.json({ success: true, org }, { headers: noStore });
   } catch (error) {
