@@ -113,6 +113,26 @@ const settingGroups: SettingGroup[] = [
     ],
   },
   {
+    title: "總量管制",
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+      </svg>
+    ),
+    fields: [
+      {
+        id: "dataSaverEnabled",
+        label: "省流開關",
+        type: "select",
+        options: [
+          { value: "true", label: "啟用" },
+          { value: "false", label: "停用" },
+        ],
+        help: "提供採用免費架構網站的夥伴勉強使用",
+      },
+    ],
+  },
+  {
     title: "外觀與顯示",
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -245,7 +265,7 @@ export default function SettingsPage() {
   function handleChange(id: keyof Settings, value: string) {
     const booleanFields: (keyof Settings)[] = [
       "systemEnabled", "oauthEnabled", "emailChangeAllowed",
-      "copyrightNotice", "sponsorAdEnabled",
+      "copyrightNotice", "sponsorAdEnabled", "dataSaverEnabled",
     ];
     const numberFields: (keyof Settings)[] = [
       "academicYear", "semester", "sessionTimeout",

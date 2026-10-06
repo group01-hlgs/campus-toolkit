@@ -36,6 +36,8 @@ const PUBLIC_SETTINGS_KEYS: (keyof Settings)[] = [
   "emailChangeAllowed",
   // 未登入的首頁需依此決定是否顯示 Google 登入入口
   "oauthEnabled",
+  // 列表頁（帳號／名冊／班級總覽）需依此決定是否改為按鈕手動顯示列表
+  "dataSaverEnabled",
 ];
 
 function pickPublicSettings(settings: Settings): Partial<Settings> {

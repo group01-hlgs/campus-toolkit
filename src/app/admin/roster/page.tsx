@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, defaultSettings } from "@/types/settings";
 import {
   ROSTER_BATCH_MODES,
   ROSTER_BATCH_MODE_LABELS,
@@ -39,9 +38,11 @@ import {
 } from "@/types/users";
 import { getCachedSession, logout } from "@/lib/session";
 import { readJsonResponse } from "@/lib/fetch-json";
+import { useDataSaver } from "@/lib/data-saver";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import RoleEnablePanel from "@/components/RoleEnablePanel";
+import RevealListCard from "@/components/RevealListCard";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -250,7 +251,7 @@ function BlockingMask({ text }: { text: string }) {
 
 export default function RosterPage() {
   const router = useRouter();
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const { settings, ready: settingsReady, saverOn } = useDataSaver();
   // 目前操作者的管理員屬性（超級／一般）：決定能否指派「超級」屬性
   const [adminAttribute, setAdminAttribute] = useState(
     () => getCachedSession()?.adminAttribute ?? ""
@@ -263,6 +264,9 @@ export default function RosterPage() {
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
+  // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留，切換身分不重問）
+  const [loadedRole, setLoadedRole] = useState<RosterRole | null>(null);
+  const gating = saverOn && loadedRole === null;
   const [flash, setFlash] = useState<Flash>(null);
 
   // 新增／編輯表單
@@ -392,6 +396,7 @@ export default function RosterPage() {
   }, [linkTarget]);
 
   const loadMembers = async (targetRole: RosterRole) => {
+    setLoadedRole(targetRole);
     setLoading(true);
     setListError("");
     try {
@@ -426,27 +431,19 @@ export default function RosterPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.success && data.settings) {
-          setSettings({ ...defaultSettings, ...data.settings });
-        }
-      })
-      .catch((error) => console.error("載入設定失敗:", error));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  // 切換身分：重置搜尋與表單（與省流狀態無關，不因閘門變動而重跑）
   useEffect(() => {
     setKeyword("");
     closeForm();
-    void loadMembers(role);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
+
+  // 列表載入：設定判定前不發請求；省流開關啟用時須先由按鈕解除（同一身分只載一次）
+  useEffect(() => {
+    if (!settingsReady || gating || loadedRole === role) return;
+    void loadMembers(role);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, settingsReady, gating, loadedRole]);
 
   function closeForm() {
     setFormOpen(false);
@@ -1315,16 +1312,18 @@ export default function RosterPage() {
 
       {/* 工具列：搜尋、新增 */}
       <div className="w-full max-w-5xl flex flex-wrap items-center gap-3 mb-4">
-        <input
-          type="search"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder="搜尋姓名、帳號、信箱、學號或班級"
-          className="flex-1 min-w-[200px] input-theme rounded px-3 py-2"
-        />
+        {!gating && (
+          <input
+            type="search"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜尋姓名、帳號、信箱、學號或班級"
+            className="flex-1 min-w-[200px] input-theme rounded px-3 py-2"
+          />
+        )}
         <button
           onClick={openCreate}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer ml-auto"
         >
           新增{ROSTER_ROLES.find((item) => item.value === role)?.label}
         </button>
@@ -1463,9 +1462,14 @@ export default function RosterPage() {
         </form>
       )}
 
-      {/* 帳號清單 */}
+      {/* 帳號清單；省流開關啟用時改為按鈕手動顯示 */}
       <div className="w-full max-w-5xl border border-themed rounded-lg bg-card mb-4 overflow-x-auto">
-        {loading ? (
+        {gating ? (
+          <RevealListCard
+            label={ROSTER_ROLES.find((item) => item.value === role)?.label ?? "身分"}
+            onReveal={() => void loadMembers(role)}
+          />
+        ) : loading ? (
           <p className="p-6 text-center text-t3">帳號清單載入中...</p>
         ) : listError ? (
           <p className="p-6 text-center text-t1">{listError}</p>

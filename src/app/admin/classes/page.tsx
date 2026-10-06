@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
+import { useDataSaver } from "@/lib/data-saver";
 import ModuleIcon from "@/components/ModuleIcon";
+import RevealListCard from "@/components/RevealListCard";
 
 type VocField = { code: string; name: string } | null;
 
@@ -64,37 +66,49 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
  */
 export default function ClassesPage() {
   const router = useRouter();
+  const { ready: settingsReady, saverOn } = useDataSaver();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [isSuper, setIsSuper] = useState(false);
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
+  // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留）
+  const [listLoaded, setListLoaded] = useState(false);
+  const gating = saverOn && !listLoaded;
 
+  // 管理員屬性（session 快取，與列表無關，不受省流閘門影響）
   useEffect(() => {
     let cancelled = false;
-
-    fetch("/api/admin/classes", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json().catch(() => null) : null))
-      .then((data: ClassesResponse | null) => {
-        if (cancelled) return;
-        if (!data?.success || !data.period || !data.grades || !data.summary) {
-          throw new Error(data?.message || "載入失敗");
-        }
-        setOverview({ period: data.period, grades: data.grades, summary: data.summary });
-        setError("");
-      })
-      .catch((loadError: unknown) => {
-        if (cancelled) return;
-        setError(loadError instanceof Error ? loadError.message : "載入失敗");
-      });
-
     fetchSession().then((session) => {
       if (!cancelled) setIsSuper(session?.adminAttribute === "超級");
     });
-
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const loadOverview = async () => {
+    setListLoaded(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/classes", { cache: "no-store" });
+      const data: ClassesResponse | null = res.ok
+        ? await res.json().catch(() => null)
+        : null;
+      if (!data?.success || !data.period || !data.grades || !data.summary) {
+        throw new Error(data?.message || "載入失敗");
+      }
+      setOverview({ period: data.period, grades: data.grades, summary: data.summary });
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "載入失敗");
+    }
+  };
+
+  // 列表載入：設定判定前不發請求；省流開關啟用時須先由按鈕解除（已載入則不再重複請求）
+  useEffect(() => {
+    if (!settingsReady || gating || listLoaded) return;
+    void loadOverview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsReady, gating, listLoaded]);
 
   /** 攤平成一列一班，並依年級、班級順位排序 */
   const rows = useMemo<FlatRow[]>(() => {
@@ -159,8 +173,15 @@ export default function ClassesPage() {
         </section>
       )}
 
+      {/* 省流開關啟用：改為按鈕手動顯示列表 */}
+      {gating && (
+        <div className="border border-themed rounded-lg bg-card">
+          <RevealListCard label="班級" onReveal={() => void loadOverview()} />
+        </div>
+      )}
+
       {/* 載入中 */}
-      {!overview && !error && (
+      {!gating && !overview && !error && (
         <p className="border border-themed rounded-lg bg-card p-8 text-center text-t3">
           班級資料載入中...
         </p>

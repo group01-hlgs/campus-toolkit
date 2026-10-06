@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, defaultSettings } from "@/types/settings";
 import {
   ACCOUNT_BATCH_MODES,
   ACCOUNT_BATCH_MODE_LABELS,
@@ -37,9 +36,11 @@ import {
 } from "@/lib/validation";
 import { getCachedSession, logout } from "@/lib/session";
 import { readJsonResponse } from "@/lib/fetch-json";
+import { useDataSaver } from "@/lib/data-saver";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
+import RevealListCard from "@/components/RevealListCard";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -204,13 +205,16 @@ function BlockingMask({ text }: { text: string }) {
 
 export default function AccountsPage() {
   const router = useRouter();
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const { settings, ready: settingsReady, saverOn } = useDataSaver();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
+  // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留）
+  const [listLoaded, setListLoaded] = useState(false);
+  const gating = saverOn && !listLoaded;
   const [flash, setFlash] = useState<Flash>(null);
 
   // 目前帳號的功能模組（同時建立身分需「身分名冊管理」；讀不到＝不提供，fail-closed）
@@ -338,6 +342,7 @@ export default function AccountsPage() {
   }, [deleteRequest]);
 
   const loadAccounts = async () => {
+    setListLoaded(true);
     setLoading(true);
     setListError("");
     try {
@@ -354,21 +359,6 @@ export default function AccountsPage() {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.success && data.settings) {
-          setSettings({ ...defaultSettings, ...data.settings });
-        }
-      })
-      .catch((error) => console.error("載入設定失敗:", error));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -390,9 +380,12 @@ export default function AccountsPage() {
     };
   }, []);
 
+  // 列表載入：設定判定前不發請求；省流開關啟用時須先由按鈕解除（已載入則不再重複請求）
   useEffect(() => {
+    if (!settingsReady || gating || listLoaded) return;
     void loadAccounts();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsReady, gating, listLoaded]);
 
   /** 儲存成功訊息：跳出 modal，3 秒後自動消失（重複呼叫會重置計時） */
   function showSuccessModal(text: string) {
@@ -1143,19 +1136,21 @@ export default function AccountsPage() {
 
       {/* 工具列：搜尋、新增 */}
       <div className="w-full max-w-6xl flex flex-wrap items-center gap-3 mb-4">
-        <input
-          type="search"
-          value={keyword}
-          onChange={(e) => {
-            setKeyword(e.target.value);
-            setPage(1);
-          }}
-          placeholder="搜尋姓名、帳號、信箱、身分或狀態"
-          className="flex-1 min-w-[200px] input-theme rounded px-3 py-2"
-        />
+        {!gating && (
+          <input
+            type="search"
+            value={keyword}
+            onChange={(e) => {
+              setKeyword(e.target.value);
+              setPage(1);
+            }}
+            placeholder="搜尋姓名、帳號、信箱、身分或狀態"
+            className="flex-1 min-w-[200px] input-theme rounded px-3 py-2"
+          />
+        )}
         <button
           onClick={openCreate}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer ml-auto"
         >
           新增帳號
         </button>
@@ -1316,9 +1311,11 @@ export default function AccountsPage() {
         </form>
       )}
 
-      {/* 帳號工作表（依每頁筆數分頁顯示） */}
+      {/* 帳號工作表（依每頁筆數分頁顯示）；省流開關啟用時改為按鈕手動顯示 */}
       <div className="w-full max-w-6xl border border-themed rounded-lg bg-card mb-4 overflow-x-auto">
-        {loading ? (
+        {gating ? (
+          <RevealListCard label="帳號" onReveal={() => void loadAccounts()} />
+        ) : loading ? (
           <p className="p-6 text-center text-t3">帳號清單載入中...</p>
         ) : listError ? (
           <p className="p-6 text-center text-t1">{listError}</p>

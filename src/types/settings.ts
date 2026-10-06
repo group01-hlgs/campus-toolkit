@@ -17,6 +17,8 @@ export interface Settings {
   cssThemeId: string; // Admin 強制主題
   copyrightNotice: boolean;
   sponsorAdEnabled: boolean;
+  /** 省流開關：啟用後「使用者帳號管理」「身分名冊管理」「班級總覽」改為按鈕手動顯示列表 */
+  dataSaverEnabled: boolean;
 }
 
 /** 系統（程式）名稱未自命名時的預設值，信件抬頭與頁首共用 */
@@ -65,4 +67,5 @@ export const defaultSettings: Settings = {
   cssThemeId: "",
   copyrightNotice: true,
   sponsorAdEnabled: false,
+  dataSaverEnabled: false,
 };
