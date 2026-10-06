@@ -73,8 +73,8 @@ interface AccountForm {
 
 const EMPTY_FORM: AccountForm = { email: "", account: "", name: "", password: "" };
 
-/** 管理員代為設定的預設密碼提示（規則同 isStrongPassword；首次登入會要求本人修改） */
-const DEFAULT_PASSWORD_PLACEHOLDER = "預設密碼；至少8碼，須含大寫、小寫與數字";
+/** 管理員代為設定的預設密碼提示（不設強度規則；首次登入會要求本人修改） */
+const DEFAULT_PASSWORD_PLACEHOLDER = "預設密碼；首次登入會要求本人修改";
 
 /** 「同時建立身分」的名冊專屬欄位（只存目前所選身分的欄位，換身分即清空） */
 type RosterForm = Record<string, string>;
@@ -501,10 +501,9 @@ export default function AccountsPage() {
     if (hasAccount && !isValidAccount(form.account.trim())) {
       return ACCOUNT_FORMAT_MESSAGE;
     }
-    if (form.password) {
-      if (!isStrongPassword(form.password)) return PASSWORD_REQUIREMENT_MESSAGE;
-    } else if (!editingUid) {
-      return `請填寫密碼，${PASSWORD_REQUIREMENT_MESSAGE}`;
+    // 單筆建立／編輯不套用密碼強度規則（僅驗證非空白），與伺服器 skipPasswordRule 一致
+    if (!form.password && !editingUid) {
+      return "請填寫密碼";
     }
     // 同時建立身分的必填欄位（與伺服器 validateRosterInput 一致）
     if (!editingUid && formRosterRole) {

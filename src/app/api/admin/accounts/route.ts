@@ -229,7 +229,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const result = validateAccountInput(input, { requirePassword: true });
+    // 單筆建立不套用密碼強度規則（僅驗證非空白與長度上限），與批次匯入一致
+    const result = validateAccountInput(input, {
+      requirePassword: true,
+      skipPasswordRule: true,
+    });
     if (!result.ok) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }
@@ -360,7 +364,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: "慣用身分無效" }, { status: 400 });
     }
 
-    const result = validateAccountInput(input, { requirePassword: false });
+    // 單筆編輯填入新密碼時同樣不套用強度規則（留空＝不變更）
+    const result = validateAccountInput(input, {
+      requirePassword: false,
+      skipPasswordRule: true,
+    });
     if (!result.ok) {
       return NextResponse.json({ success: false, message: result.message }, { status: 400 });
     }
