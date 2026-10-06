@@ -121,6 +121,14 @@ interface BatchResponse {
   progress?: AccountBatchProgress;
 }
 
+/** 單筆新增／編輯 API 回應（partial＝帳號已建立但同建立的名冊條目失敗） */
+interface SaveResponse {
+  success?: boolean;
+  message?: string;
+  uid?: string;
+  partial?: boolean;
+}
+
 /** 彙總多批執行結果的完成訊息（格式同伺服器單批訊息，但為整檔累計） */
 function composeBatchMessage(
   mode: AccountBatchMode,
@@ -270,6 +278,9 @@ export default function AccountsPage() {
   // 儲存成功提示 modal：完成時跳出，1 秒後自動消失
   const [successModal, setSuccessModal] = useState<string | null>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 部分完成提示 modal：帳號已建立但名冊條目失敗，須手動按「知道了」才關閉
+  const [partialModal, setPartialModal] = useState<string | null>(null);
 
   // 確認對話 modal：取代原生 confirm，樣式跟隨主題
   const [confirmRequest, setConfirmRequest] = useState<{
@@ -547,15 +558,21 @@ export default function AccountsPage() {
           ...(!isEdit && formRosterRole ? { roster: { role: formRosterRole, input: formRoster } } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await readJsonResponse<SaveResponse>(res);
       if (!res.ok || !data.success) {
         setFormError(data?.message || "儲存失敗");
         return;
       }
-      setFlash({ type: "success", text: data.message || "已儲存" });
-      showSuccessModal(data.message || "已儲存");
       closeForm();
       await loadAccounts();
+      if (data.partial) {
+        const text = data.message || "帳號已建立，但身分名冊條目未建立，請至「身分名冊管理」補建";
+        setFlash({ type: "error", text });
+        setPartialModal(text);
+        return;
+      }
+      setFlash({ type: "success", text: data.message || "已儲存" });
+      showSuccessModal(data.message || "已儲存");
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "儲存失敗");
     } finally {
@@ -1158,8 +1175,12 @@ export default function AccountsPage() {
       {/* 提示訊息 */}
       {flash && (
         <div
-          className="w-full max-w-6xl mb-4 rounded-lg border border-themed px-4 py-3 text-sm text-t1 bg-card"
-          role="status"
+          className={`w-full max-w-6xl mb-4 px-4 py-3 text-sm ${
+            flash.type === "error"
+              ? "alert-danger"
+              : "rounded-lg border border-themed text-t1 bg-card"
+          }`}
+          role={flash.type === "error" ? "alert" : "status"}
         >
           {flash.text}
         </div>
@@ -1776,6 +1797,42 @@ export default function AccountsPage() {
             </div>
             <p className="text-lg font-semibold text-t1">{successModal}</p>
             <p className="text-xs text-t3">視窗將自動關閉</p>
+          </div>
+        </div>
+      )}
+
+      {/* 部分完成 modal：帳號已建立但名冊條目失敗，須手動確認，不自動消失 */}
+      {partialModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+        >
+          <div className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in max-w-md">
+            <div className="flex justify-center">
+              <svg
+                className="w-12 h-12 text-warning"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+                />
+              </svg>
+            </div>
+            <p className="text-lg font-semibold text-t1">部分完成</p>
+            <p className="text-sm text-t2">{partialModal}</p>
+            <button
+              type="button"
+              onClick={() => setPartialModal(null)}
+              className="btn-theme rounded-lg px-6 py-2 text-sm cursor-pointer"
+            >
+              知道了
+            </button>
           </div>
         </div>
       )}

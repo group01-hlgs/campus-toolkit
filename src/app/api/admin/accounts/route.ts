@@ -302,20 +302,32 @@ export async function POST(request: NextRequest) {
 
     // 本學期身分名冊條目：doc id ＝ uid_學年度_學期，之後可在「身分名冊管理」維護
     // （同身分本學期若為剛銜接的孤兒條目，此處以表單填寫的資料覆寫）
+    // 帳號文件已建立，名冊寫入失敗不回滾：改以 partial 回報讓畫面明確提示補建，
+    // 快取失效與稽核仍照常執行，避免半成品無紀錄、使用者重試又撞 409
+    let rosterFailed = false;
     if (rosterSection && rosterValidation?.ok && period) {
-      await getAdminDb()
-        .collection(rosterCollection(rosterSection.role))
-        .doc(rosterEntryId(docRef.id, period))
-        .set(
-          buildRosterEntry(docRef.id, rosterSection.role, period, rosterValidation.roster, {
-            email: result.account.email,
-            account: result.account.account,
-            name: result.account.name,
-          })
-        );
+      try {
+        await getAdminDb()
+          .collection(rosterCollection(rosterSection.role))
+          .doc(rosterEntryId(docRef.id, period))
+          .set(
+            buildRosterEntry(docRef.id, rosterSection.role, period, rosterValidation.roster, {
+              email: result.account.email,
+              account: result.account.account,
+              name: result.account.name,
+            })
+          );
+      } catch (error) {
+        rosterFailed = true;
+        console.error("Account create roster error:", error);
+      }
     }
 
-    const rosterLabel = rosterSection ? `、同時建立本學期${rosterRoleLabel(rosterSection.role)}身分` : "";
+    const rosterLabel = rosterSection
+      ? rosterFailed
+        ? `、建立本學期${rosterRoleLabel(rosterSection.role)}身分失敗`
+        : `、同時建立本學期${rosterRoleLabel(rosterSection.role)}身分`
+      : "";
     invalidateReadCache();
     await logActivity({
       userId: session.uid,
@@ -324,6 +336,15 @@ export async function POST(request: NextRequest) {
       ip: getClientIp(request),
       details: `建立帳號 ${result.account.account || result.account.email}（${result.account.name}）${rosterLabel}${linkedLabel}`,
     });
+
+    if (rosterFailed && rosterSection) {
+      return NextResponse.json({
+        success: true,
+        partial: true,
+        uid: docRef.id,
+        message: `帳號已建立，但本學期${rosterRoleLabel(rosterSection.role)}身分的名冊條目建立失敗，請至「身分名冊管理」補建`,
+      });
+    }
 
     return NextResponse.json({
       success: true,
