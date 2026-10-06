@@ -6,8 +6,8 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getCurrentPeriod } from "@/lib/settings-server";
-import { invalidateReadCache } from "@/lib/read-cache";
+import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
+import { invalidateAdminListCache } from "@/lib/list-cache";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
 import { SchoolPeriod } from "@/types/settings";
 import {
@@ -52,7 +52,8 @@ import {
   buildRosterEntry,
   checkRosterConflict,
   hashRosterPassword,
-  linkOrphanEntries,
+  linkOrphanEntriesBatch,
+  LinkTarget,
   loadAdminGuardContext,
   rosterEntryId,
   syncEntryIdentity,
@@ -628,6 +629,19 @@ async function executePlan(
   let linked = 0;
   const deleteUids: string[] = [];
 
+  // 三段式：A 建立／更新帳號 → B 一次批量銜接孤兒 → C 寫入本學期條目。
+  // 銜接必須早於本學期條目寫入（同身分同學期先銜接、再依檔案覆寫，
+  // 與單筆建立的順序一致）；逐列改為整批後語意不變、查詢數大幅下降。
+  const linkTargets: LinkTarget[] = [];
+  const entryWrites: {
+    role: RosterRole;
+    uid: string;
+    roster: RosterData;
+    email: string;
+    account: string;
+    name: string;
+  }[] = [];
+
   for (const item of planned) {
     if (item.action === "skip") {
       skipped.push({ row: item.row, reason: item.reason });
@@ -639,28 +653,21 @@ async function executePlan(
       );
       const docRef = await users.add(record);
       created += 1;
-      // 自動銜接：孤兒條目改掛回新帳號（須在寫入本學期條目之前，避免同身分同學期重複）
-      // （超級條目僅超級管理員可銜接，否則等同授予超級權限）
-      linked += await linkOrphanEntries(
-        {
+      // 自動銜接與條目寫入延後到 B／C 段統一處理（順序：先銜接、後寫條目）
+      linkTargets.push({
+        uid: docRef.id,
+        email: item.account.email,
+        account: item.account.account,
+      });
+      if (item.role && item.roster && period) {
+        entryWrites.push({
+          role: item.role,
           uid: docRef.id,
+          roster: item.roster,
           email: item.account.email,
           account: item.account.account,
-        },
-        isSuper
-      );
-      if (item.role && item.roster && period) {
-        await db
-          .collection(rosterCollection(item.role))
-          .doc(rosterEntryId(docRef.id, period))
-          .set(
-            buildRosterEntry(docRef.id, item.role, period, item.roster, {
-              email: item.account.email,
-              account: item.account.account,
-              name: item.account.name,
-            })
-          );
-        rostered += 1;
+          name: item.account.name,
+        });
       }
     } else if (item.action === "update") {
       await users.doc(item.uid).update(item.patch);
@@ -672,22 +679,39 @@ async function executePlan(
           ...(accountChanged ? { account: item.patch.account as string } : {}),
         });
       }
-      // 帳號名（辨識鍵）變更：把同辨識鍵的孤兒名冊條目銜接回本帳號
+      // 帳號名（辨識鍵）變更：把同辨識鍵的孤兒名冊條目銜接回本帳號（併入 B 段）
       if (accountChanged) {
         const current = byUid.get(item.uid);
-        linked += await linkOrphanEntries(
-          {
-            uid: item.uid,
-            email: current?.email ?? "",
-            account: (item.patch.account as string) || current?.account || "",
-          },
-          isSuper
-        );
+        linkTargets.push({
+          uid: item.uid,
+          email: current?.email ?? "",
+          account: (item.patch.account as string) || current?.account || "",
+        });
       }
       updated += 1;
     } else {
       deleteUids.push(item.uid);
     }
+  }
+
+  // B) 全部帳號就緒後一次批量銜接：in 分塊查詢＋跨目標共用孤兒判定
+  if (linkTargets.length > 0) {
+    linked += await linkOrphanEntriesBatch(linkTargets, isSuper);
+  }
+
+  // C) 寫入本學期條目（銜接已完成，同身分同學期不會重複）
+  for (const write of entryWrites) {
+    await db
+      .collection(rosterCollection(write.role))
+      .doc(rosterEntryId(write.uid, period!))
+      .set(
+        buildRosterEntry(write.uid, write.role, period!, write.roster, {
+          email: write.email,
+          account: write.account,
+          name: write.name,
+        })
+      );
+    rostered += 1;
   }
 
   if (deleteUids.length > 0) {
@@ -895,7 +919,7 @@ export async function POST(request: NextRequest) {
     const chunkTotal = Math.ceil(totalRows / CHUNK_SIZE[mode]);
     const chunkNo = Math.min(Math.floor(offset / CHUNK_SIZE[mode]) + 1, chunkTotal);
     const chunkNote = chunkTotal > 1 ? `（第 ${chunkNo}/${chunkTotal} 批）` : "";
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -909,6 +933,9 @@ export async function POST(request: NextRequest) {
       dryRun: false,
       result,
       progress,
+      // 批次回應只有計數（前端無法據此 patch，維持一次整表 refetch 的例外）；
+      // epoch 供前端同步 settings 快取，避免下次進頁誤判清單仍有效
+      cacheEpoch: await getCacheEpoch(),
       message: `批次作業完成${chunkNote}：新增 ${result.created} 筆${rosterNote}${linkNote}、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆${deleteNote}、略過 ${result.skipped.length} 筆`,
     });
   } catch (error) {

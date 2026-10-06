@@ -12,6 +12,7 @@ import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import RoleSwitcher from "@/components/RoleSwitcher";
+import { fetchSettings } from "@/lib/settings-client";
 
 const accountModule = {
   icon: (
@@ -57,9 +58,8 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }

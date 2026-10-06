@@ -8,6 +8,7 @@ import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import HelpTooltip from "@/components/HelpTooltip";
 import { builtinThemes } from "@/lib/themes";
+import { adoptCacheEpoch, fetchSettings, invalidateSettings } from "@/lib/settings-client";
 
 interface FormField {
   id: keyof Settings;
@@ -184,20 +185,18 @@ export default function SettingsPage() {
 
   async function loadSettings() {
     try {
-      const res = await fetch("/api/settings", { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.success && data.settings) {
-          setManageable(Boolean(data.manageable));
-          const mergedSettings = { ...defaultSettings, ...data.settings };
-          setSettings(mergedSettings);
+      // 編輯頁要的是最新值（整份覆寫儲存）：強制繞過前端 30 秒快取
+      const data = await fetchSettings({ force: true });
+      if (data?.success && data.settings) {
+        setManageable(Boolean(data.manageable));
+        const mergedSettings = { ...defaultSettings, ...data.settings };
+        setSettings(mergedSettings);
 
-          // 同步強制主題到 localStorage
-          if (mergedSettings.cssThemeId) {
-            localStorage.setItem("campusToolkitForcedTheme", mergedSettings.cssThemeId);
-          } else {
-            localStorage.removeItem("campusToolkitForcedTheme");
-          }
+        // 同步強制主題到 localStorage
+        if (mergedSettings.cssThemeId) {
+          localStorage.setItem("campusToolkitForcedTheme", mergedSettings.cssThemeId);
+        } else {
+          localStorage.removeItem("campusToolkitForcedTheme");
         }
       }
     } catch (error: unknown) {
@@ -224,6 +223,9 @@ export default function SettingsPage() {
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || "儲存失敗");
       }
+      // 儲存成功：捨棄前端設定快取、採用新 epoch（清單快取同步失效）
+      invalidateSettings();
+      adoptCacheEpoch(data.cacheEpoch);
       if (data.settings) setSettings({ ...defaultSettings, ...data.settings });
 
       // 同步強制主題到 localStorage

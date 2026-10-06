@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
 import { Settings, defaultSettings } from "@/types/settings";
 import AdSense from "@/components/AdSense";
+import { fetchSettings } from "@/lib/settings-client";
 
 export default function SetupPage() {
   const [email, setEmail] = useState("");
@@ -19,8 +20,7 @@ export default function SetupPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+    fetchSettings()
       .then((data) => {
         if (!cancelled && data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });

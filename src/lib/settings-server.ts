@@ -1,5 +1,5 @@
 import "server-only";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
 import { defaultSettings, DEFAULT_SYSTEM_NAME, detectPeriod, SchoolPeriod } from "@/types/settings";
 
 export const SETTINGS_COLLECTION = "settings";
@@ -18,6 +18,35 @@ let systemDocCache: { data: Record<string, unknown> | null; at: number } | null 
 /** 任何設定（含 roleEnabled、featureModules 欄位）寫入後呼叫，讓設定快取立即失效 */
 export function invalidateSettingsCache(): void {
   systemDocCache = null;
+}
+
+/** 全域清單快取版本旗標的欄位名（見 docs/資料庫讀取規範.md 鐵律 6：跨實例失效） */
+export const CACHE_EPOCH_FIELD = "cacheEpoch";
+
+/**
+ * 讀取 `settings/system.cacheEpoch`（全域清單快取的失效旗標）。
+ * 讀同一份 readSystemDoc 快取（30 秒），因此**每請求驗證路徑已讀過時為 0 次額外讀取**；
+ * 欄位缺漏或讀失敗回 0（未 bump 過的初始值）。
+ */
+export async function getCacheEpoch(): Promise<number> {
+  const raw = await readSystemDoc();
+  const epoch = Number(raw?.[CACHE_EPOCH_FIELD]);
+  return Number.isFinite(epoch) && epoch >= 0 ? epoch : 0;
+}
+
+/**
+ * 遞增 `settings/system.cacheEpoch`，讓**所有實例**的清單快取（key 綁 epoch）立即失效。
+ * serverless 多實例間無法互通知程序內快取，改以這份跨實例共用的旗標傳達「有資料變更」；
+ * 讀端以 readSystemDoc 快取吸收，延遲上限＝設定快取 TTL（30 秒）。
+ * 使用 merge set＋FieldValue.increment：settings/system 尚未存在時也能安全建立。
+ * 成功後同步清除本程序的設定快取（立即看到新 epoch）。
+ */
+export async function bumpCacheEpoch(): Promise<void> {
+  await getAdminDb()
+    .collection(SETTINGS_COLLECTION)
+    .doc(SETTINGS_DOC_ID)
+    .set({ [CACHE_EPOCH_FIELD]: FieldValue.increment(1) }, { merge: true });
+  invalidateSettingsCache();
 }
 
 /**

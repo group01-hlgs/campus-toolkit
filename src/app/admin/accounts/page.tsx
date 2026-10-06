@@ -34,15 +34,24 @@ import {
   isValidEmail,
   PASSWORD_REQUIREMENT_MESSAGE,
 } from "@/lib/validation";
-import { getCachedSession, logout } from "@/lib/session";
+import { fetchSession, getCachedSession, logout } from "@/lib/session";
 import { readJsonResponse } from "@/lib/fetch-json";
 import { useDataSaver } from "@/lib/data-saver";
+import { dropList, readList, writeList } from "@/lib/list-store";
+import { adoptCacheEpoch, getCacheEpoch } from "@/lib/settings-client";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
 import RevealListCard from "@/components/RevealListCard";
 
 type Flash = { type: "success" | "error"; text: string } | null;
+
+/** 依 uid 就地新增／取代一列（state 與快取共用的純函式） */
+function upsertAccount(list: AccountSummary[], account: AccountSummary): AccountSummary[] {
+  return list.some((item) => item.uid === account.uid)
+    ? list.map((item) => (item.uid === account.uid ? account : item))
+    : [...list, account];
+}
 
 /** 狀態標籤配色：有效＝綠、停用＝黃 */
 const STATUS_STYLE: Record<AccountStatus, string> = {
@@ -119,6 +128,8 @@ interface BatchResponse {
   preview?: AccountBatchPreview;
   result?: AccountBatchResult;
   progress?: AccountBatchProgress;
+  /** 執行回應附帶的清單快取失效旗標（前端據此捨棄舊清單） */
+  cacheEpoch?: number;
 }
 
 /** 單筆新增／編輯 API 回應（partial＝帳號已建立但同建立的名冊條目失敗） */
@@ -127,6 +138,9 @@ interface SaveResponse {
   message?: string;
   uid?: string;
   partial?: boolean;
+  /** 伺服器組裝好的該列（0 額外讀取），前端就地 patch 清單 */
+  summary?: AccountSummary;
+  cacheEpoch?: number;
 }
 
 /** 彙總多批執行結果的完成訊息（格式同伺服器單批訊息，但為整檔累計） */
@@ -353,17 +367,37 @@ export default function AccountsPage() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [deleteRequest]);
 
+  /**
+   * 清單快取鍵：一律併入學年度／學期（與伺服端 key 同構）。
+   * 讀取用前端已知的當期（settings 與伺服端 getCurrentPeriod 同源）；
+   * 寫入改用回應自帶的 period，避免「日期推進改變生效週期卻無 bump」
+   * 的極端情況把舊週期資料掛在新週期鍵下（該情況只會沒命中、絕不回 stale）。
+   */
+  const accountsListKey = (period?: { academicYear: number; semester: number }) =>
+    `admin:accounts-list:${period?.academicYear ?? settings.academicYear}:${period?.semester ?? settings.semester}`;
+
   const loadAccounts = async () => {
     setListLoaded(true);
-    setLoading(true);
     setListError("");
+    // 快取命中（epoch 相符且未逾 10 分鐘）＝直接沿用，不發任何請求
+    const cached = readList<AccountSummary[]>(accountsListKey(), getCacheEpoch());
+    if (cached) {
+      setAccounts(cached);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const res = await fetch("/api/admin/accounts", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data?.message || "帳號清單載入失敗");
       }
-      setAccounts(Array.isArray(data.accounts) ? data.accounts : []);
+      const next = Array.isArray(data.accounts) ? data.accounts : [];
+      // 先採用回應的 epoch 再寫入，兩者同源；鍵用回應的 period（見 accountsListKey）
+      adoptCacheEpoch(data.cacheEpoch);
+      writeList(accountsListKey(data.period), data.cacheEpoch, next);
+      setAccounts(next);
     } catch (error) {
       setAccounts([]);
       setListError(error instanceof Error ? error.message : "帳號清單載入失敗");
@@ -372,15 +406,50 @@ export default function AccountsPage() {
     }
   };
 
+  /**
+   * 變更後就地更新（回應自帶的 summary 即最終值）：0 讀取、不再整表重抓。
+   * 快取寫入條件＝「採用新 epoch 前快取驗證通過，且新 epoch ＝ 舊值＋1」
+   * （epoch 遞增 1 ＝ 這段期間只有本次寫入，快取內容仍是寫入前的真相）；
+   * 否則捨棄快取，下次進頁整表重抓（見 roster 頁 applyRosterUpsert 的說明）。
+   */
+  function applyAccountsUpsert(account: AccountSummary, epoch?: number) {
+    const known = getCacheEpoch();
+    const cached = readList<AccountSummary[]>(accountsListKey(), known);
+    const reusable = cached !== null && typeof epoch === "number" && epoch === (known ?? -1) + 1;
+    adoptCacheEpoch(epoch);
+    setAccounts((prev) => upsertAccount(prev, account));
+    if (cached && reusable) writeList(accountsListKey(), epoch, upsertAccount(cached, account));
+    else if (cached) dropList(accountsListKey());
+  }
+
+  /** 變更後就地移除一列（刪除；快取規則同 applyAccountsUpsert） */
+  function applyAccountsRemove(uid: string, epoch?: number) {
+    const known = getCacheEpoch();
+    const cached = readList<AccountSummary[]>(accountsListKey(), known);
+    const reusable = cached !== null && typeof epoch === "number" && epoch === (known ?? -1) + 1;
+    adoptCacheEpoch(epoch);
+    setAccounts((prev) => prev.filter((item) => item.uid !== uid));
+    if (cached && reusable) {
+      writeList(accountsListKey(), epoch, cached.filter((item) => item.uid !== uid));
+    } else if (cached) {
+      dropList(accountsListKey());
+    }
+  }
+
+  /** 整表重抓前先捨棄快取並採用新 epoch（批次：回應只有計數，無法就地 patch） */
+  function invalidateAccountsList(epoch?: number) {
+    dropList(accountsListKey());
+    adoptCacheEpoch(epoch);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+    // force＝每次進頁重取（模組／屬性提示即時），進行中請求由 session 模組去重
+    fetchSession(true)
+      .then((session) => {
         if (cancelled) return;
-        const modules = data?.user?.adminModules;
-        setAdminModules(Array.isArray(modules) ? modules.filter((m) => typeof m === "string") : []);
-        const attribute = data?.user?.adminAttribute;
+        setAdminModules(session?.adminModules ?? []);
+        const attribute = session?.adminAttribute;
         if (typeof attribute === "string") setAdminAttribute(attribute);
       })
       .catch(() => {
@@ -565,8 +634,11 @@ export default function AccountsPage() {
         return;
       }
       closeForm();
-      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
-      if (!gating) await loadAccounts();
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）；
+      // 否則以回應自帶的 summary 就地更新（回應即真相，0 讀取）
+      if (gating) adoptCacheEpoch(data.cacheEpoch);
+      else if (data.summary) applyAccountsUpsert(data.summary, data.cacheEpoch);
+      else await loadAccounts();
       if (data.partial) {
         const text = data.message || "帳號已建立，但身分名冊條目未建立，請至「身分名冊管理」補建";
         setFlash({ type: "error", text });
@@ -621,8 +693,10 @@ export default function AccountsPage() {
       setResetTarget(null);
       setResetPassword("");
       setResetConfirm("");
-      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
-      if (!gating) await loadAccounts();
+      // 省流閘門仍關著時不重整列表；否則以回應的 summary 就地更新（0 讀取）
+      if (gating) adoptCacheEpoch(data.cacheEpoch);
+      else if (data.summary) applyAccountsUpsert(data.summary, data.cacheEpoch);
+      else await loadAccounts();
     } catch (error) {
       setResetError(error instanceof Error ? error.message : "重設失敗");
     } finally {
@@ -659,8 +733,10 @@ export default function AccountsPage() {
       setFlash({ type: "success", text: data.message || "狀態已更新" });
       showSuccessModal(data.message || "狀態已更新");
       if (editingUid === target.uid) closeForm();
-      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
-      if (!gating) await loadAccounts();
+      // 省流閘門仍關著時不重整列表；否則以回應的 summary 就地更新（0 讀取）
+      if (gating) adoptCacheEpoch(data.cacheEpoch);
+      else if (data.summary) applyAccountsUpsert(data.summary, data.cacheEpoch);
+      else await loadAccounts();
     } catch (error) {
       setFlash({
         type: "error",
@@ -693,8 +769,9 @@ export default function AccountsPage() {
       setFlash({ type: "success", text: data.message || "已刪除" });
       showSuccessModal(data.message || "已刪除");
       if (editingUid === target.uid) closeForm();
-      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
-      if (!gating) await loadAccounts();
+      // 省流閘門仍關著時不重整列表；否則就地移除該列（0 讀取）
+      if (gating) adoptCacheEpoch(data.cacheEpoch);
+      else applyAccountsRemove(data.uid || target.uid, data.cacheEpoch);
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
@@ -769,6 +846,8 @@ export default function AccountsPage() {
     setBatchProgress(null);
     let doneRows = 0;
     let totalRows = 0;
+    // 逐批執行時每批都遞增 epoch：記錄最後一批回應的值供完成後捨棄舊清單
+    let lastBatchEpoch: number | undefined;
     try {
       const send = async (offset: number): Promise<BatchResponse> => {
         const body = new FormData();
@@ -805,6 +884,7 @@ export default function AccountsPage() {
       for (;;) {
         const data = await send(offset);
         if (!data.result) throw new Error(data.message || "批次作業失敗");
+        if (typeof data.cacheEpoch === "number") lastBatchEpoch = data.cacheEpoch;
         const result = data.result;
         aggregated.created += result.created;
         aggregated.updated += result.updated;
@@ -828,6 +908,9 @@ export default function AccountsPage() {
       setBatchFile(null);
       setBatchProgress(null);
       if (batchFileRef.current) batchFileRef.current.value = "";
+      // 批次回應只有計數，維持一次整表重抓（例外）；
+      // 先捨棄快取並採用新 epoch（以最後一批回應的 epoch 為準），確保重抓的不是舊快取
+      invalidateAccountsList(lastBatchEpoch);
       // 省流閘門仍關著時不重整列表（不因批次完成而自動載入）
       if (!gating) await loadAccounts();
       showSuccessModal(composeBatchMessage(mode, aggregated, rosterScope));

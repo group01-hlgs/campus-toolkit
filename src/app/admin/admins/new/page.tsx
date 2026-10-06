@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
 import { Settings, defaultSettings } from "@/types/settings";
 import AdSense from "@/components/AdSense";
+import { fetchSettings } from "@/lib/settings-client";
 
 export default function NewAdminPage() {
   const router = useRouter();
@@ -20,8 +21,7 @@ export default function NewAdminPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+    fetchSettings()
       .then((data) => {
         if (!cancelled && data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });

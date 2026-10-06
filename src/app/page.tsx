@@ -12,6 +12,7 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import { fetchSettings } from "@/lib/settings-client";
 
 type ApiResponse = {
   success?: boolean;
@@ -103,9 +104,8 @@ export default function Home() {
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }

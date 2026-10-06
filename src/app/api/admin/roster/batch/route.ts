@@ -6,8 +6,8 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getCurrentPeriod } from "@/lib/settings-server";
-import { invalidateReadCache } from "@/lib/read-cache";
+import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
+import { invalidateAdminListCache } from "@/lib/list-cache";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
 import { ADMIN_MODULES, USER_COLLECTION } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
@@ -743,7 +743,7 @@ export async function POST(request: NextRequest) {
     const result = await executePlan(planned, role, period, clearUids);
     const label = ROSTER_BATCH_MODE_LABELS[mode];
     const clearedText = result.cleared > 0 ? `覆蓋刪除 ${result.cleared} 筆、` : "";
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -756,6 +756,9 @@ export async function POST(request: NextRequest) {
       success: true,
       dryRun: false,
       result,
+      // 批次回應只有計數（前端維持一次整表 refetch 的例外）；
+      // epoch 供前端同步 settings 快取，避免下次進頁誤判清單仍有效
+      cacheEpoch: await getCacheEpoch(),
       message: `批次作業完成：${clearedText}新增 ${result.created} 筆、更新 ${result.updated} 筆、刪除 ${result.deleted} 筆、略過 ${result.skipped.length} 筆`,
     });
   } catch (error) {

@@ -3,16 +3,17 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { SETTINGS_COLLECTION, getCurrentPeriod } from "@/lib/settings-server";
+import { SETTINGS_COLLECTION, getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
 import { isActiveEntry, loadPeriodEntries } from "@/lib/roster";
 import { rosterCollection } from "@/types/roster";
 import { cachedRead } from "@/lib/read-cache";
+import { cachedListRead } from "@/lib/list-cache";
 import { CLASSES_DOC_ID, readSchoolClasses } from "@/types/school-classes";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 
 const noStore = { "Cache-Control": "no-store" };
 
-/** 班級總覽快取時間：總覽為唯讀計算結果，30 秒內重複進出頁面不再讀取整份名冊 */
+/** 設定文件（班級結構／校務資料）的快取時間：變更由 invalidateReadCache() 失效，30 秒為跨實例陳舊上限 */
 const OVERVIEW_TTL_MS = 30_000;
 
 /** 名冊條目的字串欄位（缺值或非字串一律視為空字串） */
@@ -46,8 +47,9 @@ function compareStudents(a: Record<string, unknown>, b: Record<string, unknown>)
  *
  * 讀取策略（見 docs/資料庫讀取規範.md）：
  * - 單班模式：`where(classCode)` 過濾下推，只讀該班名冊（鐵律 2），不整份撈回再篩。
- * - 總覽模式：整份當期名冊僅為計算人數，結果快取 30 秒（鐵律 6）；
- *   名冊變更路由須呼叫 invalidateReadCache() 讓總覽立即失效。
+ * - 總覽模式：整份當期名冊僅為計算人數，結果以 cacheEpoch 綁定快取（鐵律 6）；
+ *   名冊／班級資料變更路由呼叫 invalidateAdminListCache() 跨實例失效，
+ *   TTL 10 分鐘僅為硬上限。
  */
 export async function GET(request: NextRequest) {
   try {
@@ -67,7 +69,7 @@ export async function GET(request: NextRequest) {
     const classCodeParam = request.nextUrl.searchParams.get("classCode");
 
     // 班級結構與校務資料：兩份設定文件（各 1 讀；30 秒快取，
-    // 班級／校務資料更新後由 invalidateReadCache() 失效）
+    // 班級／校務資料更新後由 invalidateAdminListCache() 失效）
     const [classesSnap, profileSnap] = await Promise.all([
       cachedRead(`setting-doc:${CLASSES_DOC_ID}`, OVERVIEW_TTL_MS, () =>
         db.collection(SETTINGS_COLLECTION).doc(CLASSES_DOC_ID).get()
@@ -113,6 +115,7 @@ export async function GET(request: NextRequest) {
         {
           success: true,
           period,
+          cacheEpoch: await getCacheEpoch(),
           classInfo: {
             code: item.code,
             name: item.name,
@@ -136,10 +139,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 總覽：整份當期名冊只在快取失效後讀取一次，30 秒內重複進出頁面＝ 0 讀取
-    const overview = await cachedRead(
+    // 總覽：整份當期名冊只在 epoch 變動（有資料寫入）後重讀一次，
+    // 期間重複進出頁面＝ 0 讀取（TTL 10 分鐘僅為防呆硬上限）
+    const { data: overview, epoch } = await cachedListRead(
       `admin:classes-overview:${period.academicYear}:${period.semester}`,
-      OVERVIEW_TTL_MS,
       async () => {
         const students = await loadPeriodEntries(period, "student");
 
@@ -188,7 +191,7 @@ export async function GET(request: NextRequest) {
     );
 
     return NextResponse.json(
-      { success: true, period, ...overview },
+      { success: true, period, ...overview, cacheEpoch: epoch },
       { headers: noStore }
     );
   } catch (error) {

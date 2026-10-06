@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { defaultSettings } from "@/types/settings";
 import { getCachedSession, fetchSession, logout as clearSession } from "@/lib/session";
+import { fetchSettings } from "@/lib/settings-client";
 
 const WARNING_SECONDS = 30;
 const TICK_MS = 1000;
@@ -35,9 +36,8 @@ export default function IdleTimeout() {
 
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         const value = Number(data?.settings?.sessionTimeout);
         if (Number.isFinite(value) && value >= 1) {
           setTimeoutMinutes(value);

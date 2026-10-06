@@ -11,7 +11,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { Settings, defaultSettings } from "@/types/settings";
 import { serverErrorMessage } from "@/lib/api-error";
-import { invalidateSettingsCache, readSystemDoc } from "@/lib/settings-server";
+import { invalidateSettingsCache, readSystemDoc, getCacheEpoch, bumpCacheEpoch, CACHE_EPOCH_FIELD } from "@/lib/settings-server";
 import { ROLE_ENABLED_FIELD } from "@/types/role-settings";
 import { FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD } from "@/types/feature-modules";
 
@@ -92,6 +92,8 @@ export async function GET(request: NextRequest) {
         success: true,
         settings: manageable ? settings : pickPublicSettings(settings),
         manageable,
+        // 清單快取的跨實例失效旗標：前端 list-store 以此判斷已持有的清單是否需重抓
+        cacheEpoch: await getCacheEpoch(),
       },
       { headers: noStore }
     );
@@ -101,6 +103,7 @@ export async function GET(request: NextRequest) {
         success: true,
         settings: pickPublicSettings(defaultSettings),
         manageable: false,
+        cacheEpoch: await getCacheEpoch().catch(() => 0),
       },
       { headers: { "Cache-Control": "no-store" } }
     );
@@ -146,12 +149,21 @@ export async function PUT(request: NextRequest) {
     const preserved: Record<string, unknown> = {};
     if (existing.exists) {
       const raw = existing.data() as Record<string, unknown>;
-      for (const field of [ROLE_ENABLED_FIELD, FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD]) {
+      // cacheEpoch 必須保留並遞增：整份覆寫若抹掉它，epoch 會倒退，
+      // 可能撞上程序內仍存活的舊清單 key（10 分鐘硬上限內）而復活舊 payload
+      for (const field of [
+        ROLE_ENABLED_FIELD,
+        FEATURE_MODULES_FIELD,
+        FEATURE_MODULE_ROLES_FIELD,
+        CACHE_EPOCH_FIELD,
+      ]) {
         if (raw[field] !== undefined) preserved[field] = raw[field];
       }
     }
     await ref.set({ ...settings, ...preserved });
     invalidateSettingsCache();
+    // 設定變更（學年度／學期等）會影響名冊清單內容：跨實例失效旗標一併遞增
+    await bumpCacheEpoch();
 
     await logActivity({
       userId: session.uid,
@@ -161,7 +173,13 @@ export async function PUT(request: NextRequest) {
       details: "系統設定已更新",
     });
 
-    return NextResponse.json({ success: true, settings, message: "設定已儲存" });
+    return NextResponse.json({
+      success: true,
+      settings,
+      message: "設定已儲存",
+      // 讓剛儲存的前端立即採用新 epoch（清單快取同步失效）
+      cacheEpoch: await getCacheEpoch(),
+    });
   } catch (error) {
     console.error("Settings PUT error:", error);
     return NextResponse.json(

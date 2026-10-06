@@ -6,6 +6,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getTotpIssuer } from "@/lib/settings-server";
+import { invalidateAdminListCache } from "@/lib/list-cache";
 import { isMailConfigured } from "@/lib/mailer";
 import { buildOtpauthUrl } from "@/lib/totp";
 import {
@@ -123,6 +124,8 @@ export async function POST(request: NextRequest) {
       method === "totp" ? await ensureTotpSecret(userRef, userData) : readTwoFactorProfile(userData).totpSecret;
 
     await userRef.update({ twoFactor: method });
+    // 兩階段驗證方式顯示於「使用者帳號管理」清單：與管理端變更同一套失效
+    await invalidateAdminListCache();
 
     await logActivity({
       userId: session.uid,

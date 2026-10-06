@@ -5,8 +5,8 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getCurrentPeriod } from "@/lib/settings-server";
-import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
+import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
+import { cachedListRead, invalidateAdminListCache } from "@/lib/list-cache";
 import {
   AccountStatus,
   ACTIVE_STATUS,
@@ -19,6 +19,7 @@ import {
   isRosterRole,
   rosterCollection,
   rosterRoleLabel,
+  RosterEntry,
   RosterInput,
   RosterRole,
 } from "@/types/roster";
@@ -99,11 +100,10 @@ export async function GET(request: NextRequest) {
     }
 
     // 清單＝「當期」該身分名冊條目 join 使用者帳號（每次請求約「當期名冊＋同批使用者」次讀取）
-    // 快取 15 秒：重複進出頁面、緊接的重複請求不再重讀；增修刪後由 invalidateReadCache() 失效
+    // 快取以 cacheEpoch 綁定（跨實例失效，見 list-cache.ts）；TTL 10 分鐘僅為硬上限
     const period = await getCurrentPeriod();
-    const payload = await cachedRead(
+    const { data: payload, epoch } = await cachedListRead(
       `admin:roster-list:${role}:${period.academicYear}:${period.semester}`,
-      15_000,
       async () => {
         const snapshot = await getAdminDb()
           .collection(rosterCollection(role))
@@ -146,7 +146,8 @@ export async function GET(request: NextRequest) {
     );
 
     return NextResponse.json(
-      { success: true, ...payload },
+      // cacheEpoch 與快取 key 同源（見 list-cache.ts），前端據此判斷清單是否仍有效
+      { success: true, ...payload, cacheEpoch: epoch },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
@@ -225,10 +226,9 @@ export async function POST(request: NextRequest) {
     const entryRef = db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period));
     // 用 create() 一次完成「判存在＋寫入」：已存在即 ALREADY_EXISTS → 409，
     // 免先點查判存在（點查 1 讀；create 撞到＝ 0 讀），同 moveEntriesUid 的做法
+    const newEntry = buildRosterEntry(uid, role, period, result.roster, { email, account, name });
     try {
-      await entryRef.create(
-        buildRosterEntry(uid, role, period, result.roster, { email, account, name })
-      );
+      await entryRef.create(newEntry);
     } catch (error) {
       if (isAlreadyExistsError(error)) {
         return NextResponse.json(
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -251,6 +251,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       uid,
+      // 回應即真相：伺服器組裝好的該列（0 額外讀取），前端 patch 清單、不再整表重抓
+      member: toRosterMember(role, uid, accountData, newEntry),
+      cacheEpoch: await getCacheEpoch(),
       message: `${rosterRoleLabel(role)}已建立`,
     });
   } catch (error) {
@@ -338,20 +341,22 @@ export async function PUT(request: NextRequest) {
 
     // 名冊專屬欄位寫入「目前學年度學期」的條目，歷史學期不受影響
     //（是否存在沿用上方已讀的 entrySnap，不重複點查——鐵律 5）
+    const updatedAt = Date.now();
+    let entryAfter: RosterEntry | Record<string, unknown>;
     if (entrySnap.exists) {
-      const patch: Record<string, unknown> = { ...result.roster, updatedAt: Date.now() };
+      const patch: Record<string, unknown> = { ...result.roster, updatedAt };
       await entryRef.update(patch);
+      entryAfter = { ...(currentEntry ?? {}), ...patch };
     } else {
-      await entryRef.set(
-        buildRosterEntry(uid, role, period, result.roster, {
-          email: account.email,
-          account: account.account,
-          name: account.name,
-        })
-      );
+      entryAfter = buildRosterEntry(uid, role, period, result.roster, {
+        email: account.email,
+        account: account.account,
+        name: account.name,
+      });
+      await entryRef.set(entryAfter);
     }
 
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -360,7 +365,18 @@ export async function PUT(request: NextRequest) {
       details: `更新${rosterRoleLabel(role)} ${account.account || account.email}`,
     });
 
-    return NextResponse.json({ success: true, message: "資料已更新" });
+    return NextResponse.json({
+      success: true,
+      // 回應即真相：以寫入後的使用者＋條目組裝該列（0 額外讀取），前端 patch 不整表重抓
+      member: toRosterMember(
+        role,
+        uid,
+        { ...snap.data(), email: account.email, account: account.account, name: account.name },
+        entryAfter
+      ),
+      cacheEpoch: await getCacheEpoch(),
+      message: "資料已更新",
+    });
   } catch (error) {
     console.error("Roster update error:", error);
     return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });
@@ -432,10 +448,11 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    await ref.update({ status, updatedAt: Date.now() });
+    const statusUpdatedAt = Date.now();
+    await ref.update({ status, updatedAt: statusUpdatedAt });
 
     const account = (await getAdminDb().collection(USER_COLLECTION).doc(uid).get()).data() || {};
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -446,6 +463,9 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      // 回應即真相：狀態列直接回傳（0 額外讀取），前端 patch 不整表重抓
+      member: toRosterMember(role, uid, account, { ...statusEntry, status, updatedAt: statusUpdatedAt }),
+      cacheEpoch: await getCacheEpoch(),
       message: status === ACTIVE_STATUS ? "狀態已恢復為有效" : `狀態已設為「${statusLabel(status)}」`,
     });
   } catch (error) {
@@ -514,7 +534,7 @@ export async function DELETE(request: NextRequest) {
     await ref.delete();
 
     const account = (await getAdminDb().collection(USER_COLLECTION).doc(uid).get()).data() || {};
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -525,6 +545,9 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      // 回應帶 uid：前端直接移除該列，不整表重抓
+      uid,
+      cacheEpoch: await getCacheEpoch(),
       message: `已刪除本期${rosterRoleLabel(role)}名冊資料`,
     });
   } catch (error) {

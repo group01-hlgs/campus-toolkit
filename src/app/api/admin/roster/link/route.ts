@@ -5,7 +5,8 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { invalidateReadCache } from "@/lib/read-cache";
+import { invalidateAdminListCache } from "@/lib/list-cache";
+import { getCacheEpoch } from "@/lib/settings-server";
 import { findAccountByKey, isSuperEntry, moveEntriesUid } from "@/lib/roster";
 import { USER_COLLECTION } from "@/types/users";
 import { rosterCollection } from "@/types/roster";
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -92,6 +93,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       moved,
+      // epoch 供前端判斷手上的清單已過期（銜接影響多列，維持一次整表 refetch 的例外）
+      cacheEpoch: await getCacheEpoch(),
       message: `已銜接 ${moved} 筆名冊條目至 ${target.account || target.email}（${target.name}）`,
     });
   } catch (error) {

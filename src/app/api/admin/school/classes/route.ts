@@ -5,7 +5,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { invalidateReadCache } from "@/lib/read-cache";
+import { invalidateAdminListCache } from "@/lib/list-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 import {
@@ -122,7 +122,7 @@ export async function PUT(request: NextRequest) {
         })),
       });
 
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",

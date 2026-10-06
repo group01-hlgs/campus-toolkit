@@ -7,6 +7,7 @@ import { ROLE_HOME, ROLE_LABELS, UserRole, isUserRole } from "@/types/users";
 import { setCachedSession, UserSession } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
+import { fetchSettings } from "@/lib/settings-client";
 
 type ApiResponse = {
   success?: boolean;
@@ -68,9 +69,8 @@ export default function ChooseRolePage() {
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }

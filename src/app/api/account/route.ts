@@ -11,6 +11,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getTotpIssuer, isEmailChangeAllowed, getCurrentPeriod } from "@/lib/settings-server";
+import { invalidateAdminListCache } from "@/lib/list-cache";
 import { getRosterEntry, isActiveEntry, syncEntryIdentity } from "@/lib/roster";
 import { buildOtpauthUrl } from "@/lib/totp";
 import { readTwoFactorProfile } from "@/lib/two-factor";
@@ -337,6 +338,9 @@ export async function PUT(request: NextRequest) {
     }
 
     await userRef.update(updateData);
+    // 自改辨識欄位（電子郵件／帳號／慣用身分）會反映在「使用者帳號管理」清單：
+    // 與管理端變更同一套失效（本機清空＋跨實例 epoch 遞增），低頻寫入可忽略其成本
+    await invalidateAdminListCache();
 
     // 辨識鍵（電子郵件／帳號名）變更：同步當期各身分名冊的展示資料（歷史學期保留當時資料）
     if (typeof updateData.email === "string" || typeof updateData.account === "string") {

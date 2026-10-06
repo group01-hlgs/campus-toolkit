@@ -5,13 +5,14 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getCurrentPeriod } from "@/lib/settings-server";
-import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
+import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
+import { cachedListRead, invalidateAdminListCache } from "@/lib/list-cache";
 import {
   AccountStatus,
   AccountSummary,
   ACTIVE_STATUS,
   ALL_ROLES,
+  AccountRecord,
   isAccountStatus,
   isTwoFactorMethod,
   isUserRole,
@@ -84,26 +85,45 @@ async function loadRolesByUid(period: SchoolPeriod): Promise<Map<string, UserRol
   return map;
 }
 
-/** 使用者帳號文件 → 工作表一列（不含密碼） */
+/**
+ * 單一帳號在當期具備的身分（mutation 回應組裝 summary 用）：
+ * 四個確定性點查（doc id＝uid_學年度_學期），不存在＝0 讀，實際成本約 0～4 讀，
+ * 取代整張名冊讀取（926 讀）。語意與 loadRolesByUid 一致（只看條目是否存在）。
+ */
+async function loadCurrentRolesByUid(uid: string, period: SchoolPeriod): Promise<UserRole[]> {
+  const db = getAdminDb();
+  const snaps = await Promise.all(
+    ALL_ROLES.map((role) => db.collection(rosterCollection(role)).doc(rosterEntryId(uid, period)).get())
+  );
+  return ALL_ROLES.filter((_, index) => {
+    const data = snaps[index].data();
+    return snaps[index].exists && data?.uid === uid;
+  });
+}
+
+/** 使用者帳號文件 → 工作表一列（不含密碼）
+ *  第二參數同時接受 Firestore 回傳的 DocumentData 與型別化的 AccountRecord
+ *（mutation 路由以寫入前的快照直接組列，免再點查）。 */
 function toAccountSummary(
   uid: string,
-  data: Record<string, unknown>,
+  data: AccountRecord | Record<string, unknown>,
   roles: UserRole[]
 ): AccountSummary {
-  const str = (key: string) => (typeof data[key] === "string" ? (data[key] as string) : "");
+  const src = data as Record<string, unknown>;
+  const str = (key: string) => (typeof src[key] === "string" ? (src[key] as string) : "");
   const summary: AccountSummary = {
     uid,
     email: str("email"),
     account: str("account"),
     name: str("name"),
-    status: normalizeAccountStatus(data.status),
+    status: normalizeAccountStatus(src.status),
     roles,
   };
-  if (isUserRole(data.preferredRole)) summary.preferredRole = data.preferredRole;
-  if (isTwoFactorMethod(data.twoFactor)) summary.twoFactor = data.twoFactor;
-  const lastLogin = lastLoginOf(data);
+  if (isUserRole(src.preferredRole)) summary.preferredRole = src.preferredRole;
+  if (isTwoFactorMethod(src.twoFactor)) summary.twoFactor = src.twoFactor;
+  const lastLogin = lastLoginOf(src);
   if (lastLogin) summary.lastLogin = lastLogin;
-  if (typeof data.loginCount === "number") summary.loginCount = data.loginCount;
+  if (typeof src.loginCount === "number") summary.loginCount = src.loginCount;
   return summary;
 }
 
@@ -156,10 +176,9 @@ export async function GET(request: NextRequest) {
     const period = await getCurrentPeriod();
     const db = getAdminDb();
     // 全帳號工作表：一次「全部使用者＋當期四張名冊」的讀取量大，
-    // 快取 15 秒避免重複進出頁面／緊接的重複請求重讀；增修刪後由 invalidateReadCache() 失效
-    const payload = await cachedRead(
+    // 快取以 cacheEpoch 綁定（跨實例失效，見 list-cache.ts）；TTL 10 分鐘僅為硬上限
+    const { data: payload, epoch } = await cachedListRead(
       `admin:accounts-list:${period.academicYear}:${period.semester}`,
-      15_000,
       async () => {
         const [usersSnapshot, rolesByUid] = await Promise.all([
           db.collection(USER_COLLECTION).get(),
@@ -177,7 +196,8 @@ export async function GET(request: NextRequest) {
     );
 
     return NextResponse.json(
-      { success: true, ...payload },
+      // cacheEpoch 與快取 key 同源（見 list-cache.ts），前端據此判斷清單是否仍有效
+      { success: true, ...payload, cacheEpoch: epoch },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
@@ -328,7 +348,7 @@ export async function POST(request: NextRequest) {
         ? `、建立本學期${rosterRoleLabel(rosterSection.role)}身分失敗`
         : `、同時建立本學期${rosterRoleLabel(rosterSection.role)}身分`
       : "";
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -342,6 +362,12 @@ export async function POST(request: NextRequest) {
         success: true,
         partial: true,
         uid: docRef.id,
+        summary: toAccountSummary(
+          docRef.id,
+          record,
+          await loadCurrentRolesByUid(docRef.id, period ?? (await getCurrentPeriod()))
+        ),
+        cacheEpoch: await getCacheEpoch(),
         message: `帳號已建立，但本學期${rosterRoleLabel(rosterSection.role)}身分的名冊條目建立失敗，請至「身分名冊管理」補建`,
       });
     }
@@ -349,6 +375,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       uid: docRef.id,
+      // 回應即真相：伺服器組裝好的該列（當期身分以 4 個點查取得，含孤兒銜接結果），
+      // 前端 patch 清單、不再整表重抓
+      summary: toAccountSummary(
+        docRef.id,
+        record,
+        await loadCurrentRolesByUid(docRef.id, period ?? (await getCurrentPeriod()))
+      ),
+      cacheEpoch: await getCacheEpoch(),
       message: rosterSection
         ? `帳號已建立，並已建立本學期${rosterRoleLabel(rosterSection.role)}身分${linkedLabel}`
         : `帳號已建立，請至「身分名冊管理」指定身分${linkedLabel}`,
@@ -435,8 +469,9 @@ export async function PUT(request: NextRequest) {
 
     await ref.update(updateData);
 
+    const period = await getCurrentPeriod();
     // 名稱／信箱／帳號名變更：同步本學期四張名冊的展示資料（歷史學期不受影響）
-    await syncEntryIdentity(uid, await getCurrentPeriod(), {
+    await syncEntryIdentity(uid, period, {
       email: account.email,
       account: account.account,
       name: account.name,
@@ -452,7 +487,7 @@ export async function PUT(request: NextRequest) {
       : 0;
     const linkedLabel = linked > 0 ? `，已銜接名冊 ${linked} 筆` : "";
 
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -463,8 +498,21 @@ export async function PUT(request: NextRequest) {
       }${preferredRole !== undefined ? "（慣用身分已更新）" : ""}${linkedLabel}`,
     });
 
+    // 回應即真相：以寫入後的資料組裝該列（0 額外讀取＋當期身分 4 點查），前端 patch 不整表重抓
+    const accountAfter: Record<string, unknown> = {
+      ...currentData,
+      email: account.email,
+      account: account.account,
+      name: account.name,
+    };
+    if (preferredRole !== undefined) {
+      if (isUserRole(preferredRole)) accountAfter.preferredRole = preferredRole;
+      else delete accountAfter.preferredRole;
+    }
     return NextResponse.json({
       success: true,
+      summary: toAccountSummary(uid, accountAfter, await loadCurrentRolesByUid(uid, period)),
+      cacheEpoch: await getCacheEpoch(),
       message: `帳號已更新${linkedLabel}`,
     });
   } catch (error) {
@@ -508,7 +556,7 @@ export async function PATCH(request: NextRequest) {
     await ref.update({ status });
 
     const account = snap.data() || {};
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -519,6 +567,13 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      // 回應即真相：狀態列直接回傳，前端 patch 不整表重抓
+      summary: toAccountSummary(
+        uid,
+        { ...account, status },
+        await loadCurrentRolesByUid(uid, await getCurrentPeriod())
+      ),
+      cacheEpoch: await getCacheEpoch(),
       message: status === ACTIVE_STATUS ? "狀態已恢復為有效" : `狀態已設為「${statusLabel(status)}」`,
     });
   } catch (error) {
@@ -601,7 +656,7 @@ export async function DELETE(request: NextRequest) {
       if (deletes > 0) await batch.commit();
     }
 
-    invalidateReadCache();
+    await invalidateAdminListCache();
     await logActivity({
       userId: session.uid,
       role: "admin",
@@ -610,7 +665,13 @@ export async function DELETE(request: NextRequest) {
       details: `刪除帳號 ${target.account || target.email || uid}（${scopeLabel}）`,
     });
 
-    return NextResponse.json({ success: true, message: `帳號已刪除（${scopeLabel}）` });
+    return NextResponse.json({
+      success: true,
+      // 回應帶 uid：前端直接移除該列，不整表重抓
+      uid,
+      cacheEpoch: await getCacheEpoch(),
+      message: `帳號已刪除（${scopeLabel}）`,
+    });
   } catch (error) {
     console.error("Account delete error:", error);
     return NextResponse.json({ success: false, message: serverErrorMessage(error, "系統錯誤") });

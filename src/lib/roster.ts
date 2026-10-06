@@ -499,16 +499,23 @@ export function isAlreadyExistsError(error: unknown): boolean {
  * 把 fromUid 的名冊條目（四張名冊、所有學年度學期）改掛到 toUid：
  * 改寫 uid 欄位與 doc id（`toUid_學年度_學期`）；toUid 已有的條目跳過（不覆寫）。
  * `allowSuper＝false` 時跳過「超級」管理員條目（銜接＝授予超級，非超級操作者不得為之）。
- * toUid 查無使用者文件時不動作。回傳成功改掛的條目數。
+ * toUid 查無使用者文件時不動作（`options.assumeTargetExists` 可跳過該點查，
+ * 供批量銜接使用——呼叫端已保證目標存在）。回傳成功改掛的條目數。
  */
 export async function moveEntriesUid(
   fromUid: string,
   toUid: string,
-  allowSuper: boolean
+  allowSuper: boolean,
+  options?: { assumeTargetExists?: boolean }
 ): Promise<number> {
   if (!fromUid || !toUid || fromUid === toUid) return 0;
   const db = getAdminDb();
-  if (!(await db.collection(USER_COLLECTION).doc(toUid).get()).exists) return 0;
+  if (
+    !options?.assumeTargetExists &&
+    !(await db.collection(USER_COLLECTION).doc(toUid).get()).exists
+  ) {
+    return 0;
+  }
 
   const snaps = await Promise.all(
     ROSTER_ROLES_ALL.map((role) =>
@@ -603,49 +610,147 @@ export async function linkOrphanEntries(
   return linked;
 }
 
+/** 批量銜接的目標帳號（批次建立／更新帳號時彙整） */
+export interface LinkTarget {
+  uid: string;
+  email: string;
+  account: string;
+}
+
+/**
+ * 批量版 linkOrphanEntries：一次把多個目標帳號的孤兒條目銜接回來。
+ * 省讀取的三個手段（批次建立 120 列時，逐列執行＝每列 8 條查詢＋各自的孤兒點查）：
+ * 1) 辨識鍵查詢以 `in` 分塊（30 值一塊）合併：每角色每欄位 ⌈鍵數/30⌉ 條查詢；
+ * 2) 孤兒判定跨目標去重後共用同一輪 getAll；
+ * 3) 改掛時跳過目標使用者文件的存在性點查（呼叫端剛建立／既有的帳號，保證存在）。
+ * 語意與單筆版一致：仍屬活著帳號的條目不動、超級條目依 allowSuper 決定、
+ * 目標已有條目不覆寫（moveEntriesUid 的 create）。
+ * 回傳全部目標成功銜接的條目數總和。
+ */
+export async function linkOrphanEntriesBatch(
+  targets: LinkTarget[],
+  allowSuper: boolean
+): Promise<number> {
+  const active = targets.filter((item) => item.uid && (item.email || item.account));
+  if (active.length === 0) return 0;
+  const db = getAdminDb();
+
+  // 辨識鍵 → 目標（辨識鍵全站唯一；重複時保留先出現者）
+  const byEmail = new Map<string, LinkTarget>();
+  const byAccount = new Map<string, LinkTarget>();
+  for (const target of active) {
+    if (target.email && !byEmail.has(target.email)) byEmail.set(target.email, target);
+    if (target.account && !byAccount.has(target.account)) byAccount.set(target.account, target);
+  }
+
+  // 1) 合併查詢：每角色 × 每辨識鍵欄位，比較值以 in 分塊
+  const fields: [string, Map<string, LinkTarget>][] = [
+    ["email", byEmail],
+    ["account", byAccount],
+  ];
+  const candidates = new Map<string, { uid: string; target: LinkTarget }>();
+  for (const role of ROSTER_ROLES_ALL) {
+    const col = db.collection(rosterCollection(role));
+    for (const [field, map] of fields) {
+      const values = [...map.keys()];
+      if (values.length === 0) continue;
+      for (let i = 0; i < values.length; i += 30) {
+        const chunk = values.slice(i, i + 30);
+        const snap = await col.where(field, "in", chunk).get();
+        for (const doc of snap.docs) {
+          const data = doc.data();
+          const target = map.get(String(data[field] ?? ""));
+          if (!target) continue;
+          const uid = typeof data.uid === "string" ? data.uid : "";
+          if (!uid || uid === target.uid) continue;
+          // 同一條目可能同時被 email 與 account 命中，以角色＋文件 id 去重
+          const key = `${role}:${doc.id}`;
+          if (!candidates.has(key)) candidates.set(key, { uid, target });
+        }
+      }
+    }
+  }
+  if (candidates.size === 0) return 0;
+
+  // 2) 孤兒判定：uid 去重後共用一輪 getAll（仍活著的帳號一律不接，避免誤掛）
+  const uids = [...new Set([...candidates.values()].map((item) => item.uid))];
+  const orphanUids = new Set<string>();
+  for (let i = 0; i < uids.length; i += 200) {
+    const chunk = uids.slice(i, i + 200);
+    const snaps = await db.getAll(...chunk.map((uid) => db.collection(USER_COLLECTION).doc(uid)));
+    snaps.forEach((snap, index) => {
+      if (!snap.exists) orphanUids.add(chunk[index]);
+    });
+  }
+  if (orphanUids.size === 0) return 0;
+
+  // 3) 依目標分組改掛（同一孤兒 uid 對到多個目標時保留先出現者）
+  const perTarget = new Map<string, Set<string>>();
+  for (const { uid, target } of candidates.values()) {
+    if (!orphanUids.has(uid)) continue;
+    const group = perTarget.get(target.uid) ?? new Set<string>();
+    group.add(uid);
+    perTarget.set(target.uid, group);
+  }
+
+  let linked = 0;
+  for (const [targetUid, group] of perTarget) {
+    for (const orphanUid of group) {
+      linked += await moveEntriesUid(orphanUid, targetUid, allowSuper, {
+        assumeTargetExists: true,
+      });
+    }
+  }
+  return linked;
+}
+
 /** 使用者帳號文件 → 帳號清單的帳號段（不含密碼） */
 function accountStatus(account: Record<string, unknown> | null): AccountStatus {
   return account ? normalizeAccountStatus(account.status) : ACTIVE_STATUS;
 }
 
-/** 使用者帳號＋當期名冊條目 → 帳號清單一列（不含密碼；名冊欄位取自目前學年度學期） */
+/** 使用者帳號＋當期名冊條目 → 帳號清單一列（不含密碼；名冊欄位取自目前學年度學期）
+ *  參數同時接受 Firestore 回傳的 DocumentData 與型別化的 AccountRecord／RosterEntry
+ *（回應即真相：mutation 路由用寫入前的快照直接組列，免再點查）。 */
 export function toRosterMember(
   role: RosterRole,
   uid: string,
-  account: Record<string, unknown> | null,
-  entry: Record<string, unknown> | null
+  account: AccountRecord | Record<string, unknown> | null,
+  entry: RosterEntry | Record<string, unknown> | null
 ): RosterMember {
+  const acc = account as Record<string, unknown> | null;
+  const ent = entry as Record<string, unknown> | null;
   const str = (source: Record<string, unknown> | null, key: string) =>
     source && typeof source[key] === "string" ? (source[key] as string) : "";
 
   const member: RosterMember = {
     uid,
     // 孤兒列（帳號已刪除）：退回條目留存的辨識鍵，方便辨識與銜接
-    email: account ? str(account, "email") : str(entry, "email"),
-    account: account ? str(account, "account") : str(entry, "account"),
-    name: str(entry, "name") || str(account, "name"),
-    status: accountStatus(account),
-    rosterStatus: entryStatus(entry),
-    orphan: !account,
+    email: acc ? str(acc, "email") : str(ent, "email"),
+    account: acc ? str(acc, "account") : str(ent, "account"),
+    name: str(ent, "name") || str(acc, "name"),
+    status: accountStatus(acc),
+    rosterStatus: entryStatus(ent),
+    orphan: !acc,
   };
-  if (account) {
-    const lastLogin = lastLoginOf(account);
+  if (acc) {
+    const lastLogin = lastLoginOf(acc);
     if (lastLogin) member.lastLogin = lastLogin;
-    if (typeof account.loginCount === "number") member.loginCount = account.loginCount;
-    if (isUserRole(account.preferredRole)) member.preferredRole = account.preferredRole;
+    if (typeof acc.loginCount === "number") member.loginCount = acc.loginCount;
+    if (isUserRole(acc.preferredRole)) member.preferredRole = acc.preferredRole;
   }
 
   const target = member as unknown as Record<string, string | string[] | undefined>;
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
     if (key === "modules") {
       // 舊代碼（如 `roles`）一併對應到現行模組，清單顯示與表單預勾才會正確
-      const resolved = storedAdminModules(entry);
+      const resolved = storedAdminModules(ent);
       if (resolved.length > 0) target.modules = resolved as string[];
       continue;
     }
     const value = key === "attribute" && role === "staff"
-      ? resolveStaffAttribute(str(entry, key))
-      : str(entry, key);
+      ? resolveStaffAttribute(str(ent, key))
+      : str(ent, key);
     if (value) target[key] = value;
   }
   return member;

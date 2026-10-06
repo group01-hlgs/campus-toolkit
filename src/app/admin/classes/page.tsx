@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
 import { useDataSaver } from "@/lib/data-saver";
+import { readList, writeList } from "@/lib/list-store";
+import { adoptCacheEpoch, getCacheEpoch } from "@/lib/settings-client";
 import ModuleIcon from "@/components/ModuleIcon";
 import RevealListCard from "@/components/RevealListCard";
 
@@ -41,6 +43,8 @@ interface ClassesResponse {
   period?: Overview["period"];
   grades?: GradeItem[];
   summary?: Overview["summary"];
+  /** 清單快取的失效旗標（epoch 變動即須重抓總覽） */
+  cacheEpoch?: number;
 }
 
 interface FlatRow extends ClassItem {
@@ -66,7 +70,7 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
  */
 export default function ClassesPage() {
   const router = useRouter();
-  const { ready: settingsReady, saverOn } = useDataSaver();
+  const { settings, ready: settingsReady, saverOn } = useDataSaver();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [isSuper, setIsSuper] = useState(false);
   const [error, setError] = useState("");
@@ -86,9 +90,22 @@ export default function ClassesPage() {
     };
   }, []);
 
+  /**
+   * 總覽快取鍵：一律併入學年度／學期（與伺服端 key 同構）。
+   * 讀取用前端已知的當期；寫入改用回應自帶的 period（說明見 roster 頁同名函式）。
+   */
+  const classesListKey = (period?: { academicYear: number; semester: number }) =>
+    `admin:classes-overview:${period?.academicYear ?? settings.academicYear}:${period?.semester ?? settings.semester}`;
+
   const loadOverview = async () => {
     setListLoaded(true);
     setError("");
+    // 快取命中（epoch 相符且未逾 10 分鐘）＝直接沿用，不發任何請求
+    const cached = readList<Overview>(classesListKey(), getCacheEpoch());
+    if (cached) {
+      setOverview(cached);
+      return;
+    }
     try {
       const res = await fetch("/api/admin/classes", { cache: "no-store" });
       const data: ClassesResponse | null = res.ok
@@ -97,7 +114,11 @@ export default function ClassesPage() {
       if (!data?.success || !data.period || !data.grades || !data.summary) {
         throw new Error(data?.message || "載入失敗");
       }
-      setOverview({ period: data.period, grades: data.grades, summary: data.summary });
+      const next: Overview = { period: data.period, grades: data.grades, summary: data.summary };
+      // 先採用回應的 epoch 再寫入，兩者同源；鍵用回應的 period（見 classesListKey）
+      adoptCacheEpoch(data.cacheEpoch);
+      writeList(classesListKey(data.period), data.cacheEpoch, next);
+      setOverview(next);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "載入失敗");
     }

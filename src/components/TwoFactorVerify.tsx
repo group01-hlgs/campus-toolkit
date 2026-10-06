@@ -7,6 +7,7 @@ import { ROLE_HOME, UserRole, isUserRole } from "@/types/users";
 import { setCachedSession } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
+import { fetchSettings } from "@/lib/settings-client";
 
 type Mode = "email_otp" | "totp";
 
@@ -75,9 +76,8 @@ export default function TwoFactorVerify({ mode }: { mode: Mode }) {
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }

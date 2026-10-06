@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
+import { fetchSettings } from "@/lib/settings-client";
 
 /**
  * 系統開關狀態。
@@ -19,9 +20,7 @@ type GateState = "loading" | "open" | "closed";
  */
 async function fetchSystemEnabled(): Promise<boolean> {
   try {
-    const res = await fetch("/api/settings", { cache: "no-store" });
-    if (!res.ok) return true;
-    const data = await res.json();
+    const data = await fetchSettings();
     const enabled = data?.settings?.systemEnabled;
     return typeof enabled === "boolean" ? enabled : true;
   } catch {

@@ -64,8 +64,9 @@ export function getCachedSession(): UserSession | null {
 }
 
 export async function fetchSession(force = false): Promise<UserSession | null> {
-  if (!force && checked && !inFlight) return cached;
-  if (inFlight && !force) return inFlight;
+  // 進行中的請求一律併入（force 也共用）：避免同畫面多處呼叫時重複打 /api/auth/me
+  if (inFlight) return inFlight;
+  if (!force && checked) return cached;
 
   inFlight = (async () => {
     try {

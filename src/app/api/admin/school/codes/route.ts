@@ -6,7 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
-import { invalidateReadCache } from "@/lib/read-cache";
+import { invalidateAdminListCache } from "@/lib/list-cache";
 import { CODES_DOC_ID, readSchoolCodes, validateSchoolCodes } from "@/types/school-codes";
 
 const CODES_DOC = { collection: SETTINGS_COLLECTION, id: CODES_DOC_ID };
@@ -90,7 +90,7 @@ export async function PUT(request: NextRequest) {
       });
 
     // 設定文件寫入後統一失效讀取快取（規範：寫後失效），避免同程序的快取讀到舊值
-    invalidateReadCache();
+    await invalidateAdminListCache();
 
     await logActivity({
       userId: session.uid,

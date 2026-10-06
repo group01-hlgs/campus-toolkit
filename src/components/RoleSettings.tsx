@@ -7,6 +7,7 @@ import { ROLE_HOME, ROLE_LABELS, UserRole } from "@/types/users";
 import { fetchSession, logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
+import { fetchSettings } from "@/lib/settings-client";
 
 /**
  * 各身分的「系統設定」功能頁（學生／家長／教職員）。
@@ -39,9 +40,8 @@ export default function RoleSettings({
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }

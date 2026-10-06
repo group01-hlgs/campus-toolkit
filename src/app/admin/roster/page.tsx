@@ -36,15 +36,24 @@ import {
   type StaffAttribute,
   type UserRole,
 } from "@/types/users";
-import { getCachedSession, logout } from "@/lib/session";
+import { fetchSession, getCachedSession, logout } from "@/lib/session";
 import { readJsonResponse } from "@/lib/fetch-json";
 import { useDataSaver } from "@/lib/data-saver";
+import { dropList, readList, writeList } from "@/lib/list-store";
+import { adoptCacheEpoch, getCacheEpoch } from "@/lib/settings-client";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import RoleEnablePanel from "@/components/RoleEnablePanel";
 import RevealListCard from "@/components/RevealListCard";
 
 type Flash = { type: "success" | "error"; text: string } | null;
+
+/** 依 uid 就地新增／取代一列（state 與快取共用的純函式） */
+function upsertMember(list: RosterMember[], member: RosterMember): RosterMember[] {
+  return list.some((item) => item.uid === member.uid)
+    ? list.map((item) => (item.uid === member.uid ? member : item))
+    : [...list, member];
+}
 
 /** 綁定既有帳號的查詢結果（/api/admin/roster?lookup=…） */
 interface BindTarget {
@@ -396,17 +405,31 @@ export default function RosterPage() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [linkTarget]);
 
+  /** 清單快取鍵（學年度／學期變更會遞增 cacheEpoch，故 key 不需併入週期） */
+  const rosterListKey = (targetRole: RosterRole) => `admin:roster-list:${targetRole}`;
+
   const loadMembers = async (targetRole: RosterRole) => {
     setLoadedRole(targetRole);
-    setLoading(true);
     setListError("");
+    // 快取命中（epoch 相符且未逾 10 分鐘）＝直接沿用，不發任何請求
+    const cached = readList<RosterMember[]>(rosterListKey(targetRole), getCacheEpoch());
+    if (cached) {
+      setMembers(cached);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const res = await fetch(`/api/admin/roster?role=${targetRole}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data?.message || "帳號清單載入失敗");
       }
-      setMembers(Array.isArray(data.members) ? data.members : []);
+      const next = Array.isArray(data.members) ? data.members : [];
+      // 先採用回應的 epoch 再寫入，兩者同源，下次進頁必定命中
+      adoptCacheEpoch(data.cacheEpoch);
+      writeList(rosterListKey(targetRole), data.cacheEpoch, next);
+      setMembers(next);
     } catch (error) {
       setMembers([]);
       setListError(error instanceof Error ? error.message : "帳號清單載入失敗");
@@ -415,13 +438,50 @@ export default function RosterPage() {
     }
   };
 
+  /**
+   * 變更後就地更新（回應自帶的該列即最終值）：0 讀取、不再整表重抓。
+   * 快取寫入條件＝「採用新 epoch 前，手上的快取正好驗證通過，且新 epoch ＝ 舊值＋1」：
+   * epoch 由 bumpCacheEpoch 遞增 1，等於 1 表示這段期間只有本次寫入、快取內容
+   * 仍是寫入前的真相，可以沿用並改掛新 epoch；否則（有人中途寫入、或快取早已過期）
+   * 捨棄快取，下次進頁自然整表重抓——絕不把局部／過期內容冒充完整清單。
+   */
+  function applyRosterUpsert(member: RosterMember, epoch?: number) {
+    const known = getCacheEpoch();
+    const cached = readList<RosterMember[]>(rosterListKey(role), known);
+    const reusable = cached !== null && typeof epoch === "number" && epoch === (known ?? -1) + 1;
+    adoptCacheEpoch(epoch);
+    setMembers((prev) => upsertMember(prev, member));
+    if (cached && reusable) writeList(rosterListKey(role), epoch, upsertMember(cached, member));
+    else if (cached) dropList(rosterListKey(role));
+  }
+
+  /** 變更後就地移除一列（刪除；快取規則同 applyRosterUpsert） */
+  function applyRosterRemove(uid: string, epoch?: number) {
+    const known = getCacheEpoch();
+    const cached = readList<RosterMember[]>(rosterListKey(role), known);
+    const reusable = cached !== null && typeof epoch === "number" && epoch === (known ?? -1) + 1;
+    adoptCacheEpoch(epoch);
+    setMembers((prev) => prev.filter((item) => item.uid !== uid));
+    if (cached && reusable) {
+      writeList(rosterListKey(role), epoch, cached.filter((item) => item.uid !== uid));
+    } else if (cached) {
+      dropList(rosterListKey(role));
+    }
+  }
+
+  /** 整表重抓前先捨棄快取（銜接／批次：回應只有計數，無法就地 patch） */
+  function invalidateRosterList(epoch?: number) {
+    dropList(rosterListKey(role));
+    adoptCacheEpoch(epoch);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+    // force＝每次進頁重取（權限提示即時），進行中請求由 session 模組去重
+    fetchSession(true)
+      .then((session) => {
         if (cancelled) return;
-        const attribute = data?.user?.adminAttribute;
+        const attribute = session?.adminAttribute;
         if (typeof attribute === "string") setAdminAttribute(attribute);
       })
       .catch(() => {
@@ -602,6 +662,9 @@ export default function RosterPage() {
       setLinkTarget(null);
       setFlash({ type: "success", text: message });
       showSuccessModal(message);
+      // 銜接會改動多列（含其他身分），維持一次整表重抓；
+      // 先捨棄快取並採用新 epoch，確保重抓到的不是舊快取
+      invalidateRosterList(data.cacheEpoch);
       // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
       if (!gating) await loadMembers(role);
     } catch (error) {
@@ -695,8 +758,11 @@ export default function RosterPage() {
       setFlash({ type: "success", text: data.message || "已儲存" });
       showSuccessModal(data.message || "已儲存");
       closeForm();
-      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
-      if (!gating) await loadMembers(role);
+      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）；
+      // 否則以回應自帶的該列就地更新（回應即真相，0 讀取）
+      if (gating) adoptCacheEpoch(data.cacheEpoch);
+      else if (data.member) applyRosterUpsert(data.member, data.cacheEpoch);
+      else await loadMembers(role);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "儲存失敗");
     } finally {
@@ -731,8 +797,9 @@ export default function RosterPage() {
       setFlash({ type: "success", text: data.message || "已刪除" });
       showSuccessModal(data.message || "已刪除");
       if (editingUid === member.uid) closeForm();
-      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
-      if (!gating) await loadMembers(role);
+      // 省流閘門仍關著時不重整列表；否則就地移除該列（0 讀取）
+      if (gating) adoptCacheEpoch(data.cacheEpoch);
+      else applyRosterRemove(data.uid || member.uid, data.cacheEpoch);
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
@@ -772,8 +839,10 @@ export default function RosterPage() {
       setFlash({ type: "success", text: data.message || "狀態已更新" });
       showSuccessModal(data.message || "狀態已更新");
       if (editingUid === member.uid) closeForm();
-      // 省流閘門仍關著時不重整列表（不因寫入而自動載入）
-      if (!gating) await loadMembers(role);
+      // 省流閘門仍關著時不重整列表；否則以回應的該列就地更新（0 讀取）
+      if (gating) adoptCacheEpoch(data.cacheEpoch);
+      else if (data.member) applyRosterUpsert(data.member, data.cacheEpoch);
+      else await loadMembers(role);
     } catch (error) {
       setFlash({
         type: "error",
@@ -859,6 +928,7 @@ export default function RosterPage() {
         message?: string;
         preview?: RosterBatchPreview;
         result?: RosterBatchResult;
+        cacheEpoch?: number;
       }>(res);
       if (!res.ok || !data.success) {
         throw new Error(data?.message || "批次作業失敗");
@@ -871,6 +941,9 @@ export default function RosterPage() {
         setBatchResult(data.result ?? null);
         setBatchFile(null);
         if (batchFileRef.current) batchFileRef.current.value = "";
+        // 批次回應只有計數，維持一次整表重抓（例外）；
+        // 先捨棄快取並採用新 epoch，確保重抓的不是舊快取
+        invalidateRosterList(data.cacheEpoch);
         // 省流閘門仍關著時不重整列表（不因批次完成而自動載入）
         if (batchRole === role && !gating) await loadMembers(role);
         showSuccessModal(data.message || "批次作業完成");

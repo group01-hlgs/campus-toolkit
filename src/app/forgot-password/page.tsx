@@ -8,6 +8,7 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import { fetchSettings } from "@/lib/settings-client";
 
 type ApiResponse = {
   success?: boolean;
@@ -26,8 +27,7 @@ export default function ForgotPasswordPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+    fetchSettings()
       .then((data) => {
         if (!cancelled && data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });

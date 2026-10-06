@@ -14,6 +14,7 @@ import RoleSwitcher from "@/components/RoleSwitcher";
 import { fetchSession, logout, UserSession } from "@/lib/session";
 import { MODULES } from "@/types/modules";
 import versionData from "@/version.json";
+import { fetchSettings } from "@/lib/settings-client";
 
 /** 主程式版本與建置日期（供管理員確認目前版本，僅管理頁顯示） */
 const versionLabel = `主程式版本 ${versionData.version}（${versionData.date.replace(/-/g, ".")}）`;
@@ -66,9 +67,8 @@ export default function AdminPage() {
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }

@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { Settings, defaultSettings } from "@/types/settings";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
+import { fetchSettings } from "@/lib/settings-client";
 
 export default function NotFoundPage() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+    fetchSettings()
       .then((data) => {
         if (!cancelled && data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });

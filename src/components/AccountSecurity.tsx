@@ -22,6 +22,7 @@ import {
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
+import { fetchSettings } from "@/lib/settings-client";
 
 /** /api/account 回傳的自身帳號資料（頁面各卡共用） */
 interface AccountProfile {
@@ -161,9 +162,8 @@ export default function AccountSecurityPage({ role }: { role: UserRole }) {
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
+        const data = await fetchSettings();
+        if (cancelled) return;
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }
