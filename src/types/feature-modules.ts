@@ -17,7 +17,7 @@
  * **身分可用性分兩層**：
  * - **提供功能**（`provides`）：產品層級、**唯讀**——由模組作者在本註冊表決定
  *   「這模組有沒有做給該身分用」，管理頁只能檢視、不能改。
- *   **預設所有模組四身分皆「提供」**（可由模組作者日後收窄）。
+ *   **預設＝教職員與管理員提供**（學生／家長暫不提供；可由模組作者日後調整）。
  * - **顯示與否**：運維層級，存於 `settings/system.featureModuleRoles`
  *   （`Record<模組代碼, Record<身分, boolean>>`）——有提供但暫時不開放進入／顯示。
  *   規則：`provides[role] === false` → 顯示強制為否（「未提供」）；
@@ -92,10 +92,10 @@ const PERMISSION_STATUS: Record<ModuleStatus, FeatureModuleStatus> = {
   planned: "planned",
 };
 
-/** 個人帳號安全：四身分皆提供 */
-const PROVIDES_ALL = {
-  student: true,
-  parent: true,
+/** 教職員＋管理員提供（學生／家長暫不提供，由模組作者決定） */
+const PROVIDES_STAFF_ADMIN = {
+  student: false,
+  parent: false,
   staff: true,
   admin: true,
 } as const satisfies Record<UserRole, boolean>;
@@ -111,7 +111,7 @@ export const SUPER_ONLY_FEATURE_MODULE_VALUES: readonly string[] = SUPER_ONLY_AD
  * 內建的管理端功能模組：個人卡片「帳號、身分與安全管理」
  * ＋管理端權限單位（types/modules.ts 的 MODULES，含尚未建頁的稽核紀錄）。
  * 新增管理端功能時會自動出現在這裡，不需要另外維護。
- * 提供功能預設四身分皆「是」（可由模組作者日後收窄）。
+ * 提供功能預設＝教職員與管理員（學生／家長暫不提供）。
  */
 const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   {
@@ -122,7 +122,7 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "維護自己的個人資料、密碼與兩階段驗證等帳號安全設定。",
     href: "/admin/admins",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
   ...MODULES.map((item) => ({
     value: item.value as string,
@@ -132,7 +132,7 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: item.description,
     href: item.href,
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   })),
 ];
 
@@ -147,7 +147,7 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "發佈與管理校園公告，可依身分與班級設定可見範圍。",
     href: "",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
   {
     value: "calendar",
@@ -157,7 +157,7 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "校務行事曆與各類日程的建立、發佈與檢視。",
     href: "",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
   {
     value: "spaceBooking",
@@ -167,7 +167,7 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "教室、場地等學校空間的預約、審核與使用紀錄。",
     href: "",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
   {
     value: "examRegistration",
@@ -177,7 +177,7 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "升學相關考試與模擬考的報名、造冊與名單管理。",
     href: "",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
   {
     value: "selfLearning",
@@ -187,7 +187,7 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "自主學習計畫的申請、歷程記錄與審查。",
     href: "",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
   {
     value: "learningPortfolio",
@@ -197,7 +197,7 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "學習歷程檔案的收集、整理與提交。",
     href: "",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
   {
     value: "attendance",
@@ -207,7 +207,7 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "課堂點名、缺曠紀錄與出缺統計。",
     href: "",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ALL,
+    provides: PROVIDES_STAFF_ADMIN,
   },
 ];
 
