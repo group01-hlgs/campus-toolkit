@@ -160,7 +160,7 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   },
   {
     value: "calendar",
-    label: "行事曆功能模組",
+    label: "行事曆",
     kind: "builtin",
     status: "planned",
     description: "校務行事曆與各類日程的建立、發佈與檢視。",
