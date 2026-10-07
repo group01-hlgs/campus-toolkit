@@ -458,7 +458,8 @@ export default function AdminAnnouncementsPage() {
             </div>
             <p className="text-xs text-t3 mt-1">
               顯示方式：清單＝單行（日期｜分類｜標題 20 字內）；
-              橫幅＝三行卡片（標題 20 字內／內容摘要 40 字內／公告資訊）。
+              「清單，置頂公告橫幅」＝置頂公告三行卡片、其餘單行；
+              橫幅＝全部三行卡片（標題 20 字內／內容摘要 40 字內／公告資訊）。
             </p>
             <p className="text-xs text-t3 mt-1">
               「系統首頁」只顯示閱讀權限＝「無」的公告；各身分首頁依其身分顯示。

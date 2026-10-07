@@ -69,16 +69,24 @@ export function isAnnouncementSurface(value: unknown): value is AnnouncementSurf
 }
 
 /**
- * 顯示方式：清單＝單行（日期｜分類｜標題 20 字內）；
- * 橫幅＝三行卡片（標題 20 字內／內容摘要 40 字內／公告資訊）。
- * 儲存值沿用 `marquee`（＝橫幅）以免遷移舊設定。
+ * 顯示位置的顯示方式：
+ * - 清單＝單行（日期｜分類｜標題 20 字內）；
+ * - 「清單，置頂公告橫幅」＝置頂公告三行卡片、其餘單行清單；
+ * - 橫幅＝三行卡片（標題 20 字內／內容摘要 40 字內／公告資訊）。
+ * 橫幅儲存值沿用 `marquee` 以免遷移舊設定。
  */
-export type AnnouncementSurfaceMethod = "list" | "marquee";
+export type AnnouncementSurfaceMethod = "list" | "pinnedTop" | "marquee";
 
 export const ANNOUNCEMENT_SURFACE_METHOD_LABELS: Record<AnnouncementSurfaceMethod, string> = {
   list: "清單",
+  pinnedTop: "清單，置頂公告橫幅",
   marquee: "橫幅",
 };
+
+/** 顯示方式寬容解析（缺漏／毀損退回 list） */
+export function normalizeSurfaceMethod(value: unknown): AnnouncementSurfaceMethod {
+  return value === "pinnedTop" || value === "marquee" ? value : "list";
+}
 
 export interface AnnouncementSurfaceSetting {
   enabled: boolean;
@@ -558,7 +566,7 @@ export function readAnnouncementSettings(raw: unknown): AnnouncementSettings {
       const item = row as Record<string, unknown>;
       surfaces[key] = {
         enabled: item.enabled !== false,
-        method: item.method === "marquee" ? "marquee" : "list",
+        method: normalizeSurfaceMethod(item.method),
         limit: normalizeSurfaceLimit(item.limit),
       };
     }

@@ -11,7 +11,7 @@ import type {
   AnnouncementPolicies,
   AnnouncementSurfaces,
 } from "@/types/announcements";
-import { ANNOUNCEMENT_SURFACES, DEFAULT_ANNOUNCEMENT_POLICIES } from "@/types/announcements";
+import { ANNOUNCEMENT_SURFACES, DEFAULT_ANNOUNCEMENT_POLICIES, normalizeSurfaceMethod } from "@/types/announcements";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -87,7 +87,7 @@ export async function PUT(request: NextRequest) {
         const item = row as Record<string, unknown>;
         surfaces[key] = {
           enabled: item.enabled !== false,
-          method: item.method === "marquee" ? "marquee" : "list",
+          method: normalizeSurfaceMethod(item.method),
           limit: typeof item.limit === "number" && Number.isFinite(item.limit) ? item.limit : 5,
         };
       }

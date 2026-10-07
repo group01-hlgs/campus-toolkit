@@ -29,6 +29,7 @@ import {
   isAnnouncementReadable,
   isExpiringSoon,
   normalizeSurfaceLimit,
+  normalizeSurfaceMethod,
   readAnnouncementRecord,
   readAnnouncementSettings,
   validateAnnouncementInput,
@@ -510,7 +511,7 @@ export async function saveAnnouncementSettings(input: {
       if (!patch || typeof patch !== "object") continue;
       surfaces[key] = {
         enabled: patch.enabled !== false,
-        method: patch.method === "marquee" ? "marquee" : "list",
+        method: normalizeSurfaceMethod(patch.method),
         limit: normalizeSurfaceLimit(patch.limit),
       };
     }
