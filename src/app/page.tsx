@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { signInWithPopup, signInWithCredential, GoogleAuthProvider } from "firebase/auth";
 import { auth, googleProvider, ensureSignedOut } from "@/lib/firebase";
+import { requestGoogleIdToken } from "@/lib/google-identity";
 import { Settings, defaultSettings } from "@/types/settings";
 import { UserRole, ROLE_HOME, isUserRole } from "@/types/users";
 import { fetchSession, setCachedSession, UserSession } from "@/lib/session";
@@ -13,6 +14,9 @@ import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
 import { fetchSettings } from "@/lib/settings-client";
+
+/** 本頁生命週期內 GIS 已確定不可用（冷卻／封鎖／交換失敗）：後續點擊直接走彈窗 */
+let gisUnavailable = false;
 
 type ApiResponse = {
   success?: boolean;
@@ -204,6 +208,40 @@ export default function Home() {
     if (!auth) {
       setError("Firebase API Key 未設定或無效，無法使用 Google 登入");
       return null;
+    }
+
+    // 優先走 Google Identity Services：已授權者不開彈出視窗（原頁自動／內建帳號選擇完成）。
+    // 未設定 client id、GIS 不可用或交換失敗時，退回下方原本的 signInWithPopup。
+    const googleClientId = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
+    if (googleClientId && !gisUnavailable) {
+      const gis = await requestGoogleIdToken(googleClientId);
+      if (gis.status === "cancelled") {
+        setError("");
+        return null;
+      }
+      if (gis.status === "ok") {
+        try {
+          const result = await signInWithCredential(
+            auth,
+            GoogleAuthProvider.credential(gis.idToken)
+          );
+          const email = result.user.email?.toLowerCase().trim();
+          if (!email) {
+            await ensureSignedOut();
+            setError("無法取得 Google 帳號資訊");
+            return null;
+          }
+          return { idToken: await result.user.getIdToken(), email };
+        } catch (err) {
+          // 常見原因：OAuth client id 與 Firebase 的 Google 登入設定不一致 → 本次退回彈窗
+          console.error("GIS credential exchange failed, fallback to popup:", err);
+          gisUnavailable = true;
+          await ensureSignedOut();
+        }
+      } else {
+        // GIS 被冷卻或不可用：本頁後續點擊直接走彈窗，避免失去使用者手勢
+        gisUnavailable = true;
+      }
     }
 
     const originalOpen = window.open;

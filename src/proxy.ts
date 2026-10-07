@@ -25,16 +25,18 @@ function buildContentSecurityPolicy(nonce: string): string {
     "https://apis.google.com",
     "https://www.gstatic.com",
     "https://www.google.com",
+    // Google Identity Services（gsi/client）
+    "https://accounts.google.com",
   ].join(" ");
 
   const directives = [
     "default-src 'self'",
     // dev 需 'unsafe-eval'（React 偵錯）；production 不放行
     `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-eval'" : ""} ${scriptHosts}`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com https://accounts.google.com",
     "img-src 'self' data: blob: https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://www.gstatic.com https://lh3.googleusercontent.com https://drive.google.com",
     "font-src 'self' data: https://fonts.gstatic.com https://www.gstatic.com",
-    "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.googleapis.com https://pagead2.googlesyndication.com https://firebaseinstallations.googleapis.com https://*.firebaseapp.com https://*.googleapis.com",
+    "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.googleapis.com https://pagead2.googlesyndication.com https://firebaseinstallations.googleapis.com https://*.firebaseapp.com https://*.googleapis.com https://accounts.google.com",
     "frame-src 'self' https://accounts.google.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://*.firebaseapp.com https://*.google.com",
     "object-src 'none'",
     "base-uri 'self'",

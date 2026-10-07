@@ -235,6 +235,7 @@ npm run dev
 | `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | 例如 `your-project.appspot.com` |
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Sender ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Web App ID |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | （選填）Google 登入的 Web client ID；設定後已授權者登入不跳彈窗，且須把網站網域加到該 OAuth 用戶端的「已授權的 JavaScript 來源」 |
 
 ### 伺服端機密（切勿提交到 Git、切勿加上 `NEXT_PUBLIC_` 前綴）
 
