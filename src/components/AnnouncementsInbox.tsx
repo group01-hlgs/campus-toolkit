@@ -19,6 +19,7 @@ interface InboxResponse {
   classCode?: string | null;
   displayName?: string;
   displayMethod?: AnnouncementDisplayMethod;
+  remindersEnabled?: boolean;
 }
 
 /** 各身分公告收件匣（學生／家長／教職員共用；教職員另可發佈） */
@@ -44,6 +45,8 @@ export default function AnnouncementsInbox({
   const [classScoped, setClassScoped] = useState(false);
   const [posting, setPosting] = useState(false);
   const [dismissedBanners, setDismissedBanners] = useState<string[]>([]);
+  const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [togglingReminder, setTogglingReminder] = useState<string | null>(null);
 
   useEffect(() => {
     if (!flash) return;
@@ -84,6 +87,9 @@ export default function AnnouncementsInbox({
         setItems(data.items ?? []);
         setClassCode(data.classCode ?? null);
         if (data.displayMethod) setDisplayMethod(data.displayMethod);
+        if (typeof data.remindersEnabled === "boolean") {
+          setRemindersEnabled(data.remindersEnabled);
+        }
       } else if (data?.message) {
         setFlash({ type: "error", text: data.message });
       }
@@ -126,6 +132,40 @@ export default function AnnouncementsInbox({
       setFlash({ type: "error", text: error instanceof Error ? error.message : "發佈失敗" });
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function toggleReminder(announcementId: string) {
+    if (togglingReminder) return;
+    setTogglingReminder(announcementId);
+    try {
+      const res = await fetch("/api/announcements/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ announcementId }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        message?: string;
+        reminded?: boolean;
+      } | null;
+      if (!res.ok || !data?.success) throw new Error(data?.message || "提醒設定失敗");
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === announcementId ? { ...item, reminded: data.reminded === true } : item
+        )
+      );
+      setFlash({
+        type: "success",
+        text: data.message || (data.reminded ? "已加入提醒" : "已取消提醒"),
+      });
+    } catch (error) {
+      setFlash({
+        type: "error",
+        text: error instanceof Error ? error.message : "提醒設定失敗",
+      });
+    } finally {
+      setTogglingReminder(null);
     }
   }
 
@@ -282,7 +322,13 @@ export default function AnnouncementsInbox({
                     {items
                       .filter((item) => item.pinned)
                       .map((item) => (
-                        <AnnouncementCard key={item.id} item={item} />
+                        <AnnouncementCard
+                          key={item.id}
+                          item={item}
+                          remindersEnabled={remindersEnabled}
+                          toggling={togglingReminder === item.id}
+                          onToggleReminder={toggleReminder}
+                        />
                       ))}
                   </ul>
                 </div>
@@ -299,7 +345,13 @@ export default function AnnouncementsInbox({
                   return true;
                 })
                 .map((item) => (
-                  <AnnouncementCard key={item.id} item={item} />
+                  <AnnouncementCard
+                    key={item.id}
+                    item={item}
+                    remindersEnabled={remindersEnabled}
+                    toggling={togglingReminder === item.id}
+                    onToggleReminder={toggleReminder}
+                  />
                 ))}
             </ul>
           </>
@@ -309,7 +361,17 @@ export default function AnnouncementsInbox({
   );
 }
 
-function AnnouncementCard({ item }: { item: AnnouncementInboxItem }) {
+function AnnouncementCard({
+  item,
+  remindersEnabled,
+  toggling,
+  onToggleReminder,
+}: {
+  item: AnnouncementInboxItem;
+  remindersEnabled: boolean;
+  toggling: boolean;
+  onToggleReminder: (id: string) => void;
+}) {
   return (
     <li className="border border-themed rounded-lg bg-card p-4">
       <div className="flex items-start justify-between gap-2">
@@ -333,6 +395,27 @@ function AnnouncementCard({ item }: { item: AnnouncementInboxItem }) {
         {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
       </p>
       <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+      {remindersEnabled && (
+        <div className="mt-3">
+          <button
+            type="button"
+            disabled={toggling}
+            onClick={() => onToggleReminder(item.id)}
+            className={
+              item.reminded
+                ? "btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                : "btn-soft rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+            }
+            title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
+          >
+            {toggling
+              ? "處理中..."
+              : item.reminded
+                ? "已設定提醒"
+                : "提醒我"}
+          </button>
+        </div>
+      )}
     </li>
   );
 }

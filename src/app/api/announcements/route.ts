@@ -4,7 +4,12 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { toAuthResponse, verifySession } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
-import { createAnnouncement, getAnnouncementSettings, listInboxAnnouncements } from "@/lib/announcements";
+import {
+  createAnnouncement,
+  getAnnouncementSettings,
+  listInboxAnnouncements,
+  listMyReminderIds,
+} from "@/lib/announcements";
 import { isActiveEntry } from "@/lib/roster";
 import { ALL_ROLES, type UserRole } from "@/types/users";
 import type { AnnouncementAudience } from "@/types/announcements";
@@ -37,13 +42,18 @@ export async function GET(request: NextRequest) {
       // 無有效名冊條目仍可讀「針對該身分的校級公告」；班級公告需 classCode
     }
     const classCode = entryClassCode(session.__entry);
-    const [items, settings] = await Promise.all([
+    const [rawItems, settings, reminderIds] = await Promise.all([
       listInboxAnnouncements({
         role: session.role,
         classCode: classCode || null,
       }),
       getAnnouncementSettings(),
+      listMyReminderIds(session.uid),
     ]);
+    const items = rawItems.map((item) => ({
+      ...item,
+      reminded: reminderIds.includes(item.id),
+    }));
     return NextResponse.json(
       {
         success: true,
@@ -54,6 +64,8 @@ export async function GET(request: NextRequest) {
         // 顯示方式與分類：收件匣套用置頂區／橫幅（期 B）
         displayMethod: settings.displayMethod,
         categories: settings.categories,
+        remindersEnabled: settings.defaultRemindersEnabled,
+        reminderIds,
       },
       { headers: noStore }
     );

@@ -5,11 +5,13 @@ import { invalidateAdminListCache } from "@/lib/list-cache";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import {
   ANNOUNCEMENTS_COLLECTION,
+  ANNOUNCEMENT_REMINDERS_COLLECTION,
   ANNOUNCEMENT_SETTINGS_DOC_ID,
   AnnouncementAudience,
   AnnouncementCategory,
   AnnouncementDisplayMethod,
   AnnouncementRecord,
+  AnnouncementReminderItem,
   AnnouncementSettings,
   announcementCategoryName,
   announcementToFirestore,
@@ -328,4 +330,116 @@ export async function saveAnnouncementSettings(input: {
   invalidateReadCache("setting-doc:");
   invalidateAnnouncementsCache();
   return next;
+}
+
+const REMINDER_LIMIT = 50;
+
+function reminderDocId(announcementId: string, uid: string): string {
+  return `${announcementId}_${uid}`;
+}
+
+/**
+ * 切換個人公告提醒：已設定則取消，未設定則建立。
+ * 回傳 `reminded=true` 表示目前為「已設定」。
+ */
+export async function toggleAnnouncementReminder(
+  uid: string,
+  announcementId: string
+): Promise<{ reminded: boolean }> {
+  if (!uid || !announcementId) {
+    throw new Error("缺少使用者或公告識別");
+  }
+  const ann = await getAnnouncement(announcementId);
+  if (!ann || !isAnnouncementReadable(ann)) {
+    throw new Error("公告不存在或已無法提醒");
+  }
+  const db = getAdminDb();
+  const ref = db
+    .collection(ANNOUNCEMENT_REMINDERS_COLLECTION)
+    .doc(reminderDocId(announcementId, uid));
+  const snap = await ref.get();
+  if (snap.exists) {
+    await ref.delete();
+    return { reminded: false };
+  }
+  await ref.set({
+    announcementId,
+    uid,
+    createdAt: Date.now(),
+  });
+  return { reminded: true };
+}
+
+/** 使用者已設定提醒的公告 id 清單（不做跨請求快取：提醒變動頻繁） */
+export async function listMyReminderIds(uid: string): Promise<string[]> {
+  if (!uid) return [];
+  const snap = await getAdminDb()
+    .collection(ANNOUNCEMENT_REMINDERS_COLLECTION)
+    .where("uid", "==", uid)
+    .limit(REMINDER_LIMIT)
+    .get();
+  return snap.docs.map((doc) => doc.data().announcementId).filter((id): id is string => !!id);
+}
+
+/**
+ * 個人提醒列表（首頁鈴鐺／提醒區）：
+ * 讀提醒文件 → 批次讀公告（getAll）→ 確認仍可閱讀（發布中、未過期、受眾涵蓋身分＋班級）。
+ */
+export async function listMyReminders(
+  uid: string,
+  role: UserRole,
+  classCode?: string | null
+): Promise<AnnouncementReminderItem[]> {
+  if (!uid) return [];
+  const settings = await getAnnouncementSettings();
+  const snap = await getAdminDb()
+    .collection(ANNOUNCEMENT_REMINDERS_COLLECTION)
+    .where("uid", "==", uid)
+    .limit(REMINDER_LIMIT)
+    .get();
+  const reminderRows = snap.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      announcementId: typeof data.announcementId === "string" ? data.announcementId : "",
+      createdAt: typeof data.createdAt === "number" ? data.createdAt : 0,
+    };
+  });
+  const ids = [...new Set(reminderRows.map((row) => row.announcementId).filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  const db = getAdminDb();
+  const snaps = await db.getAll(
+    ...ids.map((id) => db.collection(ANNOUNCEMENTS_COLLECTION).doc(id))
+  );
+  const annMap = new Map<string, AnnouncementRecord>();
+  snaps.forEach((snapItem, index) => {
+    if (!snapItem.exists) return;
+    const record = readAnnouncementRecord(ids[index], snapItem.data());
+    if (record) annMap.set(ids[index], record);
+  });
+
+  const now = Date.now();
+  const items: AnnouncementReminderItem[] = [];
+  for (const row of reminderRows) {
+    const ann = annMap.get(row.announcementId);
+    if (!ann || !isAnnouncementReadable(ann, now)) continue;
+    if (!ann.audience.roles.includes(role)) continue;
+    if (audienceClassScoped(ann.audience)) {
+      if (!classCode || !ann.audience.classCodes.includes(classCode)) continue;
+    }
+    items.push({
+      announcementId: ann.id,
+      title: ann.title,
+      body: ann.body,
+      categoryName: announcementCategoryName(settings, ann.categoryId),
+      authorName: ann.authorName,
+      publishAt: ann.publishAt,
+      expireAt: ann.expireAt,
+      expiringSoon: isExpiringSoon(ann, now),
+      classScoped: audienceClassScoped(ann.audience),
+      createdAt: row.createdAt,
+    });
+  }
+  items.sort((a, b) => b.publishAt - a.publishAt);
+  return items;
 }

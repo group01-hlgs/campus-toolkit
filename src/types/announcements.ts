@@ -12,6 +12,8 @@ import { ALL_ROLES, UserRole } from "./users";
 
 export const ANNOUNCEMENTS_COLLECTION = "announcements";
 export const ANNOUNCEMENT_SETTINGS_DOC_ID = "announcements";
+/** 個人公告提醒：doc id＝`${announcementId}_${uid}` */
+export const ANNOUNCEMENT_REMINDERS_COLLECTION = "announcementReminders";
 
 export type AnnouncementStatus = "published" | "archived";
 
@@ -106,6 +108,22 @@ export interface AnnouncementInboxItem {
   pinned: boolean;
   /** 是否即將到期（3 日內） */
   expiringSoon: boolean;
+  /** 使用者是否已設定個人提醒（API 依登入 uid 補上） */
+  reminded?: boolean;
+}
+
+/** 個人提醒（首頁鈴鐺／提醒列表）：僅回仍可閱讀的公告 */
+export interface AnnouncementReminderItem {
+  announcementId: string;
+  title: string;
+  body: string;
+  categoryName: string;
+  authorName: string;
+  publishAt: number;
+  expireAt?: number;
+  expiringSoon: boolean;
+  classScoped: boolean;
+  createdAt: number;
 }
 
 /** 不限班級的受眾 */

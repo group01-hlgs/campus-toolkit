@@ -13,6 +13,7 @@ import HomepageCornerExam from "@/components/HomepageCornerExam";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import ModuleIcon from "@/components/ModuleIcon";
+import AnnouncementReminderBell from "@/components/AnnouncementReminderBell";
 import { fetchSettings } from "@/lib/settings-client";
 
 const accountModule = {
@@ -128,7 +129,10 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
         <RoleSwitcher role={role} />
       </div>
 
-      <div className="content-width flex justify-end mb-4">
+      <div className="content-width flex justify-end items-center gap-2 mb-4">
+        {announcementsVisible && (
+          <AnnouncementReminderBell role={role} href={announcementsHref} />
+        )}
         <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
           登出
         </button>
