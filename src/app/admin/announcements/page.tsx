@@ -10,6 +10,8 @@ import {
   DEFAULT_ANNOUNCEMENT_SETTINGS,
 } from "@/types/announcements";
 import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
+import { useDataSaver } from "@/lib/data-saver";
+import RevealListCard from "@/components/RevealListCard";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -54,12 +56,23 @@ function parseDatetimeLocal(value: string): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/**
+ * 公告管理（僅超級／被指派「公告管理」的管理員）。
+ * 版面順序：模組設定 → 建立／編輯公告（預設收納）→ 公告清單。
+ * 清單依系統「省流開關」：啟用時進頁不載入，改按鈕手動顯示（與帳號／名冊清單一致）。
+ */
 export default function AdminAnnouncementsPage() {
-  const [items, setItems] = useState<AnnouncementRecord[]>([]);
+  const { ready: settingsReady, saverOn } = useDataSaver();
   const [settings, setSettings] = useState<AnnouncementSettings>(DEFAULT_ANNOUNCEMENT_SETTINGS);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<AnnouncementRecord[]>([]);
+  // 省流開關：啟用時清單預設不載入（狀態僅維持本次頁面停留）
+  const [listLoaded, setListLoaded] = useState(false);
+  const gating = saverOn && !listLoaded;
+  const [loadingList, setLoadingList] = useState(false);
   const [saving, setSaving] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
+  // 建立／編輯表單：預設收納；點「展開」或由清單按「編輯」時展開
+  const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [displayMethod, setDisplayMethod] = useState<AnnouncementDisplayMethod>("list");
   const [categories, setCategories] = useState<AnnouncementCategory[]>(
@@ -73,7 +86,29 @@ export default function AdminAnnouncementsPage() {
     return () => clearTimeout(timer);
   }, [flash]);
 
-  const load = useCallback(async () => {
+  /** 僅載入模組設定（settings 文檔，不讀公告清單——省流） */
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/announcements/settings", { cache: "no-store" });
+      const data: AdminListResponse | null = await res.json().catch(() => null);
+      if (data?.success && data.settings) {
+        setSettings(data.settings);
+        setDisplayMethod(data.settings.displayMethod);
+        setCategories(data.settings.categories);
+      }
+    } catch {
+      // 設定讀失敗不擋頁面：表單分類退回預設
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!settingsReady) return;
+    void loadSettings();
+  }, [settingsReady, loadSettings]);
+
+  /** 載入公告清單（省流關閉時進頁自動；開啟時僅在按「顯示公告列表」後） */
+  const loadList = useCallback(async () => {
+    setLoadingList(true);
     try {
       const res = await fetch("/api/admin/announcements", { cache: "no-store" });
       const data: AdminListResponse | null = await res.json().catch(() => null);
@@ -84,17 +119,35 @@ export default function AdminAnnouncementsPage() {
           setDisplayMethod(data.settings.displayMethod);
           setCategories(data.settings.categories);
         }
+        setListLoaded(true);
+      } else {
+        setFlash({ type: "error", text: data?.message || "載入公告失敗" });
       }
     } catch {
       setFlash({ type: "error", text: "載入公告失敗" });
     } finally {
-      setLoading(false);
+      setLoadingList(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!settingsReady) return;
+    if (gating) return;
+    if (listLoaded) return;
+    void loadList();
+  }, [settingsReady, gating, listLoaded, loadList]);
+
+  /** 寫入後：清單已顯示才就地更新；閘門仍關著時不自動載入 */
+  function applyListFromResponse(data: AdminListResponse) {
+    if (listLoaded && data.announcements) {
+      setItems(data.announcements);
+    }
+    if (data.settings) {
+      setSettings(data.settings);
+      setDisplayMethod(data.settings.displayMethod);
+      setCategories(data.settings.categories);
+    }
+  }
 
   async function submitForm(event: React.FormEvent) {
     event.preventDefault();
@@ -126,9 +179,9 @@ export default function AdminAnnouncementsPage() {
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || "儲存失敗");
       }
-      if (data.announcements) setItems(data.announcements);
-      if (data.settings) setSettings(data.settings);
+      applyListFromResponse(data);
       setForm(emptyForm);
+      setFormOpen(false);
       setFlash({ type: "success", text: data.message || "已儲存" });
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "儲存失敗" });
@@ -145,7 +198,7 @@ export default function AdminAnnouncementsPage() {
       const res = await fetch(`/api/admin/announcements/${id}`, { method: "POST" });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "封存失敗");
-      if (data.announcements) setItems(data.announcements);
+      applyListFromResponse(data);
       setFlash({ type: "success", text: data.message || "已封存" });
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "封存失敗" });
@@ -165,7 +218,13 @@ export default function AdminAnnouncementsPage() {
       pinned: item.pinned === true,
       expireAtText: toDatetimeLocal(item.expireAt),
     });
+    setFormOpen(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEdit() {
+    setForm(emptyForm);
+    setFormOpen(false);
   }
 
   async function saveSettings() {
@@ -237,242 +296,7 @@ export default function AdminAnnouncementsPage() {
         </div>
       )}
 
-      {/* 建立／編輯表單 */}
-      <section className="border border-themed rounded-lg bg-card p-5">
-        <h3 className="text-lg font-bold text-t1 mb-3">
-          {form.id ? "編輯公告" : "建立公告"}
-        </h3>
-        <form onSubmit={submitForm} className="space-y-3">
-          <div>
-            <label className="block text-xs text-t2 mb-1" htmlFor="ann-title">
-              標題
-            </label>
-            <input
-              id="ann-title"
-              className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              required
-              maxLength={120}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-t2 mb-1" htmlFor="ann-body">
-              內容
-            </label>
-            <textarea
-              id="ann-body"
-              className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1 min-h-28"
-              value={form.body}
-              onChange={(e) => setForm({ ...form, body: e.target.value })}
-              required
-              maxLength={5000}
-            />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs text-t2 mb-1" htmlFor="ann-cat">
-                分類
-              </label>
-              <select
-                id="ann-cat"
-                className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
-                value={form.categoryId}
-                onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-              >
-                {categories
-                  .filter((c) => c.enabled)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-t2 mb-1" htmlFor="ann-expire">
-                到期時間（選填）
-              </label>
-              <input
-                id="ann-expire"
-                type="datetime-local"
-                className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
-                value={form.expireAtText}
-                onChange={(e) => setForm({ ...form, expireAtText: e.target.value })}
-              />
-            </div>
-          </div>
-          <div>
-            <span className="block text-xs text-t2 mb-1">對象身分</span>
-            <div className="flex flex-wrap gap-3">
-              {ALL_ROLES.map((role) => (
-                <label key={role} className="inline-flex items-center gap-1.5 text-sm text-t1">
-                  <input
-                    type="checkbox"
-                    checked={form.roles.includes(role)}
-                    onChange={() => toggleRole(role)}
-                  />
-                  {ROLE_LABELS[role]}
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs text-t2 mb-1" htmlFor="ann-classes">
-              班級代碼（選填，逗號分隔；留空＝全校）
-            </label>
-            <input
-              id="ann-classes"
-              className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
-              value={form.classCodesText}
-              onChange={(e) => setForm({ ...form, classCodesText: e.target.value })}
-              placeholder="例如：101, 102"
-            />
-          </div>
-          <label className="inline-flex items-center gap-1.5 text-sm text-t1">
-            <input
-              type="checkbox"
-              checked={form.pinned}
-              onChange={(e) => setForm({ ...form, pinned: e.target.checked })}
-            />
-            置頂
-          </label>
-          <div className="flex gap-2 pt-1">
-            <button
-              type="submit"
-              disabled={saving}
-              className="btn-theme rounded px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-            >
-              {saving ? "處理中..." : form.id ? "儲存變更" : "發佈公告"}
-            </button>
-            {form.id && (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => setForm(emptyForm)}
-                className="rounded px-4 py-2 text-sm cursor-pointer border border-themed text-t2"
-              >
-                取消編輯
-              </button>
-            )}
-          </div>
-        </form>
-      </section>
-
-      {/* 公告清單 */}
-      <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-bold text-t1">公告清單</h3>
-          <div className="flex items-center gap-2 text-sm">
-            <label className="text-t2" htmlFor="ann-status-filter">
-              篩選
-            </label>
-            <select
-              id="ann-status-filter"
-              className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1"
-              value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value as "all" | "published" | "archived")
-              }
-            >
-              <option value="all">全部</option>
-              <option value="published">發布中</option>
-              <option value="archived">已封存</option>
-            </select>
-          </div>
-        </div>
-        <div className="border border-themed rounded-lg bg-card overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="border-b border-themed">
-              <tr className="text-t2">
-                <th className="px-3 py-2 font-medium">標題</th>
-                <th className="px-3 py-2 font-medium">分類</th>
-                <th className="px-3 py-2 font-medium">對象</th>
-                <th className="px-3 py-2 font-medium">狀態</th>
-                <th className="px-3 py-2 font-medium">發布／到期</th>
-                <th className="px-3 py-2 font-medium text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-t3">
-                    載入中...
-                  </td>
-                </tr>
-              ) : filteredItems.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-t3">
-                    尚無符合條件的公告
-                  </td>
-                </tr>
-              ) : (
-                filteredItems.map((item) => (
-                  <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
-                    <td className="px-3 py-2">
-                      <span className="font-medium">{item.title}</span>
-                      {item.pinned && (
-                        <span className="ml-1.5 text-xs text-success">置頂</span>
-                      )}
-                      {item.sourceModule !== "announcements" && (
-                        <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-t2">{categoryName(item.categoryId)}</td>
-                    <td className="px-3 py-2 text-t2">
-                      {item.audience.roles.map((r) => ROLE_LABELS[r]).join("、")}
-                      {item.audience.classCodes[0] !== "*" && item.audience.classCodes.length > 0
-                        ? `（${item.audience.classCodes.join("、")}）`
-                        : "（全校）"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`text-xs ${item.status === "published" ? "text-success" : "text-t3"}`}
-                      >
-                        {item.status === "published" ? "發布中" : "已封存"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-t3 text-xs">
-                      {item.publishAt ? new Date(item.publishAt).toLocaleString("zh-TW") : "—"}
-                      {item.expireAt ? (
-                        <span className="block">
-                          到期 {new Date(item.expireAt).toLocaleString("zh-TW")}
-                        </span>
-                      ) : (
-                        <span className="block">不過期</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => edit(item)}
-                        className="btn-theme rounded px-2.5 py-1 text-xs cursor-pointer mr-2"
-                      >
-                        編輯
-                      </button>
-                      {item.status === "published" && (
-                        <button
-                          type="button"
-                          onClick={() => archive(item.id)}
-                          disabled={saving}
-                          className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
-                        >
-                          封存
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-xs text-t3 mt-2">
-          到期公告不會出現在各身分收件匣（伺服端已隱藏）；管理端仍可於「已封存」或編輯中處理。
-        </p>
-      </section>
-
-      {/* 模組設定 */}
+      {/* 1. 模組設定 */}
       <section className="border border-themed rounded-lg bg-card p-5">
         <h3 className="text-lg font-bold text-t1 mb-3">模組設定</h3>
         <div className="space-y-3">
@@ -584,6 +408,263 @@ export default function AdminAnnouncementsPage() {
             ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
           </p>
         </div>
+      </section>
+
+      {/* 2. 建立／編輯公告（預設收納） */}
+      <section className="border border-themed rounded-lg bg-card">
+        <button
+          type="button"
+          onClick={() => {
+            if (formOpen) {
+              cancelEdit();
+            } else {
+              setFormOpen(true);
+            }
+          }}
+          aria-expanded={formOpen}
+          className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
+        >
+          <h3 className="text-lg font-bold text-t1">
+            {formOpen ? "收合" : "展開"}｜{form.id ? "編輯公告" : "建立公告"}
+          </h3>
+          <span className="text-t3 text-sm">{formOpen ? "▲" : "▼"}</span>
+        </button>
+        {formOpen && (
+          <div className="px-5 pb-5">
+            <form onSubmit={submitForm} className="space-y-3">
+              <div>
+                <label className="block text-xs text-t2 mb-1" htmlFor="ann-title">
+                  標題
+                </label>
+                <input
+                  id="ann-title"
+                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  required
+                  maxLength={120}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-t2 mb-1" htmlFor="ann-body">
+                  內容
+                </label>
+                <textarea
+                  id="ann-body"
+                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1 min-h-28"
+                  value={form.body}
+                  onChange={(e) => setForm({ ...form, body: e.target.value })}
+                  required
+                  maxLength={5000}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs text-t2 mb-1" htmlFor="ann-cat">
+                    分類
+                  </label>
+                  <select
+                    id="ann-cat"
+                    className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                    value={form.categoryId}
+                    onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                  >
+                    {categories
+                      .filter((c) => c.enabled)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-t2 mb-1" htmlFor="ann-expire">
+                    到期時間（選填）
+                  </label>
+                  <input
+                    id="ann-expire"
+                    type="datetime-local"
+                    className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                    value={form.expireAtText}
+                    onChange={(e) => setForm({ ...form, expireAtText: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div>
+                <span className="block text-xs text-t2 mb-1">對象身分</span>
+                <div className="flex flex-wrap gap-3">
+                  {ALL_ROLES.map((role) => (
+                    <label key={role} className="inline-flex items-center gap-1.5 text-sm text-t1">
+                      <input
+                        type="checkbox"
+                        checked={form.roles.includes(role)}
+                        onChange={() => toggleRole(role)}
+                      />
+                      {ROLE_LABELS[role]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-t2 mb-1" htmlFor="ann-classes">
+                  班級代碼（選填，逗號分隔；留空＝全校）
+                </label>
+                <input
+                  id="ann-classes"
+                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                  value={form.classCodesText}
+                  onChange={(e) => setForm({ ...form, classCodesText: e.target.value })}
+                  placeholder="例如：101, 102"
+                />
+              </div>
+              <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                <input
+                  type="checkbox"
+                  checked={form.pinned}
+                  onChange={(e) => setForm({ ...form, pinned: e.target.checked })}
+                />
+                置頂
+              </label>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="btn-theme rounded px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? "處理中..." : form.id ? "儲存變更" : "發佈公告"}
+                </button>
+                {form.id && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={cancelEdit}
+                    className="rounded px-4 py-2 text-sm cursor-pointer border border-themed text-t2"
+                  >
+                    取消編輯
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        )}
+      </section>
+
+      {/* 3. 公告清單（省流：啟用時預設不載入） */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-bold text-t1">公告清單</h3>
+          {!gating && listLoaded && (
+            <div className="flex items-center gap-2 text-sm">
+              <label className="text-t2" htmlFor="ann-status-filter">
+                篩選
+              </label>
+              <select
+                id="ann-status-filter"
+                className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1"
+                value={statusFilter}
+                onChange={(e) =>
+                  setStatusFilter(e.target.value as "all" | "published" | "archived")
+                }
+              >
+                <option value="all">全部</option>
+                <option value="published">發布中</option>
+                <option value="archived">已封存</option>
+              </select>
+            </div>
+          )}
+        </div>
+        <div className="border border-themed rounded-lg bg-card overflow-x-auto">
+          {gating ? (
+            <RevealListCard label="公告" onReveal={() => void loadList()} />
+          ) : loadingList && !listLoaded ? (
+            <p className="p-6 text-center text-t3">公告清單載入中...</p>
+          ) : (
+            <table className="w-full text-sm text-left">
+              <thead className="border-b border-themed">
+                <tr className="text-t2">
+                  <th className="px-3 py-2 font-medium">標題</th>
+                  <th className="px-3 py-2 font-medium">分類</th>
+                  <th className="px-3 py-2 font-medium">對象</th>
+                  <th className="px-3 py-2 font-medium">狀態</th>
+                  <th className="px-3 py-2 font-medium">發布／到期</th>
+                  <th className="px-3 py-2 font-medium text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
+                      尚無符合條件的公告
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map((item) => (
+                    <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
+                      <td className="px-3 py-2">
+                        <span className="font-medium">{item.title}</span>
+                        {item.pinned && (
+                          <span className="ml-1.5 text-xs text-success">置頂</span>
+                        )}
+                        {item.sourceModule !== "announcements" && (
+                          <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-t2">{categoryName(item.categoryId)}</td>
+                      <td className="px-3 py-2 text-t2">
+                        {item.audience.roles.map((r) => ROLE_LABELS[r]).join("、")}
+                        {item.audience.classCodes[0] !== "*" && item.audience.classCodes.length > 0
+                          ? `（${item.audience.classCodes.join("、")}）`
+                          : "（全校）"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`text-xs ${item.status === "published" ? "text-success" : "text-t3"}`}
+                        >
+                          {item.status === "published" ? "發布中" : "已封存"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-t3 text-xs">
+                        {item.publishAt ? new Date(item.publishAt).toLocaleString("zh-TW") : "—"}
+                        {item.expireAt ? (
+                          <span className="block">
+                            到期 {new Date(item.expireAt).toLocaleString("zh-TW")}
+                          </span>
+                        ) : (
+                          <span className="block">不過期</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => edit(item)}
+                          className="btn-theme rounded px-2.5 py-1 text-xs cursor-pointer mr-2"
+                        >
+                          編輯
+                        </button>
+                        {item.status === "published" && (
+                          <button
+                            type="button"
+                            onClick={() => archive(item.id)}
+                            disabled={saving}
+                            className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                          >
+                            封存
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {!gating && listLoaded && (
+          <p className="text-xs text-t3 mt-2">
+            到期公告不會出現在各身分收件匣（伺服端已隱藏）；管理端仍可於「已封存」或編輯中處理。
+          </p>
+        )}
       </section>
     </div>
   );
