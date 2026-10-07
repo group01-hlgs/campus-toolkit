@@ -274,9 +274,12 @@ export default function RosterPage() {
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
   // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留，切換身分不重問）
-  // 寫入後僅在列表已顯示時才重整；閘門仍關著時不自動載入
+  // 「已按過打開」以名冊為單位分開記錄：某一名冊打開過，不等於其他名冊也打開，
+  // 切換名冊一律重新問一次；寫入後僅在該名冊列表已顯示時才重整；閘門仍關著時不自動載入
+  const [revealedRoles, setRevealedRoles] = useState<RosterRole[]>([]);
+  // members 目前對應的名冊：避免同一身分重複請求
   const [loadedRole, setLoadedRole] = useState<RosterRole | null>(null);
-  const gating = saverOn && loadedRole === null;
+  const gating = saverOn && !revealedRoles.includes(role);
   const [flash, setFlash] = useState<Flash>(null);
 
   // 新增／編輯表單
@@ -409,6 +412,8 @@ export default function RosterPage() {
   const rosterListKey = (targetRole: RosterRole) => `admin:roster-list:${targetRole}`;
 
   const loadMembers = async (targetRole: RosterRole) => {
+    // 只解除「該名冊」的省流閘門，不套用到其他名冊
+    setRevealedRoles((prev) => (prev.includes(targetRole) ? prev : [...prev, targetRole]));
     setLoadedRole(targetRole);
     setListError("");
     // 快取命中（epoch 相符且未逾 10 分鐘）＝直接沿用，不發任何請求
@@ -499,7 +504,8 @@ export default function RosterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 
-  // 列表載入：設定判定前不發請求；省流開關啟用時須先由按鈕解除（同一身分只載一次）
+  // 列表載入：設定判定前不發請求；省流開關啟用時須先由「該名冊」的按鈕解除
+  // （閘門 gating 已按目前 role 分開判定，故切換到未打開的名冊不會自動載入）
   useEffect(() => {
     if (!settingsReady || gating || loadedRole === role) return;
     void loadMembers(role);
@@ -1670,8 +1676,8 @@ export default function RosterPage() {
         )}
       </div>
 
-      {/* 分頁列：每頁筆數選擇與頁次切換（純前端切片） */}
-      {!loading && !listError && filtered.length > 0 && (
+      {/* 分頁列：每頁筆數選擇與頁次切換（純前端切片）；閘門關著時 members 仍是別的名冊，不顯示 */}
+      {!gating && !loading && !listError && filtered.length > 0 && (
         <div className="w-full max-w-5xl flex flex-wrap items-center justify-between gap-3 mb-4 text-sm text-t2">
           <div className="flex items-center gap-2">
             <label htmlFor="roster-page-size">每頁</label>
