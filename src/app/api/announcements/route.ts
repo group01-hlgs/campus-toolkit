@@ -4,7 +4,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { toAuthResponse, verifySession } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
-import { createAnnouncement, listInboxAnnouncements } from "@/lib/announcements";
+import { createAnnouncement, getAnnouncementSettings, listInboxAnnouncements } from "@/lib/announcements";
 import { isActiveEntry } from "@/lib/roster";
 import { ALL_ROLES, type UserRole } from "@/types/users";
 import type { AnnouncementAudience } from "@/types/announcements";
@@ -37,10 +37,13 @@ export async function GET(request: NextRequest) {
       // 無有效名冊條目仍可讀「針對該身分的校級公告」；班級公告需 classCode
     }
     const classCode = entryClassCode(session.__entry);
-    const items = await listInboxAnnouncements({
-      role: session.role,
-      classCode: classCode || null,
-    });
+    const [items, settings] = await Promise.all([
+      listInboxAnnouncements({
+        role: session.role,
+        classCode: classCode || null,
+      }),
+      getAnnouncementSettings(),
+    ]);
     return NextResponse.json(
       {
         success: true,
@@ -48,6 +51,9 @@ export async function GET(request: NextRequest) {
         role: session.role,
         classCode: classCode || null,
         displayName: session.displayName,
+        // 顯示方式與分類：收件匣套用置頂區／橫幅（期 B）
+        displayMethod: settings.displayMethod,
+        categories: settings.categories,
       },
       { headers: noStore }
     );
@@ -153,8 +159,16 @@ export async function POST(request: NextRequest) {
       role: session.role,
       classCode: ownClass || null,
     });
+    const settings = await getAnnouncementSettings();
     return NextResponse.json(
-      { success: true, message: "公告已發佈", id, items },
+      {
+        success: true,
+        message: "公告已發佈",
+        id,
+        items,
+        displayMethod: settings.displayMethod,
+        categories: settings.categories,
+      },
       { headers: noStore }
     );
   } catch (error) {

@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
-import type { AnnouncementInboxItem } from "@/types/announcements";
+import type {
+  AnnouncementDisplayMethod,
+  AnnouncementInboxItem,
+} from "@/types/announcements";
 import { ROLE_LABELS, type UserRole } from "@/types/users";
 
 type Flash = { type: "success" | "error"; text: string } | null;
@@ -15,6 +18,7 @@ interface InboxResponse {
   items?: AnnouncementInboxItem[];
   classCode?: string | null;
   displayName?: string;
+  displayMethod?: AnnouncementDisplayMethod;
 }
 
 /** 各身分公告收件匣（學生／家長／教職員共用；教職員另可發佈） */
@@ -29,6 +33,7 @@ export default function AnnouncementsInbox({
   const [items, setItems] = useState<AnnouncementInboxItem[]>([]);
   const [classCode, setClassCode] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
+  const [displayMethod, setDisplayMethod] = useState<AnnouncementDisplayMethod>("list");
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState<Flash>(null);
   const [title, setTitle] = useState("");
@@ -38,6 +43,7 @@ export default function AnnouncementsInbox({
   );
   const [classScoped, setClassScoped] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [dismissedBanners, setDismissedBanners] = useState<string[]>([]);
 
   useEffect(() => {
     if (!flash) return;
@@ -77,6 +83,7 @@ export default function AnnouncementsInbox({
       if (data?.success) {
         setItems(data.items ?? []);
         setClassCode(data.classCode ?? null);
+        if (data.displayMethod) setDisplayMethod(data.displayMethod);
       } else if (data?.message) {
         setFlash({ type: "error", text: data.message });
       }
@@ -112,6 +119,7 @@ export default function AnnouncementsInbox({
       setTitle("");
       setBody("");
       setFlash({ type: "success", text: data.message || "公告已發佈" });
+      if (data.displayMethod) setDisplayMethod(data.displayMethod);
       if (data.items) setItems(data.items);
       else await load();
     } catch (error) {
@@ -220,41 +228,111 @@ export default function AnnouncementsInbox({
       )}
 
       <section>
-        <h3 className="text-lg font-bold text-t1 mb-3">收件匣</h3>
+        <h3 className="text-lg font-bold text-t1 mb-1">收件匣</h3>
+        <p className="text-xs text-t3 mb-3">
+          顯示方式：
+          {displayMethod === "banner"
+            ? "置頂公告以橫幅顯示"
+            : displayMethod === "pinnedTop"
+              ? "置頂公告優先"
+              : "清單"}
+          ；過期公告已自動隱藏
+        </p>
         {loading ? (
           <p className="text-t3 text-sm">載入中...</p>
         ) : items.length === 0 ? (
           <p className="text-t3 text-sm">目前沒有公告</p>
         ) : (
-          <ul className="space-y-3">
-            {items.map((item) => (
-              <li key={item.id} className="border border-themed rounded-lg bg-card p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <h4 className="font-bold text-t1">{item.title}</h4>
-                  <div className="flex shrink-0 gap-1.5">
-                    {item.pinned && (
-                      <span className="text-xs text-success border border-success rounded px-1.5 py-0.5">
-                        置頂
-                      </span>
-                    )}
-                    {item.expiringSoon && (
-                      <span className="text-xs text-danger border border-danger rounded px-1.5 py-0.5">
-                        即將到期
-                      </span>
-                    )}
+          <>
+            {/* 橫幅模式：置頂公告以醒目橫幅顯示（可於本機關閉橫幅，不影響他人） */}
+            {displayMethod === "banner" &&
+              items
+                .filter((item) => item.pinned && !dismissedBanners.includes(item.id))
+                .map((item) => (
+                  <div
+                    key={`banner-${item.id}`}
+                    className="mb-3 border-l-4 border-success bg-card border border-themed rounded-lg p-4 shadow"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="font-bold text-t1">📌 {item.title}</h4>
+                      <button
+                        type="button"
+                        className="text-xs text-t3 hover:text-t1 cursor-pointer shrink-0"
+                        onClick={() =>
+                          setDismissedBanners((prev) => [...prev, item.id])
+                        }
+                      >
+                        關閉
+                      </button>
+                    </div>
+                    <p className="text-xs text-t3 mt-1">
+                      {item.categoryName}｜{item.authorName}
+                      {item.classScoped ? "｜班級" : "｜校級"}
+                    </p>
+                    <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
                   </div>
+                ))}
+
+            {/* 置頂區（pinnedTop 模式；banner 模式下若未關閉橫幅則不重複列出置頂） */}
+            {displayMethod === "pinnedTop" &&
+              items.filter((item) => item.pinned).length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-bold text-success mb-2">置頂公告</h4>
+                  <ul className="space-y-3">
+                    {items
+                      .filter((item) => item.pinned)
+                      .map((item) => (
+                        <AnnouncementCard key={item.id} item={item} />
+                      ))}
+                  </ul>
                 </div>
-                <p className="text-xs text-t3 mt-1">
-                  {item.categoryName}｜{item.authorName}
-                  {item.classScoped ? `｜班級公告` : "｜校級"}
-                  {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
-                </p>
-                <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
-              </li>
-            ))}
-          </ul>
+              )}
+
+            {/* 一般清單：置頂優先（伺服器已排序）；banner 模式過濾已顯示於橫幅者 */}
+            <ul className="space-y-3">
+              {items
+                .filter((item) => {
+                  if (displayMethod === "banner" && item.pinned) {
+                    return dismissedBanners.includes(item.id);
+                  }
+                  if (displayMethod === "pinnedTop" && item.pinned) return false;
+                  return true;
+                })
+                .map((item) => (
+                  <AnnouncementCard key={item.id} item={item} />
+                ))}
+            </ul>
+          </>
         )}
       </section>
     </div>
+  );
+}
+
+function AnnouncementCard({ item }: { item: AnnouncementInboxItem }) {
+  return (
+    <li className="border border-themed rounded-lg bg-card p-4">
+      <div className="flex items-start justify-between gap-2">
+        <h4 className="font-bold text-t1">{item.title}</h4>
+        <div className="flex shrink-0 gap-1.5">
+          {item.pinned && (
+            <span className="text-xs text-success border border-success rounded px-1.5 py-0.5">
+              置頂
+            </span>
+          )}
+          {item.expiringSoon && (
+            <span className="text-xs text-danger border border-danger rounded px-1.5 py-0.5">
+              即將到期
+            </span>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-t3 mt-1">
+        {item.categoryName}｜{item.authorName}
+        {item.classScoped ? `｜班級公告` : "｜校級"}
+        {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
+      </p>
+      <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+    </li>
   );
 }

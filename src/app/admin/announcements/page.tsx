@@ -65,6 +65,7 @@ export default function AdminAnnouncementsPage() {
   const [categories, setCategories] = useState<AnnouncementCategory[]>(
     DEFAULT_ANNOUNCEMENT_SETTINGS.categories
   );
+  const [statusFilter, setStatusFilter] = useState<"all" | "published" | "archived">("all");
 
   useEffect(() => {
     if (!flash) return;
@@ -190,6 +191,30 @@ export default function AdminAnnouncementsPage() {
       setSaving(false);
     }
   }
+
+  function moveCategory(index: number, dir: -1 | 1) {
+    setCategories((prev) => {
+      const next = [...prev];
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return prev;
+      const tmp = next[index];
+      next[index] = next[target];
+      next[target] = tmp;
+      return next.map((cat, i) => ({ ...cat, sortOrder: i }));
+    });
+  }
+
+  function categoryName(id: string) {
+    return (
+      categories.find((c) => c.id === id)?.name ||
+      settings.categories.find((c) => c.id === id)?.name ||
+      id
+    );
+  }
+
+  const filteredItems = items.filter((item) =>
+    statusFilter === "all" ? true : item.status === statusFilter
+  );
 
   function toggleRole(role: UserRole) {
     setForm((prev) => ({
@@ -336,7 +361,26 @@ export default function AdminAnnouncementsPage() {
 
       {/* 公告清單 */}
       <section>
-        <h3 className="text-lg font-bold text-t1 mb-3">公告清單</h3>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-bold text-t1">公告清單</h3>
+          <div className="flex items-center gap-2 text-sm">
+            <label className="text-t2" htmlFor="ann-status-filter">
+              篩選
+            </label>
+            <select
+              id="ann-status-filter"
+              className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1"
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(e.target.value as "all" | "published" | "archived")
+              }
+            >
+              <option value="all">全部</option>
+              <option value="published">發布中</option>
+              <option value="archived">已封存</option>
+            </select>
+          </div>
+        </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="border-b border-themed">
@@ -345,7 +389,7 @@ export default function AdminAnnouncementsPage() {
                 <th className="px-3 py-2 font-medium">分類</th>
                 <th className="px-3 py-2 font-medium">對象</th>
                 <th className="px-3 py-2 font-medium">狀態</th>
-                <th className="px-3 py-2 font-medium">發布</th>
+                <th className="px-3 py-2 font-medium">發布／到期</th>
                 <th className="px-3 py-2 font-medium text-right">操作</th>
               </tr>
             </thead>
@@ -356,14 +400,14 @@ export default function AdminAnnouncementsPage() {
                     載入中...
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-3 py-6 text-center text-t3">
-                    尚無公告
+                    尚無符合條件的公告
                   </td>
                 </tr>
               ) : (
-                items.map((item) => (
+                filteredItems.map((item) => (
                   <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
                     <td className="px-3 py-2">
                       <span className="font-medium">{item.title}</span>
@@ -374,7 +418,7 @@ export default function AdminAnnouncementsPage() {
                         <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-t2">{item.categoryId}</td>
+                    <td className="px-3 py-2 text-t2">{categoryName(item.categoryId)}</td>
                     <td className="px-3 py-2 text-t2">
                       {item.audience.roles.map((r) => ROLE_LABELS[r]).join("、")}
                       {item.audience.classCodes[0] !== "*" && item.audience.classCodes.length > 0
@@ -390,6 +434,13 @@ export default function AdminAnnouncementsPage() {
                     </td>
                     <td className="px-3 py-2 text-t3 text-xs">
                       {item.publishAt ? new Date(item.publishAt).toLocaleString("zh-TW") : "—"}
+                      {item.expireAt ? (
+                        <span className="block">
+                          到期 {new Date(item.expireAt).toLocaleString("zh-TW")}
+                        </span>
+                      ) : (
+                        <span className="block">不過期</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button
@@ -416,6 +467,9 @@ export default function AdminAnnouncementsPage() {
             </tbody>
           </table>
         </div>
+        <p className="text-xs text-t3 mt-2">
+          到期公告不會出現在各身分收件匣（伺服端已隱藏）；管理端仍可於「已封存」或編輯中處理。
+        </p>
       </section>
 
       {/* 模組設定 */}
@@ -448,6 +502,7 @@ export default function AdminAnnouncementsPage() {
             <div className="space-y-2">
               {categories.map((cat, index) => (
                 <div key={cat.id || index} className="flex items-center gap-2">
+                  <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
                   <input
                     className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1 w-28"
                     value={cat.name}
@@ -470,6 +525,24 @@ export default function AdminAnnouncementsPage() {
                     />
                     啟用
                   </label>
+                  <button
+                    type="button"
+                    className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                    disabled={index === 0}
+                    onClick={() => moveCategory(index, -1)}
+                    title="上移"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                    disabled={index === categories.length - 1}
+                    onClick={() => moveCategory(index, 1)}
+                    title="下移"
+                  >
+                    ↓
+                  </button>
                   <button
                     type="button"
                     className="text-xs text-t3 hover:text-danger cursor-pointer"
