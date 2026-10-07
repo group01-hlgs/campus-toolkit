@@ -144,7 +144,7 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   ...ADMIN_FEATURE_MODULES,
   {
     value: "announcements",
-    label: "系統公告管理",
+    label: "系統公告",
     kind: "builtin",
     status: "live",
     description: "發佈與管理校園公告，可依閱讀權限與班級設定可見範圍；其他模組可經接口掛勾發文。",
