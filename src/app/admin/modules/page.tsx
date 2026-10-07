@@ -112,8 +112,8 @@ function DescriptionRow({
 }
 
 /**
- * 四種身分的顯示與否（checkbox）：
- * 提供功能＝否 → 文字「未提供」（不可操作）；提供功能＝是 → checkbox。
+ * 四種身分欄：同時顯示「提供功能」圖示＋「顯示與否」勾選。
+ * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」＋ checkbox。
  */
 function RoleCells({
   item,
@@ -138,20 +138,41 @@ function RoleCells({
           );
         }
         return (
-          <td key={role} className="px-3 py-2 text-center">
-            <input
-              type="checkbox"
-              checked={switches?.[role] === true}
-              disabled={disabled}
-              onChange={(event) => onToggle(item, role, event.target.checked)}
-              aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
-              title={
-                disabled
-                  ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
-                  : "顯示與否（關閉＝暫時不顯示、禁止進入）"
-              }
-              className="accent-current cursor-pointer disabled:opacity-50"
-            />
+          <td key={role} className="px-3 py-2">
+            <span className="inline-flex items-center justify-center gap-1.5">
+              <span
+                className="inline-flex items-center gap-0.5 text-xs text-success whitespace-nowrap"
+                title="提供功能（由模組作者決定，唯讀）"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+                提供
+              </span>
+              <input
+                type="checkbox"
+                checked={switches?.[role] === true}
+                disabled={disabled}
+                onChange={(event) => onToggle(item, role, event.target.checked)}
+                aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
+                title={
+                  disabled
+                    ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
+                    : "顯示與否（關閉＝暫時不顯示、禁止進入）"
+                }
+                className="accent-current cursor-pointer disabled:opacity-50"
+              />
+            </span>
           </td>
         );
       })}
@@ -307,6 +328,13 @@ export default function ModulesPage() {
   const [openDesc, setOpenDesc] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
 
+  // 儲存訊息：固定於畫面下方中央，約 3 秒後自動淡出（列表過長也看得到）
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), 3000);
+    return () => clearTimeout(timer);
+  }, [flash]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -379,13 +407,18 @@ export default function ModulesPage() {
 
   return (
     <div className="w-full max-w-5xl mb-8 space-y-6">
+      {/* 固定位置儲存訊息（下方中央 toast，自動淡出） */}
       {flash && (
-        <p
-          className={`text-sm ${flash.type === "success" ? "text-success" : "text-danger"}`}
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
+          style={{
+            background: `var(${flash.type === "success" ? "--success" : "--danger"})`,
+          }}
           role="status"
+          aria-live="polite"
         >
           {flash.text}
-        </p>
+        </div>
       )}
 
       {/* 內建功能模組 */}
@@ -394,8 +427,8 @@ export default function ModulesPage() {
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
           <p className="text-xs text-t3">
             隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的 ? 可展開說明與作者版本資訊；
-            四種身分欄為「顯示與否」（提供功能＝否者顯示「未提供」；關閉＝暫時不顯示、禁止進入，
-            目前先記錄設定，實際套用隨各模組上線進度接上）。
+            四種身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝顯示與否
+            （關閉＝暫時不顯示、禁止進入）。
           </p>
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
@@ -450,7 +483,7 @@ export default function ModulesPage() {
           <h3 className="text-lg font-bold text-t1">選用功能模組</h3>
           <p className="text-xs text-t3">
             每個模組有一個總開關，由超級管理員啟用／停用（尚未上線者不可啟用）；
-            總開關之外，四種身分欄為「顯示與否」（提供功能＝否者顯示「未提供」）。
+            四種身分欄：綠勾「提供」＋顯示與否勾選（提供功能＝否者顯示「未提供」）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
