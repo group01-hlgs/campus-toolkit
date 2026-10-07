@@ -307,8 +307,9 @@ export default function AdminAnnouncementsPage() {
     }));
   }
 
+  // 內容寬度與外殼（AdminSectionShell）的 hr／按鈕／頁尾同為 max-w-4xl，左右才會對齊
   return (
-    <div className="w-full max-w-5xl mb-8 space-y-6">
+    <div className="w-full max-w-4xl mb-8 space-y-6">
       {flash && (
         <div
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
@@ -323,13 +324,13 @@ export default function AdminAnnouncementsPage() {
       <section className="border border-themed rounded-lg bg-card p-5">
         <h3 className="text-lg font-bold text-t1 mb-3">模組設定</h3>
         <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-t2 mb-1" htmlFor="ann-display">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <label className="text-t2 sm:w-48 shrink-0" htmlFor="ann-display">
               收件匣顯示方式（各身分「公告」頁）
             </label>
             <select
               id="ann-display"
-              className="border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+              className="flex-1 input-theme rounded px-3 py-2"
               value={displayMethod}
               onChange={(e) =>
                 setDisplayMethod(e.target.value as AnnouncementDisplayMethod)
@@ -343,13 +344,13 @@ export default function AdminAnnouncementsPage() {
                 )
               )}
             </select>
-            <p className="text-xs text-t3 mt-1">
-              清單＝全文卡片；置頂優先＝置頂公告置頂專區、其餘收合為標題列（點擊展開）；
-              橫幅＝頂部橫幅顯示置頂公告（完全沒有置頂時改用最新一則）。
-            </p>
           </div>
+          <p className="text-xs text-t3">
+            清單＝全文卡片；置頂優先＝置頂公告置頂專區、其餘收合為標題列（點擊展開）；
+            橫幅＝頂部橫幅顯示置頂公告（完全沒有置頂時改用最新一則）。
+          </p>
           <div>
-            <span className="block text-xs text-t2 mb-1">
+            <span className="block text-t2 mb-1">
               顯示位置（顯示與否／顯示方式／顯示筆數，5 處各自設定）
             </span>
             <div className="space-y-2">
@@ -366,7 +367,7 @@ export default function AdminAnnouncementsPage() {
                       {ANNOUNCEMENT_SURFACE_LABELS[key]}
                     </label>
                     <select
-                      className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1 disabled:opacity-50"
+                      className="input-theme rounded px-2 py-1 disabled:opacity-50"
                       value={surface.method}
                       disabled={!surface.enabled}
                       onChange={(e) =>
@@ -389,7 +390,7 @@ export default function AdminAnnouncementsPage() {
                         type="number"
                         min={1}
                         max={20}
-                        className="w-16 border border-themed rounded px-2 py-1 text-sm bg-card text-t1 disabled:opacity-50"
+                        className="w-16 input-theme rounded px-2 py-1 disabled:opacity-50"
                         value={surface.limit}
                         disabled={!surface.enabled}
                         onChange={(e) =>
@@ -406,13 +407,13 @@ export default function AdminAnnouncementsPage() {
             </p>
           </div>
           <div>
-            <span className="block text-xs text-t2 mb-1">公告分類</span>
+            <span className="block text-t2 mb-1">公告分類</span>
             <div className="space-y-2">
               {categories.map((cat, index) => (
                 <div key={cat.id || index} className="flex items-center gap-2">
                   <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
                   <input
-                    className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1 w-28"
+                    className="w-28 input-theme rounded px-2 py-1"
                     value={cat.name}
                     onChange={(e) => {
                       const next = [...categories];
@@ -483,7 +484,7 @@ export default function AdminAnnouncementsPage() {
             type="button"
             onClick={saveSettings}
             disabled={saving}
-            className="btn-theme rounded px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
           >
             {saving ? "處理中..." : "儲存設定"}
           </button>
@@ -519,26 +520,26 @@ export default function AdminAnnouncementsPage() {
         {formOpen && (
           <div className="px-5 pb-5">
             <form onSubmit={submitForm} className="space-y-3">
-              <div>
-                <label className="block text-xs text-t2 mb-1" htmlFor="ann-title">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <label className="text-t2 sm:w-40 shrink-0" htmlFor="ann-title">
                   標題
                 </label>
                 <input
                   id="ann-title"
-                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                  className="flex-1 input-theme rounded px-3 py-2"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   required
                   maxLength={120}
                 />
               </div>
-              <div>
-                <label className="block text-xs text-t2 mb-1" htmlFor="ann-body">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                <label className="text-t2 sm:w-40 shrink-0" htmlFor="ann-body">
                   內容
                 </label>
                 <textarea
                   id="ann-body"
-                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1 min-h-28"
+                  className="flex-1 input-theme rounded px-3 py-2 min-h-28"
                   value={form.body}
                   onChange={(e) => setForm({ ...form, body: e.target.value })}
                   required
@@ -547,12 +548,12 @@ export default function AdminAnnouncementsPage() {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="block text-xs text-t2 mb-1" htmlFor="ann-cat">
+                  <label className="block text-t2 mb-1" htmlFor="ann-cat">
                     分類
                   </label>
                   <select
                     id="ann-cat"
-                    className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                    className="w-full input-theme rounded px-3 py-2"
                     value={form.categoryId}
                     onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
                   >
@@ -566,82 +567,87 @@ export default function AdminAnnouncementsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-t2 mb-1" htmlFor="ann-expire">
+                  <label className="block text-t2 mb-1" htmlFor="ann-expire">
                     到期時間（選填）
                   </label>
                   <input
                     id="ann-expire"
                     type="datetime-local"
-                    className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                    className="w-full input-theme rounded px-3 py-2"
                     value={form.expireAtText}
                     onChange={(e) => setForm({ ...form, expireAtText: e.target.value })}
                   />
                 </div>
               </div>
-              <div>
-                <span className="block text-xs text-t2 mb-1">閱讀權限</span>
-                <div className="flex flex-wrap gap-3">
-                  <label className="inline-flex items-center gap-1.5 text-sm text-t1">
-                    <input
-                      type="checkbox"
-                      checked={form.isPublic}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          isPublic: e.target.checked,
-                          roles: e.target.checked ? [] : prev.roles,
-                        }))
-                      }
-                    />
-                    無（公開，不需登入即可看見）
-                  </label>
-                  {ANNOUNCEMENT_PERMISSION_ROLES.map((role) => (
-                    <label
-                      key={role}
-                      className={`inline-flex items-center gap-1.5 text-sm ${
-                        form.isPublic ? "text-t3" : "text-t1"
-                      }`}
-                    >
+              <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                <span className="text-t2 sm:w-40 shrink-0">閱讀權限</span>
+                <div className="flex-1">
+                  <div className="flex flex-wrap gap-3">
+                    <label className="inline-flex items-center gap-1.5 text-sm text-t1">
                       <input
                         type="checkbox"
-                        disabled={form.isPublic}
-                        checked={form.roles.includes(role)}
-                        onChange={() => toggleRole(role)}
+                        checked={form.isPublic}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            isPublic: e.target.checked,
+                            roles: e.target.checked ? [] : prev.roles,
+                          }))
+                        }
                       />
-                      {ROLE_LABELS[role]}
+                      無（公開，不需登入即可看見）
                     </label>
-                  ))}
+                    {ANNOUNCEMENT_PERMISSION_ROLES.map((role) => (
+                      <label
+                        key={role}
+                        className={`inline-flex items-center gap-1.5 text-sm ${
+                          form.isPublic ? "text-t3" : "text-t1"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={form.isPublic}
+                          checked={form.roles.includes(role)}
+                          onChange={() => toggleRole(role)}
+                        />
+                        {ROLE_LABELS[role]}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-t3 mt-1">
+                    勾選「無」＝任何人均可看見、不需先登入；勾選身分＝僅該身分可見（可多選，與「無」互斥）。
+                  </p>
                 </div>
-                <p className="text-xs text-t3 mt-1">
-                  勾選「無」＝任何人均可看見、不需先登入；勾選身分＝僅該身分可見（可多選，與「無」互斥）。
-                </p>
               </div>
-              <div>
-                <label className="block text-xs text-t2 mb-1" htmlFor="ann-classes">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <label className="text-t2 sm:w-40 shrink-0" htmlFor="ann-classes">
                   班級代碼（選填，逗號分隔；留空＝全校）
                 </label>
                 <input
                   id="ann-classes"
-                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1 disabled:opacity-50"
+                  className="flex-1 input-theme rounded px-3 py-2 disabled:opacity-50"
                   value={form.classCodesText}
                   disabled={form.isPublic}
                   onChange={(e) => setForm({ ...form, classCodesText: e.target.value })}
                   placeholder={form.isPublic ? "閱讀權限「無」＝全校" : "例如：101, 102"}
                 />
               </div>
-              <label className="inline-flex items-center gap-1.5 text-sm text-t1">
-                <input
-                  type="checkbox"
-                  checked={form.pinned}
-                  onChange={(e) => setForm({ ...form, pinned: e.target.checked })}
-                />
-                置頂
-              </label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-t2 sm:w-40 shrink-0">置頂</span>
+                <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                  <input
+                    type="checkbox"
+                    checked={form.pinned}
+                    onChange={(e) => setForm({ ...form, pinned: e.target.checked })}
+                  />
+                  公告排序在各身分收件匣頂部（「置頂優先／橫幅」方式另有醒目呈現）
+                </label>
+              </div>
               <div className="flex gap-2 pt-1">
                 <button
                   type="submit"
                   disabled={saving}
-                  className="btn-theme rounded px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
                 >
                   {saving ? "處理中..." : form.id ? "儲存變更" : "發佈公告"}
                 </button>
@@ -650,7 +656,7 @@ export default function AdminAnnouncementsPage() {
                     type="button"
                     disabled={saving}
                     onClick={cancelEdit}
-                    className="rounded px-4 py-2 text-sm cursor-pointer border border-themed text-t2"
+                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
                   >
                     取消編輯
                   </button>
@@ -672,7 +678,7 @@ export default function AdminAnnouncementsPage() {
               </label>
               <select
                 id="ann-status-filter"
-                className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1"
+                className="input-theme rounded px-2 py-1"
                 value={statusFilter}
                 onChange={(e) =>
                   setStatusFilter(e.target.value as "all" | "published" | "archived")
