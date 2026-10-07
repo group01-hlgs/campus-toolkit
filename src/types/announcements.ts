@@ -21,9 +21,15 @@ export type AnnouncementDisplayMethod = "list" | "pinnedTop" | "banner";
 
 export const ANNOUNCEMENT_DISPLAY_METHOD_LABELS: Record<AnnouncementDisplayMethod, string> = {
   list: "清單",
-  pinnedTop: "置頂優先",
+  pinnedTop: "清單，置頂公告橫幅",
   banner: "橫幅",
 };
+
+/** 依字數截斷（超出加 ...）；空白整併成單行——橫幅三行與單行清單共用 */
+export function clipText(text: string, max: number): string {
+  const chars = Array.from(text.replace(/\s+/g, " ").trim());
+  return chars.length > max ? `${chars.slice(0, max).join("")}...` : chars.join("");
+}
 
 /**
  * 公告閱讀權限：可多選身分（學生／家長／教職員），
@@ -131,6 +137,24 @@ export interface AnnouncementCategory {
   enabled: boolean;
 }
 
+/**
+ * 公告原則（「公告原則管理」卡片設定）：
+ * - `enablePinned`：允許將公告設為置頂（關閉＝新增／編輯皆無法再設定置頂）；
+ * - `forceExpire`：到期時間留空時自動補上發布後一個月，避免過舊公告長期佔據公告區；
+ * - `hardDeleteExpired`：封存或到期的公告連同個人提醒真實刪除（關閉＝僅隱藏保留、不進入搜尋）。
+ */
+export interface AnnouncementPolicies {
+  enablePinned: boolean;
+  forceExpire: boolean;
+  hardDeleteExpired: boolean;
+}
+
+export const DEFAULT_ANNOUNCEMENT_POLICIES: AnnouncementPolicies = {
+  enablePinned: true,
+  forceExpire: true,
+  hardDeleteExpired: false,
+};
+
 export interface AnnouncementSettings {
   categories: AnnouncementCategory[];
   /** 收件匣（各身分公告頁）的顯示方式 */
@@ -139,6 +163,8 @@ export interface AnnouncementSettings {
   defaultRemindersEnabled: boolean;
   /** 5 個顯示位置的顯示與否／方式／筆數 */
   surfaces: AnnouncementSurfaces;
+  /** 公告原則（置頂／到期下架／真實刪除） */
+  policies: AnnouncementPolicies;
 }
 
 export const DEFAULT_ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
@@ -153,6 +179,7 @@ export const DEFAULT_ANNOUNCEMENT_SETTINGS: AnnouncementSettings = {
   displayMethod: "list",
   defaultRemindersEnabled: true,
   surfaces: defaultAnnouncementSurfaces(),
+  policies: DEFAULT_ANNOUNCEMENT_POLICIES,
 };
 
 export interface AnnouncementRecord {
@@ -537,11 +564,22 @@ export function readAnnouncementSettings(raw: unknown): AnnouncementSettings {
     }
   }
 
+  // 公告原則：逐 key 寬容讀取，缺漏／毀損一律退回預設
+  const rawPolicies = data?.policies;
+  const policies: AnnouncementPolicies = { ...DEFAULT_ANNOUNCEMENT_POLICIES };
+  if (rawPolicies && typeof rawPolicies === "object") {
+    const row = rawPolicies as Record<string, unknown>;
+    if (typeof row.enablePinned === "boolean") policies.enablePinned = row.enablePinned;
+    if (typeof row.forceExpire === "boolean") policies.forceExpire = row.forceExpire;
+    if (typeof row.hardDeleteExpired === "boolean") policies.hardDeleteExpired = row.hardDeleteExpired;
+  }
+
   return {
     categories,
     displayMethod,
     defaultRemindersEnabled: data?.defaultRemindersEnabled !== false,
     surfaces,
+    policies,
   };
 }
 

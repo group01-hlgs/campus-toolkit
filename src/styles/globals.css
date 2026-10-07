@@ -339,6 +339,8 @@ mark {
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }
 .border-themed { border-color: var(--bd); }
+/* 左側主題色粗邊（置頂橫幅卡）：寫在 .border-themed 之後，左邊框才會蓋過 */
+.border-l-primary { border-left-color: var(--primary); }
 .border-themed-l { border-color: var(--bd2); }
 .border-themed-light { border-color: var(--bd); }
 .bg-btn { background-color: var(--btn-secondary); color: var(--btn-secondary-text); border: 1px solid var(--btn-secondary-hover); }

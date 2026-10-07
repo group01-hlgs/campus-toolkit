@@ -9,8 +9,10 @@ import {
   ANNOUNCEMENT_SURFACE_METHOD_LABELS,
   announcementPermissionText,
   DEFAULT_ANNOUNCEMENT_SETTINGS,
+  isAnnouncementReadable,
   type AnnouncementCategory,
   type AnnouncementDisplayMethod,
+  type AnnouncementPolicies,
   type AnnouncementRecord,
   type AnnouncementSettings,
   type AnnouncementSurface,
@@ -71,8 +73,9 @@ function parseDatetimeLocal(value: string): number | null {
 
 /**
  * 系統公告（僅超級／被指派「系統公告」的管理員）。
- * 版面順序：模組設定（含 5 處顯示位置）→ 建立／編輯公告（預設收納）→ 公告清單。
- * 清單依系統「省流開關」：啟用時進頁不載入，改按鈕手動顯示（與帳號／名冊清單一致）。
+ * 版面順序：設定卡片（公告顯示方式／顯示位置／公告分類／公告原則管理，可收合）
+ * → 建立／編輯公告（預設收納）→ 公告清單（標題列有搜尋，省流閘門外）。
+ * 清單依系統「省流開關」：啟用時進頁不載入，改按鈕或搜尋時載入（與帳號／名冊清單一致）。
  */
 export default function AdminAnnouncementsPage() {
   const { ready: settingsReady, saverOn } = useDataSaver();
@@ -95,6 +98,19 @@ export default function AdminAnnouncementsPage() {
   const [surfaces, setSurfaces] = useState<AnnouncementSurfaces>(
     DEFAULT_ANNOUNCEMENT_SETTINGS.surfaces
   );
+  // 公告原則（置頂／強制到期／真實刪除）
+  const [policies, setPolicies] = useState<AnnouncementPolicies>(
+    DEFAULT_ANNOUNCEMENT_SETTINGS.policies
+  );
+  // 設定卡片收合：公告顯示方式／公告分類預設收合；顯示位置／公告原則管理預設展開
+  const [cardOpen, setCardOpen] = useState({
+    method: false,
+    surfaces: true,
+    categories: false,
+    policies: true,
+  });
+  // 清單關鍵字搜尋（省流閘門外：輸入即載入清單再過濾）
+  const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "archived">("all");
 
   useEffect(() => {
@@ -103,12 +119,13 @@ export default function AdminAnnouncementsPage() {
     return () => clearTimeout(timer);
   }, [flash]);
 
-  /** 套用設定回應（收件匣顯示方式、分類、顯示位置） */
+  /** 套用設定回應（公告顯示方式、分類、顯示位置、公告原則） */
   const applySettings = useCallback((next: AnnouncementSettings) => {
     setSettings(next);
     setDisplayMethod(next.displayMethod);
     setCategories(next.categories);
     setSurfaces(next.surfaces ?? DEFAULT_ANNOUNCEMENT_SETTINGS.surfaces);
+    setPolicies(next.policies ?? DEFAULT_ANNOUNCEMENT_SETTINGS.policies);
   }, []);
 
   /** 僅載入模組設定（settings 文檔，不讀公告清單——省流） */
@@ -212,7 +229,10 @@ export default function AdminAnnouncementsPage() {
 
   async function archive(id: string) {
     if (saving) return;
-    if (!window.confirm("確定要封存此公告？")) return;
+    const confirmText = policies.hardDeleteExpired
+      ? "確定要下架此公告？（已啟用「下架公告真實刪除」：將連同個人提醒一併刪除，無法恢復）"
+      : "確定要封存此公告？";
+    if (!window.confirm(confirmText)) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/announcements/${id}`, { method: "POST" });
@@ -257,7 +277,7 @@ export default function AdminAnnouncementsPage() {
       const res = await fetch("/api/admin/announcements/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayMethod, categories, surfaces }),
+        body: JSON.stringify({ displayMethod, categories, surfaces, policies }),
       });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "設定儲存失敗");
@@ -272,6 +292,10 @@ export default function AdminAnnouncementsPage() {
 
   function updateSurface(key: AnnouncementSurface, patch: Partial<AnnouncementSurfaceSetting>) {
     setSurfaces((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  }
+
+  function toggleCard(key: keyof typeof cardOpen) {
+    setCardOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
   function moveCategory(index: number, dir: -1 | 1) {
@@ -294,9 +318,16 @@ export default function AdminAnnouncementsPage() {
     );
   }
 
-  const filteredItems = items.filter((item) =>
-    statusFilter === "all" ? true : item.status === statusFilter
-  );
+  const searchKeyword = keyword.trim().toLowerCase();
+  const filteredItems = items.filter((item) => {
+    if (statusFilter !== "all" && item.status !== statusFilter) return false;
+    if (!searchKeyword) return true;
+    // 下架（封存／到期）公告不進入搜尋結果——僅供上方清單管理
+    if (!isAnnouncementReadable(item)) return false;
+    const haystack =
+      `${item.title}\n${item.body}\n${categoryName(item.categoryId)}\n${item.authorName}`.toLowerCase();
+    return haystack.includes(searchKeyword);
+  });
 
   function toggleRole(role: UserRole) {
     setForm((prev) => ({
@@ -320,13 +351,16 @@ export default function AdminAnnouncementsPage() {
         </div>
       )}
 
-      {/* 1. 模組設定 */}
-      <section className="border border-themed rounded-lg bg-card p-5">
-        <h3 className="text-lg font-bold text-t1 mb-3">模組設定</h3>
+      {/* 1-1. 公告顯示方式（預設收合） */}
+      <SettingsCard
+        title="公告顯示方式"
+        open={cardOpen.method}
+        onToggle={() => toggleCard("method")}
+      >
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <label className="text-t2 sm:w-48 shrink-0" htmlFor="ann-display">
-              收件匣顯示方式（各身分「公告」頁）
+              顯示方式（各身分「公告」頁）
             </label>
             <select
               id="ann-display"
@@ -346,13 +380,33 @@ export default function AdminAnnouncementsPage() {
             </select>
           </div>
           <p className="text-xs text-t3">
-            清單＝全文卡片；置頂優先＝置頂公告置頂專區、其餘收合為標題列（點擊展開）；
+            清單＝全文卡片；「清單，置頂公告橫幅」＝置頂公告以橫幅三行顯示、其餘為單行清單（點擊展開）；
             橫幅＝頂部橫幅顯示置頂公告（完全沒有置頂時改用最新一則）。
           </p>
-          <div>
-            <span className="block text-t2 mb-1">
-              顯示位置（顯示與否／顯示方式／顯示筆數，5 處各自設定）
-            </span>
+          <button
+            type="button"
+            onClick={saveSettings}
+            disabled={saving}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            {saving ? "處理中..." : "儲存設定"}
+          </button>
+          <p className="text-xs text-t3">
+            現行公告顯示方式：{ANNOUNCEMENT_DISPLAY_METHOD_LABELS[settings.displayMethod]}
+            ；顯示位置啟用 {ANNOUNCEMENT_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處
+            ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
+          </p>
+        </div>
+      </SettingsCard>
+
+      {/* 1-2. 顯示位置（預設展開） */}
+      <SettingsCard
+        title="顯示位置"
+        open={cardOpen.surfaces}
+        onToggle={() => toggleCard("surfaces")}
+      >
+        <div>
+          <span className="block text-t2 mb-1">顯示與否／顯示方式／顯示筆數，5 處各自設定</span>
             <div className="space-y-2">
               {ANNOUNCEMENT_SURFACES.map((key) => {
                 const surface = surfaces[key];
@@ -410,8 +464,24 @@ export default function AdminAnnouncementsPage() {
               「系統首頁」只顯示閱讀權限＝「無」的公告；各身分首頁依其身分顯示。
             </p>
           </div>
-          <div>
-            <span className="block text-t2 mb-1">公告分類</span>
+          <button
+            type="button"
+            onClick={saveSettings}
+            disabled={saving}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            {saving ? "處理中..." : "儲存設定"}
+          </button>
+      </SettingsCard>
+
+      {/* 1-3. 公告分類（預設收合） */}
+      <SettingsCard
+        title="公告分類"
+        open={cardOpen.categories}
+        onToggle={() => toggleCard("categories")}
+      >
+        <div>
+          <span className="block text-t2 mb-1">分類名稱、啟用與排序</span>
             <div className="space-y-2">
               {categories.map((cat, index) => (
                 <div key={cat.id || index} className="flex items-center gap-2">
@@ -492,13 +562,48 @@ export default function AdminAnnouncementsPage() {
           >
             {saving ? "處理中..." : "儲存設定"}
           </button>
-          <p className="text-xs text-t3">
-            現行收件匣顯示方式：{ANNOUNCEMENT_DISPLAY_METHOD_LABELS[settings.displayMethod]}
-            ；顯示位置啟用 {ANNOUNCEMENT_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處
-            ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
-          </p>
+      </SettingsCard>
+
+      {/* 1-4. 公告原則管理（預設展開） */}
+      <SettingsCard
+        title="公告原則管理"
+        open={cardOpen.policies}
+        onToggle={() => toggleCard("policies")}
+      >
+        <div className="space-y-3">
+          <PolicyRow
+            id="pol-pinned"
+            label="啟用「置頂」（預設啟用）"
+            checked={policies.enablePinned}
+            onChange={(checked) => setPolicies((prev) => ({ ...prev, enablePinned: checked }))}
+            hint="允許管理員將公告設為置頂；置頂公告排在各身分收件匣頂部，並以醒目方式呈現。關閉後新增與編輯皆無法再設定置頂（避免公告區被過多置頂公告佔據）。"
+          />
+          <PolicyRow
+            id="pol-expire"
+            label="強制到期時間下架（預設啟用）"
+            checked={policies.forceExpire}
+            onChange={(checked) => setPolicies((prev) => ({ ...prev, forceExpire: checked }))}
+            hint="到期時間留空的公告，自動以發布後一個月為到期時間；到期後自動離開收件匣（避免過舊公告長期佔據公告區）。"
+          />
+          <PolicyRow
+            id="pol-delete"
+            label="下架公告真實刪除（預設停用）"
+            checked={policies.hardDeleteExpired}
+            onChange={(checked) =>
+              setPolicies((prev) => ({ ...prev, hardDeleteExpired: checked }))
+            }
+            hint="開啟後，封存或到期的公告連同個人提醒一併從資料庫真實刪除（無法恢復）。關閉時僅隱藏保留：不進入收件匣，也不提供搜尋。"
+          />
+          <button
+            type="button"
+            onClick={saveSettings}
+            disabled={saving}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          >
+            {saving ? "處理中..." : "儲存設定"}
+          </button>
         </div>
-      </section>
+      </SettingsCard>
 
       {/* 2. 建立／編輯公告（預設收納） */}
       <section className="border border-themed rounded-lg bg-card">
@@ -581,6 +686,11 @@ export default function AdminAnnouncementsPage() {
                     value={form.expireAtText}
                     onChange={(e) => setForm({ ...form, expireAtText: e.target.value })}
                   />
+                  {policies.forceExpire && (
+                    <p className="text-xs text-t3 mt-1">
+                      留空＝發布後一個月自動到期（「強制到期時間下架」已啟用）
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">
@@ -638,13 +748,20 @@ export default function AdminAnnouncementsPage() {
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <span className="text-t2 sm:w-40 shrink-0">置頂</span>
-                <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                <label
+                  className={`inline-flex items-center gap-1.5 text-sm ${
+                    policies.enablePinned ? "text-t1" : "text-t3"
+                  }`}
+                >
                   <input
                     type="checkbox"
-                    checked={form.pinned}
+                    disabled={!policies.enablePinned}
+                    checked={policies.enablePinned && form.pinned}
                     onChange={(e) => setForm({ ...form, pinned: e.target.checked })}
                   />
-                  公告排序在各身分收件匣頂部（「置頂優先／橫幅」方式另有醒目呈現）
+                  {policies.enablePinned
+                    ? "公告排序在各身分收件匣頂部（「清單，置頂公告橫幅／橫幅」方式另有醒目呈現）"
+                    : "已在「公告原則管理」關閉置頂功能，儲存時將不設定置頂"}
                 </label>
               </div>
               <div className="flex gap-2 pt-1">
@@ -675,25 +792,40 @@ export default function AdminAnnouncementsPage() {
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-bold text-t1">公告清單</h3>
-          {!gating && listLoaded && (
-            <div className="flex items-center gap-2 text-sm">
-              <label className="text-t2" htmlFor="ann-status-filter">
-                篩選
-              </label>
-              <select
-                id="ann-status-filter"
-                className="input-theme rounded px-2 py-1"
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as "all" | "published" | "archived")
-                }
-              >
-                <option value="all">全部</option>
-                <option value="published">發布中</option>
-                <option value="archived">已封存</option>
-              </select>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              value={keyword}
+              onChange={(e) => {
+                const value = e.target.value;
+                setKeyword(value);
+                // 省流閘門外搜尋：輸入即載入清單，載入後再本機過濾（與名冊一致）
+                if (value && gating) void loadList();
+              }}
+              placeholder="搜尋標題／內容／分類／作者"
+              aria-label="搜尋公告"
+              className="input-theme rounded px-2 py-1 text-sm w-44"
+            />
+            {!gating && listLoaded && (
+              <div className="flex items-center gap-2 text-sm">
+                <label className="text-t2" htmlFor="ann-status-filter">
+                  篩選
+                </label>
+                <select
+                  id="ann-status-filter"
+                  className="input-theme rounded px-2 py-1"
+                  value={statusFilter}
+                  onChange={(e) =>
+                    setStatusFilter(e.target.value as "all" | "published" | "archived")
+                  }
+                >
+                  <option value="all">全部</option>
+                  <option value="published">發布中</option>
+                  <option value="archived">已封存</option>
+                </select>
+              </div>
+            )}
+          </div>
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
           {gating ? (
@@ -772,7 +904,7 @@ export default function AdminAnnouncementsPage() {
                             disabled={saving}
                             className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
                           >
-                            封存
+                            {policies.hardDeleteExpired ? "下架" : "封存"}
                           </button>
                         )}
                       </td>
@@ -785,10 +917,82 @@ export default function AdminAnnouncementsPage() {
         </div>
         {!gating && listLoaded && (
           <p className="text-xs text-t3 mt-2">
-            到期公告不會出現在各身分收件匣（伺服端已隱藏）；管理端仍可於「已封存」或編輯中處理。
+            到期與封存（下架）公告不會出現在各身分收件匣，也不進入上方搜尋結果；
+            管理端仍可於本清單編輯或處理。
           </p>
         )}
       </section>
+    </div>
+  );
+}
+
+/** 設定卡片：標題列可收合（收合時不渲染內容，省去重複計算） */
+function SettingsCard({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border border-themed rounded-lg bg-card">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left cursor-pointer"
+      >
+        <h3 className="text-base font-bold text-t1">{title}</h3>
+        <span className="text-t3 text-xs shrink-0">
+          {open ? "收合" : "展開"} {open ? "▲" : "▼"}
+        </span>
+      </button>
+      {open && <div className="px-5 pb-5">{children}</div>}
+    </section>
+  );
+}
+
+/** 公告原則列：核取框＋「？」說明文字 */
+function PolicyRow({
+  id,
+  label,
+  checked,
+  onChange,
+  hint,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  hint: string;
+}) {
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="inline-flex items-center gap-1.5 text-sm text-t1 cursor-pointer"
+      >
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        {label}
+      </label>
+      <p className="text-xs text-t3 mt-0.5 pl-6">
+        <span
+          aria-hidden="true"
+          className="inline-block w-4 h-4 leading-4 text-center border border-themed rounded-full text-t2 mr-1"
+        >
+          ?
+        </span>
+        {hint}
+      </p>
     </div>
   );
 }

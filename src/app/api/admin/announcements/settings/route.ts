@@ -8,9 +8,10 @@ import { getAnnouncementSettings, saveAnnouncementSettings } from "@/lib/announc
 import type {
   AnnouncementDisplayMethod,
   AnnouncementCategory,
+  AnnouncementPolicies,
   AnnouncementSurfaces,
 } from "@/types/announcements";
-import { ANNOUNCEMENT_SURFACES } from "@/types/announcements";
+import { ANNOUNCEMENT_SURFACES, DEFAULT_ANNOUNCEMENT_POLICIES } from "@/types/announcements";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -93,10 +94,24 @@ export async function PUT(request: NextRequest) {
       if (Object.keys(surfaces).length === 0) surfaces = undefined;
     }
 
+    // 公告原則：僅接受布林值，未提供／毀損的欄位退回預設
+    let policies: AnnouncementPolicies | undefined;
+    if (body.policies && typeof body.policies === "object") {
+      const raw = body.policies as Record<string, unknown>;
+      const pick = (key: keyof AnnouncementPolicies): boolean =>
+        typeof raw[key] === "boolean" ? (raw[key] as boolean) : DEFAULT_ANNOUNCEMENT_POLICIES[key];
+      policies = {
+        enablePinned: pick("enablePinned"),
+        forceExpire: pick("forceExpire"),
+        hardDeleteExpired: pick("hardDeleteExpired"),
+      };
+    }
+
     const settings = await saveAnnouncementSettings({
       categories,
       displayMethod,
       surfaces,
+      policies,
       defaultRemindersEnabled:
         typeof body.defaultRemindersEnabled === "boolean"
           ? body.defaultRemindersEnabled
@@ -108,9 +123,11 @@ export async function PUT(request: NextRequest) {
       role: "admin",
       action: "announcements_settings_updated",
       ip: getClientIp(request),
-      details: `更新公告模組設定（收件匣顯示方式=${settings.displayMethod}，分類 ${settings.categories.length} 筆，顯示位置啟用 ${
+      details: `更新公告模組設定（公告顯示方式=${settings.displayMethod}，分類 ${settings.categories.length} 筆，顯示位置啟用 ${
         ANNOUNCEMENT_SURFACES.filter((key) => settings.surfaces[key].enabled).length
-      }/5 處）`,
+      }/5 處，原則：置頂=${settings.policies.enablePinned ? "開" : "關"}、強制到期=${
+        settings.policies.forceExpire ? "開" : "關"
+      }、真實刪除=${settings.policies.hardDeleteExpired ? "開" : "關"}）`,
     });
 
     return NextResponse.json(

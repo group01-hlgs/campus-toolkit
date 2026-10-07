@@ -9,6 +9,7 @@ import {
   createAnnouncement,
   getAnnouncementSettings,
   listAdminAnnouncements,
+  purgeDownAnnouncements,
 } from "@/lib/announcements";
 import { ALL_ROLES } from "@/types/users";
 import type { AnnouncementAudience } from "@/types/announcements";
@@ -44,10 +45,12 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("announcements");
     if (denial) return toAuthResponse(denial);
 
-    const [announcements, settings] = await Promise.all([
-      listAdminAnnouncements({ includeArchived: true }),
-      getAnnouncementSettings(),
-    ]);
+    const settings = await getAnnouncementSettings();
+    // 下架原則＝真實刪除：清單載入時掃描封存／到期公告並刪除（含個人提醒）
+    if (settings.policies.hardDeleteExpired) {
+      await purgeDownAnnouncements();
+    }
+    const announcements = await listAdminAnnouncements({ includeArchived: true });
     return NextResponse.json(
       { success: true, announcements, settings },
       { headers: noStore }

@@ -105,7 +105,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           ? ("published" as const)
           : undefined;
 
-    await updateAnnouncement(id, {
+    const { deleted } = await updateAnnouncement(id, {
       title: typeof body.title === "string" ? body.title : undefined,
       body: typeof body.body === "string" ? body.body : undefined,
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
@@ -122,20 +122,25 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       status,
     });
 
-    const action =
-      status === "archived" ? "announcements_archived" : "announcements_updated";
+    const isArchive = status === "archived" || deleted;
+    const action = isArchive ? "announcements_archived" : "announcements_updated";
     await logActivity({
       userId: session.uid,
       role: "admin",
       action,
       ip: getClientIp(request),
-      details: `${status === "archived" ? "封存" : "更新"}公告 id=${id}`,
+      details: `${deleted ? "封存（真實刪除）" : isArchive ? "封存" : "更新"}公告 id=${id}`,
     });
 
     const announcements = await listAdminAnnouncements({ includeArchived: true });
     const settings = await getAnnouncementSettings();
     return NextResponse.json(
-      { success: true, message: "公告已更新", announcements, settings },
+      {
+        success: true,
+        message: deleted ? "公告已真實刪除" : "公告已更新",
+        announcements,
+        settings,
+      },
       { headers: noStore }
     );
   } catch (error) {
@@ -165,18 +170,18 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (denial) return toAuthResponse(denial);
 
     const { id } = await params;
-    await archiveAnnouncement(id);
+    const { deleted } = await archiveAnnouncement(id);
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "announcements_archived",
       ip: getClientIp(request),
-      details: `封存公告 id=${id}`,
+      details: `${deleted ? "封存（真實刪除）" : "封存"}公告 id=${id}`,
     });
     const announcements = await listAdminAnnouncements({ includeArchived: true });
     const settings = await getAnnouncementSettings();
     return NextResponse.json(
-      { success: true, message: "公告已封存", announcements, settings },
+      { success: true, message: deleted ? "公告已真實刪除" : "公告已封存", announcements, settings },
       { headers: noStore }
     );
   } catch (error) {

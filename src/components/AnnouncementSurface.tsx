@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { clipText } from "@/types/announcements";
 import type {
   AnnouncementSurface as AnnouncementSurfaceKey,
   AnnouncementSurfaceItem,
@@ -11,12 +12,6 @@ interface SurfaceResponse {
   success?: boolean;
   surface?: AnnouncementSurfaceSetting;
   items?: AnnouncementSurfaceItem[];
-}
-
-/** 依字數截斷（超出加 ...）；空白整併成單行，供單行／摘要顯示 */
-function clip(text: string, max: number): string {
-  const chars = Array.from(text.replace(/\s+/g, " ").trim());
-  return chars.length > max ? `${chars.slice(0, max).join("")}...` : chars.join("");
 }
 
 /**
@@ -71,10 +66,10 @@ export default function AnnouncementSurface({
                     <span className="text-xs text-primary shrink-0">置頂</span>
                   )}
                   <span className="text-sm font-medium text-t1 truncate">
-                    {clip(item.title, 20)}
+                    {clipText(item.title, 20)}
                   </span>
                 </div>
-                <p className="text-xs text-t2 mt-0.5 truncate">{clip(item.body, 40)}</p>
+                <p className="text-xs text-t2 mt-0.5 truncate">{clipText(item.body, 40)}</p>
                 <p className="text-xs text-t3 mt-0.5">
                   {item.categoryName}｜{item.authorName}｜
                   {new Date(item.publishAt).toLocaleString("zh-TW")}
@@ -103,7 +98,7 @@ export default function AnnouncementSurface({
               )}
               <span className="truncate text-t2 min-w-0">
                 {new Date(item.publishAt).toLocaleDateString("zh-TW")}｜{item.categoryName}｜
-                <span className="font-medium text-t1">{clip(item.title, 20)}</span>
+                <span className="font-medium text-t1">{clipText(item.title, 20)}</span>
               </span>
             </li>
           ))}

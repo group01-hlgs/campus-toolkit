@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
+import { clipText } from "@/types/announcements";
 import type {
   AnnouncementDisplayMethod,
   AnnouncementInboxItem,
@@ -173,7 +174,7 @@ export default function AnnouncementsInbox({
   }
 
   // 橫幅模式的橫幅來源：置頂公告優先；完全沒有置頂時改用最新一則
-  //（items 由伺服器排序＝置頂優先、再依發布時間新到舊；
+  //（items 由伺服器排序＝置頂在前、再依發布時間新到舊；
   // 已按「關閉」的橫幅不重複顯示，該則改回一般清單）
   const bannerSource =
     displayMethod === "banner"
@@ -314,7 +315,7 @@ export default function AnnouncementsInbox({
           {displayMethod === "banner"
             ? "置頂公告以橫幅顯示（無置頂時取最新一則）"
             : displayMethod === "pinnedTop"
-              ? "置頂公告優先，其餘收合為標題列（點擊展開）"
+              ? "置頂公告以橫幅三行顯示，其餘為單行清單（點擊展開）"
               : "清單（全文展開）"}
           ；過期公告已自動隱藏
         </p>
@@ -358,7 +359,8 @@ export default function AnnouncementsInbox({
                 </div>
               ))}
 
-            {/* 置頂區（pinnedTop 模式）：置頂公告以完整卡片置頂顯示 */}
+            {/* 置頂區（pinnedTop 模式）：置頂公告以橫幅三行卡顯示——
+                第 1 行標題 20 字內、第 2 行內容摘要 40 字內、第 3 行公告資訊（分類｜作者｜日期） */}
             {displayMethod === "pinnedTop" &&
               items.filter((item) => item.pinned).length > 0 && (
                 <div className="mb-4">
@@ -367,13 +369,7 @@ export default function AnnouncementsInbox({
                     {items
                       .filter((item) => item.pinned)
                       .map((item) => (
-                        <AnnouncementCard
-                          key={item.id}
-                          item={item}
-                          remindersEnabled={remindersEnabled}
-                          toggling={togglingReminder === item.id}
-                          onToggleReminder={toggleReminder}
-                        />
+                        <PinnedBannerRow key={item.id} item={item} />
                       ))}
                   </ul>
                 </div>
@@ -381,7 +377,7 @@ export default function AnnouncementsInbox({
 
             {/* 一般清單：
                 list／banner＝全文卡片（banner 已顯示於橫幅者不重複列出）；
-                pinnedTop＝非置頂者收合為標題列，點擊才展開內文——與「清單」一眼可辨 */}
+                pinnedTop＝其餘公告收為單行（日期｜分類｜標題 20 字內），點擊展開內文 */}
             {displayMethod === "pinnedTop" ? (
               <ul className="space-y-2">
                 {items
@@ -415,6 +411,29 @@ export default function AnnouncementsInbox({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * 置頂橫幅卡（pinnedTop 模式的置頂公告）：三行——
+ * 第 1 行標題 20 字內、第 2 行內容摘要 40 字內、第 3 行公告資訊（分類｜作者｜日期）；
+ * 置頂小標與左側粗邊套用主題主色（--primary）。
+ */
+function PinnedBannerRow({ item }: { item: AnnouncementInboxItem }) {
+  return (
+    <li className="border border-themed border-l-4 border-l-primary bg-card rounded-lg p-4 shadow">
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-primary border border-current rounded px-1.5 py-0.5 shrink-0">
+          置頂
+        </span>
+        <span className="font-bold text-t1 truncate">{clipText(item.title, 20)}</span>
+      </div>
+      <p className="text-sm text-t2 mt-1 truncate">{clipText(item.body, 40)}</p>
+      <p className="text-xs text-t3 mt-1.5">
+        {item.categoryName}｜{item.authorName}｜
+        {new Date(item.publishAt).toLocaleDateString("zh-TW")}
+      </p>
+    </li>
   );
 }
 
@@ -483,9 +502,9 @@ function AnnouncementCard({
 }
 
 /**
- * 緊湊標題列（pinnedTop 模式的非置頂公告）：
- * 預設只顯示標題／分類／時間並收合內文，點擊才展開——
- * 讓「置頂優先」與「清單」在沒有置頂公告時也有明顯的結構差異。
+ * 單行清單（pinnedTop 模式的非置頂公告）：
+ * 預設單行顯示「日期｜分類｜標題（20 字內，超出加 ...）」，點擊展開看完整內文與資訊——
+ * 與「清單，置頂公告橫幅」的置頂橫幅形成明顯層級差異。
  */
 function AnnouncementCompactRow({
   item,
@@ -505,10 +524,10 @@ function AnnouncementCompactRow({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
-        className="w-full flex items-start gap-2 px-4 py-3 text-left cursor-pointer"
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-left cursor-pointer"
       >
         <svg
-          className={`w-3.5 h-3.5 mt-1 shrink-0 text-t3 transition-transform ${
+          className={`w-3.5 h-3.5 shrink-0 text-t3 transition-transform ${
             open ? "rotate-90" : ""
           }`}
           fill="none"
@@ -519,31 +538,31 @@ function AnnouncementCompactRow({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        <span className="flex-1 min-w-0">
-          <span className="flex items-start justify-between gap-2">
-            <span className="font-bold text-t1">{item.title}</span>
-            <span className="flex shrink-0 gap-1.5">
-              {item.isPublic && (
-                <span className="text-xs text-t2 border border-themed rounded px-1.5 py-0.5">
-                  公開
-                </span>
-              )}
-              {item.expiringSoon && (
-                <span className="text-xs text-danger border border-danger rounded px-1.5 py-0.5">
-                  即將到期
-                </span>
-              )}
-            </span>
+        <span className="flex-1 min-w-0 truncate text-sm text-t2">
+          <span className="text-t3">
+            {item.publishAt ? new Date(item.publishAt).toLocaleDateString("zh-TW") : ""}
           </span>
-          <span className="block text-xs text-t3 mt-0.5">
-            {item.categoryName}｜{item.authorName}
-            {item.classScoped ? `｜班級公告` : "｜校級"}
-            {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
-          </span>
+          ｜{item.categoryName}｜
+          <span className="font-medium text-t1">{clipText(item.title, 20)}</span>
         </span>
+        {item.expiringSoon && (
+          <span className="text-xs text-danger border border-danger rounded px-1.5 py-0.5 shrink-0">
+            即將到期
+          </span>
+        )}
       </button>
       {open && (
         <div className="border-t border-themed px-4 py-3">
+          <p className="text-xs text-t3 mb-2">
+            {item.categoryName}｜{item.authorName}
+            {item.classScoped ? "｜班級公告" : "｜校級"}
+            {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
+            {item.isPublic ? (
+              <span className="ml-1.5 text-t2 border border-themed rounded px-1.5 py-0.5">
+                公開
+              </span>
+            ) : null}
+          </p>
           <p className="text-sm text-t2 whitespace-pre-wrap">{item.body}</p>
           {remindersEnabled && (
             <div className="mt-3">

@@ -1,4 +1,5 @@
 import "server-only";
+import type { DocumentReference } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedRead, cachedSettingDoc, invalidateReadCache } from "@/lib/read-cache";
 import { invalidateAdminListCache } from "@/lib/list-cache";
@@ -12,6 +13,7 @@ import {
   AnnouncementCategory,
   AnnouncementDisplayMethod,
   AnnouncementRecord,
+  AnnouncementPolicies,
   AnnouncementReminderItem,
   AnnouncementSettings,
   AnnouncementSurface,
@@ -22,6 +24,7 @@ import {
   audienceClassScoped,
   defaultAnnouncementSurfaces,
   DEFAULT_ANNOUNCEMENT_CATEGORIES,
+  DEFAULT_ANNOUNCEMENT_POLICIES,
   DEFAULT_ANNOUNCEMENT_SETTINGS,
   isAnnouncementReadable,
   isExpiringSoon,
@@ -53,6 +56,26 @@ const ADMIN_LIST_LIMIT = 100;
 const INBOX_LIMIT = 50;
 /** 顯示位置一次取回的上限（排序後再依設定筆數截斷） */
 const SURFACE_FETCH_LIMIT = 30;
+const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+/** 真實刪除一張 WriteBatch 的文件上限（留餘裕） */
+const DELETE_BATCH_LIMIT = 400;
+/** `in` 查詢每批上限（Firestore 上限 30） */
+const IN_QUERY_CHUNK = 30;
+/** 真實刪除掃描封存／到期公告的單次上限 */
+const PURGE_SCAN_LIMIT = 200;
+
+/**
+ * 公告原則「強制到期時間下架」：到期時間留空時，
+ * 自動補上發布後一個月（已填到期時間者維持原值）。
+ */
+function resolveExpireAt(
+  value: { publishAt: number; expireAt?: number },
+  forceExpire: boolean
+): number | undefined {
+  if (value.expireAt) return value.expireAt;
+  if (!forceExpire) return undefined;
+  return Math.max(value.publishAt, Date.now()) + ONE_MONTH_MS;
+}
 
 /** 讀取公告模組設定（settings/announcements，30 秒快取） */
 export async function getAnnouncementSettings(): Promise<AnnouncementSettings> {
@@ -123,6 +146,7 @@ export async function publishFromModule(input: PublishFromModuleInput): Promise<
   }
 
   const period = await getCurrentPeriod();
+  const settings = await getAnnouncementSettings();
   const now = Date.now();
   const record: Omit<AnnouncementRecord, "id"> = {
     title: validation.value.title,
@@ -137,10 +161,10 @@ export async function publishFromModule(input: PublishFromModuleInput): Promise<
     isPublic: validation.value.isPublic,
     status: "published",
     publishAt: validation.value.publishAt,
-    expireAt: validation.value.expireAt,
+    expireAt: resolveExpireAt(validation.value, settings.policies.forceExpire),
     academicYear: period.academicYear,
     semester: period.semester === 2 ? 2 : 1,
-    pinned: validation.value.pinned,
+    pinned: settings.policies.enablePinned && validation.value.pinned,
     createdAt: now,
     updatedAt: now,
   };
@@ -162,7 +186,7 @@ export async function createAnnouncement(input: CreateAnnouncementInput): Promis
   return publishFromModule(input);
 }
 
-/** 更新公告（僅改可編輯欄位；id 固定） */
+/** 更新公告（僅改可編輯欄位；id 固定）。回傳 `deleted=true` 表示因下架原則被真實刪除 */
 export async function updateAnnouncement(
   id: string,
   patch: {
@@ -176,7 +200,7 @@ export async function updateAnnouncement(
     pinned?: boolean;
     status?: "published" | "archived";
   }
-): Promise<void> {
+): Promise<{ deleted: boolean }> {
   const db = getAdminDb();
   const ref = db.collection(ANNOUNCEMENTS_COLLECTION).doc(id);
   const snap = await ref.get();
@@ -184,6 +208,7 @@ export async function updateAnnouncement(
   const current = readAnnouncementRecord(id, snap.data());
   if (!current) throw new Error("公告資料毀損");
 
+  const settings = await getAnnouncementSettings();
   const validation = validateAnnouncementInput({
     title: patch.title ?? current.title,
     body: patch.body ?? current.body,
@@ -192,7 +217,7 @@ export async function updateAnnouncement(
     isPublic: patch.isPublic === undefined ? current.isPublic : patch.isPublic,
     publishAt: patch.publishAt ?? current.publishAt,
     expireAt: patch.expireAt === undefined ? (current.expireAt ?? null) : patch.expireAt,
-    pinned: patch.pinned ?? current.pinned,
+    pinned: settings.policies.enablePinned && (patch.pinned ?? current.pinned),
     academicYear: current.academicYear,
     semester: current.semester,
   });
@@ -206,18 +231,91 @@ export async function updateAnnouncement(
     audience: validation.value.audience,
     isPublic: validation.value.isPublic,
     publishAt: validation.value.publishAt,
-    expireAt: validation.value.expireAt,
+    expireAt: resolveExpireAt(validation.value, settings.policies.forceExpire),
     pinned: validation.value.pinned,
     status: patch.status ?? current.status,
     updatedAt: Date.now(),
   };
+  // 下架原則＝真實刪除：封存的公告連同個人提醒直接刪除（不可恢復）
+  if (next.status === "archived" && settings.policies.hardDeleteExpired) {
+    await hardDeleteAnnouncement(id);
+    invalidateAnnouncementsCache();
+    return { deleted: true };
+  }
   await ref.update(announcementToFirestore(next));
   invalidateAnnouncementsCache();
+  return { deleted: false };
 }
 
-/** 封存公告 */
-export async function archiveAnnouncement(id: string): Promise<void> {
-  await updateAnnouncement(id, { status: "archived" });
+/** 封存公告。回傳 `deleted=true` 表示因下架原則被真實刪除 */
+export async function archiveAnnouncement(id: string): Promise<{ deleted: boolean }> {
+  return updateAnnouncement(id, { status: "archived" });
+}
+
+/** 真實刪除單則公告及其所有個人提醒文件（下架原則＝真實刪除時使用） */
+async function hardDeleteAnnouncement(id: string): Promise<void> {
+  const db = getAdminDb();
+  const remSnap = await db
+    .collection(ANNOUNCEMENT_REMINDERS_COLLECTION)
+    .where("announcementId", "==", id)
+    .get();
+  const refs = [
+    db.collection(ANNOUNCEMENTS_COLLECTION).doc(id),
+    ...remSnap.docs.map((doc) => db.collection(ANNOUNCEMENT_REMINDERS_COLLECTION).doc(doc.id)),
+  ];
+  await deleteInBatches(db, refs);
+}
+
+async function deleteInBatches(db: ReturnType<typeof getAdminDb>, refs: DocumentReference[]) {
+  for (let i = 0; i < refs.length; i += DELETE_BATCH_LIMIT) {
+    const batch = db.batch();
+    refs.slice(i, i + DELETE_BATCH_LIMIT).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+/**
+ * 公告原則「下架公告真實刪除」的批次清除：
+ * 掃描封存與已到期的公告，連同個人提醒一併刪除。
+ * 皆為單欄位等值／範圍查詢（status、expireAt），不需複合索引；
+ * 由管理端清單載入時呼叫（settings.policies.hardDeleteExpired=true 才會執行）。
+ */
+export async function purgeDownAnnouncements(): Promise<number> {
+  const db = getAdminDb();
+  const now = Date.now();
+  const ids = new Set<string>();
+  const archived = await db
+    .collection(ANNOUNCEMENTS_COLLECTION)
+    .where("status", "==", "archived")
+    .limit(PURGE_SCAN_LIMIT)
+    .get();
+  archived.docs.forEach((doc) => ids.add(doc.id));
+  const expired = await db
+    .collection(ANNOUNCEMENTS_COLLECTION)
+    .where("expireAt", "<=", now)
+    .limit(PURGE_SCAN_LIMIT)
+    .get();
+  expired.docs.forEach((doc) => ids.add(doc.id));
+  if (ids.size === 0) return 0;
+
+  // 個人提醒：announcementId 等值查詢（`in` 每批 30 筆）
+  const idList = [...ids];
+  const reminderIds: string[] = [];
+  for (let i = 0; i < idList.length; i += IN_QUERY_CHUNK) {
+    const snap = await db
+      .collection(ANNOUNCEMENT_REMINDERS_COLLECTION)
+      .where("announcementId", "in", idList.slice(i, i + IN_QUERY_CHUNK))
+      .get();
+    snap.docs.forEach((doc) => reminderIds.push(doc.id));
+  }
+
+  const refs = [
+    ...idList.map((id) => db.collection(ANNOUNCEMENTS_COLLECTION).doc(id)),
+    ...reminderIds.map((rid) => db.collection(ANNOUNCEMENT_REMINDERS_COLLECTION).doc(rid)),
+  ];
+  await deleteInBatches(db, refs);
+  invalidateAnnouncementsCache();
+  return ids.size;
 }
 
 export interface AdminAnnouncementRow extends AnnouncementRecord {
@@ -388,6 +486,7 @@ export async function saveAnnouncementSettings(input: {
   displayMethod?: AnnouncementDisplayMethod;
   defaultRemindersEnabled?: boolean;
   surfaces?: Partial<AnnouncementSurfaces>;
+  policies?: Partial<AnnouncementPolicies>;
 }): Promise<AnnouncementSettings> {
   const current = await getAnnouncementSettings();
   const categories = Array.isArray(input.categories)
@@ -416,6 +515,19 @@ export async function saveAnnouncementSettings(input: {
       };
     }
   }
+  // 公告原則：逐 key 套用；未提供的欄位沿用現值（缺欄位時退回預設）
+  const policies: AnnouncementPolicies = {
+    ...DEFAULT_ANNOUNCEMENT_POLICIES,
+    ...current.policies,
+  };
+  if (input.policies && typeof input.policies === "object") {
+    const patch = input.policies;
+    if (typeof patch.enablePinned === "boolean") policies.enablePinned = patch.enablePinned;
+    if (typeof patch.forceExpire === "boolean") policies.forceExpire = patch.forceExpire;
+    if (typeof patch.hardDeleteExpired === "boolean") {
+      policies.hardDeleteExpired = patch.hardDeleteExpired;
+    }
+  }
   const next: AnnouncementSettings = {
     categories: categories.length > 0 ? categories : [...DEFAULT_ANNOUNCEMENT_CATEGORIES],
     displayMethod: input.displayMethod ?? current.displayMethod,
@@ -424,6 +536,7 @@ export async function saveAnnouncementSettings(input: {
         ? input.defaultRemindersEnabled
         : current.defaultRemindersEnabled,
     surfaces,
+    policies,
   };
   await getAdminDb()
     .collection("settings")
