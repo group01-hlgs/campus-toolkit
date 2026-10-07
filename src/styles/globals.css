@@ -333,7 +333,8 @@ mark {
 .text-t1 { color: var(--t1); }
 .text-t2 { color: var(--t2); }
 .text-t3 { color: var(--t3); }
-/* 語意色：跟隨主題變數（各主題的 --danger/--success/--warning 可不同） */
+/* 語意色：跟隨主題變數（各主題的 --primary/--danger/--success/--warning 可不同） */
+.text-primary { color: var(--primary); }
 .text-danger { color: var(--danger); }
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }

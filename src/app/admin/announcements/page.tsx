@@ -725,7 +725,7 @@ export default function AdminAnnouncementsPage() {
                       <td className="px-3 py-2">
                         <span className="font-medium">{item.title}</span>
                         {item.pinned && (
-                          <span className="ml-1.5 text-xs text-success">置頂</span>
+                          <span className="ml-1.5 text-xs text-primary">置頂</span>
                         )}
                         {item.sourceModule !== "announcements" && (
                           <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>

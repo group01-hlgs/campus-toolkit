@@ -362,7 +362,7 @@ export default function AnnouncementsInbox({
             {displayMethod === "pinnedTop" &&
               items.filter((item) => item.pinned).length > 0 && (
                 <div className="mb-4">
-                  <h4 className="text-xs font-bold text-success mb-2">置頂公告</h4>
+                  <h4 className="text-xs font-bold text-primary mb-2">置頂公告</h4>
                   <ul className="space-y-3">
                     {items
                       .filter((item) => item.pinned)
@@ -440,7 +440,7 @@ function AnnouncementCard({
             </span>
           )}
           {item.pinned && (
-            <span className="text-xs text-success border border-success rounded px-1.5 py-0.5">
+            <span className="text-xs text-primary border border-current rounded px-1.5 py-0.5">
               置頂
             </span>
           )}

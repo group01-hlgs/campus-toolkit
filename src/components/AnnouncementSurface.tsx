@@ -68,7 +68,7 @@ export default function AnnouncementSurface({
               <li key={item.id} className="border-b border-themed pb-2 last:border-0 last:pb-0">
                 <div className="flex items-center gap-1.5">
                   {item.pinned && (
-                    <span className="text-xs text-success shrink-0">置頂</span>
+                    <span className="text-xs text-primary shrink-0">置頂</span>
                   )}
                   <span className="text-sm font-medium text-t1 truncate">
                     {clip(item.title, 20)}
@@ -99,7 +99,7 @@ export default function AnnouncementSurface({
               className="flex items-center gap-1.5 text-xs border-b border-themed pb-1.5 last:border-0 last:pb-0"
             >
               {item.pinned && (
-                <span className="text-success font-medium shrink-0">置頂</span>
+                <span className="text-primary font-medium shrink-0">置頂</span>
               )}
               <span className="truncate text-t2 min-w-0">
                 {new Date(item.publishAt).toLocaleDateString("zh-TW")}｜{item.categoryName}｜
