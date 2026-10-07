@@ -12,6 +12,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { Settings, defaultSettings } from "@/types/settings";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateSettingsCache, readSystemDoc, getCacheEpoch, bumpCacheEpoch, CACHE_EPOCH_FIELD } from "@/lib/settings-server";
+import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import { ROLE_ENABLED_FIELD } from "@/types/role-settings";
 import { FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD } from "@/types/feature-modules";
 
@@ -162,7 +163,9 @@ export async function PUT(request: NextRequest) {
     }
     await ref.set({ ...settings, ...preserved });
     invalidateSettingsCache();
-    // 設定變更（學年度／學期等）會影響名冊清單內容：跨實例失效旗標一併遞增
+    // 設定變更（學年度／學期等）會影響名冊清單內容與驗證基線的期間判定：
+    // 跨實例失效旗標一併遞增（epoch 在 authz key 內），本機 authz 快取同步清除
+    invalidateReadCache(AUTHZ_CACHE_PREFIX);
     await bumpCacheEpoch();
 
     await logActivity({

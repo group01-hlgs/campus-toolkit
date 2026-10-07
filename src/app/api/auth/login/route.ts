@@ -13,6 +13,7 @@ import {
 } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import {
   maskEmail,
   readTwoFactorProfile,
@@ -107,6 +108,12 @@ async function recordLoginFailure(hit: AccountHit, ip: string): Promise<void> {
     lockedUntil: lockUntil,
     lockIp: lockUntil ? nextLockIp : "",
   });
+
+  // 鎖定寫入會影響 verifySession 的 lockedUntil 檢查：
+  // 有設鎖時清本機 authz 快取，讓既有 session 立即套用鎖定（跨實例靠 TTL 8 秒）
+  if (lockUntil > 0) {
+    invalidateReadCache(AUTHZ_CACHE_PREFIX);
+  }
 
   if (newFailCount >= GLOBAL_LOCK_THRESHOLD) {
     await logActivity({

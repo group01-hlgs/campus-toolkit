@@ -7,6 +7,7 @@ import { revokeJti } from "@/lib/revocation";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
+import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import { isStrongPassword, PASSWORD_REQUIREMENT_MESSAGE } from "@/lib/validation";
 import { USER_COLLECTION } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
@@ -64,6 +65,9 @@ export async function POST(request: NextRequest) {
       // 本人已設定新密碼：解除「首次登入須先改密碼」的全螢幕要求
       mustChangePassword: false,
     });
+    // tokenVersion 變更會影響驗證基線比對：本機 authz 快取立即清除
+    // （舊 session 另有 jti 撤銷在快取外先把關；跨實例靠 authz TTL 8 秒）
+    invalidateReadCache(AUTHZ_CACHE_PREFIX);
 
     const priorSession = await getSession();
     if (priorSession?.jti) {

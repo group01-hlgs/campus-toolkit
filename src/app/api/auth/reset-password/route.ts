@@ -21,6 +21,7 @@ import { USER_COLLECTION, isAccountActive, isUserRole, UserRole } from "@/types/
 import { detectRoleCandidates } from "@/lib/login-candidate";
 import { getRosterEntry, resolveDisplayName } from "@/lib/roster";
 import { getCurrentPeriod } from "@/lib/settings-server";
+import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import { serverErrorMessage } from "@/lib/api-error";
 
 function maskEmail(email: string): string {
@@ -211,6 +212,10 @@ export async function POST(request: NextRequest) {
       // 本人已透過一次性連結設定新密碼：解除「須先改密碼」要求
       mustChangePassword: false,
     });
+    // 一次性連結重設不會撤銷舊 jti（使用者可能無在線 session），
+    // 依賴 tokenVersion 比對擋舊 session：必須清本機 authz 快取，
+    // 否則 8 秒內舊 session 可能命中改密前的成功快取
+    invalidateReadCache(AUTHZ_CACHE_PREFIX);
 
     // 自動登入：以「當期名冊有效身分」決定要進入的身分（token 記錄的 role 只是提示）
     const candidates = await detectRoleCandidates({

@@ -5,7 +5,13 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { getSession, SessionPayload } from "@/lib/server-session";
 import { isJtiRevoked } from "@/lib/revocation";
 import { getClientIp } from "@/lib/audit";
-import { getSessionTimeoutMinutes, getCurrentPeriod, isSystemEnabled } from "@/lib/settings-server";
+import {
+  getSessionTimeoutMinutes,
+  getCurrentPeriod,
+  getCacheEpoch,
+  isSystemEnabled,
+} from "@/lib/settings-server";
+import { cachedAuthzDocs, AuthzDocs } from "@/lib/read-cache";
 import { adminAttributeGuard, adminModulesOf, getRosterEntry, isActiveEntry } from "@/lib/roster";
 import { isRoleEnabled } from "@/lib/role-settings";
 import { AdminModule, isAccountActive, USER_COLLECTION, UserRole } from "@/types/users";
@@ -24,15 +30,43 @@ export type VerifiedSession = SessionPayload & {
 };
 
 /**
+ * 驗證基線的共用載入：使用者文件＋當期身分名冊條目各一次點查。
+ * 走 cachedAuthzDocs 8 秒快取（key 綁 uid＋role＋tokenVersion＋cacheEpoch）；
+ * 「文件不存在」也快取為 null，避免孤兒查詢每請求照打。
+ * jti 撤銷與設定類檢查在呼叫前已於快取外完成，本函式只負責這兩份文件。
+ */
+async function loadAuthzDocs(session: SessionPayload): Promise<AuthzDocs> {
+  const epoch = await getCacheEpoch();
+  return cachedAuthzDocs(
+    session.uid,
+    session.role,
+    session.tokenVersion,
+    epoch,
+    async () => {
+      const snap = await getAdminDb()
+        .collection(USER_COLLECTION)
+        .doc(session.uid)
+        .get();
+      const user = snap.exists ? (snap.data() ?? null) : null;
+      const period = await getCurrentPeriod();
+      const entry = await getRosterEntry(session.uid, session.role, period);
+      return { user, entry };
+    }
+  );
+}
+
+/**
  * 取得該 session 當期的管理員名冊條目（僅限 `role === "admin"` 的呼叫者）：
- * 優先復用 verifySession 已讀的 `__entry`，沒有才補讀一次並掛回 session。
+ * 優先復用 verifySession 已讀的 `__entry`，沒有才走 authz 快取補讀並掛回 session。
  */
 async function adminEntryOf(session: SessionPayload): Promise<Record<string, unknown> | null> {
-  const cached = (session as VerifiedSession).__entry;
+  const verified = session as VerifiedSession;
+  const cached = verified.__entry;
   if (cached !== undefined && session.role === "admin") return cached;
-  const entry = await getRosterEntry(session.uid, "admin", await getCurrentPeriod());
-  (session as VerifiedSession).__entry = entry;
-  return entry;
+  const docs = await loadAuthzDocs(session);
+  verified.__user = docs.user;
+  verified.__entry = docs.entry;
+  return docs.entry;
 }
 
 export async function verifySession(): Promise<VerifiedSession | null> {
@@ -51,38 +85,37 @@ export async function verifySession(): Promise<VerifiedSession | null> {
   if (Date.now() - session.lastActivityAt > idleTimeoutMs) return null;
 
   try {
-    const snap = await getAdminDb()
-      .collection(USER_COLLECTION)
-      .doc(session.uid)
-      .get();
-    if (!snap.exists) return null;
+    // 使用者文件＋當期名冊條目：8 秒 authz 快取（Phase 5）。
+    // 設定類（systemEnabled／sessionTimeout／roleEnabled）仍走 readSystemDoc，
+    // 不在本快取內；檢查邏輯與直讀時完全一致，只是資料來源可命中快取。
+    const docs = await loadAuthzDocs(session);
+    const data = docs.user;
+    if (!data) return null;
 
-    const data = snap.data();
     // 停用（無效）帳號的既有 session 全數失效
     if (!isAccountActive(data)) return null;
 
-    const tokenVersion = typeof data?.tokenVersion === "number" ? data.tokenVersion : 1;
+    const tokenVersion = typeof data.tokenVersion === "number" ? data.tokenVersion : 1;
     if (session.tokenVersion !== tokenVersion) return null;
 
     // 當期身分名冊：該身分不存在、無效或已被移除時，session 失效
-    const period = await getCurrentPeriod();
-    const entry = await getRosterEntry(session.uid, session.role, period);
+    const entry = docs.entry;
     if (!isActiveEntry(entry)) return null;
 
     // 身分開關停用該身分時，既有 session 同步失效
     if (!(await isRoleEnabled(session.role))) return null;
 
     // 鎖定與登入路由一致：僅當鎖定綁定的來源 IP（或未綁定）命中目前請求才失效
-    const lockedUntil = typeof data?.lockedUntil === "number" ? data.lockedUntil : 0;
+    const lockedUntil = typeof data.lockedUntil === "number" ? data.lockedUntil : 0;
     if (lockedUntil > Date.now()) {
-      const lockIp = typeof data?.lockIp === "string" ? data.lockIp : "";
+      const lockIp = typeof data.lockIp === "string" ? data.lockIp : "";
       const currentIp = getClientIp({ headers: await headers() });
       if (!lockIp || !currentIp || lockIp === currentIp) return null;
     }
 
     // 掛上同請求已讀取的資料，供權限判定與端點復用（見 VerifiedSession 說明）
     const verified = session as VerifiedSession;
-    verified.__user = data ?? null;
+    verified.__user = data;
     verified.__entry = entry ?? null;
     return verified;
   } catch {

@@ -73,3 +73,43 @@ export async function cachedSettingDoc<T>(
 ): Promise<T> {
   return cachedRead(`setting-doc:${docId}`, SETTING_DOC_TTL_MS, load);
 }
+
+/**
+ * 驗證基線（使用者文件＋當期名冊條目）的快取 TTL——**只能 5～10 秒**。
+ * 這是權限判定資料，不是清單；絕不抄清單的 10 分鐘（見 docs/資料讀取省流.md Phase 5）。
+ * 停用帳號／停用身分／移除名冊條目最多晚本 TTL 全面生效（跨實例）；
+ * 管理端寫入路徑的 invalidateAdminListCache() 會清本機快取並 bump epoch，同實例立即。
+ */
+export const AUTHZ_TTL_MS = 8_000;
+
+/** 驗證基線快取 key 的前綴（invalidateReadCache("authz:") 可只清這類） */
+export const AUTHZ_CACHE_PREFIX = "authz:";
+
+export interface AuthzDocs {
+  /** 使用者文件；不存在＝null（同樣快取，免重打孤兒查詢） */
+  user: Record<string, unknown> | null;
+  /** 當期身分名冊條目；不存在＝null */
+  entry: Record<string, unknown> | null;
+}
+
+/**
+ * 驗證基線的 8 秒快取（docs/資料庫讀取規範.md 鐵律 6＋Phase 5）：
+ * key＝`authz:<uid>:<role>:<tokenVersion>#<cacheEpoch>`。
+ * - tokenVersion 在 key 內：改密後 key 自動分家（舊 session 對不上「成功」快取）；
+ *   舊 session 另有 jti 撤銷在快取外先把關。
+ * - cacheEpoch 在 key 內：管理端變更 bump epoch → key 變動 → 跨實例自動失效。
+ * - user／entry 皆可為 null：「不存在」也快取，否則孤兒查詢每請求照打。
+ */
+export async function cachedAuthzDocs<T extends AuthzDocs>(
+  uid: string,
+  role: string,
+  tokenVersion: number,
+  epoch: number,
+  load: () => Promise<T>
+): Promise<T> {
+  return cachedRead(
+    `${AUTHZ_CACHE_PREFIX}${uid}:${role}:${tokenVersion}#${epoch}`,
+    AUTHZ_TTL_MS,
+    load
+  );
+}

@@ -6,6 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
+import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import { getRoleEnabled, invalidateRoleSettingsCache } from "@/lib/role-settings";
 import { ROLE_LABELS, isUserRole, UserRole } from "@/types/users";
 import { RoleEnabledMap, ROLE_ENABLED_FIELD } from "@/types/role-settings";
@@ -74,6 +75,9 @@ export async function PATCH(request: NextRequest) {
       .doc(SETTINGS_DOC_ID)
       .set({ [ROLE_ENABLED_FIELD]: next }, { merge: true });
     invalidateRoleSettingsCache();
+    // 身分開關直接影響 verifySession 的 isRoleEnabled 判定：
+    // 本機 authz 快取立即清除；跨實例靠 authz TTL（8 秒）自動過期
+    invalidateReadCache(AUTHZ_CACHE_PREFIX);
 
     await logActivity({
       userId: session.uid,
