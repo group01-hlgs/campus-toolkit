@@ -172,6 +172,18 @@ export default function AnnouncementsInbox({
     }
   }
 
+  // 橫幅模式的橫幅來源：置頂公告優先；完全沒有置頂時改用最新一則
+  //（items 由伺服器排序＝置頂優先、再依發布時間新到舊；
+  // 已按「關閉」的橫幅不重複顯示，該則改回一般清單）
+  const bannerSource =
+    displayMethod === "banner"
+      ? items.some((item) => item.pinned)
+        ? items.filter((item) => item.pinned)
+        : items.slice(0, 1)
+      : [];
+  const bannerItems = bannerSource.filter((item) => !dismissedBanners.includes(item.id));
+  const bannerIds = new Set(bannerItems.map((item) => item.id));
+
   return (
     <div className="w-full max-w-3xl mb-8 space-y-6">
       {flash && (
@@ -300,10 +312,10 @@ export default function AnnouncementsInbox({
         <p className="text-xs text-t3 mb-3">
           顯示方式：
           {displayMethod === "banner"
-            ? "置頂公告以橫幅顯示"
+            ? "置頂公告以橫幅顯示（無置頂時取最新一則）"
             : displayMethod === "pinnedTop"
-              ? "置頂公告優先"
-              : "清單"}
+              ? "置頂公告優先，其餘收合為標題列（點擊展開）"
+              : "清單（全文展開）"}
           ；過期公告已自動隱藏
         </p>
         {loading ? (
@@ -312,36 +324,41 @@ export default function AnnouncementsInbox({
           <p className="text-t3 text-sm">目前沒有公告</p>
         ) : (
           <>
-            {/* 橫幅模式：置頂公告以醒目橫幅顯示（可於本機關閉橫幅，不影響他人） */}
+            {/* 橫幅模式：置頂公告以醒目橫幅顯示；完全沒有置頂時改用最新一則
+                （可於本機關閉橫幅，該則回到一般清單，不影響他人） */}
             {displayMethod === "banner" &&
-              items
-                .filter((item) => item.pinned && !dismissedBanners.includes(item.id))
-                .map((item) => (
-                  <div
-                    key={`banner-${item.id}`}
-                    className="mb-3 border-l-4 border-success bg-card border border-themed rounded-lg p-4 shadow"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <h4 className="font-bold text-t1">📌 {item.title}</h4>
-                      <button
-                        type="button"
-                        className="text-xs text-t3 hover:text-t1 cursor-pointer shrink-0"
-                        onClick={() =>
-                          setDismissedBanners((prev) => [...prev, item.id])
-                        }
-                      >
-                        關閉
-                      </button>
-                    </div>
-                    <p className="text-xs text-t3 mt-1">
-                      {item.categoryName}｜{item.authorName}
-                      {item.classScoped ? "｜班級" : "｜校級"}
-                    </p>
-                    <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+              bannerItems.map((item) => (
+                <div
+                  key={`banner-${item.id}`}
+                  className="mb-3 border-l-4 border-success bg-card border border-themed rounded-lg p-4 shadow"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <h4 className="font-bold text-t1 flex items-center gap-1.5">
+                      {item.pinned && <span aria-hidden="true">📌</span>}
+                      <span>{item.title}</span>
+                      {!item.pinned && (
+                        <span className="text-xs font-normal text-t2 border border-themed rounded px-1.5 py-0.5 shrink-0">
+                          最新
+                        </span>
+                      )}
+                    </h4>
+                    <button
+                      type="button"
+                      className="text-xs text-t3 hover:text-t1 cursor-pointer shrink-0"
+                      onClick={() => setDismissedBanners((prev) => [...prev, item.id])}
+                    >
+                      關閉
+                    </button>
                   </div>
-                ))}
+                  <p className="text-xs text-t3 mt-1">
+                    {item.categoryName}｜{item.authorName}
+                    {item.classScoped ? "｜班級" : "｜校級"}
+                  </p>
+                  <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+                </div>
+              ))}
 
-            {/* 置頂區（pinnedTop 模式；banner 模式下若未關閉橫幅則不重複列出置頂） */}
+            {/* 置頂區（pinnedTop 模式）：置頂公告以完整卡片置頂顯示 */}
             {displayMethod === "pinnedTop" &&
               items.filter((item) => item.pinned).length > 0 && (
                 <div className="mb-4">
@@ -362,26 +379,38 @@ export default function AnnouncementsInbox({
                 </div>
               )}
 
-            {/* 一般清單：置頂優先（伺服器已排序）；banner 模式過濾已顯示於橫幅者 */}
-            <ul className="space-y-3">
-              {items
-                .filter((item) => {
-                  if (displayMethod === "banner" && item.pinned) {
-                    return dismissedBanners.includes(item.id);
-                  }
-                  if (displayMethod === "pinnedTop" && item.pinned) return false;
-                  return true;
-                })
-                .map((item) => (
-                  <AnnouncementCard
-                    key={item.id}
-                    item={item}
-                    remindersEnabled={remindersEnabled}
-                    toggling={togglingReminder === item.id}
-                    onToggleReminder={toggleReminder}
-                  />
-                ))}
-            </ul>
+            {/* 一般清單：
+                list／banner＝全文卡片（banner 已顯示於橫幅者不重複列出）；
+                pinnedTop＝非置頂者收合為標題列，點擊才展開內文——與「清單」一眼可辨 */}
+            {displayMethod === "pinnedTop" ? (
+              <ul className="space-y-2">
+                {items
+                  .filter((item) => !item.pinned)
+                  .map((item) => (
+                    <AnnouncementCompactRow
+                      key={item.id}
+                      item={item}
+                      remindersEnabled={remindersEnabled}
+                      toggling={togglingReminder === item.id}
+                      onToggleReminder={toggleReminder}
+                    />
+                  ))}
+              </ul>
+            ) : (
+              <ul className="space-y-3">
+                {items
+                  .filter((item) => !bannerIds.has(item.id))
+                  .map((item) => (
+                    <AnnouncementCard
+                      key={item.id}
+                      item={item}
+                      remindersEnabled={remindersEnabled}
+                      toggling={togglingReminder === item.id}
+                      onToggleReminder={toggleReminder}
+                    />
+                  ))}
+              </ul>
+            )}
           </>
         )}
       </section>
@@ -447,6 +476,96 @@ function AnnouncementCard({
                 ? "已設定提醒"
                 : "提醒我"}
           </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * 緊湊標題列（pinnedTop 模式的非置頂公告）：
+ * 預設只顯示標題／分類／時間並收合內文，點擊才展開——
+ * 讓「置頂優先」與「清單」在沒有置頂公告時也有明顯的結構差異。
+ */
+function AnnouncementCompactRow({
+  item,
+  remindersEnabled,
+  toggling,
+  onToggleReminder,
+}: {
+  item: AnnouncementInboxItem;
+  remindersEnabled: boolean;
+  toggling: boolean;
+  onToggleReminder: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="border border-themed rounded-lg bg-card">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        className="w-full flex items-start gap-2 px-4 py-3 text-left cursor-pointer"
+      >
+        <svg
+          className={`w-3.5 h-3.5 mt-1 shrink-0 text-t3 transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="flex-1 min-w-0">
+          <span className="flex items-start justify-between gap-2">
+            <span className="font-bold text-t1">{item.title}</span>
+            <span className="flex shrink-0 gap-1.5">
+              {item.isPublic && (
+                <span className="text-xs text-t2 border border-themed rounded px-1.5 py-0.5">
+                  公開
+                </span>
+              )}
+              {item.expiringSoon && (
+                <span className="text-xs text-danger border border-danger rounded px-1.5 py-0.5">
+                  即將到期
+                </span>
+              )}
+            </span>
+          </span>
+          <span className="block text-xs text-t3 mt-0.5">
+            {item.categoryName}｜{item.authorName}
+            {item.classScoped ? `｜班級公告` : "｜校級"}
+            {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-themed px-4 py-3">
+          <p className="text-sm text-t2 whitespace-pre-wrap">{item.body}</p>
+          {remindersEnabled && (
+            <div className="mt-3">
+              <button
+                type="button"
+                disabled={toggling}
+                onClick={() => onToggleReminder(item.id)}
+                className={
+                  item.reminded
+                    ? "btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                    : "btn-soft rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                }
+                title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
+              >
+                {toggling
+                  ? "處理中..."
+                  : item.reminded
+                    ? "已設定提醒"
+                    : "提醒我"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </li>

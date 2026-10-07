@@ -343,6 +343,10 @@ export default function AdminAnnouncementsPage() {
                 )
               )}
             </select>
+            <p className="text-xs text-t3 mt-1">
+              清單＝全文卡片；置頂優先＝置頂公告置頂專區、其餘收合為標題列（點擊展開）；
+              橫幅＝頂部橫幅顯示置頂公告（完全沒有置頂時改用最新一則）。
+            </p>
           </div>
           <div>
             <span className="block text-xs text-t2 mb-1">
