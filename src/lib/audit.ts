@@ -35,7 +35,12 @@ export type ActivityAction =
   | "school_org_updated"
   | "school_profile_updated"
   | "school_classes_updated"
-  | "school_codes_updated";
+  | "school_codes_updated"
+  | "announcements_created"
+  | "announcements_updated"
+  | "announcements_archived"
+  | "announcements_staff_posted"
+  | "announcements_settings_updated";
 
 export interface ActivityEntry {
   userId?: string;

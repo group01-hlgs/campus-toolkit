@@ -207,4 +207,12 @@ export const RATE = {
   FEATURE_MODULES_MUTATE: { limit: 120, windowMs: 60_000 },
   /** 統計儀表板：讀取 Vercel／Firebase 用量（伺服器端另有 5 分鐘快取） */
   ADMIN_USAGE_GET: { limit: 30, windowMs: 60_000 },
+  /** 公告：管理端清單／設定讀取 */
+  ANNOUNCEMENTS_ADMIN_GET: { limit: 60, windowMs: 60_000 },
+  /** 公告：管理端發佈／更新／封存／儲存設定 */
+  ANNOUNCEMENTS_ADMIN_MUTATE: { limit: 40, windowMs: 60_000 },
+  /** 公告：各身分收件匣讀取 */
+  ANNOUNCEMENTS_INBOX: { limit: 60, windowMs: 60_000 },
+  /** 公告：教職員發佈 */
+  ANNOUNCEMENTS_STAFF_POST: { limit: 20, windowMs: 60_000 },
 } as const;

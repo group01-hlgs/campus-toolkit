@@ -12,6 +12,7 @@ import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import RoleSwitcher from "@/components/RoleSwitcher";
+import ModuleIcon from "@/components/ModuleIcon";
 import { fetchSettings } from "@/lib/settings-client";
 
 const accountModule = {
@@ -87,14 +88,27 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const roleLabel = ROLE_LABELS[role];
   const accountHref = `${ROLE_HOME[role]}/account`;
   const settingsHref = `${ROLE_HOME[role]}/settings`;
-  // 功能入口卡片：順序比照主程式管理員首頁（系統設定 → 帳號、身分與安全管理）
-  // 「帳號、身分與安全管理」依功能模組「顯示與否」過濾（提供功能對四身分皆為是）
+  const announcementsHref = `${ROLE_HOME[role]}/announcements`;
+  // 功能入口卡片：順序比照主程式管理員首頁
+  // 「帳號、身分與安全管理」「公告」依功能模組「顯示與否」過濾
   // 個人「設定」頁為個人偏好、非功能模組入口，不套顯示開關
   const accountVisible =
     visibleModules === null || visibleModules.includes("account");
+  const announcementsVisible =
+    visibleModules === null || visibleModules.includes("announcements");
   const entryCards = [
     { ...settingsModule, id: "settings", href: settingsHref },
     ...(accountVisible ? [{ ...accountModule, id: "account", href: accountHref }] : []),
+    ...(announcementsVisible
+      ? [
+          {
+            icon: <ModuleIcon value="announcements" />,
+            label: "公告",
+            id: "announcements",
+            href: announcementsHref,
+          },
+        ]
+      : []),
   ];
 
   return (

@@ -143,11 +143,17 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     value: "announcements",
     label: "公告功能模組",
     kind: "builtin",
-    status: "planned",
-    description: "發佈與管理校園公告，可依身分與班級設定可見範圍。",
-    href: "",
+    status: "live",
+    description: "發佈與管理校園公告，可依身分與班級設定可見範圍；其他模組可經接口掛勾發文。",
+    href: "/admin/announcements",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
+    // 公告對四身分皆提供（收件）；管理端另受「指定功能模組」把關
+    provides: {
+      student: true,
+      parent: true,
+      staff: true,
+      admin: true,
+    },
   },
   {
     value: "calendar",
