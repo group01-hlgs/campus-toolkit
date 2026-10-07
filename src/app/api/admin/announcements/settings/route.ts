@@ -8,7 +8,9 @@ import { getAnnouncementSettings, saveAnnouncementSettings } from "@/lib/announc
 import type {
   AnnouncementDisplayMethod,
   AnnouncementCategory,
+  AnnouncementSurfaces,
 } from "@/types/announcements";
+import { ANNOUNCEMENT_SURFACES } from "@/types/announcements";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -73,9 +75,28 @@ export async function PUT(request: NextRequest) {
         })
       : undefined;
 
+    // 5 個顯示位置：僅接受已知 key，欄位毀損時由 saveAnnouncementSettings 退回預設
+    let surfaces: Partial<AnnouncementSurfaces> | undefined;
+    if (body.surfaces && typeof body.surfaces === "object") {
+      const raw = body.surfaces as Record<string, unknown>;
+      surfaces = {};
+      for (const key of ANNOUNCEMENT_SURFACES) {
+        const row = raw[key];
+        if (!row || typeof row !== "object") continue;
+        const item = row as Record<string, unknown>;
+        surfaces[key] = {
+          enabled: item.enabled !== false,
+          method: item.method === "marquee" ? "marquee" : "list",
+          limit: typeof item.limit === "number" && Number.isFinite(item.limit) ? item.limit : 5,
+        };
+      }
+      if (Object.keys(surfaces).length === 0) surfaces = undefined;
+    }
+
     const settings = await saveAnnouncementSettings({
       categories,
       displayMethod,
+      surfaces,
       defaultRemindersEnabled:
         typeof body.defaultRemindersEnabled === "boolean"
           ? body.defaultRemindersEnabled
@@ -87,7 +108,9 @@ export async function PUT(request: NextRequest) {
       role: "admin",
       action: "announcements_settings_updated",
       ip: getClientIp(request),
-      details: `更新公告模組設定（顯示方式=${settings.displayMethod}，分類 ${settings.categories.length} 筆）`,
+      details: `更新公告模組設定（收件匣顯示方式=${settings.displayMethod}，分類 ${settings.categories.length} 筆，顯示位置啟用 ${
+        ANNOUNCEMENT_SURFACES.filter((key) => settings.surfaces[key].enabled).length
+      }/5 處）`,
     });
 
     return NextResponse.json(

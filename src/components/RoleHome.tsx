@@ -14,6 +14,7 @@ import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import ModuleIcon from "@/components/ModuleIcon";
 import AnnouncementReminderBell from "@/components/AnnouncementReminderBell";
+import AnnouncementSurface from "@/components/AnnouncementSurface";
 import { fetchSettings } from "@/lib/settings-client";
 
 const accountModule = {
@@ -128,6 +129,11 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
         {displayName && <p className="text-t2 mt-1">{displayName}，您好</p>}
         <RoleSwitcher role={role} />
       </div>
+
+      {/* 系統公告：切換身分下拉選單下方、第一個登出按鈕上方 */}
+      {announcementsVisible && (
+        <AnnouncementSurface surface={role} className="content-width mb-3" />
+      )}
 
       <div className="content-width flex justify-end items-center gap-2 mb-4">
         {announcementsVisible && (

@@ -3,13 +3,22 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ANNOUNCEMENT_DISPLAY_METHOD_LABELS,
+  ANNOUNCEMENT_PERMISSION_ROLES,
+  ANNOUNCEMENT_SURFACE_LABELS,
+  ANNOUNCEMENT_SURFACES,
+  ANNOUNCEMENT_SURFACE_METHOD_LABELS,
+  announcementPermissionText,
+  DEFAULT_ANNOUNCEMENT_SETTINGS,
   type AnnouncementCategory,
   type AnnouncementDisplayMethod,
   type AnnouncementRecord,
   type AnnouncementSettings,
-  DEFAULT_ANNOUNCEMENT_SETTINGS,
+  type AnnouncementSurface,
+  type AnnouncementSurfaceMethod,
+  type AnnouncementSurfaceSetting,
+  type AnnouncementSurfaces,
 } from "@/types/announcements";
-import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
+import { ROLE_LABELS, type UserRole } from "@/types/users";
 import { useDataSaver } from "@/lib/data-saver";
 import RevealListCard from "@/components/RevealListCard";
 
@@ -27,7 +36,10 @@ interface FormState {
   title: string;
   body: string;
   categoryId: string;
+  /** 閱讀權限：勾選的身分（isPublic 時為空） */
   roles: UserRole[];
+  /** 閱讀權限＝「無」（公開，不需登入可見） */
+  isPublic: boolean;
   classCodesText: string;
   pinned: boolean;
   expireAtText: string;
@@ -37,7 +49,8 @@ const emptyForm: FormState = {
   title: "",
   body: "",
   categoryId: "general",
-  roles: ["student", "parent", "staff", "admin"],
+  roles: ["student", "parent", "staff"],
+  isPublic: false,
   classCodesText: "",
   pinned: false,
   expireAtText: "",
@@ -57,8 +70,8 @@ function parseDatetimeLocal(value: string): number | null {
 }
 
 /**
- * 公告管理（僅超級／被指派「公告管理」的管理員）。
- * 版面順序：模組設定 → 建立／編輯公告（預設收納）→ 公告清單。
+ * 系統公告管理（僅超級／被指派「系統公告管理」的管理員）。
+ * 版面順序：模組設定（含 5 處顯示位置）→ 建立／編輯公告（預設收納）→ 公告清單。
  * 清單依系統「省流開關」：啟用時進頁不載入，改按鈕手動顯示（與帳號／名冊清單一致）。
  */
 export default function AdminAnnouncementsPage() {
@@ -78,6 +91,10 @@ export default function AdminAnnouncementsPage() {
   const [categories, setCategories] = useState<AnnouncementCategory[]>(
     DEFAULT_ANNOUNCEMENT_SETTINGS.categories
   );
+  // 5 個顯示位置的顯示與否／方式／筆數
+  const [surfaces, setSurfaces] = useState<AnnouncementSurfaces>(
+    DEFAULT_ANNOUNCEMENT_SETTINGS.surfaces
+  );
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "archived">("all");
 
   useEffect(() => {
@@ -86,20 +103,26 @@ export default function AdminAnnouncementsPage() {
     return () => clearTimeout(timer);
   }, [flash]);
 
+  /** 套用設定回應（收件匣顯示方式、分類、顯示位置） */
+  const applySettings = useCallback((next: AnnouncementSettings) => {
+    setSettings(next);
+    setDisplayMethod(next.displayMethod);
+    setCategories(next.categories);
+    setSurfaces(next.surfaces ?? DEFAULT_ANNOUNCEMENT_SETTINGS.surfaces);
+  }, []);
+
   /** 僅載入模組設定（settings 文檔，不讀公告清單——省流） */
   const loadSettings = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/announcements/settings", { cache: "no-store" });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (data?.success && data.settings) {
-        setSettings(data.settings);
-        setDisplayMethod(data.settings.displayMethod);
-        setCategories(data.settings.categories);
+        applySettings(data.settings);
       }
     } catch {
       // 設定讀失敗不擋頁面：表單分類退回預設
     }
-  }, []);
+  }, [applySettings]);
 
   useEffect(() => {
     if (!settingsReady) return;
@@ -114,11 +137,7 @@ export default function AdminAnnouncementsPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (data?.success) {
         setItems(data.announcements ?? []);
-        if (data.settings) {
-          setSettings(data.settings);
-          setDisplayMethod(data.settings.displayMethod);
-          setCategories(data.settings.categories);
-        }
+        if (data.settings) applySettings(data.settings);
         setListLoaded(true);
       } else {
         setFlash({ type: "error", text: data?.message || "載入公告失敗" });
@@ -128,7 +147,7 @@ export default function AdminAnnouncementsPage() {
     } finally {
       setLoadingList(false);
     }
-  }, []);
+  }, [applySettings]);
 
   useEffect(() => {
     if (!settingsReady) return;
@@ -142,11 +161,7 @@ export default function AdminAnnouncementsPage() {
     if (listLoaded && data.announcements) {
       setItems(data.announcements);
     }
-    if (data.settings) {
-      setSettings(data.settings);
-      setDisplayMethod(data.settings.displayMethod);
-      setCategories(data.settings.categories);
-    }
+    if (data.settings) applySettings(data.settings);
   }
 
   async function submitForm(event: React.FormEvent) {
@@ -163,7 +178,12 @@ export default function AdminAnnouncementsPage() {
         title: form.title,
         body: form.body,
         categoryId: form.categoryId,
-        audience: { roles: form.roles, classCodes },
+        // 閱讀權限「無」＝公開：不帶身分與班級（伺服端一律正規化為全校、全身分）
+        audience: {
+          roles: form.isPublic ? [] : form.roles,
+          classCodes: form.isPublic ? [] : classCodes,
+        },
+        isPublic: form.isPublic,
         pinned: form.pinned,
         expireAt: parseDatetimeLocal(form.expireAtText),
       };
@@ -213,8 +233,11 @@ export default function AdminAnnouncementsPage() {
       title: item.title,
       body: item.body,
       categoryId: item.categoryId,
-      roles: item.audience.roles,
-      classCodesText: item.audience.classCodes.filter((c) => c !== "*").join(", "),
+      roles: item.audience.roles.filter((role) => ANNOUNCEMENT_PERMISSION_ROLES.includes(role)),
+      isPublic: item.isPublic === true,
+      classCodesText: item.isPublic
+        ? ""
+        : item.audience.classCodes.filter((c) => c !== "*").join(", "),
       pinned: item.pinned === true,
       expireAtText: toDatetimeLocal(item.expireAt),
     });
@@ -234,21 +257,21 @@ export default function AdminAnnouncementsPage() {
       const res = await fetch("/api/admin/announcements/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayMethod, categories }),
+        body: JSON.stringify({ displayMethod, categories, surfaces }),
       });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "設定儲存失敗");
-      if (data.settings) {
-        setSettings(data.settings);
-        setDisplayMethod(data.settings.displayMethod);
-        setCategories(data.settings.categories);
-      }
+      if (data.settings) applySettings(data.settings);
       setFlash({ type: "success", text: data.message || "設定已儲存" });
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "設定儲存失敗" });
     } finally {
       setSaving(false);
     }
+  }
+
+  function updateSurface(key: AnnouncementSurface, patch: Partial<AnnouncementSurfaceSetting>) {
+    setSurfaces((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
   }
 
   function moveCategory(index: number, dir: -1 | 1) {
@@ -302,7 +325,7 @@ export default function AdminAnnouncementsPage() {
         <div className="space-y-3">
           <div>
             <label className="block text-xs text-t2 mb-1" htmlFor="ann-display">
-              顯示方式
+              收件匣顯示方式（各身分「公告」頁）
             </label>
             <select
               id="ann-display"
@@ -320,6 +343,63 @@ export default function AdminAnnouncementsPage() {
                 )
               )}
             </select>
+          </div>
+          <div>
+            <span className="block text-xs text-t2 mb-1">
+              顯示位置（顯示與否／顯示方式／顯示筆數，5 處各自設定）
+            </span>
+            <div className="space-y-2">
+              {ANNOUNCEMENT_SURFACES.map((key) => {
+                const surface = surfaces[key];
+                return (
+                  <div key={key} className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 text-sm text-t1 w-60">
+                      <input
+                        type="checkbox"
+                        checked={surface.enabled}
+                        onChange={(e) => updateSurface(key, { enabled: e.target.checked })}
+                      />
+                      {ANNOUNCEMENT_SURFACE_LABELS[key]}
+                    </label>
+                    <select
+                      className="border border-themed rounded px-2 py-1 text-sm bg-card text-t1 disabled:opacity-50"
+                      value={surface.method}
+                      disabled={!surface.enabled}
+                      onChange={(e) =>
+                        updateSurface(key, { method: e.target.value as AnnouncementSurfaceMethod })
+                      }
+                    >
+                      {(
+                        Object.keys(
+                          ANNOUNCEMENT_SURFACE_METHOD_LABELS
+                        ) as AnnouncementSurfaceMethod[]
+                      ).map((method) => (
+                        <option key={method} value={method}>
+                          {ANNOUNCEMENT_SURFACE_METHOD_LABELS[method]}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="inline-flex items-center gap-1 text-xs text-t2">
+                      顯示筆數
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        className="w-16 border border-themed rounded px-2 py-1 text-sm bg-card text-t1 disabled:opacity-50"
+                        value={surface.limit}
+                        disabled={!surface.enabled}
+                        onChange={(e) =>
+                          updateSurface(key, { limit: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-t3 mt-1">
+              「系統首頁」只顯示閱讀權限＝「無」的公告；各身分首頁依其身分顯示。
+            </p>
           </div>
           <div>
             <span className="block text-xs text-t2 mb-1">公告分類</span>
@@ -404,7 +484,8 @@ export default function AdminAnnouncementsPage() {
             {saving ? "處理中..." : "儲存設定"}
           </button>
           <p className="text-xs text-t3">
-            現行顯示方式：{ANNOUNCEMENT_DISPLAY_METHOD_LABELS[settings.displayMethod]}
+            現行收件匣顯示方式：{ANNOUNCEMENT_DISPLAY_METHOD_LABELS[settings.displayMethod]}
+            ；顯示位置啟用 {ANNOUNCEMENT_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處
             ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
           </p>
         </div>
@@ -425,9 +506,11 @@ export default function AdminAnnouncementsPage() {
           className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
         >
           <h3 className="text-lg font-bold text-t1">
-            {formOpen ? "收合" : "展開"}｜{form.id ? "編輯公告" : "建立公告"}
+            {form.id ? "編輯公告" : "建立公告"}
           </h3>
-          <span className="text-t3 text-sm">{formOpen ? "▲" : "▼"}</span>
+          <span className="text-t3 text-sm shrink-0">
+            {formOpen ? "收合" : "展開"} {formOpen ? "▲" : "▼"}
+          </span>
         </button>
         {formOpen && (
           <div className="px-5 pb-5">
@@ -492,12 +575,32 @@ export default function AdminAnnouncementsPage() {
                 </div>
               </div>
               <div>
-                <span className="block text-xs text-t2 mb-1">對象身分</span>
+                <span className="block text-xs text-t2 mb-1">閱讀權限</span>
                 <div className="flex flex-wrap gap-3">
-                  {ALL_ROLES.map((role) => (
-                    <label key={role} className="inline-flex items-center gap-1.5 text-sm text-t1">
+                  <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                    <input
+                      type="checkbox"
+                      checked={form.isPublic}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          isPublic: e.target.checked,
+                          roles: e.target.checked ? [] : prev.roles,
+                        }))
+                      }
+                    />
+                    無（公開，不需登入即可看見）
+                  </label>
+                  {ANNOUNCEMENT_PERMISSION_ROLES.map((role) => (
+                    <label
+                      key={role}
+                      className={`inline-flex items-center gap-1.5 text-sm ${
+                        form.isPublic ? "text-t3" : "text-t1"
+                      }`}
+                    >
                       <input
                         type="checkbox"
+                        disabled={form.isPublic}
                         checked={form.roles.includes(role)}
                         onChange={() => toggleRole(role)}
                       />
@@ -505,6 +608,9 @@ export default function AdminAnnouncementsPage() {
                     </label>
                   ))}
                 </div>
+                <p className="text-xs text-t3 mt-1">
+                  勾選「無」＝任何人均可看見、不需先登入；勾選身分＝僅該身分可見（可多選，與「無」互斥）。
+                </p>
               </div>
               <div>
                 <label className="block text-xs text-t2 mb-1" htmlFor="ann-classes">
@@ -512,10 +618,11 @@ export default function AdminAnnouncementsPage() {
                 </label>
                 <input
                   id="ann-classes"
-                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1"
+                  className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1 disabled:opacity-50"
                   value={form.classCodesText}
+                  disabled={form.isPublic}
                   onChange={(e) => setForm({ ...form, classCodesText: e.target.value })}
-                  placeholder="例如：101, 102"
+                  placeholder={form.isPublic ? "閱讀權限「無」＝全校" : "例如：101, 102"}
                 />
               </div>
               <label className="inline-flex items-center gap-1.5 text-sm text-t1">
@@ -585,7 +692,7 @@ export default function AdminAnnouncementsPage() {
                 <tr className="text-t2">
                   <th className="px-3 py-2 font-medium">標題</th>
                   <th className="px-3 py-2 font-medium">分類</th>
-                  <th className="px-3 py-2 font-medium">對象</th>
+                  <th className="px-3 py-2 font-medium">閱讀權限</th>
                   <th className="px-3 py-2 font-medium">狀態</th>
                   <th className="px-3 py-2 font-medium">發布／到期</th>
                   <th className="px-3 py-2 font-medium text-right">操作</th>
@@ -612,10 +719,12 @@ export default function AdminAnnouncementsPage() {
                       </td>
                       <td className="px-3 py-2 text-t2">{categoryName(item.categoryId)}</td>
                       <td className="px-3 py-2 text-t2">
-                        {item.audience.roles.map((r) => ROLE_LABELS[r]).join("、")}
-                        {item.audience.classCodes[0] !== "*" && item.audience.classCodes.length > 0
-                          ? `（${item.audience.classCodes.join("、")}）`
-                          : "（全校）"}
+                        {announcementPermissionText(item.audience, item.isPublic)}
+                        {!item.isPublic &&
+                          (item.audience.classCodes[0] !== "*" &&
+                          item.audience.classCodes.length > 0
+                            ? `（${item.audience.classCodes.join("、")}）`
+                            : "（全校）")}
                       </td>
                       <td className="px-3 py-2">
                         <span

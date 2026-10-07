@@ -136,15 +136,18 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   })),
 ];
 
-/** 新增功能模組時在這裡加一列（內建排前面，選用模組排在後面） */
-export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
+/**
+ * 未去重的內建＋選用定義（**勿直接導出**）：
+ * 由 `MODULES` 派生列先進，手刻列（如 announcements 的產品層級 provides）列在後。
+ */
+const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   ...ADMIN_FEATURE_MODULES,
   {
     value: "announcements",
-    label: "公告功能模組",
+    label: "系統公告管理",
     kind: "builtin",
     status: "live",
-    description: "發佈與管理校園公告，可依身分與班級設定可見範圍；其他模組可經接口掛勾發文。",
+    description: "發佈與管理校園公告，可依閱讀權限與班級設定可見範圍；其他模組可經接口掛勾發文。",
     href: "/admin/announcements",
     author: DEFAULT_MODULE_AUTHOR,
     // 公告對四身分皆提供（收件）；管理端另受「指定功能模組」把關
@@ -216,6 +219,17 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     provides: PROVIDES_STAFF_ADMIN,
   },
 ];
+
+/**
+ * 新增功能模組時在 `RAW_FEATURE_MODULES` 加一列（內建排前面，選用排後面）。
+ * 同代碼以**列在後者**為準：由 `MODULES` 派生的內建列（provides 預設教職員＋管理員）
+ * 會被後方手刻列覆寫（如 announcements 四身分皆提供），註冊表因此不會出現重複列。
+ */
+export const FEATURE_MODULES: readonly FeatureModuleMeta[] = (() => {
+  const merged = new Map<string, FeatureModuleMeta>();
+  for (const item of RAW_FEATURE_MODULES) merged.set(item.value, item);
+  return [...merged.values()];
+})();
 
 /** `settings/system` 上存選用模組啟用狀態的欄位名 */
 export const FEATURE_MODULES_FIELD = "featureModulesEnabled";

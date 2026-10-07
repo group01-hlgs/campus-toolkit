@@ -103,6 +103,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    // 閱讀權限：「無」＝公開（isPublic，不需登入可見），與身分選項互斥
+    const isPublic = body.isPublic === true;
     const rawRoles = Array.isArray(body.roles) ? body.roles : [];
     const allowedRoles: UserRole[] =
       session.role === "admin"
@@ -110,8 +112,11 @@ export async function POST(request: NextRequest) {
         : (["student", "parent", "staff"] as UserRole[]).filter((role) =>
             rawRoles.includes(role)
           );
-    if (allowedRoles.length === 0) {
-      return NextResponse.json({ success: false, message: "請選擇公告對象身分" }, { status: 400 });
+    if (!isPublic && allowedRoles.length === 0) {
+      return NextResponse.json(
+        { success: false, message: "請選擇公告閱讀權限（「無」或至少一個身分）" },
+        { status: 400 }
+      );
     }
 
     const ownClass = entryClassCode(session.__entry);
@@ -121,8 +126,9 @@ export async function POST(request: NextRequest) {
           .map((code) => code.trim().slice(0, 32))
       : [];
     // 教職員未填班級＝校級（僅限非班級受眾）；填了則必須含自己班
-    let classCodes = rawCodes;
-    if (session.role === "staff") {
+    // 公開公告一律校級（訪客沒有班級）
+    let classCodes = isPublic ? [] : rawCodes;
+    if (!isPublic && session.role === "staff") {
       if (classCodes.length === 0) {
         classCodes = []; // school-wide
       } else if (!ownClass || !classCodes.includes(ownClass)) {
@@ -138,7 +144,7 @@ export async function POST(request: NextRequest) {
         ? { roles: allowedRoles, classCodes: ["*"] }
         : { roles: allowedRoles, classCodes };
 
-    if (session.role === "staff" && !staffAudienceAllowed(audience, ownClass)) {
+    if (!isPublic && session.role === "staff" && !staffAudienceAllowed(audience, ownClass)) {
       return NextResponse.json(
         { success: false, message: "無權發佈至該班級" },
         { status: 403 }
@@ -151,6 +157,7 @@ export async function POST(request: NextRequest) {
       body: typeof body.body === "string" ? body.body : "",
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
       audience,
+      isPublic,
       authorUid: session.uid,
       authorName: session.displayName || session.account,
       authorRole: session.role,
@@ -162,9 +169,9 @@ export async function POST(request: NextRequest) {
       role: session.role,
       action: session.role === "admin" ? "announcements_created" : "announcements_staff_posted",
       ip: getClientIp(request),
-      details: `發佈公告 id=${id}（對象：${allowedRoles.join("、")}${
-        classCodes.length > 0 ? `，班級 ${classCodes.join("、")}` : "，校級"
-      }）`,
+      details: `發佈公告 id=${id}（閱讀權限：${
+        isPublic ? "無（公開）" : allowedRoles.join("、")
+      }${classCodes.length > 0 ? `，班級 ${classCodes.join("、")}` : "，校級"}）`,
     });
 
     const items = await listInboxAnnouncements({

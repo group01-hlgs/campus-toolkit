@@ -8,7 +8,7 @@
  * 只寫本集合、必填 `sourceModule`，受眾必須明確（見該檔註解）。
  */
 
-import { ALL_ROLES, UserRole } from "./users";
+import { ALL_ROLES, ROLE_LABELS, UserRole } from "./users";
 
 export const ANNOUNCEMENTS_COLLECTION = "announcements";
 export const ANNOUNCEMENT_SETTINGS_DOC_ID = "announcements";
@@ -24,6 +24,88 @@ export const ANNOUNCEMENT_DISPLAY_METHOD_LABELS: Record<AnnouncementDisplayMetho
   pinnedTop: "置頂優先",
   banner: "橫幅",
 };
+
+/**
+ * 公告閱讀權限：可多選身分（學生／家長／教職員），
+ * 或獨立勾選「無」＝公開——任何人均可看見，不需先登入系統。
+ * 「無」與身分選項互斥（isPublic）。
+ */
+export const ANNOUNCEMENT_PERMISSION_ROLES: UserRole[] = ["student", "parent", "staff"];
+
+/** 「無（公開）」的權限文字 */
+export const PUBLIC_PERMISSION_LABEL = "無";
+
+/**
+ * 公告顯示位置（5 處）：
+ * 系統首頁登入表單上方＋四種身分功能首頁（切換身分下拉選單下方、第一個登出按鈕上方）。
+ * 每處由管理員個別決定「顯示與否／顯示方式／顯示筆數」。
+ */
+export type AnnouncementSurface = "login" | "student" | "parent" | "staff" | "admin";
+
+export const ANNOUNCEMENT_SURFACES: AnnouncementSurface[] = [
+  "login",
+  "student",
+  "parent",
+  "staff",
+  "admin",
+];
+
+export const ANNOUNCEMENT_SURFACE_LABELS: Record<AnnouncementSurface, string> = {
+  login: "系統首頁（登入表單上方）",
+  student: "學生功能首頁",
+  parent: "家長功能首頁",
+  staff: "教職員功能首頁",
+  admin: "管理員功能首頁",
+};
+
+export function isAnnouncementSurface(value: unknown): value is AnnouncementSurface {
+  return typeof value === "string" && (ANNOUNCEMENT_SURFACES as string[]).includes(value);
+}
+
+/** 顯示方式：指定筆數的清單／橫幅跑馬燈 */
+export type AnnouncementSurfaceMethod = "list" | "marquee";
+
+export const ANNOUNCEMENT_SURFACE_METHOD_LABELS: Record<AnnouncementSurfaceMethod, string> = {
+  list: "指定筆數清單",
+  marquee: "橫幅跑馬燈",
+};
+
+export interface AnnouncementSurfaceSetting {
+  enabled: boolean;
+  method: AnnouncementSurfaceMethod;
+  /** 顯示筆數（1～20） */
+  limit: number;
+}
+
+export type AnnouncementSurfaces = Record<AnnouncementSurface, AnnouncementSurfaceSetting>;
+
+export const ANNOUNCEMENT_SURFACE_LIMIT_MIN = 1;
+export const ANNOUNCEMENT_SURFACE_LIMIT_MAX = 20;
+export const ANNOUNCEMENT_SURFACE_LIMIT_DEFAULT = 5;
+
+export function normalizeSurfaceLimit(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return ANNOUNCEMENT_SURFACE_LIMIT_DEFAULT;
+  return Math.min(
+    ANNOUNCEMENT_SURFACE_LIMIT_MAX,
+    Math.max(ANNOUNCEMENT_SURFACE_LIMIT_MIN, Math.round(n))
+  );
+}
+
+export function defaultAnnouncementSurfaces(): AnnouncementSurfaces {
+  const setting: AnnouncementSurfaceSetting = {
+    enabled: true,
+    method: "list",
+    limit: ANNOUNCEMENT_SURFACE_LIMIT_DEFAULT,
+  };
+  return {
+    login: { ...setting },
+    student: { ...setting },
+    parent: { ...setting },
+    staff: { ...setting },
+    admin: { ...setting },
+  };
+}
 
 /** 全站不限班級的 classCodes 哨兵（Firestore array-contains 查詢用） */
 export const ALL_CLASSES_SENTINEL = "*";
@@ -47,9 +129,12 @@ export interface AnnouncementCategory {
 
 export interface AnnouncementSettings {
   categories: AnnouncementCategory[];
+  /** 收件匣（各身分公告頁）的顯示方式 */
   displayMethod: AnnouncementDisplayMethod;
   /** 期 A 預設值；個人提醒介面於後續階段接上 */
   defaultRemindersEnabled: boolean;
+  /** 5 個顯示位置的顯示與否／方式／筆數 */
+  surfaces: AnnouncementSurfaces;
 }
 
 export const DEFAULT_ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
@@ -63,6 +148,7 @@ export const DEFAULT_ANNOUNCEMENT_SETTINGS: AnnouncementSettings = {
   categories: DEFAULT_ANNOUNCEMENT_CATEGORIES,
   displayMethod: "list",
   defaultRemindersEnabled: true,
+  surfaces: defaultAnnouncementSurfaces(),
 };
 
 export interface AnnouncementRecord {
@@ -78,6 +164,11 @@ export interface AnnouncementRecord {
   authorName: string;
   authorRole: UserRole;
   audience: AnnouncementAudience;
+  /**
+   * 閱讀權限＝「無」（公開）：任何人可見，**不需登入**（顯示於系統首頁等公開位置）。
+   * 為 true 時 audience 為全校＋全身分（登入者亦由一般查詢看到）。
+   */
+  isPublic: boolean;
   status: AnnouncementStatus;
   /** epoch ms */
   publishAt: number;
@@ -103,6 +194,8 @@ export interface AnnouncementInboxItem {
   audienceRoles: UserRole[];
   classScoped: boolean;
   classCodes: string[];
+  /** 閱讀權限＝「無」（公開，不需登入） */
+  isPublic: boolean;
   publishAt: number;
   expireAt?: number;
   pinned: boolean;
@@ -110,6 +203,21 @@ export interface AnnouncementInboxItem {
   expiringSoon: boolean;
   /** 使用者是否已設定個人提醒（API 依登入 uid 補上） */
   reminded?: boolean;
+}
+
+/** 顯示位置（首頁／登入頁）回傳的公告項目 */
+export interface AnnouncementSurfaceItem {
+  id: string;
+  title: string;
+  body: string;
+  categoryId: string;
+  categoryName: string;
+  sourceModule: string;
+  authorName: string;
+  publishAt: number;
+  expireAt?: number;
+  pinned: boolean;
+  isPublic: boolean;
 }
 
 /** 個人提醒（首頁鈴鐺／提醒列表）：僅回仍可閱讀的公告 */
@@ -193,6 +301,8 @@ export interface AnnouncementInput {
   body: string;
   categoryId?: string;
   audience: AnnouncementAudience;
+  /** 閱讀權限＝「無」（公開，不需登入可見）；與身分選項互斥 */
+  isPublic?: boolean;
   publishAt?: number;
   expireAt?: number | null;
   pinned?: boolean;
@@ -205,6 +315,7 @@ export interface ValidatedAnnouncementInput {
   body: string;
   categoryId: string;
   audience: AnnouncementAudience;
+  isPublic: boolean;
   publishAt: number;
   expireAt?: number;
   pinned: boolean;
@@ -235,14 +346,25 @@ export function validateAnnouncementInput(
   if (!body) return { ok: false, message: "請填寫公告內容" };
 
   const allowed = options?.allowedRoles ?? ALL_ROLES;
-  const roles = Array.isArray(input.audience?.roles)
-    ? ALL_ROLES.filter((role) => input.audience.roles.includes(role) && allowed.includes(role))
-    : [];
-  if (roles.length === 0) {
-    return { ok: false, message: "請至少選擇一個公告對象身分" };
+  // 閱讀權限「無」＝公開：任何身分皆可見，且不套班級限制（訪客沒有班級）
+  const isPublic = input.isPublic === true;
+  let roles: UserRole[];
+  if (isPublic) {
+    roles = [...ALL_ROLES];
+  } else {
+    roles = Array.isArray(input.audience?.roles)
+      ? ALL_ROLES.filter((role) => input.audience.roles.includes(role) && allowed.includes(role))
+      : [];
+    if (roles.length === 0) {
+      return { ok: false, message: "請至少選擇一個公告閱讀權限" };
+    }
   }
 
-  const rawCodes = Array.isArray(input.audience?.classCodes) ? input.audience.classCodes : [];
+  const rawCodes = isPublic
+    ? []
+    : Array.isArray(input.audience?.classCodes)
+      ? input.audience.classCodes
+      : [];
   const classCodes: string[] = [];
   for (const raw of rawCodes) {
     const code = text(raw, CLASS_CODE_MAX);
@@ -275,6 +397,7 @@ export function validateAnnouncementInput(
       body,
       categoryId: text(input.categoryId, 64) || DEFAULT_ANNOUNCEMENT_CATEGORIES[0].id,
       audience: normalizedAudience,
+      isPublic,
       publishAt,
       expireAt,
       pinned: input.pinned === true,
@@ -327,6 +450,7 @@ export function readAnnouncementRecord(
       ? (raw.authorRole as UserRole)
       : "admin",
     audience,
+    isPublic: raw.isPublic === true,
     status,
     publishAt: typeof raw.publishAt === "number" ? raw.publishAt : 0,
     expireAt: typeof raw.expireAt === "number" && raw.expireAt > 0 ? raw.expireAt : undefined,
@@ -353,6 +477,7 @@ export function announcementToFirestore(
     authorRole: record.authorRole,
     audienceRoles: record.audience.roles,
     audienceClassCodes: record.audience.classCodes,
+    isPublic: record.isPublic === true,
     status: record.status,
     publishAt: record.publishAt,
     ...(record.expireAt ? { expireAt: record.expireAt } : {}),
@@ -391,11 +516,40 @@ export function readAnnouncementSettings(raw: unknown): AnnouncementSettings {
   const displayMethod: AnnouncementDisplayMethod =
     methodRaw === "pinnedTop" || methodRaw === "banner" ? methodRaw : "list";
 
+  // 5 個顯示位置：逐 key 寬容讀取，缺漏／毀損一律退回預設（未設定＝顯示）
+  const surfaces: AnnouncementSurfaces = defaultAnnouncementSurfaces();
+  const rawSurfaces = data?.surfaces;
+  if (rawSurfaces && typeof rawSurfaces === "object") {
+    const map = rawSurfaces as Record<string, unknown>;
+    for (const key of ANNOUNCEMENT_SURFACES) {
+      const row = map[key];
+      if (!row || typeof row !== "object") continue;
+      const item = row as Record<string, unknown>;
+      surfaces[key] = {
+        enabled: item.enabled !== false,
+        method: item.method === "marquee" ? "marquee" : "list",
+        limit: normalizeSurfaceLimit(item.limit),
+      };
+    }
+  }
+
   return {
     categories,
     displayMethod,
     defaultRemindersEnabled: data?.defaultRemindersEnabled !== false,
+    surfaces,
   };
+}
+
+/** 閱讀權限顯示文字：「無（公開）」或身分名稱串接 */
+export function announcementPermissionText(
+  audience: AnnouncementAudience,
+  isPublic: boolean
+): string {
+  if (isPublic) return "無（公開）";
+  const roles = audience.roles ?? [];
+  if (roles.length === 0) return "—";
+  return roles.map((role) => ROLE_LABELS[role]).join("、");
 }
 
 export function announcementCategoryName(

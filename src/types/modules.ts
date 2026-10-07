@@ -108,7 +108,7 @@ export const MODULES = [
   },
   {
     value: "announcements",
-    label: "公告管理",
+    label: "系統公告管理",
     category: "校務資料",
     description: "發佈與管理校園公告，可依身分與班級設定可見範圍；其他模組可經接口掛勾發文。",
     scope: "assignable",

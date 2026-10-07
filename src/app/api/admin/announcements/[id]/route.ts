@@ -16,12 +16,12 @@ import type { AnnouncementAudience } from "@/types/announcements";
 
 const noStore = { "Cache-Control": "no-store" };
 
-function parseAudience(raw: unknown): AnnouncementAudience | null {
+function parseAudience(raw: unknown, allowEmptyRoles = false): AnnouncementAudience | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
   const rawRoles = Array.isArray(data.roles) ? data.roles : [];
   const roles = ALL_ROLES.filter((role) => rawRoles.includes(role));
-  if (roles.length === 0) return null;
+  if (roles.length === 0 && !allowEmptyRoles) return null;
   const classCodes = Array.isArray(data.classCodes)
     ? (data.classCodes as unknown[])
         .filter((code): code is string => typeof code === "string" && code.trim() !== "")
@@ -86,10 +86,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    // 閱讀權限：「無」＝公開（isPublic）；未帶此欄位時沿用現值判斷
+    const isPublic = typeof body.isPublic === "boolean" ? body.isPublic : undefined;
+    const effectivePublic = isPublic ?? existing.isPublic;
     const audience =
-      body.audience !== undefined ? parseAudience(body.audience) : undefined;
+      body.audience !== undefined ? parseAudience(body.audience, effectivePublic) : undefined;
     if (body.audience !== undefined && !audience) {
-      return NextResponse.json({ success: false, message: "公告對象無效" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: "公告閱讀權限無效（請選擇「無」或至少一個身分）" },
+        { status: 400 }
+      );
     }
 
     const status =
@@ -104,6 +110,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       body: typeof body.body === "string" ? body.body : undefined,
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
       audience: audience ?? undefined,
+      isPublic,
       publishAt: typeof body.publishAt === "number" ? body.publishAt : undefined,
       expireAt:
         body.expireAt === null

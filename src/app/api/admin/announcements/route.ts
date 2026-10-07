@@ -15,12 +15,12 @@ import type { AnnouncementAudience } from "@/types/announcements";
 
 const noStore = { "Cache-Control": "no-store" };
 
-function parseAudience(raw: unknown): AnnouncementAudience | null {
+function parseAudience(raw: unknown, allowEmptyRoles = false): AnnouncementAudience | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
   const rawRoles = Array.isArray(data.roles) ? data.roles : [];
   const roles = ALL_ROLES.filter((role) => rawRoles.includes(role));
-  if (roles.length === 0) return null;
+  if (roles.length === 0 && !allowEmptyRoles) return null;
   const classCodes = Array.isArray(data.classCodes)
     ? (data.classCodes as unknown[])
         .filter((code): code is string => typeof code === "string" && code.trim() !== "")
@@ -82,9 +82,14 @@ export async function POST(request: NextRequest) {
     if (!body) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
     }
-    const audience = parseAudience(body.audience);
+    // 閱讀權限：「無」＝公開（isPublic，不需登入），與身分選項互斥
+    const isPublic = body.isPublic === true;
+    const audience = parseAudience(body.audience, isPublic);
     if (!audience) {
-      return NextResponse.json({ success: false, message: "公告對象無效" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: "公告閱讀權限無效（請選擇「無」或至少一個身分）" },
+        { status: 400 }
+      );
     }
 
     const period = await getCurrentPeriod();
@@ -94,6 +99,7 @@ export async function POST(request: NextRequest) {
       body: typeof body.body === "string" ? body.body : "",
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
       audience,
+      isPublic,
       authorUid: session.uid,
       authorName: session.displayName || session.account,
       authorRole: "admin",
@@ -108,7 +114,7 @@ export async function POST(request: NextRequest) {
       role: "admin",
       action: "announcements_created",
       ip: getClientIp(request),
-      details: `建立公告（id=${id}，學年 ${period.academicYear}-${period.semester}）`,
+      details: `建立公告（id=${id}，閱讀權限=${isPublic ? "無（公開）" : audience.roles.join("、") || "—"}，學年 ${period.academicYear}-${period.semester}）`,
     });
 
     const announcements = await listAdminAnnouncements({ includeArchived: true });

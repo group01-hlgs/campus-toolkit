@@ -42,6 +42,8 @@ export default function AnnouncementsInbox({
   const [roles, setRoles] = useState<UserRole[]>(
     role === "staff" ? ["student", "parent"] : [role]
   );
+  /** 閱讀權限＝「無」（公開，不需登入可見） */
+  const [isPublic, setIsPublic] = useState(false);
   const [classScoped, setClassScoped] = useState(false);
   const [posting, setPosting] = useState(false);
   const [dismissedBanners, setDismissedBanners] = useState<string[]>([]);
@@ -116,8 +118,9 @@ export default function AnnouncementsInbox({
         body: JSON.stringify({
           title,
           body,
-          roles,
-          classCodes: classScoped && classCode ? [classCode] : [],
+          isPublic,
+          roles: isPublic ? [] : roles,
+          classCodes: isPublic ? [] : classScoped && classCode ? [classCode] : [],
         }),
       });
       const data: InboxResponse | null = await res.json().catch(() => null);
@@ -225,15 +228,32 @@ export default function AnnouncementsInbox({
               />
             </div>
             <div>
-              <span className="block text-xs text-t2 mb-1">對象身分</span>
+              <span className="block text-xs text-t2 mb-1">閱讀權限</span>
               <div className="flex flex-wrap gap-3">
+                <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                  <input
+                    type="checkbox"
+                    checked={isPublic}
+                    onChange={(e) => {
+                      setIsPublic(e.target.checked);
+                      if (e.target.checked) setClassScoped(false);
+                    }}
+                  />
+                  無（公開，不需登入即可看見）
+                </label>
                 {(role === "staff"
                   ? (["student", "parent", "staff"] as UserRole[])
                   : [role]
                 ).map((r) => (
-                  <label key={r} className="inline-flex items-center gap-1.5 text-sm text-t1">
+                  <label
+                    key={r}
+                    className={`inline-flex items-center gap-1.5 text-sm ${
+                      isPublic ? "text-t3" : "text-t1"
+                    }`}
+                  >
                     <input
                       type="checkbox"
+                      disabled={isPublic}
                       checked={roles.includes(r)}
                       onChange={() =>
                         setRoles((prev) =>
@@ -245,11 +265,19 @@ export default function AnnouncementsInbox({
                   </label>
                 ))}
               </div>
+              <p className="text-xs text-t3 mt-1">
+                勾選「無」＝任何人均可看見、不需先登入；勾選身分＝僅該身分可見（可多選）。
+              </p>
             </div>
             {role === "staff" && classCode && (
-              <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+              <label
+                className={`inline-flex items-center gap-1.5 text-sm ${
+                  isPublic ? "text-t3" : "text-t1"
+                }`}
+              >
                 <input
                   type="checkbox"
+                  disabled={isPublic}
                   checked={classScoped}
                   onChange={(e) => setClassScoped(e.target.checked)}
                 />
@@ -377,6 +405,11 @@ function AnnouncementCard({
       <div className="flex items-start justify-between gap-2">
         <h4 className="font-bold text-t1">{item.title}</h4>
         <div className="flex shrink-0 gap-1.5">
+          {item.isPublic && (
+            <span className="text-xs text-t2 border border-themed rounded px-1.5 py-0.5">
+              公開
+            </span>
+          )}
           {item.pinned && (
             <span className="text-xs text-success border border-success rounded px-1.5 py-0.5">
               置頂

@@ -7,19 +7,25 @@ import {
   ANNOUNCEMENTS_COLLECTION,
   ANNOUNCEMENT_REMINDERS_COLLECTION,
   ANNOUNCEMENT_SETTINGS_DOC_ID,
+  ANNOUNCEMENT_SURFACES,
   AnnouncementAudience,
   AnnouncementCategory,
   AnnouncementDisplayMethod,
   AnnouncementRecord,
   AnnouncementReminderItem,
   AnnouncementSettings,
+  AnnouncementSurface,
+  AnnouncementSurfaceItem,
+  AnnouncementSurfaces,
   announcementCategoryName,
   announcementToFirestore,
   audienceClassScoped,
+  defaultAnnouncementSurfaces,
   DEFAULT_ANNOUNCEMENT_CATEGORIES,
   DEFAULT_ANNOUNCEMENT_SETTINGS,
   isAnnouncementReadable,
   isExpiringSoon,
+  normalizeSurfaceLimit,
   readAnnouncementRecord,
   readAnnouncementSettings,
   validateAnnouncementInput,
@@ -41,9 +47,12 @@ import { UserRole } from "@/types/users";
  */
 
 const INBOX_CACHE_PREFIX = "announcements:inbox:";
+const SURFACE_CACHE_PREFIX = "announcements:surface:";
 const INBOX_TTL_MS = 15_000;
 const ADMIN_LIST_LIMIT = 100;
 const INBOX_LIMIT = 50;
+/** 顯示位置一次取回的上限（排序後再依設定筆數截斷） */
+const SURFACE_FETCH_LIMIT = 30;
 
 /** 讀取公告模組設定（settings/announcements，30 秒快取） */
 export async function getAnnouncementSettings(): Promise<AnnouncementSettings> {
@@ -64,9 +73,10 @@ export async function getAnnouncementSettings(): Promise<AnnouncementSettings> {
   }
 }
 
-/** 公告變更後：清收件匣快取＋管理端清單（epoch） */
+/** 公告變更後：清收件匣／顯示位置快取＋管理端清單（epoch） */
 export function invalidateAnnouncementsCache(): void {
   invalidateReadCache(INBOX_CACHE_PREFIX);
+  invalidateReadCache(SURFACE_CACHE_PREFIX);
   // 管理端清單若日後改用 cachedListRead，epoch 遞增會一併涵蓋；
   // 目前管理清單直讀＋短 TTL，此呼叫同步清 settings 相關無害
   void invalidateAdminListCache();
@@ -81,6 +91,8 @@ export interface PublishFromModuleInput {
   authorName: string;
   authorRole: UserRole;
   audience: AnnouncementAudience;
+  /** 閱讀權限＝「無」（公開，不需登入可見） */
+  isPublic?: boolean;
   categoryId?: string;
   publishAt?: number;
   expireAt?: number | null;
@@ -101,6 +113,7 @@ export async function publishFromModule(input: PublishFromModuleInput): Promise<
     body: input.body,
     categoryId: input.categoryId,
     audience: input.audience,
+    isPublic: input.isPublic,
     publishAt: input.publishAt,
     expireAt: input.expireAt ?? null,
     pinned: input.pinned,
@@ -121,6 +134,7 @@ export async function publishFromModule(input: PublishFromModuleInput): Promise<
     authorName: input.authorName,
     authorRole: input.authorRole,
     audience: validation.value.audience,
+    isPublic: validation.value.isPublic,
     status: "published",
     publishAt: validation.value.publishAt,
     expireAt: validation.value.expireAt,
@@ -156,6 +170,7 @@ export async function updateAnnouncement(
     body?: string;
     categoryId?: string;
     audience?: AnnouncementAudience;
+    isPublic?: boolean;
     publishAt?: number;
     expireAt?: number | null;
     pinned?: boolean;
@@ -174,6 +189,7 @@ export async function updateAnnouncement(
     body: patch.body ?? current.body,
     categoryId: patch.categoryId ?? current.categoryId,
     audience: patch.audience ?? current.audience,
+    isPublic: patch.isPublic === undefined ? current.isPublic : patch.isPublic,
     publishAt: patch.publishAt ?? current.publishAt,
     expireAt: patch.expireAt === undefined ? (current.expireAt ?? null) : patch.expireAt,
     pinned: patch.pinned ?? current.pinned,
@@ -188,6 +204,7 @@ export async function updateAnnouncement(
     body: validation.value.body,
     categoryId: validation.value.categoryId,
     audience: validation.value.audience,
+    isPublic: validation.value.isPublic,
     publishAt: validation.value.publishAt,
     expireAt: validation.value.expireAt,
     pinned: validation.value.pinned,
@@ -276,6 +293,7 @@ export async function listInboxAnnouncements(
         audienceRoles: record.audience.roles,
         classScoped: scoped,
         classCodes: record.audience.classCodes,
+        isPublic: record.isPublic === true,
         publishAt: record.publishAt,
         expireAt: record.expireAt,
         pinned: record.pinned === true,
@@ -291,6 +309,73 @@ export async function listInboxAnnouncements(
 }
 
 /** 讀取單則公告（管理端編輯用） */
+export interface SurfaceQuery {
+  surface: AnnouncementSurface;
+  /** null＝未登入（僅 `login` 顯示位置允許；只取閱讀權限＝「無」的公告） */
+  role: UserRole | null;
+  classCode?: string | null;
+}
+
+/**
+ * 顯示位置（系統首頁登入表單上方／四種身分功能首頁）的公告。
+ *
+ * 過濾下推（鐵律 2）：等值條件全寫在 Firestore 查詢上——
+ * - 未登入：`isPublic == true`（閱讀權限「無」）；
+ * - 一般身分：`audienceRoles array-contains role`（公開公告的 roles 含全身分，一併命中）；
+ * - 管理員：`status == published`（管理員功能首頁可見全部公告）。
+ * 班級／到期於記憶體過濾（同收件匣）；15 秒 cachedRead，寫入後由
+ * `invalidateAnnouncementsCache()` 清前綴失效。
+ */
+export async function listSurfaceAnnouncements(
+  query: SurfaceQuery,
+  limit: number
+): Promise<AnnouncementSurfaceItem[]> {
+  const { surface, role, classCode } = query;
+  const take = normalizeSurfaceLimit(limit);
+  const cacheKey = `${SURFACE_CACHE_PREFIX}${surface}:${role ?? "guest"}:${classCode || "*"}:${take}`;
+  return cachedRead(cacheKey, INBOX_TTL_MS, async () => {
+    const settings = await getAnnouncementSettings();
+    let request = getAdminDb()
+      .collection(ANNOUNCEMENTS_COLLECTION)
+      .where("status", "==", "published");
+    if (!role) {
+      request = request.where("isPublic", "==", true);
+    } else if (role !== "admin") {
+      request = request.where("audienceRoles", "array-contains", role);
+    }
+    const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
+    const now = Date.now();
+    const items: AnnouncementSurfaceItem[] = [];
+    for (const doc of snap.docs) {
+      const record = readAnnouncementRecord(doc.id, doc.data());
+      if (!record) continue;
+      if (!isAnnouncementReadable(record, now)) continue;
+      if (audienceClassScoped(record.audience)) {
+        if (!classCode || !record.audience.classCodes.includes(classCode)) continue;
+      }
+      items.push({
+        id: record.id,
+        title: record.title,
+        body: record.body,
+        categoryId: record.categoryId,
+        categoryName: announcementCategoryName(settings, record.categoryId),
+        sourceModule: record.sourceModule,
+        authorName: record.authorName,
+        publishAt: record.publishAt,
+        expireAt: record.expireAt,
+        pinned: record.pinned === true,
+        isPublic: record.isPublic === true,
+      });
+    }
+    items.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return b.publishAt - a.publishAt;
+    });
+    return items.slice(0, take);
+  });
+}
+
+/** 讀取單則公告（管理端編輯用） */
 export async function getAnnouncement(id: string): Promise<AnnouncementRecord | null> {
   const snap = await getAdminDb().collection(ANNOUNCEMENTS_COLLECTION).doc(id).get();
   if (!snap.exists) return null;
@@ -302,6 +387,7 @@ export async function saveAnnouncementSettings(input: {
   categories?: AnnouncementCategory[];
   displayMethod?: AnnouncementDisplayMethod;
   defaultRemindersEnabled?: boolean;
+  surfaces?: Partial<AnnouncementSurfaces>;
 }): Promise<AnnouncementSettings> {
   const current = await getAnnouncementSettings();
   const categories = Array.isArray(input.categories)
@@ -314,6 +400,22 @@ export async function saveAnnouncementSettings(input: {
         }))
         .filter((item) => item.id && item.name)
     : current.categories;
+  // 顯示位置：逐 key 套用；未提供的 key 沿用現值（缺欄位時退回預設）
+  const surfaces: AnnouncementSurfaces = {
+    ...defaultAnnouncementSurfaces(),
+    ...current.surfaces,
+  };
+  if (input.surfaces && typeof input.surfaces === "object") {
+    for (const key of ANNOUNCEMENT_SURFACES) {
+      const patch = input.surfaces[key];
+      if (!patch || typeof patch !== "object") continue;
+      surfaces[key] = {
+        enabled: patch.enabled !== false,
+        method: patch.method === "marquee" ? "marquee" : "list",
+        limit: normalizeSurfaceLimit(patch.limit),
+      };
+    }
+  }
   const next: AnnouncementSettings = {
     categories: categories.length > 0 ? categories : [...DEFAULT_ANNOUNCEMENT_CATEGORIES],
     displayMethod: input.displayMethod ?? current.displayMethod,
@@ -321,6 +423,7 @@ export async function saveAnnouncementSettings(input: {
       typeof input.defaultRemindersEnabled === "boolean"
         ? input.defaultRemindersEnabled
         : current.defaultRemindersEnabled,
+    surfaces,
   };
   await getAdminDb()
     .collection("settings")

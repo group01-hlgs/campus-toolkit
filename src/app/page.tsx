@@ -13,6 +13,7 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import AnnouncementSurface from "@/components/AnnouncementSurface";
 import { fetchSettings } from "@/lib/settings-client";
 
 /** 本頁生命週期內 GIS 已確定不可用（冷卻／封鎖／交換失敗）：後續點擊直接走彈窗 */
@@ -437,6 +438,9 @@ export default function Home() {
           <p className="text-t2 text-sm mt-1">目前僅有管理員登入後可以使用</p>
         </div>
       )}
+
+      {/* 系統公告（閱讀權限＝「無」者顯示；不需登入即可閱讀） */}
+      <AnnouncementSurface surface="login" className="w-full max-w-md mb-4" />
 
       {/* 登入表單 */}
       <div className="w-full max-w-md border border-themed rounded-lg p-8">
