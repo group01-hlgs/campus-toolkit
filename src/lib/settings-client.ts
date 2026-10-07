@@ -20,6 +20,8 @@ export interface SettingsResponse {
   /** 已併入預設值前的原始設定（各頁自行以 defaultSettings 補預設值） */
   settings?: Partial<Settings>;
   manageable?: boolean;
+  /** 目前身分可見的功能模組代碼（提供功能 AND 顯示與否；未登入＝空陣列） */
+  visibleModules?: string[];
   /** 清單快取的跨實例失效旗標（number；缺漏表示尚未取得） */
   cacheEpoch?: number;
 }

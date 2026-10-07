@@ -38,6 +38,8 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [displayName, setDisplayName] = useState("");
+  // 可見功能模組清單；null＝尚未載入（先顯示既有卡片，避免閃爍）
+  const [visibleModules, setVisibleModules] = useState<string[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,10 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }
+        // 目前身分可見的功能模組（提供功能 AND 顯示與否）
+        if (data && Array.isArray(data.visibleModules)) {
+          setVisibleModules(data.visibleModules);
+        }
       } catch (error) {
         console.error("載入設定失敗:", error);
       }
@@ -82,9 +88,13 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const accountHref = `${ROLE_HOME[role]}/account`;
   const settingsHref = `${ROLE_HOME[role]}/settings`;
   // 功能入口卡片：順序比照主程式管理員首頁（系統設定 → 帳號、身分與安全管理）
+  // 「帳號、身分與安全管理」依功能模組「顯示與否」過濾（提供功能對四身分皆為是）
+  // 個人「設定」頁為個人偏好、非功能模組入口，不套顯示開關
+  const accountVisible =
+    visibleModules === null || visibleModules.includes("account");
   const entryCards = [
     { ...settingsModule, id: "settings", href: settingsHref },
-    { ...accountModule, id: "account", href: accountHref },
+    ...(accountVisible ? [{ ...accountModule, id: "account", href: accountHref }] : []),
   ];
 
   return (

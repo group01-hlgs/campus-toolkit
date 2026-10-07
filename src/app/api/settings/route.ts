@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import {
   hasSettingsManage,
+  isSuperAdmin,
   requireSettingsManage,
   toAuthResponse,
   verifySession,
@@ -13,6 +14,7 @@ import { Settings, defaultSettings } from "@/types/settings";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateSettingsCache, readSystemDoc, getCacheEpoch, bumpCacheEpoch, CACHE_EPOCH_FIELD } from "@/lib/settings-server";
 import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
+import { getVisibleFeatureModuleValues } from "@/lib/feature-modules";
 import { ROLE_ENABLED_FIELD } from "@/types/role-settings";
 import { FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD } from "@/types/feature-modules";
 
@@ -88,11 +90,19 @@ export async function GET(request: NextRequest) {
     // 不再重複打 Firestore）；寫入後同程序會 invalidateSettingsCache，維持正確性
     const data = (await readSystemDoc()) ?? {};
     const settings = pickSettings(data);
+    // 目前身分可見的功能模組（提供功能 AND 顯示與否）：首頁卡片過濾用
+    // 超級對 superOnly 模組不因顯示關閉而失效（isSuperAdmin 讀名冊條目 attribute）
+    const visibleModules = session
+      ? await getVisibleFeatureModuleValues(session.role, {
+          isSuper: session.role === "admin" ? await isSuperAdmin(session) : false,
+        })
+      : [];
     return NextResponse.json(
       {
         success: true,
         settings: manageable ? settings : pickPublicSettings(settings),
         manageable,
+        visibleModules,
         // 清單快取的跨實例失效旗標：前端 list-store 以此判斷已持有的清單是否需重抓
         cacheEpoch: await getCacheEpoch(),
       },
@@ -104,6 +114,7 @@ export async function GET(request: NextRequest) {
         success: true,
         settings: pickPublicSettings(defaultSettings),
         manageable: false,
+        visibleModules: [],
         cacheEpoch: await getCacheEpoch().catch(() => 0),
       },
       { headers: { "Cache-Control": "no-store" } }

@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
 /**
  * PATCH：更新功能模組設定（僅超級管理員），兩種操作：
  * - `{ value, enabled }` → 選用模組總開關（僅「選用＋已上線」可切換）；
- * - `{ value, role, enabled }` → 該模組對單一身分的開關（不限內建／選用、不限上線狀態）。
+ * - `{ value, role, enabled }` → 該模組對單一身分的**顯示與否**（提供功能＝否時不可打開）。
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -83,16 +83,24 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
     }
 
-    // 「模組 × 身分」開關
+    // 「模組 × 身分」顯示開關
     if (body.role !== undefined && body.role !== null) {
       if (!isUserRole(body.role)) {
         return NextResponse.json({ success: false, message: "身分無效" }, { status: 400 });
       }
       const role = body.role;
+      // 提供功能＝否的身分：顯示強制為關，不接受打開（由模組作者決定，管理端唯讀）
+      if (!meta.provides[role] && enabled) {
+        return NextResponse.json(
+          { success: false, message: `「${meta.label}」未提供給「${ROLE_LABELS[role]}」身分，無法開啟顯示` },
+          { status: 400 }
+        );
+      }
+      const nextVisible = meta.provides[role] ? enabled : false;
       const current = await getFeatureModuleRoles();
       const next: FeatureModuleRolesMap = {
         ...current,
-        [meta.value]: { ...current[meta.value], [role]: enabled },
+        [meta.value]: { ...current[meta.value], [role]: nextVisible },
       };
       await getAdminDb()
         .collection(SETTINGS_COLLECTION)
@@ -105,12 +113,12 @@ export async function PATCH(request: NextRequest) {
         role: "admin",
         action: "feature_module_role_updated",
         ip: getClientIp(request),
-        details: `將「${meta.label}」對「${ROLE_LABELS[role]}」身分的功能設為「${enabled ? "啟用" : "停用"}」`,
+        details: `將「${meta.label}」對「${ROLE_LABELS[role]}」身分的顯示設為「${nextVisible ? "顯示" : "隱藏"}」`,
       });
 
       return NextResponse.json({
         success: true,
-        message: `「${meta.label}」對${ROLE_LABELS[role]}身分已${enabled ? "啟用" : "停用"}`,
+        message: `「${meta.label}」對${ROLE_LABELS[role]}身分已${nextVisible ? "顯示" : "隱藏"}`,
         roles: next,
       });
     }

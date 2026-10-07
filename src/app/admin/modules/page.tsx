@@ -68,19 +68,53 @@ function HelpToggle({
   );
 }
 
-/** 展開時插在該列下方的說明列（只在展開時渲染） */
-function DescriptionRow({ item, open, colSpan }: { item: FeatureModuleMeta; open: boolean; colSpan: number }) {
+/**
+ * 展開時插在該列下方的說明列（只在展開時渲染）：
+ * 模組說明＋作者／版本資訊＋「提供功能」唯讀矩陣。
+ */
+function DescriptionRow({
+  item,
+  open,
+  colSpan,
+}: {
+  item: FeatureModuleMeta;
+  open: boolean;
+  colSpan: number;
+}) {
   if (!open) return null;
   return (
     <tr className="border-b border-themed last:border-0">
-      <td colSpan={colSpan} className="px-3 py-2 text-xs text-t3 bg-surface">
-        {item.description}
+      <td colSpan={colSpan} className="px-3 py-2 text-xs text-t3 bg-surface space-y-1.5">
+        <p>{item.description}</p>
+        <p>
+          作者：
+          <a
+            href={item.author.authorUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-t1"
+          >
+            {item.author.author}
+          </a>
+          ｜版本 {item.author.version}｜發布 {item.author.releasedAt}
+        </p>
+        <p>
+          提供功能（由模組作者決定，僅供檢視）：
+          {ALL_ROLES.map((role) => (
+            <span key={role} className="mr-2">
+              {ROLE_LABELS[role]}＝{item.provides[role] ? "是" : "否"}
+            </span>
+          ))}
+        </p>
       </td>
     </tr>
   );
 }
 
-/** 四種身分的開關（checkbox），一列共四格 */
+/**
+ * 四種身分的顯示與否（checkbox）：
+ * 提供功能＝否 → 文字「未提供」（不可操作）；提供功能＝是 → checkbox。
+ */
 function RoleCells({
   item,
   switches,
@@ -94,24 +128,38 @@ function RoleCells({
 }) {
   return (
     <>
-      {ALL_ROLES.map((role) => (
-        <td key={role} className="px-3 py-2 text-center">
-          <input
-            type="checkbox"
-            checked={switches?.[role] === true}
-            disabled={disabled}
-            onChange={(event) => onToggle(item, role, event.target.checked)}
-            aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分`}
-            title={disabled ? "僅超級管理員可調整，且同一時間只能處理一筆變更" : undefined}
-            className="accent-current cursor-pointer disabled:opacity-50"
-          />
-        </td>
-      ))}
+      {ALL_ROLES.map((role) => {
+        const provided = item.provides[role] === true;
+        if (!provided) {
+          return (
+            <td key={role} className="px-3 py-2 text-center text-xs text-t3">
+              未提供
+            </td>
+          );
+        }
+        return (
+          <td key={role} className="px-3 py-2 text-center">
+            <input
+              type="checkbox"
+              checked={switches?.[role] === true}
+              disabled={disabled}
+              onChange={(event) => onToggle(item, role, event.target.checked)}
+              aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
+              title={
+                disabled
+                  ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
+                  : "顯示與否（關閉＝暫時不顯示、禁止進入）"
+              }
+              className="accent-current cursor-pointer disabled:opacity-50"
+            />
+          </td>
+        );
+      })}
     </>
   );
 }
 
-/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入，身分開關決定哪些身分可用 */
+/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入；身分欄＝顯示與否 */
 function BuiltinRow({
   item,
   open,
@@ -146,12 +194,7 @@ function BuiltinRow({
         <td className="px-3 py-2 whitespace-nowrap">
           <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
         </td>
-        <RoleCells
-          item={item}
-          switches={switches}
-          disabled={disabled}
-          onToggle={onToggleRole}
-        />
+        <RoleCells item={item} switches={switches} disabled={disabled} onToggle={onToggleRole} />
         <td className="px-3 py-2 whitespace-nowrap text-right">
           {enterable ? (
             <button
@@ -171,7 +214,7 @@ function BuiltinRow({
   );
 }
 
-/** 選用功能模組列表列：總開關＋四種身分開關，僅超級管理員可切換 */
+/** 選用功能模組列表列：總開關＋四種身分顯示與否，僅超級管理員可切換 */
 function OptionalRow({
   item,
   open,
@@ -241,12 +284,7 @@ function OptionalRow({
             )}
           </span>
         </td>
-        <RoleCells
-          item={item}
-          switches={switches}
-          disabled={!isSuper || saving}
-          onToggle={onToggleRole}
-        />
+        <RoleCells item={item} switches={switches} disabled={!isSuper || saving} onToggle={onToggleRole} />
       </tr>
       <DescriptionRow item={item} open={open} colSpan={7} />
     </>
@@ -255,17 +293,16 @@ function OptionalRow({
 
 /**
  * 「功能模組管理」入口（僅超級管理員）：
- * 內建／選用兩份功能模組列表，說明由名稱旁 ? 就地展開；
- * 選用模組有總開關，所有模組另有四種身分各自的開關
- * （身分開關目前僅維護設定資料，各身分端的套用隨模組上線進度接上）。
+ * 內建／選用兩份功能模組列表，說明與作者／版本／提供功能由名稱旁 ? 就地展開；
+ * 選用模組有總開關；四種身分欄＝**顯示與否**（提供功能＝否顯示「未提供」）。
  */
 export default function ModulesPage() {
   const router = useRouter();
-  // 總開關與身分開關：null＝載入中（fail-closed，先當全部未啟用）
+  // 總開關與顯示開關：null＝載入中（fail-closed，先當全部未啟用）
   const [enabled, setEnabled] = useState<FeatureModulesEnabledMap | null>(null);
   const [roles, setRoles] = useState<FeatureModuleRolesMap | null>(null);
   const [isSuper, setIsSuper] = useState(false);
-  // 處理中的鍵：總開關＝模組代碼；身分開關＝「模組代碼:身分」
+  // 處理中的鍵：總開關＝模組代碼；顯示開關＝「模組代碼:身分」
   const [saving, setSaving] = useState<string | null>(null);
   const [openDesc, setOpenDesc] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
@@ -296,7 +333,7 @@ export default function ModulesPage() {
     };
   }, []);
 
-  /** 送出 PATCH，成功後依回應更新總開關或身分開關 */
+  /** 送出 PATCH，成功後依回應更新總開關或顯示開關 */
   async function patch(body: Record<string, unknown>, key: string) {
     if (saving) return;
     setSaving(key);
@@ -326,7 +363,7 @@ export default function ModulesPage() {
     void patch({ value: item.value, enabled: next }, item.value);
   }
 
-  /** 模組 × 身分開關 */
+  /** 模組 × 身分顯示與否 */
   function toggleRole(item: FeatureModuleMeta, role: UserRole, next: boolean) {
     void patch({ value: item.value, role, enabled: next }, `${item.value}:${role}`);
   }
@@ -356,8 +393,9 @@ export default function ModulesPage() {
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
           <p className="text-xs text-t3">
-            隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的 ? 可展開說明，
-            四種身分開關決定哪些身分可用此功能（目前先記錄設定，實際套用隨各模組上線進度接上）。
+            隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的 ? 可展開說明與作者版本資訊；
+            四種身分欄為「顯示與否」（提供功能＝否者顯示「未提供」；關閉＝暫時不顯示、禁止進入，
+            目前先記錄設定，實際套用隨各模組上線進度接上）。
           </p>
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
@@ -412,7 +450,7 @@ export default function ModulesPage() {
           <h3 className="text-lg font-bold text-t1">選用功能模組</h3>
           <p className="text-xs text-t3">
             每個模組有一個總開關，由超級管理員啟用／停用（尚未上線者不可啟用）；
-            總開關之外，四種身分開關可隨時個別調整（目前先記錄設定，實際套用隨各模組上線進度接上）。
+            總開關之外，四種身分欄為「顯示與否」（提供功能＝否者顯示「未提供」）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
@@ -483,10 +521,14 @@ export default function ModulesPage() {
           </li>
           <li>
             <span className="font-bold text-t1">僅超級管理員</span>
-            ：不開放指派，只有超級屬性可用（學校基本設定、功能模組管理）。
+            ：不開放指派，只有超級屬性可用（學校基本設定、功能模組管理、統計儀表板）。
           </li>
           <li>
             此層權限決定管理員首頁卡片是否顯示，以及對應 API 是否放行（未具備一律 403）。
+          </li>
+          <li>
+            「顯示與否」關閉時，該身分首頁不顯示此模組入口；
+            API 仍以「指定功能模組」權限把關（不因顯示關閉而額外阻擋）。
           </li>
         </ul>
       </section>

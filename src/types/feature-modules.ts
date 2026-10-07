@@ -13,14 +13,21 @@
  * （與身分開關 `roleEnabled` 同一文件、同一套覆寫保留策略），
  * 僅超級管理員可在功能模組管理頁切換；內建模組恒為啟用、不入此欄位。
  * 欄位不存在＝選用模組一律未啟用（fail-safe：未經允許不啟用）。
- * 每個模組（內建＋選用）對四種身分的開關存於同文件的 `featureModuleRoles` 欄位
- * （`Record<模組代碼, Record<身分, boolean>>`），欄位不存在＝一律啟用（fail-safe：預設全開）。
- * 本頁目前只維護設定資料，各身分端的實際攔截另行接上。
+ *
+ * **身分可用性分兩層**：
+ * - **提供功能**（`provides`）：產品層級、**唯讀**——由模組作者在本註冊表決定
+ *   「這模組有沒有做給該身分用」，管理頁只能檢視、不能改。
+ * - **顯示與否**：運維層級，存於 `settings/system.featureModuleRoles`
+ *   （`Record<模組代碼, Record<身分, boolean>>`）——有提供但暫時不開放進入／顯示。
+ *   規則：`provides[role] === false` → 顯示強制為否（「未提供」）；
+ *   `provides === true` → 顯示開關生效，**缺省＝顯示**（欄位不存在＝啟用，fail-safe）。
+ * 本頁目前只維護設定資料，各身分端的實際攔截隨模組上線進度接上
+ * （首頁卡片已依顯示與否過濾；API 維持「指定功能模組」守門，不因顯示關閉而額外阻擋）。
  * 變更歷史另記錄於稽核紀錄（`feature_module_updated`／`feature_module_role_updated`）。
  */
 
 import { MODULES, type ModuleStatus } from "./modules";
-import { ALL_ROLES, type UserRole } from "./users";
+import { ALL_ROLES, SUPER_ONLY_ADMIN_MODULES, type UserRole } from "./users";
 
 /** 內建（隨主程式提供、一律啟用）／選用（由超級管理員決定是否啟用） */
 export type FeatureModuleKind = "builtin" | "optional";
@@ -39,6 +46,24 @@ export const FEATURE_MODULE_KIND_LABELS: Record<FeatureModuleKind, string> = {
   optional: "選用",
 };
 
+/** 模組作者與版本資訊（產品層級靜態資料，隨主程式或模組提供） */
+export interface FeatureModuleAuthor {
+  author: string;
+  /** 作者資訊連結（如 GitHub） */
+  authorUrl: string;
+  version: string;
+  /** 版本（發布）日期，格式自由（如 `2026-10-10 08:00`） */
+  releasedAt: string;
+}
+
+/** 目前全站模組共用的佔位作者資訊（日後各模組可各自覆寫） */
+export const DEFAULT_MODULE_AUTHOR: FeatureModuleAuthor = {
+  author: "張家誠",
+  authorUrl: "https://github.com/takan003",
+  version: "1.0",
+  releasedAt: "2026-10-10 08:00",
+};
+
 export interface FeatureModuleMeta {
   /** 模組代碼（選用模組啟用狀態欄位 `featureModulesEnabled` 的鍵） */
   value: string;
@@ -48,6 +73,13 @@ export interface FeatureModuleMeta {
   description: string;
   /** 模組入口路由（""＝尚未建頁） */
   href: string;
+  /** 作者與版本資訊（唯讀展示） */
+  author: FeatureModuleAuthor;
+  /**
+   * 提供功能（**唯讀**，由模組作者決定）：
+   * 該模組有沒有做給該身分用。false → 管理頁顯示「未提供」、顯示開關無效。
+   */
+  provides: Record<UserRole, boolean>;
 }
 
 /** 管理端權限單位的實作狀態 → 功能模組狀態（built＝已上線、apiOnly＝開發中） */
@@ -56,6 +88,28 @@ const PERMISSION_STATUS: Record<ModuleStatus, FeatureModuleStatus> = {
   apiOnly: "building",
   planned: "planned",
 };
+
+/** 個人帳號安全：四身分皆提供 */
+const PROVIDES_ALL = {
+  student: true,
+  parent: true,
+  staff: true,
+  admin: true,
+} as const satisfies Record<UserRole, boolean>;
+
+/** 管理端權限模組：僅管理員提供 */
+const PROVIDES_ADMIN_ONLY = {
+  student: false,
+  parent: false,
+  staff: false,
+  admin: true,
+} as const satisfies Record<UserRole, boolean>;
+
+/**
+ * 超級專屬功能模組代碼（由 `types/modules.ts` 的 superOnly 派生）：
+ * 超級管理員的首頁入口**不因「顯示與否」關閉而消失**（保命線，避免把自己鎖在門外）。
+ */
+export const SUPER_ONLY_FEATURE_MODULE_VALUES: readonly string[] = SUPER_ONLY_ADMIN_MODULES;
 
 /**
  * 內建的管理端功能模組：個人卡片「帳號、身分與安全管理」
@@ -70,6 +124,8 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "live",
     description: "維護自己的個人資料、密碼與兩階段驗證等帳號安全設定。",
     href: "/admin/admins",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
   ...MODULES.map((item) => ({
     value: item.value as string,
@@ -78,6 +134,8 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: PERMISSION_STATUS[item.status],
     description: item.description,
     href: item.href,
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ADMIN_ONLY,
   })),
 ];
 
@@ -91,6 +149,8 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "planned",
     description: "發佈與管理校園公告，可依身分與班級設定可見範圍。",
     href: "",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
   {
     value: "calendar",
@@ -99,6 +159,8 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "planned",
     description: "校務行事曆與各類日程的建立、發佈與檢視。",
     href: "",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
   {
     value: "spaceBooking",
@@ -107,6 +169,8 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "planned",
     description: "教室、場地等學校空間的預約、審核與使用紀錄。",
     href: "",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
   {
     value: "examRegistration",
@@ -115,6 +179,8 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "planned",
     description: "升學相關考試與模擬考的報名、造冊與名單管理。",
     href: "",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
   {
     value: "selfLearning",
@@ -123,6 +189,8 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "planned",
     description: "自主學習計畫的申請、歷程記錄與審查。",
     href: "",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
   {
     value: "learningPortfolio",
@@ -131,6 +199,8 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "planned",
     description: "學習歷程檔案的收集、整理與提交。",
     href: "",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
   {
     value: "attendance",
@@ -139,6 +209,8 @@ export const FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "planned",
     description: "課堂點名、缺曠紀錄與出缺統計。",
     href: "",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: PROVIDES_ALL,
   },
 ];
 
@@ -177,19 +249,20 @@ export function readFeatureModulesEnabled(raw: unknown): FeatureModulesEnabledMa
   return out;
 }
 
-/** `settings/system` 上存「模組 × 身分」開關的欄位名 */
+/** `settings/system` 上存「模組 × 身分」顯示開關的欄位名（語意＝顯示與否，非提供功能） */
 export const FEATURE_MODULE_ROLES_FIELD = "featureModuleRoles";
 
-/** 單一模組對四種身分的啟用狀態 */
+/** 單一模組對四種身分的顯示開關（僅 applies於 provides＝true 的身分） */
 export type FeatureModuleRoleSwitches = Record<UserRole, boolean>;
 
-/** 全部功能模組 × 四種身分的啟用狀態（鍵＝模組代碼） */
+/** 全部功能模組 × 四種身分的顯示開關（鍵＝模組代碼） */
 export type FeatureModuleRolesMap = Record<string, FeatureModuleRoleSwitches>;
 
 /**
- * 讀回「模組 × 身分」開關：以註冊表為準逐模組、逐身分解析，
- * 只有明確存著 `false` 才視為關閉（僅承認布林值）；
- * 欄位不存在、該模組未存或值毀損＝一律視為啟用（fail-safe：預設全開）。
+ * 讀回「模組 × 身分」顯示開關：以註冊表為準逐模組、逐身分解析。
+ * - `provides[role] === false` → 強制 false（未提供，顯示開關無效）；
+ * - `provides === true` → 只有明確存著 `false` 才視為關閉；
+ *   欄位不存在、該模組未存或值毀損＝一律視為顯示（fail-safe：預設開啟）。
  */
 export function readFeatureModuleRoles(raw: unknown): FeatureModuleRolesMap {
   const out: FeatureModuleRolesMap = {};
@@ -199,9 +272,54 @@ export function readFeatureModuleRoles(raw: unknown): FeatureModuleRolesMap {
     const rowData = row && typeof row === "object" ? (row as Record<string, unknown>) : null;
     const switches = {} as FeatureModuleRoleSwitches;
     for (const role of ALL_ROLES) {
+      if (!item.provides[role]) {
+        switches[role] = false;
+        continue;
+      }
       switches[role] = !(rowData && rowData[role] === false);
     }
     out[item.value] = switches;
   }
   return out;
+}
+
+/** 該模組是否有提供給該身分（唯讀，產品層級） */
+export function isFeatureModuleProvided(value: string, role: UserRole): boolean {
+  const meta = featureModuleMeta(value);
+  return meta ? meta.provides[role] === true : false;
+}
+
+/**
+ * 該模組對該身分是否可見（＝提供功能 AND 顯示與否）。
+ * - provides＝false → false；
+ * - provides＝true → 顯示開關 !== false（缺省＝可見）；
+ * - super 對 superOnly 模組：即使顯示關閉仍回 true（保命線）。
+ */
+export function isFeatureModuleVisible(
+  value: string,
+  role: UserRole,
+  display: FeatureModuleRoleSwitches | undefined,
+  options?: { isSuper?: boolean }
+): boolean {
+  const meta = featureModuleMeta(value);
+  if (!meta || !meta.provides[role]) return false;
+  if (
+    options?.isSuper === true &&
+    role === "admin" &&
+    SUPER_ONLY_FEATURE_MODULE_VALUES.includes(value)
+  ) {
+    return true;
+  }
+  return display?.[role] !== false;
+}
+
+/** 某身分可見的功能模組代碼清單（供首頁卡片過濾） */
+export function visibleFeatureModuleValues(
+  role: UserRole,
+  rolesMap: FeatureModuleRolesMap,
+  options?: { isSuper?: boolean }
+): string[] {
+  return FEATURE_MODULES.filter((item) =>
+    isFeatureModuleVisible(item.value, role, rolesMap[item.value], options)
+  ).map((item) => item.value);
 }

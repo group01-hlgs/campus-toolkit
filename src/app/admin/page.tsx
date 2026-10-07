@@ -47,6 +47,8 @@ export default function AdminPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [user, setUser] = useState<UserSession | null>(null);
+  // 可見功能模組清單；null＝尚未載入（過濾前先維持原顯示，避免閃爍）
+  const [visibleModules, setVisibleModules] = useState<string[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +74,10 @@ export default function AdminPage() {
         if (data?.success && data.settings) {
           setSettings({ ...defaultSettings, ...data.settings });
         }
+        // 目前身分可見的功能模組（提供功能 AND 顯示與否）：卡片過濾用
+        if (data && Array.isArray(data.visibleModules)) {
+          setVisibleModules(data.visibleModules);
+        }
       } catch (error) {
         console.error("載入設定失敗:", error);
       }
@@ -96,12 +102,20 @@ export default function AdminPage() {
   }
 
   // 管理模組卡片：僅顯示被指派的模組（超級＝全部；讀不到權限＝不顯示）
-  // 個人卡片（帳號、身分與安全管理）不需權限，一律排在最後
+  // 再依「顯示與否」過濾（visibleModules 已含 superOnly 保命線：超級對專屬模組不受顯示關閉影響）
+  // visibleModules 尚未載入時先不過濾（避免首頁閃空）
   const gatedModules =
     user.adminModules == null
       ? []
-      : moduleCards.filter((item) => user.adminModules!.includes(item.id));
-  const visibleModules = [...gatedModules, personalCard];
+      : moduleCards.filter((item) => {
+          if (!user.adminModules!.includes(item.id)) return false;
+          if (visibleModules === null) return true;
+          return visibleModules.includes(item.id);
+        });
+  // 個人卡片（帳號、身分與安全管理）不需指派權限；顯示與否若明確關閉則隱藏
+  const personalVisible =
+    visibleModules === null || visibleModules.includes("account");
+  const visibleModulesCards = personalVisible ? [...gatedModules, personalCard] : gatedModules;
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
@@ -143,7 +157,7 @@ export default function AdminPage() {
       <hr className="content-width border-themed mb-4 mt-0" />
 
       {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
-      <DraggableModuleGrid items={visibleModules} storageKey="campusCardOrder.admin" />
+      <DraggableModuleGrid items={visibleModulesCards} storageKey="campusCardOrder.admin" />
 
       <hr className="content-width border-themed mb-4" />
 
