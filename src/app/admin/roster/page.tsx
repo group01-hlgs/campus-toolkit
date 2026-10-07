@@ -1395,17 +1395,20 @@ export default function RosterPage() {
         ))}
       </div>
 
-      {/* 工具列：搜尋、新增 */}
+      {/* 工具列：搜尋、新增（搜尋不受省流閘門限制——搜尋本就需要整份名冊） */}
       <div className="w-full max-w-5xl flex flex-wrap items-center gap-3 mb-4">
-        {!gating && (
-          <input
-            type="search"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜尋姓名、帳號、信箱、學號或班級"
-            className="flex-1 min-w-[200px] input-theme rounded px-3 py-2"
-          />
-        )}
+        <input
+          type="search"
+          value={keyword}
+          onChange={(e) => {
+            const value = e.target.value;
+            setKeyword(value);
+            // 閘門關著時開始搜尋＝直接解除「該名冊」的閘門並載入（載入後自動套用搜尋）
+            if (value && gating) void loadMembers(role);
+          }}
+          placeholder="搜尋姓名、帳號、信箱、學號或班級"
+          className="flex-1 min-w-[200px] input-theme rounded px-3 py-2"
+        />
         <button
           onClick={openCreate}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer ml-auto"
