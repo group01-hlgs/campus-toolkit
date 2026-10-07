@@ -62,12 +62,16 @@ export function isAnnouncementSurface(value: unknown): value is AnnouncementSurf
   return typeof value === "string" && (ANNOUNCEMENT_SURFACES as string[]).includes(value);
 }
 
-/** 顯示方式：指定筆數的清單／橫幅跑馬燈 */
+/**
+ * 顯示方式：清單＝單行（日期｜分類｜標題 20 字內）；
+ * 橫幅＝三行卡片（標題 20 字內／內容摘要 40 字內／公告資訊）。
+ * 儲存值沿用 `marquee`（＝橫幅）以免遷移舊設定。
+ */
 export type AnnouncementSurfaceMethod = "list" | "marquee";
 
 export const ANNOUNCEMENT_SURFACE_METHOD_LABELS: Record<AnnouncementSurfaceMethod, string> = {
-  list: "指定筆數清單",
-  marquee: "橫幅跑馬燈",
+  list: "清單",
+  marquee: "橫幅",
 };
 
 export interface AnnouncementSurfaceSetting {

@@ -445,32 +445,3 @@ mark {
   animation: fadeIn 0.2s ease-out;
 }
 
-/* 系統公告橫幅跑馬燈：內容複製兩份，位移 -50% 無縫接回；
-   每項以 padding-right 留間距（用 gap 會讓 -50% 對不齊） */
-.announcement-marquee {
-  overflow: hidden;
-}
-.announcement-marquee-track {
-  display: inline-flex;
-  white-space: nowrap;
-  will-change: transform;
-  animation: announcement-marquee 30s linear infinite;
-}
-.announcement-marquee-track > span {
-  padding-right: 2.5rem;
-}
-.announcement-marquee:hover .announcement-marquee-track {
-  animation-play-state: paused;
-}
-
-@keyframes announcement-marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .announcement-marquee-track {
-    animation: none;
-  }
-}
-
