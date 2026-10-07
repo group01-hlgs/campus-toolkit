@@ -17,10 +17,13 @@
  * **身分可用性分兩層**：
  * - **提供功能**（`provides`）：產品層級、**唯讀**——由模組作者在本註冊表決定
  *   「這模組有沒有做給該身分用」，管理頁只能檢視、不能改。
+ *   **預設所有模組四身分皆「提供」**（可由模組作者日後收窄）。
  * - **顯示與否**：運維層級，存於 `settings/system.featureModuleRoles`
  *   （`Record<模組代碼, Record<身分, boolean>>`）——有提供但暫時不開放進入／顯示。
  *   規則：`provides[role] === false` → 顯示強制為否（「未提供」）；
  *   `provides === true` → 顯示開關生效，**缺省＝顯示**（欄位不存在＝啟用，fail-safe）。
+ * - **超級管理員完全不受限制**：`role === "admin"` 且超級屬性時，
+ *   所有模組一律可見（不看 provides、不看顯示開關）。
  * 本頁目前只維護設定資料，各身分端的實際攔截隨模組上線進度接上
  * （首頁卡片已依顯示與否過濾；API 維持「指定功能模組」守門，不因顯示關閉而額外阻擋）。
  * 變更歷史另記錄於稽核紀錄（`feature_module_updated`／`feature_module_role_updated`）。
@@ -97,17 +100,10 @@ const PROVIDES_ALL = {
   admin: true,
 } as const satisfies Record<UserRole, boolean>;
 
-/** 管理端權限模組：僅管理員提供 */
-const PROVIDES_ADMIN_ONLY = {
-  student: false,
-  parent: false,
-  staff: false,
-  admin: true,
-} as const satisfies Record<UserRole, boolean>;
-
 /**
- * 超級專屬功能模組代碼（由 `types/modules.ts` 的 superOnly 派生）：
- * 超級管理員的首頁入口**不因「顯示與否」關閉而消失**（保命線，避免把自己鎖在門外）。
+ * 超級專屬功能模組代碼（由 `types/modules.ts` 的 superOnly 派生）。
+ * 超級管理員對**所有**模組完全不受「提供功能／顯示與否」限制（見 isFeatureModuleVisible）；
+ * 此清單僅供文件與管理頁說明引用。
  */
 export const SUPER_ONLY_FEATURE_MODULE_VALUES: readonly string[] = SUPER_ONLY_ADMIN_MODULES;
 
@@ -115,6 +111,7 @@ export const SUPER_ONLY_FEATURE_MODULE_VALUES: readonly string[] = SUPER_ONLY_AD
  * 內建的管理端功能模組：個人卡片「帳號、身分與安全管理」
  * ＋管理端權限單位（types/modules.ts 的 MODULES，含尚未建頁的稽核紀錄）。
  * 新增管理端功能時會自動出現在這裡，不需要另外維護。
+ * 提供功能預設四身分皆「是」（可由模組作者日後收窄）。
  */
 const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   {
@@ -135,7 +132,7 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: item.description,
     href: item.href,
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_ADMIN_ONLY,
+    provides: PROVIDES_ALL,
   })),
 ];
 
@@ -290,10 +287,9 @@ export function isFeatureModuleProvided(value: string, role: UserRole): boolean 
 }
 
 /**
- * 該模組對該身分是否可見（＝提供功能 AND 顯示與否）。
- * - provides＝false → false；
- * - provides＝true → 顯示開關 !== false（缺省＝可見）；
- * - super 對 superOnly 模組：即使顯示關閉仍回 true（保命線）。
+ * 該模組對該身分是否可見。
+ * - **超級管理員（role=admin 且 isSuper）完全不受限制**：一律 true（不看 provides、不看顯示開關）；
+ * - 其他：provides＝false → false；provides＝true → 顯示開關 !== false（缺省＝可見）。
  */
 export function isFeatureModuleVisible(
   value: string,
@@ -301,15 +297,9 @@ export function isFeatureModuleVisible(
   display: FeatureModuleRoleSwitches | undefined,
   options?: { isSuper?: boolean }
 ): boolean {
+  if (options?.isSuper === true && role === "admin") return true;
   const meta = featureModuleMeta(value);
   if (!meta || !meta.provides[role]) return false;
-  if (
-    options?.isSuper === true &&
-    role === "admin" &&
-    SUPER_ONLY_FEATURE_MODULE_VALUES.includes(value)
-  ) {
-    return true;
-  }
   return display?.[role] !== false;
 }
 

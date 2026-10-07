@@ -50,7 +50,8 @@ export async function getFeatureModuleRoles(): Promise<FeatureModuleRolesMap> {
 
 /**
  * 某身分可見的功能模組代碼清單（供首頁卡片過濾）。
- * super 對 superOnly 模組不因顯示關閉而失效（保命線）。
+ * 超級管理員完全不受限制時，請由呼叫端直接回註冊表全部代碼
+ * （見 api/settings 的 GET）；本函式僅處理一般身分的 provides＋顯示開關。
  */
 export async function getVisibleFeatureModuleValues(
   role: UserRole,

@@ -101,20 +101,22 @@ export default function AdminPage() {
     );
   }
 
-  // 管理模組卡片：僅顯示被指派的模組（超級＝全部；讀不到權限＝不顯示）
-  // 再依「顯示與否」過濾（visibleModules 已含 superOnly 保命線：超級對專屬模組不受顯示關閉影響）
-  // visibleModules 尚未載入時先不過濾（避免首頁閃空）
-  const gatedModules =
-    user.adminModules == null
+  // 超級管理員完全不受限制：直接顯示全部模組卡片（不看 adminModules／visibleModules）
+  const isSuper = user.adminAttribute === "超級";
+  // 管理模組卡片：一般管理員僅顯示被指派的模組（讀不到權限＝不顯示），
+  // 再依「顯示與否」過濾（visibleModules 尚未載入時先不過濾，避免首頁閃空）
+  const gatedModules = isSuper
+    ? moduleCards
+    : user.adminModules == null
       ? []
       : moduleCards.filter((item) => {
           if (!user.adminModules!.includes(item.id)) return false;
           if (visibleModules === null) return true;
           return visibleModules.includes(item.id);
         });
-  // 個人卡片（帳號、身分與安全管理）不需指派權限；顯示與否若明確關閉則隱藏
-  const personalVisible =
-    visibleModules === null || visibleModules.includes("account");
+  // 個人卡片（帳號、身分與安全管理）不需指派權限；超級一律顯示，
+  // 其他人在 visibleModules 明確關閉時才隱藏
+  const personalVisible = isSuper || visibleModules === null || visibleModules.includes("account");
   const visibleModulesCards = personalVisible ? [...gatedModules, personalCard] : gatedModules;
 
   return (

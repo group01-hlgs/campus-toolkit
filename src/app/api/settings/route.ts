@@ -16,7 +16,11 @@ import { invalidateSettingsCache, readSystemDoc, getCacheEpoch, bumpCacheEpoch, 
 import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import { getVisibleFeatureModuleValues } from "@/lib/feature-modules";
 import { ROLE_ENABLED_FIELD } from "@/types/role-settings";
-import { FEATURE_MODULES_FIELD, FEATURE_MODULE_ROLES_FIELD } from "@/types/feature-modules";
+import {
+  FEATURE_MODULES,
+  FEATURE_MODULES_FIELD,
+  FEATURE_MODULE_ROLES_FIELD,
+} from "@/types/feature-modules";
 
 const SETTINGS_DOC = { collection: "settings", id: "system" };
 const MAX_SETTINGS = 200_000;
@@ -90,12 +94,12 @@ export async function GET(request: NextRequest) {
     // 不再重複打 Firestore）；寫入後同程序會 invalidateSettingsCache，維持正確性
     const data = (await readSystemDoc()) ?? {};
     const settings = pickSettings(data);
-    // 目前身分可見的功能模組（提供功能 AND 顯示與否）：首頁卡片過濾用
-    // 超級對 superOnly 模組不因顯示關閉而失效（isSuperAdmin 讀名冊條目 attribute）
+    // 目前身分可見的功能模組：首頁卡片過濾用
+    // 超級管理員完全不受限制（提供功能／顯示與否皆不套用），回傳註冊表全部代碼
     const visibleModules = session
-      ? await getVisibleFeatureModuleValues(session.role, {
-          isSuper: session.role === "admin" ? await isSuperAdmin(session) : false,
-        })
+      ? session.role === "admin" && (await isSuperAdmin(session))
+        ? FEATURE_MODULES.map((item) => item.value)
+        : await getVisibleFeatureModuleValues(session.role)
       : [];
     return NextResponse.json(
       {
@@ -114,7 +118,8 @@ export async function GET(request: NextRequest) {
         success: true,
         settings: pickPublicSettings(defaultSettings),
         manageable: false,
-        visibleModules: [],
+        // 故意不回 visibleModules：前端視為「尚未載入」、不過濾卡片，
+        // 避免設定讀取失敗時管理員首頁全空
         cacheEpoch: await getCacheEpoch().catch(() => 0),
       },
       { headers: { "Cache-Control": "no-store" } }
