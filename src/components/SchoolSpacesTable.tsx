@@ -21,6 +21,71 @@ import {
   setSpaceParent,
 } from "@/types/school-spaces";
 
+/** 操作欄的圖示按鈕內容（上移／下移／新增子空間／刪除） */
+function IconArrowUp() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+    </svg>
+  );
+}
+
+function IconArrowDown() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+    </svg>
+  );
+}
+
+function IconPlus() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+      />
+    </svg>
+  );
+}
+
 /**
  * 樓層空間設定的表格檢視：
  * 每列一個空間，欄位為層級／空間代碼／中文名稱／英文名稱／樓層／上級空間／
@@ -292,34 +357,39 @@ export default function SchoolSpacesTable({
                         onClick={() => apply(moveSpaceSibling(value, row.code, -1))}
                         disabled={!canUp}
                         title={canUp ? "與上一個同層空間對調順位" : "已是同層的第一個空間"}
-                        className="btn-theme rounded px-3 py-1.5 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="上移"
+                        className="btn-theme rounded px-2 py-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        上移
+                        <IconArrowUp />
                       </button>
                       <button
                         type="button"
                         onClick={() => apply(moveSpaceSibling(value, row.code, 1))}
                         disabled={!canDown}
                         title={canDown ? "與下一個同層空間對調順位" : "已是同層的最後一個空間"}
-                        className="btn-theme rounded px-3 py-1.5 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="下移"
+                        className="btn-theme rounded px-2 py-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        下移
+                        <IconArrowDown />
                       </button>
                       <button
                         type="button"
                         onClick={() => apply(addSpace(value, row.code))}
                         disabled={!canAddChild}
                         title={canAddChild ? "在此空間下新增子空間" : "已達空間層級數上限"}
-                        className="btn-theme rounded px-3 py-1.5 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="新增子空間"
+                        className="btn-theme rounded px-2 py-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        ＋子空間
+                        <IconPlus />
                       </button>
                       <button
                         type="button"
                         onClick={() => apply(removeSpace(value, row.code))}
-                        className="btn-danger rounded px-3 py-1.5 text-xs cursor-pointer"
+                        title="刪除此空間"
+                        aria-label="刪除"
+                        className="btn-danger rounded px-2 py-1.5 cursor-pointer"
                       >
-                        刪除
+                        <IconTrash />
                       </button>
                     </div>
                   </td>
