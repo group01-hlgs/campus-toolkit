@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
       allDayDate: typeof body.allDayDate === "string" ? body.allDayDate : undefined,
       important: body.important === true,
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
+      publishUnit: typeof body.publishUnit === "string" ? body.publishUnit : undefined,
       audience,
       status: "active",
       createdBy: {

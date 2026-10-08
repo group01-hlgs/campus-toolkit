@@ -83,6 +83,8 @@ interface CalendarResponse {
   displayName?: string;
   categories?: { id: string; name: string }[];
   remindersEnabled?: boolean;
+  /** 發佈單位預設值（教職員名冊「單位」） */
+  publishUnit?: string;
 }
 
 /**
@@ -103,6 +105,7 @@ export default function CalendarView({
   const [displayName, setDisplayName] = useState("");
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [unitDefault, setUnitDefault] = useState("");
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState<Flash>(null);
   const [fontSize, setFontSize] = useState<FontSize>("small");
@@ -126,6 +129,7 @@ export default function CalendarView({
     endAtText: "",
     important: false,
     classScoped: false,
+    publishUnit: "",
     roles: ["student", "parent", "staff"] as UserRole[],
   });
 
@@ -168,6 +172,12 @@ export default function CalendarView({
         if (data.categories) setCategories(data.categories);
         if (typeof data.remindersEnabled === "boolean") {
           setRemindersEnabled(data.remindersEnabled);
+        }
+        if (typeof data.publishUnit === "string") {
+          setUnitDefault(data.publishUnit);
+          setForm((prev) =>
+            prev.publishUnit === "" ? { ...prev, publishUnit: data.publishUnit ?? "" } : prev
+          );
         }
       } else if (data?.message) {
         setFlash({ type: "error", text: data.message });
@@ -314,6 +324,7 @@ export default function CalendarView({
           startAt: form.allDay ? undefined : startAt,
           endAt: form.allDay ? null : (parseDatetimeLocal(form.endAtText) ?? null),
           important: form.important,
+          publishUnit: form.publishUnit || unitDefault,
           audience: { roles: form.roles, classCodes },
         }),
       });
@@ -402,6 +413,19 @@ export default function CalendarView({
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   maxLength={2000}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-t2 mb-1" htmlFor="cv-unit">
+                  發佈單位（選填）
+                </label>
+                <input
+                  id="cv-unit"
+                  className="w-full input-theme rounded px-3 py-2 text-sm"
+                  value={form.publishUnit}
+                  onChange={(e) => setForm({ ...form, publishUnit: e.target.value })}
+                  placeholder={unitDefault || "例如：教務處"}
+                  maxLength={64}
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -738,7 +762,7 @@ function EventCard({
           <span className={`${sizes.meta} block text-t3 mt-0.5`}>
             {formatRange(item)}
             {item.location ? `｜${item.location}` : ""}
-            {`｜${categoryName}`}
+            {`｜行事曆類型：${categoryName}`}
             {item.classScoped ? "｜班級" : ""}
           </span>
         </span>
@@ -747,7 +771,7 @@ function EventCard({
       {expanded && (
         <div className="border-t border-themed px-4 py-3">
           <p className={`${sizes.meta} text-t3`}>
-            {categoryName}｜{item.createdByName}
+            行事曆類型：{categoryName}｜{item.createdByName}
             {item.classScoped ? `｜${item.classCodes.join("、")}` : "｜全校"}
             {item.sourceModule !== "calendar" ? `｜來源：${item.sourceModule}` : ""}
           </p>

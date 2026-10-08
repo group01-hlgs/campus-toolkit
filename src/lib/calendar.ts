@@ -93,6 +93,8 @@ export interface PublishScheduleFromModuleInput {
   allDayDate?: string;
   important?: boolean;
   categoryId?: string;
+  /** 發佈單位（如：教務處）；缺省＝沿用現值 */
+  publishUnit?: string;
   audience?: CalendarAudience;
   /** 取消時傳 "cancelled"（保留文件）；預設 "active" */
   status?: CalendarEventStatus;
@@ -117,6 +119,7 @@ function mergeScheduleInput(
     allDayDate: allDay ? (input.allDayDate ?? existing?.allDayDate) : undefined,
     important: input.important ?? existing?.important ?? false,
     categoryId: input.categoryId ?? existing?.categoryId,
+    publishUnit: input.publishUnit ?? existing?.publishUnit,
     audience: input.audience ?? existing?.audience ?? { roles: [], classCodes: [] },
     academicYear: input.academicYear ?? existing?.academicYear,
     semester: input.semester ?? existing?.semester,
@@ -172,6 +175,7 @@ export async function publishScheduleFromModule(
     allDayDate: validation.value.allDayDate,
     important: validation.value.important,
     categoryId: validation.value.categoryId,
+    publishUnit: validation.value.publishUnit,
     sourceModule,
     sourceRef: sourceRef || undefined,
     audience: validation.value.audience,
@@ -233,6 +237,7 @@ export async function updateCalendarEvent(
     allDayDate: validation.value.allDayDate,
     important: validation.value.important,
     categoryId: validation.value.categoryId,
+    publishUnit: validation.value.publishUnit,
     audience: validation.value.audience,
     status: patch.status === "cancelled" ? "cancelled" : patch.status === "active" ? "active" : current.status,
     academicYear: validation.value.academicYear ?? current.academicYear,

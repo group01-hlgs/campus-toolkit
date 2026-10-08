@@ -98,6 +98,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       allDayDate: typeof body.allDayDate === "string" ? body.allDayDate : undefined,
       important: typeof body.important === "boolean" ? body.important : undefined,
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
+      publishUnit:
+        typeof body.publishUnit === "string" ? body.publishUnit : undefined,
       audience: audience ?? undefined,
       status,
     });

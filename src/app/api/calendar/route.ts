@@ -21,6 +21,12 @@ function entryClassCode(entry: Record<string, unknown> | null | undefined): stri
   return typeof entry.classCode === "string" ? entry.classCode : "";
 }
 
+/** 當期名冊條目的「單位」（教職員專屬；建立行程時預帶、可改） */
+function entryUnit(entry: Record<string, unknown> | null | undefined): string {
+  if (!entry) return "";
+  return typeof entry.unit === "string" ? entry.unit : "";
+}
+
 /**
  * GET：各身分行程列表（依 session 身分＋名冊班級過濾；查詢條件下推、班級記憶體過濾）。
  */
@@ -58,6 +64,8 @@ export async function GET(request: NextRequest) {
         categories: settings.categories,
         remindersEnabled: settings.defaultRemindersEnabled,
         reminderIds,
+        /** 發佈單位預設值（教職員名冊「單位」；管理員為空） */
+        publishUnit: entryUnit(session.__entry),
       },
       { headers: noStore }
     );
@@ -131,6 +139,9 @@ export async function POST(request: NextRequest) {
     }
 
     const period = await getCurrentPeriod();
+    // 發佈單位：表單有值則覆寫，否則預帶名冊「單位」（管理員通常為空）
+    const typedUnit = typeof body.publishUnit === "string" ? body.publishUnit.trim() : "";
+    const publishUnit = typedUnit || entryUnit(session.__entry) || undefined;
     const { id } = await createCalendarEvent({
       sourceModule: "calendar",
       title: typeof body.title === "string" ? body.title : "",
@@ -142,6 +153,7 @@ export async function POST(request: NextRequest) {
       allDayDate: typeof body.allDayDate === "string" ? body.allDayDate : undefined,
       important: body.important === true,
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
+      publishUnit,
       audience,
       status: "active",
       createdBy: {

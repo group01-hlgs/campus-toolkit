@@ -76,6 +76,8 @@ export interface CalendarEventRecord {
   audience: CalendarAudience;
   status: CalendarEventStatus;
   createdBy: { uid: string; name: string; role: UserRole };
+  /** 發佈單位（如：教務處）；教職員建立時預帶名冊「單位」，可改 */
+  publishUnit?: string;
   academicYear?: number;
   semester?: 1 | 2;
   createdAt: number;
@@ -102,6 +104,8 @@ export interface CalendarEventItem {
   status: CalendarEventStatus;
   createdByName: string;
   createdByRole: UserRole;
+  /** 發佈單位（如：教務處） */
+  publishUnit?: string;
   academicYear?: number;
   semester?: 1 | 2;
   createdAt: number;
@@ -124,7 +128,7 @@ export interface CalendarEventItem {
   createdAt: number;
 }
 
-/** 管理端清單項目：完整記錄＋分類名稱（保留巢狀 audience／createdBy 供編輯表單回填） */
+/** 管理端清單項目：完整記錄＋行事曆類型名稱（保留巢狀 audience／createdBy 供編輯表單回填） */
 export type AdminCalendarEventRow = CalendarEventRecord & {
   categoryName: string;
 };
@@ -211,6 +215,8 @@ export interface CalendarEventInput {
   allDayDate?: string;
   important?: boolean;
   categoryId?: string;
+  /** 發佈單位（如：教務處）；缺省＝沿用現值（upsert 時） */
+  publishUnit?: string;
   audience: CalendarAudience;
   academicYear?: number;
   semester?: 1 | 2;
@@ -225,6 +231,7 @@ export interface ValidatedCalendarEventInput {
   allDayDate?: string;
   important: boolean;
   categoryId: string;
+  publishUnit?: string;
   audience: CalendarAudience;
   academicYear?: number;
   semester?: 1 | 2;
@@ -239,6 +246,7 @@ const DESCRIPTION_MAX = 2000;
 const LOCATION_MAX = 120;
 const CLASS_CODE_MAX = 32;
 const CATEGORY_ID_MAX = 64;
+const PUBLISH_UNIT_MAX = 64;
 /** 允許的時間範圍：約 5 年，擋住明顯毀損的值 */
 const MAX_FUTURE_MS = 5 * 365 * 24 * 60 * 60 * 1000;
 const MAX_PAST_MS = 10 * 365 * 24 * 60 * 60 * 1000;
@@ -275,6 +283,7 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
   const location = text(input.location, LOCATION_MAX);
   const important = input.important === true;
   const categoryId = text(input.categoryId, CATEGORY_ID_MAX) || DEFAULT_CALENDAR_CATEGORIES[0].id;
+  const publishUnit = text(input.publishUnit, PUBLISH_UNIT_MAX) || undefined;
 
   const now = Date.now();
   const allDay = input.allDay === true;
@@ -298,6 +307,7 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
         allDayDate,
         important,
         categoryId,
+        publishUnit,
         audience: normalizedAudience,
         academicYear:
           typeof input.academicYear === "number" && input.academicYear > 0
@@ -387,6 +397,8 @@ export function readCalendarEventRecord(
         : undefined,
     important: raw.important === true,
     categoryId: typeof raw.categoryId === "string" ? raw.categoryId : "",
+    publishUnit:
+      typeof raw.publishUnit === "string" && raw.publishUnit ? raw.publishUnit : undefined,
     sourceModule: typeof raw.sourceModule === "string" ? raw.sourceModule : "calendar",
     sourceRef: typeof raw.sourceRef === "string" && raw.sourceRef ? raw.sourceRef : undefined,
     audience,
@@ -427,6 +439,7 @@ export function calendarEventToFirestore(
     audienceClassCodes: record.audience.classCodes,
     status: record.status,
     createdBy: record.createdBy,
+    ...(record.publishUnit ? { publishUnit: record.publishUnit } : {}),
     ...(record.academicYear ? { academicYear: record.academicYear } : {}),
     ...(record.semester ? { semester: record.semester } : {}),
     createdAt: record.createdAt,
@@ -458,6 +471,7 @@ export function calendarEventToItem(
     status: record.status,
     createdByName: record.createdBy.name,
     createdByRole: record.createdBy.role,
+    publishUnit: record.publishUnit,
     academicYear: record.academicYear,
     semester: record.semester,
     createdAt: record.createdAt,
@@ -465,7 +479,7 @@ export function calendarEventToItem(
   };
 }
 
-/** 分類表寬容讀取（缺漏／毀損退回預設五類） */
+/** 行事曆類型表寬容讀取（缺漏／毀損退回預設五類） */
 export function readCalendarSettings(raw: unknown): CalendarSettings {
   const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
   const rawCategories = data?.categories;
@@ -493,7 +507,7 @@ export function readCalendarSettings(raw: unknown): CalendarSettings {
   };
 }
 
-/** 行程分類顯示名稱（查無退回 id 或「其他」） */
+/** 行事曆類型顯示名稱（查無退回 id 或「其他」） */
 export function calendarCategoryName(
   settings: CalendarSettings,
   categoryId: string

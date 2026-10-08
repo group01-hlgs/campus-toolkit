@@ -32,6 +32,7 @@ interface FormState {
   endAtText: string;
   important: boolean;
   categoryId: string;
+  publishUnit: string;
   roles: UserRole[];
   classCodesText: string;
 }
@@ -46,6 +47,7 @@ const emptyForm: FormState = {
   endAtText: "",
   important: false,
   categoryId: DEFAULT_CALENDAR_SETTINGS.categories[0].id,
+  publishUnit: "",
   roles: ["student", "parent", "staff", "admin"],
   classCodesText: "",
 };
@@ -207,6 +209,7 @@ export default function AdminCalendarPage() {
         endAt: form.allDay ? null : (parseDatetimeLocal(form.endAtText) ?? null),
         important: form.important,
         categoryId: form.categoryId,
+        publishUnit: form.publishUnit,
         audience: { roles: form.roles, classCodes },
       };
       const res = await fetch(form.id ? `/api/admin/calendar/${form.id}` : "/api/admin/calendar", {
@@ -264,6 +267,7 @@ export default function AdminCalendarPage() {
       endAtText: toDatetimeLocal(item.endAt),
       important: item.important === true,
       categoryId: item.categoryId,
+      publishUnit: item.publishUnit ?? "",
       roles: item.audience.roles.filter((role) => (ALL_ROLES as string[]).includes(role)),
       classCodesText: item.audience.classCodes.filter((c) => c !== "*").join(", "),
     });
@@ -323,7 +327,7 @@ export default function AdminCalendarPage() {
     if (month && monthKey(item.startAt) !== month) return false;
     if (!searchKeyword) return true;
     const haystack =
-      `${item.title}\n${item.description ?? ""}\n${item.location ?? ""}\n${item.categoryName}\n${item.createdBy.name}`.toLowerCase();
+      `${item.title}\n${item.description ?? ""}\n${item.location ?? ""}\n${item.categoryName}\n${item.publishUnit ?? ""}\n${item.createdBy.name}`.toLowerCase();
     return haystack.includes(searchKeyword);
   });
 
@@ -351,7 +355,7 @@ export default function AdminCalendarPage() {
       >
         <div className="space-y-4">
           <div>
-            <span className="block text-t2 mb-1">分類名稱、啟用與排序</span>
+            <span className="block text-t2 mb-1">行事曆類型名稱、啟用與排序</span>
             <div className="space-y-2">
               {categories.map((cat, index) => (
                 <div key={cat.id || index} className="flex items-center gap-2">
@@ -421,7 +425,7 @@ export default function AdminCalendarPage() {
                 ])
               }
             >
-              ＋ 新增分類
+              ＋ 新增行事曆類型
             </button>
           </div>
 
@@ -501,6 +505,19 @@ export default function AdminCalendarPage() {
                   maxLength={120}
                 />
               </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-publish-unit">
+                  發佈單位（選填）
+                </label>
+                <input
+                  id="cal-publish-unit"
+                  className="flex-1 input-theme rounded px-3 py-2"
+                  value={form.publishUnit}
+                  onChange={(e) => setForm({ ...form, publishUnit: e.target.value })}
+                  placeholder="例如：教務處"
+                  maxLength={64}
+                />
+              </div>
 
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">
                 <span className="text-t2 sm:w-40 shrink-0">時間</span>
@@ -561,9 +578,9 @@ export default function AdminCalendarPage() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-cat">
-                    分類
-                  </label>
+                <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-cat">
+                  行事曆類型
+                </label>
                   <select
                     id="cal-cat"
                     className="flex-1 input-theme rounded px-3 py-2"
@@ -733,6 +750,8 @@ export default function AdminCalendarPage() {
                   <th className="px-3 py-2 font-medium">時間</th>
                   <th className="px-3 py-2 font-medium">地點</th>
                   <th className="px-3 py-2 font-medium">可見範圍</th>
+                  <th className="px-3 py-2 font-medium">發佈單位</th>
+                  <th className="px-3 py-2 font-medium">發佈者</th>
                   <th className="px-3 py-2 font-medium">狀態</th>
                   <th className="px-3 py-2 font-medium text-right">操作</th>
                 </tr>
@@ -740,7 +759,7 @@ export default function AdminCalendarPage() {
               <tbody>
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
+                    <td colSpan={8} className="px-3 py-6 text-center text-t3">
                       尚無符合條件的行程
                     </td>
                   </tr>
@@ -752,7 +771,9 @@ export default function AdminCalendarPage() {
                         {item.important && (
                           <span className="ml-1.5 text-xs text-primary">★ 重要</span>
                         )}
-                        <span className="ml-1.5 text-xs text-t3">{item.categoryName}</span>
+                        <span className="ml-1.5 text-xs text-t3">
+                          行事曆類型：{item.categoryName}
+                        </span>
                         {item.sourceModule !== "calendar" && (
                           <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>
                         )}
@@ -768,6 +789,8 @@ export default function AdminCalendarPage() {
                           ? `（${item.audience.classCodes.join("、")}）`
                           : "（全校）"}
                       </td>
+                      <td className="px-3 py-2 text-t2">{item.publishUnit || "—"}</td>
+                      <td className="px-3 py-2 text-t2">{item.createdBy.name || "—"}</td>
                       <td className="px-3 py-2">
                         <span
                           className={`text-xs ${
