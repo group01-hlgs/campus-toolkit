@@ -506,7 +506,7 @@ export async function saveAnnouncementSettings(input: {
         .filter((item) => item.id && item.name)
     : current.categories;
   const safe = base.length > 0 ? base : [...DEFAULT_ANNOUNCEMENT_CATEGORIES];
-  // 後備分類「一般公告」不可被刪除：即使管理端刪掉也補回並強制啟用
+  // 後備分類「其他」不可被刪除：即使管理端刪掉也補回並強制啟用
   const categories = ensureFallbackCategory(
     safe,
     ANNOUNCEMENT_FALLBACK_CATEGORY_ID,

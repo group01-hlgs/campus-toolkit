@@ -171,6 +171,7 @@ export const DEFAULT_ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
   { id: "academic", name: "教務", sortOrder: 1, enabled: true },
   { id: "studentAffairs", name: "訓輔", sortOrder: 2, enabled: true },
   { id: "event", name: "活動", sortOrder: 3, enabled: true },
+  { id: "other", name: "其他", sortOrder: 4, enabled: true },
 ];
 
 export const DEFAULT_ANNOUNCEMENT_SETTINGS: AnnouncementSettings = {
@@ -182,11 +183,11 @@ export const DEFAULT_ANNOUNCEMENT_SETTINGS: AnnouncementSettings = {
 
 /**
  * 後備公告分類（不可刪除）：分類被刪除後，既有公告顯示時自動歸入此分類。
- * 沿用預設的「一般公告」——它本來就是顯示兜底值，不另外新增標籤。
+ * 「其他」＝分不下時的垃圾場，與行事曆的後備類型一致。
  * 見 `types/category.ts` 的刪除機制說明。
  */
-export const ANNOUNCEMENT_FALLBACK_CATEGORY_ID = "general";
-export const ANNOUNCEMENT_FALLBACK_CATEGORY_NAME = "一般公告";
+export const ANNOUNCEMENT_FALLBACK_CATEGORY_ID = "other";
+export const ANNOUNCEMENT_FALLBACK_CATEGORY_NAME = "其他";
 
 /** 補齊後備分類用的預設條目（sortOrder 由呼叫端決定） */
 export function defaultAnnouncementFallbackCategory(sortOrder: number): AnnouncementCategory {
@@ -559,7 +560,7 @@ export function readAnnouncementSettings(raw: unknown): AnnouncementSettings {
       .filter((item): item is AnnouncementCategory => item !== null);
   }
   if (categories.length === 0) categories = [...DEFAULT_ANNOUNCEMENT_CATEGORIES];
-  // 後備分類（一般公告）不可被刪除：讀入時補齊並強制啟用（僅記憶體，不寫回）
+  // 後備分類（其他）不可被刪除：讀入時補齊並強制啟用（僅記憶體，不寫回）
   categories = ensureFallbackCategory(categories, ANNOUNCEMENT_FALLBACK_CATEGORY_ID, () =>
     defaultAnnouncementFallbackCategory(categories.length)
   );

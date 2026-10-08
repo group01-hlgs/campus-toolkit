@@ -51,7 +51,7 @@ interface FormState {
 const emptyForm: FormState = {
   title: "",
   body: "",
-  categoryId: "general",
+    categoryId: ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
   roles: ["student", "parent", "staff"],
   isPublic: false,
   classCodesText: "",
@@ -317,7 +317,7 @@ export default function AdminAnnouncementsPage() {
     );
   }
 
-  // 表單目前生效的分類：id 已被刪除（或停用）時自動歸到後備分類「一般公告」
+  // 表單目前生效的分類：id 已被刪除（或停用）時自動歸到後備分類「其他」
   const enabledCategories = categories.filter((c) => c.enabled);
   const formCategoryId = normalizeCategoryId(
     enabledCategories,
