@@ -102,8 +102,9 @@ export default function AdminAnnouncementsPage() {
   const [policies, setPolicies] = useState<AnnouncementPolicies>(
     DEFAULT_ANNOUNCEMENT_SETTINGS.policies
   );
-  // 設定卡片收合：全部預設收合
+  // 設定卡片收合：全部預設收合（外層「設定管理」與其下三張卡片都收合）
   const [cardOpen, setCardOpen] = useState({
+    settings: false,
     policies: false,
     surfaces: false,
     categories: false,
@@ -358,234 +359,254 @@ export default function AdminAnnouncementsPage() {
         </div>
       )}
 
-      {/* 1-1. 公告原則管理（預設收合，第一順位） */}
+      {/* 1. 設定管理（預設收合）：收納公告原則／顯示位置／公告分類三張卡片 */}
       <SettingsCard
-        title="公告原則管理"
-        open={cardOpen.policies}
-        onToggle={() => toggleCard("policies")}
+        title="設定管理"
+        open={cardOpen.settings}
+        onToggle={() => toggleCard("settings")}
       >
-        <div className="space-y-3">
-          <PolicyRow
-            id="pol-pinned"
-            label="啟用「置頂」（預設啟用）"
-            checked={policies.enablePinned}
-            onChange={(checked) => setPolicies((prev) => ({ ...prev, enablePinned: checked }))}
-            hint="允許管理員將公告設為置頂；置頂公告排在各身分收件匣頂部，並以醒目方式呈現。關閉後新增與編輯皆無法再設定置頂（避免公告區被過多置頂公告佔據）。"
-          />
-          <PolicyRow
-            id="pol-expire"
-            label="強制到期時間下架（預設啟用）"
-            checked={policies.forceExpire}
-            onChange={(checked) => setPolicies((prev) => ({ ...prev, forceExpire: checked }))}
-            hint="到期時間留空的公告，自動以發布後一個月為到期時間；到期後自動離開收件匣（避免過舊公告長期佔據公告區）。"
-          />
-          <PolicyRow
-            id="pol-delete"
-            label="下架公告真實刪除（預設停用）"
-            checked={policies.hardDeleteExpired}
-            onChange={(checked) =>
-              setPolicies((prev) => ({ ...prev, hardDeleteExpired: checked }))
-            }
-            hint="開啟後，封存或到期的公告連同個人提醒一併從資料庫真實刪除（無法恢復）。關閉時僅隱藏保留：不進入收件匣，也不提供搜尋。"
-          />
-          <button
-            type="button"
-            onClick={saveSettings}
-            disabled={saving}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+        <div className="space-y-6">
+          {/* 1-1. 公告原則管理（預設收合，第一順位） */}
+          <SettingsCard
+            title="公告原則管理"
+            open={cardOpen.policies}
+            onToggle={() => toggleCard("policies")}
           >
-            {saving ? "處理中..." : "儲存設定"}
-          </button>
+            <div>
+              <div className="space-y-3">
+                <PolicyRow
+                  id="pol-pinned"
+                  label="啟用「置頂」（預設啟用）"
+                  checked={policies.enablePinned}
+                  onChange={(checked) => setPolicies((prev) => ({ ...prev, enablePinned: checked }))}
+                  hint="允許管理員將公告設為置頂；置頂公告排在各身分收件匣頂部，並以醒目方式呈現。關閉後新增與編輯皆無法再設定置頂（避免公告區被過多置頂公告佔據）。"
+                />
+                <PolicyRow
+                  id="pol-expire"
+                  label="強制到期時間下架（預設啟用）"
+                  checked={policies.forceExpire}
+                  onChange={(checked) => setPolicies((prev) => ({ ...prev, forceExpire: checked }))}
+                  hint="到期時間留空的公告，自動以發布後一個月為到期時間；到期後自動離開收件匣（避免過舊公告長期佔據公告區）。"
+                />
+                <PolicyRow
+                  id="pol-delete"
+                  label="下架公告真實刪除（預設停用）"
+                  checked={policies.hardDeleteExpired}
+                  onChange={(checked) =>
+                    setPolicies((prev) => ({ ...prev, hardDeleteExpired: checked }))
+                  }
+                  hint="開啟後，封存或到期的公告連同個人提醒一併從資料庫真實刪除（無法恢復）。關閉時僅隱藏保留：不進入收件匣，也不提供搜尋。"
+                />
+              </div>
+              {/* 儲存設定與上方元件固定 10px 間距 */}
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? "處理中..." : "儲存設定"}
+                </button>
+              </div>
+            </div>
+          </SettingsCard>
+
+          {/* 1-2. 顯示位置（預設收合） */}
+          <SettingsCard
+            title="顯示位置"
+            open={cardOpen.surfaces}
+            onToggle={() => toggleCard("surfaces")}
+          >
+            <div>
+              <span className="block text-t2 mb-1">顯示與否／顯示方式／顯示筆數，5 處各自設定</span>
+                <div className="space-y-2">
+                  {ANNOUNCEMENT_SURFACES.map((key) => {
+                    const surface = surfaces[key];
+                    return (
+                      <div key={key} className="flex flex-wrap items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 text-sm text-t1 w-60">
+                          <input
+                            type="checkbox"
+                            checked={surface.enabled}
+                            onChange={(e) => updateSurface(key, { enabled: e.target.checked })}
+                          />
+                          {ANNOUNCEMENT_SURFACE_LABELS[key]}
+                        </label>
+                        <select
+                          className="input-theme rounded px-2 py-1 disabled:opacity-50"
+                          value={surface.method}
+                          disabled={!surface.enabled}
+                          onChange={(e) =>
+                            updateSurface(key, { method: e.target.value as AnnouncementSurfaceMethod })
+                          }
+                        >
+                          {(
+                            Object.keys(
+                              ANNOUNCEMENT_SURFACE_METHOD_LABELS
+                            ) as AnnouncementSurfaceMethod[]
+                          ).map((method) => (
+                            <option key={method} value={method}>
+                              {ANNOUNCEMENT_SURFACE_METHOD_LABELS[method]}
+                            </option>
+                          ))}
+                        </select>
+                        <label className="inline-flex items-center gap-1 text-xs text-t2">
+                          顯示筆數
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            className="w-16 input-theme rounded px-2 py-1 disabled:opacity-50"
+                            value={surface.limit}
+                            disabled={!surface.enabled}
+                            onChange={(e) =>
+                              updateSurface(key, { limit: Number(e.target.value) })
+                            }
+                          />
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-t3 mt-1">
+                  顯示方式：清單＝單行（日期｜分類｜標題 20 字內）；
+                  「清單，置頂公告橫幅」＝置頂公告三行卡片、其餘單行；
+                  橫幅＝全部三行卡片（標題 20 字內／內容摘要 40 字內／公告資訊）。
+                </p>
+                <p className="text-xs text-t3 mt-1">
+                  「系統首頁」只顯示閱讀權限＝「無」的公告；各身分首頁依其身分顯示。
+                </p>
+                <p className="text-xs text-t3 mt-1">
+                  顯示位置啟用 {ANNOUNCEMENT_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處
+                  ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
+                </p>
+              </div>
+              {/* 儲存設定與上方元件固定 10px 間距 */}
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? "處理中..." : "儲存設定"}
+                </button>
+              </div>
+          </SettingsCard>
+
+          {/* 1-3. 公告分類（預設收合） */}
+          <SettingsCard
+            title="公告分類"
+            open={cardOpen.categories}
+            onToggle={() => toggleCard("categories")}
+          >
+            <div>
+              <span className="block text-t2 mb-1">分類名稱、啟用與排序</span>
+                <div className="space-y-2">
+                  {categories.map((cat, index) => {
+                    const isFallback = cat.id === ANNOUNCEMENT_FALLBACK_CATEGORY_ID;
+                    return (
+                      <div key={cat.id || index} className="flex items-center gap-2">
+                        <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
+                        <input
+                          className="w-28 input-theme rounded px-2 py-1"
+                          value={cat.name}
+                          onChange={(e) => {
+                            const next = [...categories];
+                            next[index] = { ...cat, name: e.target.value };
+                            setCategories(next);
+                          }}
+                          placeholder="名稱"
+                        />
+                        <label className="inline-flex items-center gap-1 text-xs text-t2">
+                          <input
+                            type="checkbox"
+                            checked={cat.enabled}
+                            disabled={isFallback}
+                            title={isFallback ? "後備分類必須啟用" : undefined}
+                            onChange={(e) => {
+                              const next = [...categories];
+                              next[index] = { ...cat, enabled: e.target.checked };
+                              setCategories(next);
+                            }}
+                          />
+                          啟用
+                        </label>
+                        <button
+                          type="button"
+                          className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                          disabled={index === 0}
+                          onClick={() => moveCategory(index, -1)}
+                          title="上移"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                          disabled={index === categories.length - 1}
+                          onClick={() => moveCategory(index, 1)}
+                          title="下移"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className={`text-xs px-1 ${
+                            isFallback
+                              ? "text-t3 cursor-not-allowed"
+                              : "text-t3 hover:text-danger cursor-pointer"
+                          }`}
+                          disabled={isFallback}
+                          title={
+                            isFallback
+                              ? `後備分類「${ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」不可刪除`
+                              : undefined
+                          }
+                          onClick={() => setCategories(categories.filter((_, i) => i !== index))}
+                        >
+                          刪除
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-t3 mt-2">
+                  「{ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」為後備分類（不可刪除／停用）：其他分類被刪除後，
+                  已發佈的公告會在顯示時自動歸入「{ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」，不需批次搬移資料。
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 btn-soft rounded px-3 py-1 text-xs cursor-pointer"
+                  onClick={() =>
+                    setCategories([
+                      ...categories,
+                      {
+                        id: `custom_${Date.now()}`,
+                        name: "",
+                        sortOrder: categories.length,
+                        enabled: true,
+                      },
+                    ])
+                  }
+                >
+                  ＋ 新增分類
+                </button>
+              </div>
+              {/* 儲存設定與上方元件固定 10px 間距 */}
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? "處理中..." : "儲存設定"}
+                </button>
+              </div>
+          </SettingsCard>
         </div>
-      </SettingsCard>
-
-      {/* 1-2. 顯示位置（預設收合） */}
-      <SettingsCard
-        title="顯示位置"
-        open={cardOpen.surfaces}
-        onToggle={() => toggleCard("surfaces")}
-      >
-        <div>
-          <span className="block text-t2 mb-1">顯示與否／顯示方式／顯示筆數，5 處各自設定</span>
-            <div className="space-y-2">
-              {ANNOUNCEMENT_SURFACES.map((key) => {
-                const surface = surfaces[key];
-                return (
-                  <div key={key} className="flex flex-wrap items-center gap-2">
-                    <label className="inline-flex items-center gap-1.5 text-sm text-t1 w-60">
-                      <input
-                        type="checkbox"
-                        checked={surface.enabled}
-                        onChange={(e) => updateSurface(key, { enabled: e.target.checked })}
-                      />
-                      {ANNOUNCEMENT_SURFACE_LABELS[key]}
-                    </label>
-                    <select
-                      className="input-theme rounded px-2 py-1 disabled:opacity-50"
-                      value={surface.method}
-                      disabled={!surface.enabled}
-                      onChange={(e) =>
-                        updateSurface(key, { method: e.target.value as AnnouncementSurfaceMethod })
-                      }
-                    >
-                      {(
-                        Object.keys(
-                          ANNOUNCEMENT_SURFACE_METHOD_LABELS
-                        ) as AnnouncementSurfaceMethod[]
-                      ).map((method) => (
-                        <option key={method} value={method}>
-                          {ANNOUNCEMENT_SURFACE_METHOD_LABELS[method]}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="inline-flex items-center gap-1 text-xs text-t2">
-                      顯示筆數
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        className="w-16 input-theme rounded px-2 py-1 disabled:opacity-50"
-                        value={surface.limit}
-                        disabled={!surface.enabled}
-                        onChange={(e) =>
-                          updateSurface(key, { limit: Number(e.target.value) })
-                        }
-                      />
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-t3 mt-1">
-              顯示方式：清單＝單行（日期｜分類｜標題 20 字內）；
-              「清單，置頂公告橫幅」＝置頂公告三行卡片、其餘單行；
-              橫幅＝全部三行卡片（標題 20 字內／內容摘要 40 字內／公告資訊）。
-            </p>
-            <p className="text-xs text-t3 mt-1">
-              「系統首頁」只顯示閱讀權限＝「無」的公告；各身分首頁依其身分顯示。
-            </p>
-            <p className="text-xs text-t3 mt-1">
-              顯示位置啟用 {ANNOUNCEMENT_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處
-              ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={saveSettings}
-            disabled={saving}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-          >
-            {saving ? "處理中..." : "儲存設定"}
-          </button>
-      </SettingsCard>
-
-      {/* 1-3. 公告分類（預設收合） */}
-      <SettingsCard
-        title="公告分類"
-        open={cardOpen.categories}
-        onToggle={() => toggleCard("categories")}
-      >
-        <div>
-          <span className="block text-t2 mb-1">分類名稱、啟用與排序</span>
-            <div className="space-y-2">
-              {categories.map((cat, index) => {
-                const isFallback = cat.id === ANNOUNCEMENT_FALLBACK_CATEGORY_ID;
-                return (
-                  <div key={cat.id || index} className="flex items-center gap-2">
-                    <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
-                    <input
-                      className="w-28 input-theme rounded px-2 py-1"
-                      value={cat.name}
-                      onChange={(e) => {
-                        const next = [...categories];
-                        next[index] = { ...cat, name: e.target.value };
-                        setCategories(next);
-                      }}
-                      placeholder="名稱"
-                    />
-                    <label className="inline-flex items-center gap-1 text-xs text-t2">
-                      <input
-                        type="checkbox"
-                        checked={cat.enabled}
-                        disabled={isFallback}
-                        title={isFallback ? "後備分類必須啟用" : undefined}
-                        onChange={(e) => {
-                          const next = [...categories];
-                          next[index] = { ...cat, enabled: e.target.checked };
-                          setCategories(next);
-                        }}
-                      />
-                      啟用
-                    </label>
-                    <button
-                      type="button"
-                      className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
-                      disabled={index === 0}
-                      onClick={() => moveCategory(index, -1)}
-                      title="上移"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
-                      disabled={index === categories.length - 1}
-                      onClick={() => moveCategory(index, 1)}
-                      title="下移"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className={`text-xs px-1 ${
-                        isFallback
-                          ? "text-t3 cursor-not-allowed"
-                          : "text-t3 hover:text-danger cursor-pointer"
-                      }`}
-                      disabled={isFallback}
-                      title={
-                        isFallback
-                          ? `後備分類「${ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」不可刪除`
-                          : undefined
-                      }
-                      onClick={() => setCategories(categories.filter((_, i) => i !== index))}
-                    >
-                      刪除
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-t3 mt-2">
-              「{ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」為後備分類（不可刪除／停用）：其他分類被刪除後，
-              已發佈的公告會在顯示時自動歸入「{ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」，不需批次搬移資料。
-            </p>
-            <button
-              type="button"
-              className="mt-2 btn-soft rounded px-3 py-1 text-xs cursor-pointer"
-              onClick={() =>
-                setCategories([
-                  ...categories,
-                  {
-                    id: `custom_${Date.now()}`,
-                    name: "",
-                    sortOrder: categories.length,
-                    enabled: true,
-                  },
-                ])
-              }
-            >
-              ＋ 新增分類
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={saveSettings}
-            disabled={saving}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-          >
-            {saving ? "處理中..." : "儲存設定"}
-          </button>
       </SettingsCard>
 
       {/* 2. 建立／編輯公告（預設收納） */}
