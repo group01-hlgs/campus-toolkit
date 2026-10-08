@@ -22,6 +22,10 @@ export interface SpaceUnit {
   name: string;
   /** 英文名稱（可空白） */
   nameEn: string;
+  /** 空間代碼（展示用，如「R-301」；可空白，填寫時全校唯一） */
+  spaceCode: string;
+  /** 樓層（如「3F」「B2」；可空白） */
+  floor: string;
   /** 所在層級 1..levelCount（＝隸屬空間層級） */
   level: number;
   /** 上級空間 code；最上層（level 1）必為 null */
@@ -61,6 +65,8 @@ export const SPACE_MAX_LEVEL = 6;
 export const SPACE_MAX_UNITS = 500;
 export const SPACE_NAME_MAX = 40;
 export const SPACE_NAME_EN_MAX = 60;
+export const SPACE_REF_MAX = 20;
+export const SPACE_FLOOR_MAX = 20;
 export const SPACE_LABEL_MAX = 20;
 export const SPACE_CODE_MAX = 64;
 export const SPACE_ORG_UNIT_MAX = 64;
@@ -98,6 +104,9 @@ function readSpace(raw: unknown, levelCount: number): SpaceUnit | null {
   const name = typeof item.name === "string" ? item.name.trim().slice(0, SPACE_NAME_MAX) : "";
   const nameEn =
     typeof item.nameEn === "string" ? item.nameEn.trim().slice(0, SPACE_NAME_EN_MAX) : "";
+  const spaceCode =
+    typeof item.spaceCode === "string" ? item.spaceCode.trim().slice(0, SPACE_REF_MAX) : "";
+  const floor = typeof item.floor === "string" ? item.floor.trim().slice(0, SPACE_FLOOR_MAX) : "";
   const levelRaw = Number(item.level);
   const level = Number.isInteger(levelRaw)
     ? Math.min(Math.max(levelRaw, 1), Math.max(levelCount, 1))
@@ -117,7 +126,7 @@ function readSpace(raw: unknown, levelCount: number): SpaceUnit | null {
         ? capacityRaw
         : null;
   const notes = typeof item.notes === "string" ? item.notes.trim().slice(0, SPACE_NOTES_MAX) : "";
-  return { code, name, nameEn, level, parent, orgUnit, openForBooking, capacity, notes };
+  return { code, name, nameEn, spaceCode, floor, level, parent, orgUnit, openForBooking, capacity, notes };
 }
 
 /**
@@ -200,6 +209,7 @@ export function validateSpaceStructure(
 
   const units: SpaceUnit[] = [];
   const codes = new Set<string>();
+  const spaceCodes = new Set<string>();
   for (let index = 0; index < rawUnits.length; index += 1) {
     const item = rawUnits[index];
     if (!item || typeof item !== "object") return { ok: false, message: "空間資料格式錯誤" };
@@ -207,6 +217,8 @@ export function validateSpaceStructure(
     const code = typeof entry.code === "string" ? entry.code.trim().slice(0, SPACE_CODE_MAX) : "";
     const name = typeof entry.name === "string" ? entry.name.trim() : "";
     const nameEn = typeof entry.nameEn === "string" ? entry.nameEn.trim() : "";
+    const spaceCode = typeof entry.spaceCode === "string" ? entry.spaceCode.trim() : "";
+    const floor = typeof entry.floor === "string" ? entry.floor.trim() : "";
     const level = Number(entry.level);
     const parentRaw =
       typeof entry.parent === "string" && entry.parent.trim() ? entry.parent.trim() : null;
@@ -232,6 +244,18 @@ export function validateSpaceStructure(
     }
     if (nameEn.length > SPACE_NAME_EN_MAX) {
       return { ok: false, message: `「${name}」英文名稱過長（最多 ${SPACE_NAME_EN_MAX} 字）` };
+    }
+    if (spaceCode.length > SPACE_REF_MAX) {
+      return { ok: false, message: `「${name}」的空間代碼過長（最多 ${SPACE_REF_MAX} 字）` };
+    }
+    if (floor.length > SPACE_FLOOR_MAX) {
+      return { ok: false, message: `「${name}」的樓層過長（最多 ${SPACE_FLOOR_MAX} 字）` };
+    }
+    if (spaceCode) {
+      if (spaceCodes.has(spaceCode)) {
+        return { ok: false, message: `空間代碼「${spaceCode}」重複（「${name}」與前列空間）` };
+      }
+      spaceCodes.add(spaceCode);
     }
     if (!Number.isInteger(level) || level < 1 || level > levelCount) {
       return { ok: false, message: `「${name}」的層級超出空間層級數` };
@@ -259,7 +283,7 @@ export function validateSpaceStructure(
     if (notes.length > SPACE_NOTES_MAX) {
       return { ok: false, message: `「${name}」的設備說明過長（最多 ${SPACE_NOTES_MAX} 字）` };
     }
-    units.push({ code, name, nameEn, level, parent: parentRaw, orgUnit: orgUnitRaw, openForBooking, capacity, notes });
+    units.push({ code, name, nameEn, spaceCode, floor, level, parent: parentRaw, orgUnit: orgUnitRaw, openForBooking, capacity, notes });
   }
 
   const byCode = new Map(units.map((unit) => [unit.code, unit]));
@@ -510,6 +534,8 @@ export function addSpace(structure: SpaceStructure, parent: string | null): Spac
     code: newSpaceCode(),
     name: uniqueSiblingName(structure, parentCode),
     nameEn: "",
+    spaceCode: "",
+    floor: "",
     level,
     parent: parentCode,
     orgUnit: null,

@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 import {
   SPACE_CAPACITY_MAX,
+  SPACE_FLOOR_MAX,
   SPACE_NAME_EN_MAX,
   SPACE_NAME_MAX,
   SPACE_NOTES_MAX,
+  SPACE_REF_MAX,
   SpaceOrgOption,
   SpacePlacementResult,
   SpaceStructure,
@@ -21,8 +23,8 @@ import {
 
 /**
  * 樓層空間設定的表格檢視：
- * 每列一個空間，欄位為層級／中文名稱／英文名稱／上級空間／隸屬單位／
- * 開放借用／容納人數／設備說明／操作。
+ * 每列一個空間，欄位為層級／空間代碼／中文名稱／英文名稱／樓層／上級空間／
+ * 隸屬單位／開放借用／容納人數／設備說明／操作。
  * 「上級空間」下拉只列出上一層的空間；改層級若使上級失效則清空上級，
  * 由驗證回報「未指定上級空間」擋住儲存。
  */
@@ -38,6 +40,19 @@ export default function SchoolSpacesTable({
   const [notice, setNotice] = useState("");
 
   const rows = useMemo(() => flattenSpaceTree(value), [value]);
+
+  /** 重複的空間代碼（僅統計非空白者），供表格標紅提示；擋存由驗證負責 */
+  const duplicateSpaceCodes = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const unit of value.units) {
+      const key = unit.spaceCode.trim();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key)
+    );
+  }, [value.units]);
 
   function apply(result: SpacePlacementResult): boolean {
     if (!result.ok) {
@@ -88,8 +103,10 @@ export default function SchoolSpacesTable({
           <thead className="border-b border-themed">
             <tr>
               <th className="px-3 py-2 font-medium whitespace-nowrap">層級</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">空間代碼</th>
               <th className="px-3 py-2 font-medium whitespace-nowrap">中文名稱</th>
               <th className="px-3 py-2 font-medium whitespace-nowrap">英文名稱</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">樓層</th>
               <th className="px-3 py-2 font-medium whitespace-nowrap">上級空間</th>
               <th className="px-3 py-2 font-medium whitespace-nowrap">隸屬單位</th>
               <th className="px-3 py-2 font-medium whitespace-nowrap">開放借用</th>
@@ -101,7 +118,7 @@ export default function SchoolSpacesTable({
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-t3">
+                <td colSpan={11} className="px-3 py-6 text-center text-t3">
                   尚未建立空間，請按「新增最上層空間」開始。
                 </td>
               </tr>
@@ -138,6 +155,24 @@ export default function SchoolSpacesTable({
                   <td className="px-3 py-2">
                     <input
                       type="text"
+                      value={row.spaceCode}
+                      maxLength={SPACE_REF_MAX}
+                      onChange={(event) => patch(row.code, { spaceCode: event.target.value })}
+                      placeholder="如 R-301"
+                      className={`input-theme rounded px-2 py-1.5 text-sm w-full min-w-24${
+                        row.spaceCode.trim() && duplicateSpaceCodes.has(row.spaceCode.trim())
+                          ? " is-invalid"
+                          : ""
+                      }`}
+                      aria-label={`${row.name || "空間"}的空間代碼`}
+                    />
+                    {row.spaceCode.trim() && duplicateSpaceCodes.has(row.spaceCode.trim()) && (
+                      <span className="block text-xs text-danger mt-1">空間代碼重複</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="text"
                       value={row.name}
                       maxLength={SPACE_NAME_MAX}
                       onChange={(event) => patch(row.code, { name: event.target.value })}
@@ -157,6 +192,17 @@ export default function SchoolSpacesTable({
                       placeholder="英文名稱（可空白）"
                       className="input-theme rounded px-2 py-1.5 text-sm w-full min-w-36"
                       aria-label={`${row.name || "空間"}的英文名稱`}
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="text"
+                      value={row.floor}
+                      maxLength={SPACE_FLOOR_MAX}
+                      onChange={(event) => patch(row.code, { floor: event.target.value })}
+                      placeholder="如 3F、B2"
+                      className="input-theme rounded px-2 py-1.5 text-sm w-full min-w-20"
+                      aria-label={`${row.name || "空間"}的樓層`}
                     />
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">

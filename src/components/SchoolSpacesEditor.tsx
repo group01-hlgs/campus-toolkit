@@ -148,16 +148,45 @@ export default function SchoolSpacesEditor() {
 
   if (!draft || !validation) return null;
 
+  const flashBlock = flash ? (
+    <p
+      role={flash.type === "error" ? "alert" : "status"}
+      className={`text-sm mb-3 ${flash.type === "success" ? "text-success" : "text-danger"}`}
+    >
+      {flash.text}
+    </p>
+  ) : null;
+
+  const validationBlock = !validation.ok ? (
+    <p className="text-danger text-sm mb-2" role="alert">
+      {validation.message}
+    </p>
+  ) : null;
+
+  const saveButtons = (
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={reset}
+        disabled={!dirty || saving}
+        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        還原
+      </button>
+      <button
+        type="button"
+        onClick={() => void save()}
+        disabled={!dirty || !validation.ok || saving}
+        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {saving ? "儲存中..." : "儲存變更"}
+      </button>
+    </div>
+  );
+
   return (
     <div className="mt-4">
-      {flash && (
-        <p
-          role={flash.type === "error" ? "alert" : "status"}
-          className={`text-sm mb-3 ${flash.type === "success" ? "text-success" : "text-danger"}`}
-        >
-          {flash.text}
-        </p>
-      )}
+      {flashBlock}
 
       {/* 空間層級數與各層名稱 */}
       <div className="flex flex-wrap items-end gap-4 mb-3">
@@ -185,36 +214,22 @@ export default function SchoolSpacesEditor() {
             />
           </label>
         ))}
-        <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            onClick={reset}
-            disabled={!dirty || saving}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            還原
-          </button>
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={!dirty || !validation.ok || saving}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? "儲存中..." : "儲存變更"}
-          </button>
-        </div>
+        <div className="ml-auto">{saveButtons}</div>
       </div>
 
-      {!validation.ok && (
-        <p className="text-danger text-sm mb-2" role="alert">
-          {validation.message}
-        </p>
-      )}
+      {validationBlock}
       <p className="text-xs text-t3 mb-3">
         {dirty ? "有尚未儲存的變更，記得按「儲存變更」。" : "已與伺服器同步。"}
       </p>
 
       <SchoolSpacesTable value={draft} orgUnits={orgUnits} onChange={setDraft} />
+
+      {/* 表格較長時底部也有一組，避免捲到下方找不到儲存鈕與訊息 */}
+      <div className="mt-4 pt-3 border-t border-themed">
+        {flashBlock}
+        {validationBlock}
+        <div className="flex justify-end">{saveButtons}</div>
+      </div>
     </div>
   );
 }
