@@ -49,10 +49,12 @@ export interface SpaceStructure {
   units: SpaceUnit[];
 }
 
-/** 供表單「隸屬單位」下拉與伺服器驗證共用的單位選項 */
+/** 供表單「隸屬單位」下拉與伺服器驗證共用的單位選項（含層級與上級，供分組顯示） */
 export interface SpaceOrgOption {
   code: string;
   name: string;
+  level: number;
+  parent: string | null;
 }
 
 /** 驗證上下文：單位層級設定的單位 code 集合（核對 units[].orgUnit 是否存在） */

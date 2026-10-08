@@ -119,6 +119,55 @@ export default function SchoolSpacesTable({
     );
   }, [value.units]);
 
+  /**
+   * 隸屬單位下拉選項：有下級的單位以 optgroup 分組（下級自動縮排），
+   * 第 3 層以下攤平在所屬分組內（以「└」前綴標示層級）；無下級的單位維持平面選項。
+   */
+  const orgSelectOptions = useMemo(() => {
+    const byParent = new Map<string | null, SpaceOrgOption[]>();
+    for (const unit of orgUnits) {
+      const key = unit.parent ?? null;
+      const bucket = byParent.get(key);
+      if (bucket) bucket.push(unit);
+      else byParent.set(key, [unit]);
+    }
+    const walk = (parentCode: string, depth: number, sink: React.ReactNode[]) => {
+      for (const child of byParent.get(parentCode) ?? []) {
+        sink.push(
+          <option key={child.code} value={child.code}>
+            {depth > 1 ? `${"　".repeat(depth - 1)}└ ` : ""}
+            {child.name}
+          </option>
+        );
+        walk(child.code, depth + 1, sink);
+      }
+    };
+    const items: React.ReactNode[] = [];
+    for (const top of byParent.get(null) ?? []) {
+      const kids = byParent.get(top.code) ?? [];
+      if (kids.length === 0) {
+        items.push(
+          <option key={top.code} value={top.code}>
+            {top.name}
+          </option>
+        );
+        continue;
+      }
+      const children: React.ReactNode[] = [
+        <option key={top.code} value={top.code}>
+          {top.name}
+        </option>,
+      ];
+      walk(top.code, 2, children);
+      items.push(
+        <optgroup key={top.code} label={top.name}>
+          {children}
+        </optgroup>
+      );
+    }
+    return items;
+  }, [orgUnits]);
+
   function apply(result: SpacePlacementResult): boolean {
     if (!result.ok) {
       setNotice(result.message);
@@ -296,11 +345,7 @@ export default function SchoolSpacesTable({
                         aria-label={`${row.name || "空間"}的隸屬單位`}
                       >
                         <option value="">（隸屬單位未指定）</option>
-                        {orgUnits.map((unit) => (
-                          <option key={unit.code} value={unit.code}>
-                            {unit.name}
-                          </option>
-                        ))}
+                        {orgSelectOptions}
                       </select>
                     </div>
                     {parentMissing && (
