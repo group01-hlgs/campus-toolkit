@@ -11,6 +11,7 @@ import {
   validateSpaceStructure,
 } from "@/types/school-spaces";
 import SchoolSpacesTable from "@/components/SchoolSpacesTable";
+import SpaceTree from "@/components/SpaceTree";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 type SpacesResponse = {
@@ -29,6 +30,7 @@ export default function SchoolSpacesEditor() {
   const [saved, setSaved] = useState<SpaceStructure | null>(null);
   const [draft, setDraft] = useState<SpaceStructure | null>(null);
   const [orgUnits, setOrgUnits] = useState<SpaceOrgOption[]>([]);
+  const [mode, setMode] = useState<"table" | "tree">("table");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -214,7 +216,30 @@ export default function SchoolSpacesEditor() {
             />
           </label>
         ))}
-        <div className="ml-auto">{saveButtons}</div>
+        {/* 檢視切換（表格／視覺化） */}
+        <div className="ml-auto flex gap-2" role="group" aria-label="檢視方式">
+          <button
+            type="button"
+            onClick={() => setMode("table")}
+            aria-pressed={mode === "table"}
+            className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
+              mode === "table" ? "btn-theme" : "border border-themed text-t2"
+            }`}
+          >
+            表格
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("tree")}
+            aria-pressed={mode === "tree"}
+            className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
+              mode === "tree" ? "btn-theme" : "border border-themed text-t2"
+            }`}
+          >
+            視覺化
+          </button>
+          {saveButtons}
+        </div>
       </div>
 
       {validationBlock}
@@ -222,8 +247,11 @@ export default function SchoolSpacesEditor() {
         {dirty ? "有尚未儲存的變更，記得按「儲存變更」。" : "已與伺服器同步。"}
       </p>
 
-      <SchoolSpacesTable value={draft} orgUnits={orgUnits} onChange={setDraft} />
-
+      {mode === "table" ? (
+        <SchoolSpacesTable value={draft} orgUnits={orgUnits} onChange={setDraft} />
+      ) : (
+        <SpaceTree value={draft} onChange={setDraft} />
+      )}
       {/* 表格較長時底部也有一組，避免捲到下方找不到儲存鈕與訊息 */}
       <div className="mt-4 pt-3 border-t border-themed">
         {flashBlock}

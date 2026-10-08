@@ -368,6 +368,31 @@ export function flattenSpaceTree(structure: SpaceStructure): SpaceUnit[] {
   return out;
 }
 
+/** 樹狀節點：供視覺化檢視以「母艦」方式巢狀呈現（第 1 層卡片內含第 2 層…） */
+export interface SpaceNode {
+  unit: SpaceUnit;
+  children: SpaceNode[];
+}
+
+/**
+ * 依上級關係組成樹（兄弟依陣列順序）。
+ * 只在「上級恰高一層」時連結，故不可能成環；
+ * 上級不存在或層級不符的空間先當最上層，問題交由驗證回報。
+ */
+export function buildSpaceTree(structure: SpaceStructure): SpaceNode[] {
+  const nodes = new Map<string, SpaceNode>();
+  for (const unit of structure.units) nodes.set(unit.code, { unit, children: [] });
+  const roots: SpaceNode[] = [];
+  for (const unit of structure.units) {
+    const node = nodes.get(unit.code);
+    if (!node) continue;
+    const parent = unit.parent ? nodes.get(unit.parent) : null;
+    if (parent && parent.unit.level === unit.level - 1) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
 /** 搬到新上級的末尾（兄弟順序＝陣列相對順序，故把目標空間插到最後一個兄弟之後） */
 function placeAfterSiblings(units: SpaceUnit[], code: string, parent: string | null): SpaceUnit[] {
   const index = units.findIndex((unit) => unit.code === code);
@@ -437,6 +462,44 @@ export function setSpaceParent(
   parent: string | null
 ): SpacePlacementResult {
   return applyPlacement(structure, code, parent);
+}
+
+/**
+ * 插到指定上級之下的第 index 個位置（index 依「不含自己」的同層順序計算，
+ * 即視覺化檢視卡片間空隙所標示的位置）。
+ * 先走 applyPlacement 的整棵子樹平移規則，再把空間插進目標位置，
+ * 因此跨層搬移與同層換位共用同一套限制。
+ */
+export function placeSibling(
+  structure: SpaceStructure,
+  code: string,
+  parent: string | null,
+  index: number
+): SpacePlacementResult {
+  const placed = applyPlacement(structure, code, parent);
+  if (!placed.ok) return placed;
+  const units = placed.value.units.slice();
+  const from = units.findIndex((item) => item.code === code);
+  if (from < 0) return { ok: false, message: "找不到該空間" };
+  const moved = units.splice(from, 1)[0];
+  if (!moved) return { ok: false, message: "找不到該空間" };
+  const siblings = units.filter((item) => (item.parent ?? null) === parent);
+  const wanted = Number.isInteger(index) ? index : siblings.length;
+  const target = Math.max(0, Math.min(wanted, siblings.length));
+  const anchor = siblings[target];
+  const last = siblings[siblings.length - 1];
+  let to = units.length;
+  if (anchor) {
+    const at = units.findIndex((item) => item.code === anchor.code);
+    if (at < 0) return { ok: false, message: "找不到該空間" };
+    to = at;
+  } else if (last) {
+    const at = units.findIndex((item) => item.code === last.code);
+    if (at < 0) return { ok: false, message: "找不到該空間" };
+    to = at + 1;
+  }
+  units.splice(to, 0, moved);
+  return { ok: true, value: { ...placed.value, units } };
 }
 
 /**
