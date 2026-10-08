@@ -51,7 +51,7 @@ export default function AnnouncementSurface({
   if (!setting || !setting.enabled || items.length === 0) return null;
 
   // 標題固定放在卡片「外面」（卡片只包公告條目），5 處顯示位置一致
-  const heading = <h3 className="text-sm font-bold text-t1 mb-2">系統公告</h3>;
+  const heading = <h3 className="text-2xl font-bold text-t1 mb-2">系統公告</h3>;
 
   // 橫幅（儲存值 marquee）：三行卡片——標題／內容摘要／公告資訊
   if (setting.method === "marquee") {
@@ -128,14 +128,14 @@ function BannerRow({
     <li className="border-b border-themed pb-2 last:border-0 last:pb-0">
       <div className="flex items-center gap-1.5">
         {showPinnedMark && item.pinned && (
-          <span className="text-xs text-primary shrink-0">置頂</span>
+          <span className="text-lg text-primary shrink-0">置頂</span>
         )}
-        <span className="text-sm font-medium text-t1 truncate">
+        <span className="text-3xl font-medium text-t1 truncate">
           {clipText(item.title, 20)}
         </span>
       </div>
-      <p className="text-xs text-t2 mt-0.5 truncate">{clipText(item.body, 40)}</p>
-      <p className="text-xs text-t3 mt-0.5">
+      <p className="text-2xl text-t2 mt-0.5 truncate">{clipText(item.body, 40)}</p>
+      <p className="text-2xl text-t3 mt-0.5">
         {item.categoryName}｜{item.authorName}｜
         {new Date(item.publishAt).toLocaleString("zh-TW")}
       </p>
@@ -146,7 +146,7 @@ function BannerRow({
 /** 單行清單條目（日期｜分類｜標題 20 字內；置頂者標「置頂」） */
 function ListRow({ item }: { item: AnnouncementSurfaceItem }) {
   return (
-    <li className="flex items-center gap-1.5 text-xs border-b border-themed pb-1.5 last:border-0 last:pb-0">
+    <li className="flex items-center gap-1.5 text-2xl border-b border-themed pb-1.5 last:border-0 last:pb-0">
       {item.pinned && (
         <span className="text-primary font-medium shrink-0">置頂</span>
       )}

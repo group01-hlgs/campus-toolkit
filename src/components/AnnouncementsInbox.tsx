@@ -334,28 +334,28 @@ export default function AnnouncementsInbox({
                   className="mb-3 border-l-4 border-success bg-card border border-themed rounded-lg p-4 shadow"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-bold text-t1 flex items-center gap-1.5">
+                    <h4 className="text-2xl font-bold text-t1 flex items-center gap-1.5">
                       {item.pinned && <span aria-hidden="true">📌</span>}
                       <span>{item.title}</span>
                       {!item.pinned && (
-                        <span className="text-xs font-normal text-t2 border border-themed rounded px-1.5 py-0.5 shrink-0">
+                        <span className="text-base font-normal text-t2 border border-themed rounded px-1.5 py-0.5 shrink-0">
                           最新
                         </span>
                       )}
                     </h4>
                     <button
                       type="button"
-                      className="text-xs text-t3 hover:text-t1 cursor-pointer shrink-0"
+                      className="text-base text-t3 hover:text-t1 cursor-pointer shrink-0"
                       onClick={() => setDismissedBanners((prev) => [...prev, item.id])}
                     >
                       關閉
                     </button>
                   </div>
-                  <p className="text-xs text-t3 mt-1">
+                  <p className="text-base text-t3 mt-1">
                     {item.categoryName}｜{item.authorName}
                     {item.classScoped ? "｜班級" : "｜校級"}
                   </p>
-                  <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+                  <p className="text-xl text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
                 </div>
               ))}
 
@@ -423,13 +423,13 @@ function PinnedBannerRow({ item }: { item: AnnouncementInboxItem }) {
   return (
     <li className="border border-themed border-l-4 border-l-primary bg-card rounded-lg p-4 shadow">
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-primary border border-current rounded px-1.5 py-0.5 shrink-0">
+        <span className="text-base text-primary border border-current rounded px-1.5 py-0.5 shrink-0">
           置頂
         </span>
-        <span className="font-bold text-t1 truncate">{clipText(item.title, 20)}</span>
+        <span className="text-2xl font-bold text-t1 truncate">{clipText(item.title, 20)}</span>
       </div>
-      <p className="text-sm text-t2 mt-1 truncate">{clipText(item.body, 40)}</p>
-      <p className="text-xs text-t3 mt-1.5">
+      <p className="text-xl text-t2 mt-1 truncate">{clipText(item.body, 40)}</p>
+      <p className="text-base text-t3 mt-1.5">
         {item.categoryName}｜{item.authorName}｜
         {new Date(item.publishAt).toLocaleDateString("zh-TW")}
       </p>
@@ -451,31 +451,31 @@ function AnnouncementCard({
   return (
     <li className="border border-themed rounded-lg bg-card p-4">
       <div className="flex items-start justify-between gap-2">
-        <h4 className="font-bold text-t1">{item.title}</h4>
+        <h4 className="text-2xl font-bold text-t1">{item.title}</h4>
         <div className="flex shrink-0 gap-1.5">
           {item.isPublic && (
-            <span className="text-xs text-t2 border border-themed rounded px-1.5 py-0.5">
+            <span className="text-base text-t2 border border-themed rounded px-1.5 py-0.5">
               公開
             </span>
           )}
           {item.pinned && (
-            <span className="text-xs text-primary border border-current rounded px-1.5 py-0.5">
+            <span className="text-base text-primary border border-current rounded px-1.5 py-0.5">
               置頂
             </span>
           )}
           {item.expiringSoon && (
-            <span className="text-xs text-danger border border-danger rounded px-1.5 py-0.5">
+            <span className="text-base text-danger border border-danger rounded px-1.5 py-0.5">
               即將到期
             </span>
           )}
         </div>
       </div>
-      <p className="text-xs text-t3 mt-1">
+      <p className="text-base text-t3 mt-1">
         {item.categoryName}｜{item.authorName}
         {item.classScoped ? `｜班級公告` : "｜校級"}
         {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
       </p>
-      <p className="text-sm text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+      <p className="text-xl text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
       {remindersEnabled && (
         <div className="mt-3">
           <button
@@ -484,8 +484,8 @@ function AnnouncementCard({
             onClick={() => onToggleReminder(item.id)}
             className={
               item.reminded
-                ? "btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
-                : "btn-soft rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                ? "btn-danger rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
+                : "btn-soft rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
             }
             title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
           >
@@ -527,7 +527,7 @@ function AnnouncementCompactRow({
         className="w-full flex items-center gap-2 px-4 py-2.5 text-left cursor-pointer"
       >
         <svg
-          className={`w-3.5 h-3.5 shrink-0 text-t3 transition-transform ${
+          className={`w-4 h-4 shrink-0 text-t3 transition-transform ${
             open ? "rotate-90" : ""
           }`}
           fill="none"
@@ -538,7 +538,7 @@ function AnnouncementCompactRow({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        <span className="flex-1 min-w-0 truncate text-sm text-t2">
+        <span className="flex-1 min-w-0 truncate text-xl text-t2">
           <span className="text-t3">
             {item.publishAt ? new Date(item.publishAt).toLocaleDateString("zh-TW") : ""}
           </span>
@@ -546,14 +546,14 @@ function AnnouncementCompactRow({
           <span className="font-medium text-t1">{clipText(item.title, 20)}</span>
         </span>
         {item.expiringSoon && (
-          <span className="text-xs text-danger border border-danger rounded px-1.5 py-0.5 shrink-0">
+          <span className="text-base text-danger border border-danger rounded px-1.5 py-0.5 shrink-0">
             即將到期
           </span>
         )}
       </button>
       {open && (
         <div className="border-t border-themed px-4 py-3">
-          <p className="text-xs text-t3 mb-2">
+          <p className="text-base text-t3 mb-2">
             {item.categoryName}｜{item.authorName}
             {item.classScoped ? "｜班級公告" : "｜校級"}
             {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
@@ -563,7 +563,7 @@ function AnnouncementCompactRow({
               </span>
             ) : null}
           </p>
-          <p className="text-sm text-t2 whitespace-pre-wrap">{item.body}</p>
+          <p className="text-xl text-t2 whitespace-pre-wrap">{item.body}</p>
           {remindersEnabled && (
             <div className="mt-3">
               <button
@@ -572,8 +572,8 @@ function AnnouncementCompactRow({
                 onClick={() => onToggleReminder(item.id)}
                 className={
                   item.reminded
-                    ? "btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
-                    : "btn-soft rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                    ? "btn-danger rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
+                    : "btn-soft rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
                 }
                 title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
               >
