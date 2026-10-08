@@ -22,25 +22,25 @@ const FONT_SIZE_LABELS: Record<FontSize, string> = {
   large: "大",
 };
 
-/** 字級對照：原尺寸為基準，小=+25%、中=+50%、大=+100% */
+/** 字級對照：原尺寸為基準，小=+15%、中=+40%、大=+90% */
 const FONT_SIZE_CLASSES: Record<FontSize, { heading: string; title: string; body: string; meta: string }> = {
   small: {
+    heading: "text-base",
+    title: "text-base",
+    body: "text-sm",
+    meta: "text-sm",
+  },
+  medium: {
     heading: "text-lg",
     title: "text-lg",
     body: "text-base",
     meta: "text-base",
   },
-  medium: {
-    heading: "text-xl",
-    title: "text-xl",
-    body: "text-lg",
-    meta: "text-lg",
-  },
   large: {
-    heading: "text-2xl",
-    title: "text-3xl",
-    body: "text-2xl",
-    meta: "text-2xl",
+    heading: "text-xl",
+    title: "text-2xl",
+    body: "text-xl",
+    meta: "text-xl",
   },
 };
 
