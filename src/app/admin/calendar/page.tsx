@@ -508,7 +508,7 @@ export default function AdminCalendarPage() {
           </span>
         </button>
         {formOpen && (
-          <div className="px-5 pb-5">
+          <div className="px-5 pt-2.5 pb-5">
             <form onSubmit={submitForm} className="space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-title">
@@ -915,7 +915,7 @@ function SettingsCard({
           {open ? "收合" : "展開"} {open ? "▲" : "▼"}
         </span>
       </button>
-      {open && <div className="px-5 pb-5">{children}</div>}
+      {open && <div className="px-5 pt-2.5 pb-5">{children}</div>}
     </section>
   );
 }
