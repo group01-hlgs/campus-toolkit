@@ -13,6 +13,44 @@ import { ROLE_LABELS, type UserRole } from "@/types/users";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
+type FontSize = "small" | "medium" | "large";
+
+const FONT_SIZE_LABELS: Record<FontSize, string> = {
+  small: "小",
+  medium: "中",
+  large: "大",
+};
+
+/** 字級對照：原尺寸為基準，小=+25%、中=+50%、大=+100% */
+const FONT_SIZE_CLASSES: Record<FontSize, { heading: string; title: string; body: string; meta: string }> = {
+  small: {
+    heading: "text-lg",
+    title: "text-lg",
+    body: "text-base",
+    meta: "text-base",
+  },
+  medium: {
+    heading: "text-xl",
+    title: "text-xl",
+    body: "text-lg",
+    meta: "text-lg",
+  },
+  large: {
+    heading: "text-2xl",
+    title: "text-3xl",
+    body: "text-2xl",
+    meta: "text-2xl",
+  },
+};
+
+const STORAGE_KEY = "announcement-font-size";
+
+function readStoredFontSize(): FontSize {
+  if (typeof window === "undefined") return "small";
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  return raw === "medium" || raw === "large" ? raw : "small";
+}
+
 interface InboxResponse {
   success?: boolean;
   message?: string;
@@ -50,6 +88,11 @@ export default function AnnouncementsInbox({
   const [dismissedBanners, setDismissedBanners] = useState<string[]>([]);
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [togglingReminder, setTogglingReminder] = useState<string | null>(null);
+  const [fontSize, setFontSize] = useState<FontSize>("small");
+
+  useEffect(() => {
+    setFontSize(readStoredFontSize());
+  }, []);
 
   useEffect(() => {
     if (!flash) return;
@@ -170,6 +213,15 @@ export default function AnnouncementsInbox({
       });
     } finally {
       setTogglingReminder(null);
+    }
+  }
+
+  function changeFontSize(size: FontSize) {
+    setFontSize(size);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, size);
+    } catch {
+      // localStorage 不可用時僅本次生效
     }
   }
 
@@ -309,7 +361,26 @@ export default function AnnouncementsInbox({
       )}
 
       <section>
-        <h3 className="text-lg font-bold text-t1 mb-1">公告</h3>
+        <div className="flex items-center gap-3 mb-1">
+          <h3 className="text-lg font-bold text-t1">公告</h3>
+          <div className="flex items-center gap-1" role="group" aria-label="公告字級">
+            {(Object.keys(FONT_SIZE_LABELS) as FontSize[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => changeFontSize(key)}
+                aria-pressed={fontSize === key}
+                className={`px-2 py-0.5 text-sm rounded border cursor-pointer transition-colors ${
+                  fontSize === key
+                    ? "border-primary text-primary font-medium"
+                    : "border-themed text-t3 hover:text-t1"
+                }`}
+              >
+                {FONT_SIZE_LABELS[key]}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="text-xs text-t3 mb-3">
           顯示方式：
           {displayMethod === "marquee"
@@ -334,28 +405,30 @@ export default function AnnouncementsInbox({
                   className="mb-3 border-l-4 border-success bg-card border border-themed rounded-lg p-4 shadow"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className="text-2xl font-bold text-t1 flex items-center gap-1.5">
+                    <h4 className={`${FONT_SIZE_CLASSES[fontSize].title} font-bold text-t1 flex items-center gap-1.5`}>
                       {item.pinned && <span aria-hidden="true">📌</span>}
                       <span>{item.title}</span>
                       {!item.pinned && (
-                        <span className="text-base font-normal text-t2 border border-themed rounded px-1.5 py-0.5 shrink-0">
+                        <span className="text-sm font-normal text-t2 border border-themed rounded px-1.5 py-0.5 shrink-0">
                           最新
                         </span>
                       )}
                     </h4>
                     <button
                       type="button"
-                      className="text-base text-t3 hover:text-t1 cursor-pointer shrink-0"
+                      className="text-sm text-t3 hover:text-t1 cursor-pointer shrink-0"
                       onClick={() => setDismissedBanners((prev) => [...prev, item.id])}
                     >
                       關閉
                     </button>
                   </div>
-                  <p className="text-base text-t3 mt-1">
+                  <p className={`${FONT_SIZE_CLASSES[fontSize].meta} text-t3 mt-1`}>
                     {item.categoryName}｜{item.authorName}
                     {item.classScoped ? "｜班級" : "｜校級"}
                   </p>
-                  <p className="text-xl text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+                  <p className={`${FONT_SIZE_CLASSES[fontSize].body} text-t2 mt-2 whitespace-pre-wrap`}>
+                    {item.body}
+                  </p>
                 </div>
               ))}
 
@@ -364,12 +437,12 @@ export default function AnnouncementsInbox({
             {displayMethod === "pinnedTop" &&
               items.filter((item) => item.pinned).length > 0 && (
                 <div className="mb-4">
-                  <h4 className="text-xs font-bold text-primary mb-2">置頂公告</h4>
+                  <h4 className="text-sm font-bold text-primary mb-2">置頂公告</h4>
                   <ul className="space-y-3">
                     {items
                       .filter((item) => item.pinned)
                       .map((item) => (
-                        <PinnedBannerRow key={item.id} item={item} />
+                        <PinnedBannerRow key={item.id} item={item} sizes={FONT_SIZE_CLASSES[fontSize]} />
                       ))}
                   </ul>
                 </div>
@@ -389,6 +462,7 @@ export default function AnnouncementsInbox({
                       remindersEnabled={remindersEnabled}
                       toggling={togglingReminder === item.id}
                       onToggleReminder={toggleReminder}
+                      sizes={FONT_SIZE_CLASSES[fontSize]}
                     />
                   ))}
               </ul>
@@ -403,6 +477,7 @@ export default function AnnouncementsInbox({
                       remindersEnabled={remindersEnabled}
                       toggling={togglingReminder === item.id}
                       onToggleReminder={toggleReminder}
+                      sizes={FONT_SIZE_CLASSES[fontSize]}
                     />
                   ))}
               </ul>
@@ -419,17 +494,23 @@ export default function AnnouncementsInbox({
  * 第 1 行標題 20 字內、第 2 行內容摘要 40 字內、第 3 行公告資訊（分類｜作者｜日期）；
  * 置頂小標與左側粗邊套用主題主色（--primary）。
  */
-function PinnedBannerRow({ item }: { item: AnnouncementInboxItem }) {
+function PinnedBannerRow({
+  item,
+  sizes,
+}: {
+  item: AnnouncementInboxItem;
+  sizes: { title: string; body: string; meta: string };
+}) {
   return (
     <li className="border border-themed border-l-4 border-l-primary bg-card rounded-lg p-4 shadow">
       <div className="flex items-center gap-1.5">
-        <span className="text-base text-primary border border-current rounded px-1.5 py-0.5 shrink-0">
+        <span className={`${sizes.meta} text-primary border border-current rounded px-1.5 py-0.5 shrink-0`}>
           置頂
         </span>
-        <span className="text-2xl font-bold text-t1 truncate">{clipText(item.title, 20)}</span>
+        <span className={`${sizes.title} font-bold text-t1 truncate`}>{clipText(item.title, 20)}</span>
       </div>
-      <p className="text-xl text-t2 mt-1 truncate">{clipText(item.body, 40)}</p>
-      <p className="text-base text-t3 mt-1.5">
+      <p className={`${sizes.body} text-t2 mt-1 truncate`}>{clipText(item.body, 40)}</p>
+      <p className={`${sizes.meta} text-t3 mt-1.5`}>
         {item.categoryName}｜{item.authorName}｜
         {new Date(item.publishAt).toLocaleDateString("zh-TW")}
       </p>
@@ -442,40 +523,42 @@ function AnnouncementCard({
   remindersEnabled,
   toggling,
   onToggleReminder,
+  sizes,
 }: {
   item: AnnouncementInboxItem;
   remindersEnabled: boolean;
   toggling: boolean;
   onToggleReminder: (id: string) => void;
+  sizes: { title: string; body: string; meta: string };
 }) {
   return (
     <li className="border border-themed rounded-lg bg-card p-4">
       <div className="flex items-start justify-between gap-2">
-        <h4 className="text-2xl font-bold text-t1">{item.title}</h4>
+        <h4 className={`${sizes.title} font-bold text-t1`}>{item.title}</h4>
         <div className="flex shrink-0 gap-1.5">
           {item.isPublic && (
-            <span className="text-base text-t2 border border-themed rounded px-1.5 py-0.5">
+            <span className="text-sm text-t2 border border-themed rounded px-1.5 py-0.5">
               公開
             </span>
           )}
           {item.pinned && (
-            <span className="text-base text-primary border border-current rounded px-1.5 py-0.5">
+            <span className="text-sm text-primary border border-current rounded px-1.5 py-0.5">
               置頂
             </span>
           )}
           {item.expiringSoon && (
-            <span className="text-base text-danger border border-danger rounded px-1.5 py-0.5">
+            <span className="text-sm text-danger border border-danger rounded px-1.5 py-0.5">
               即將到期
             </span>
           )}
         </div>
       </div>
-      <p className="text-base text-t3 mt-1">
+      <p className={`${sizes.meta} text-t3 mt-1`}>
         {item.categoryName}｜{item.authorName}
         {item.classScoped ? `｜班級公告` : "｜校級"}
         {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
       </p>
-      <p className="text-xl text-t2 mt-2 whitespace-pre-wrap">{item.body}</p>
+      <p className={`${sizes.body} text-t2 mt-2 whitespace-pre-wrap`}>{item.body}</p>
       {remindersEnabled && (
         <div className="mt-3">
           <button
@@ -484,8 +567,8 @@ function AnnouncementCard({
             onClick={() => onToggleReminder(item.id)}
             className={
               item.reminded
-                ? "btn-danger rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
-                : "btn-soft rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
+                ? "btn-danger rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
+                : "btn-soft rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
             }
             title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
           >
@@ -511,11 +594,13 @@ function AnnouncementCompactRow({
   remindersEnabled,
   toggling,
   onToggleReminder,
+  sizes,
 }: {
   item: AnnouncementInboxItem;
   remindersEnabled: boolean;
   toggling: boolean;
   onToggleReminder: (id: string) => void;
+  sizes: { title: string; body: string; meta: string };
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -538,7 +623,7 @@ function AnnouncementCompactRow({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        <span className="flex-1 min-w-0 truncate text-xl text-t2">
+        <span className={`flex-1 min-w-0 truncate ${sizes.body} text-t2`}>
           <span className="text-t3">
             {item.publishAt ? new Date(item.publishAt).toLocaleDateString("zh-TW") : ""}
           </span>
@@ -546,14 +631,14 @@ function AnnouncementCompactRow({
           <span className="font-medium text-t1">{clipText(item.title, 20)}</span>
         </span>
         {item.expiringSoon && (
-          <span className="text-base text-danger border border-danger rounded px-1.5 py-0.5 shrink-0">
+          <span className="text-sm text-danger border border-danger rounded px-1.5 py-0.5 shrink-0">
             即將到期
           </span>
         )}
       </button>
       {open && (
         <div className="border-t border-themed px-4 py-3">
-          <p className="text-base text-t3 mb-2">
+          <p className={`${sizes.meta} text-t3 mb-2`}>
             {item.categoryName}｜{item.authorName}
             {item.classScoped ? "｜班級公告" : "｜校級"}
             {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
@@ -563,7 +648,7 @@ function AnnouncementCompactRow({
               </span>
             ) : null}
           </p>
-          <p className="text-xl text-t2 whitespace-pre-wrap">{item.body}</p>
+          <p className={`${sizes.body} text-t2 whitespace-pre-wrap`}>{item.body}</p>
           {remindersEnabled && (
             <div className="mt-3">
               <button
@@ -572,8 +657,8 @@ function AnnouncementCompactRow({
                 onClick={() => onToggleReminder(item.id)}
                 className={
                   item.reminded
-                    ? "btn-danger rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
-                    : "btn-soft rounded px-2.5 py-1 text-base cursor-pointer disabled:opacity-50"
+                    ? "btn-danger rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
+                    : "btn-soft rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
                 }
                 title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
               >
