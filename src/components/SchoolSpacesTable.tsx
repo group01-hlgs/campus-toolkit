@@ -168,14 +168,10 @@ export default function SchoolSpacesTable({
           <thead className="border-b border-themed">
             <tr>
               <th className="px-3 py-2 font-medium whitespace-nowrap">層級</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">空間代碼</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">中文名稱</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">英文名稱</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">樓層</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">上級空間</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">隸屬單位</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">開放借用</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap">容納人數</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">空間代碼／樓層</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">中文名稱／英文名稱</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">上級空間／隸屬單位</th>
+              <th className="px-3 py-2 font-medium whitespace-nowrap">開放借用／容納人數</th>
               <th className="px-3 py-2 font-medium whitespace-nowrap">設備說明</th>
               <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
             </tr>
@@ -183,7 +179,7 @@ export default function SchoolSpacesTable({
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-6 text-center text-t3">
+                <td colSpan={7} className="px-3 py-6 text-center text-t3">
                   尚未建立空間，請按「新增最上層空間」開始。
                 </td>
               </tr>
@@ -218,126 +214,134 @@ export default function SchoolSpacesTable({
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      value={row.spaceCode}
-                      maxLength={SPACE_REF_MAX}
-                      onChange={(event) => patch(row.code, { spaceCode: event.target.value })}
-                      placeholder="如 R-301"
-                      className={`input-theme rounded px-2 py-1.5 text-sm w-full min-w-24${
-                        row.spaceCode.trim() && duplicateSpaceCodes.has(row.spaceCode.trim())
-                          ? " is-invalid"
-                          : ""
-                      }`}
-                      aria-label={`${row.name || "空間"}的空間代碼`}
-                    />
+                    <div className="flex flex-col gap-[2px]">
+                      <input
+                        type="text"
+                        value={row.spaceCode}
+                        maxLength={SPACE_REF_MAX}
+                        onChange={(event) => patch(row.code, { spaceCode: event.target.value })}
+                        placeholder="如 R-301"
+                        className={`input-theme rounded px-2 py-1.5 text-sm w-full min-w-24${
+                          row.spaceCode.trim() && duplicateSpaceCodes.has(row.spaceCode.trim())
+                            ? " is-invalid"
+                            : ""
+                        }`}
+                        aria-label={`${row.name || "空間"}的空間代碼`}
+                      />
+                      <input
+                        type="text"
+                        value={row.floor}
+                        maxLength={SPACE_FLOOR_MAX}
+                        onChange={(event) => patch(row.code, { floor: event.target.value })}
+                        placeholder="樓層：如 3F、B2"
+                        className="input-theme rounded px-2 py-1.5 text-sm w-full min-w-20"
+                        aria-label={`${row.name || "空間"}的樓層`}
+                      />
+                    </div>
                     {row.spaceCode.trim() && duplicateSpaceCodes.has(row.spaceCode.trim()) && (
                       <span className="block text-xs text-danger mt-1">空間代碼重複</span>
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      value={row.name}
-                      maxLength={SPACE_NAME_MAX}
-                      onChange={(event) => patch(row.code, { name: event.target.value })}
-                      placeholder="中文名稱"
-                      className={`input-theme rounded px-2 py-1.5 text-sm w-full min-w-36${
-                        row.name.trim() ? "" : " is-invalid"
-                      }`}
-                      aria-label="中文名稱"
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      value={row.nameEn}
-                      maxLength={SPACE_NAME_EN_MAX}
-                      onChange={(event) => patch(row.code, { nameEn: event.target.value })}
-                      placeholder="英文名稱（可空白）"
-                      className="input-theme rounded px-2 py-1.5 text-sm w-full min-w-36"
-                      aria-label={`${row.name || "空間"}的英文名稱`}
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      value={row.floor}
-                      maxLength={SPACE_FLOOR_MAX}
-                      onChange={(event) => patch(row.code, { floor: event.target.value })}
-                      placeholder="如 3F、B2"
-                      className="input-theme rounded px-2 py-1.5 text-sm w-full min-w-20"
-                      aria-label={`${row.name || "空間"}的樓層`}
-                    />
+                    <div className="flex flex-col gap-[2px]">
+                      <input
+                        type="text"
+                        value={row.name}
+                        maxLength={SPACE_NAME_MAX}
+                        onChange={(event) => patch(row.code, { name: event.target.value })}
+                        placeholder="中文名稱"
+                        className={`input-theme rounded px-2 py-1.5 text-sm w-full min-w-36${
+                          row.name.trim() ? "" : " is-invalid"
+                        }`}
+                        aria-label="中文名稱"
+                      />
+                      <input
+                        type="text"
+                        value={row.nameEn}
+                        maxLength={SPACE_NAME_EN_MAX}
+                        onChange={(event) => patch(row.code, { nameEn: event.target.value })}
+                        placeholder="英文名稱（可空白）"
+                        className="input-theme rounded px-2 py-1.5 text-sm w-full min-w-36"
+                        aria-label={`${row.name || "空間"}的英文名稱`}
+                      />
+                    </div>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <select
-                      value={row.parent ?? ""}
-                      disabled={row.level === 1}
-                      onChange={(event) =>
-                        apply(setSpaceParent(value, row.code, event.target.value || null))
-                      }
-                      className={`input-theme rounded px-2 py-1.5 text-sm${
-                        parentMissing ? " is-invalid" : ""
-                      }`}
-                      aria-label={`${row.name || "空間"}的上級空間`}
-                    >
-                      {row.level === 1 && <option value="">（最上層）</option>}
-                      {parentMissing && <option value="">（請選擇上級空間）</option>}
-                      {parentOptions.map((unit) => (
-                        <option key={unit.code} value={unit.code}>
-                          {unit.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex flex-col gap-[2px]">
+                      <select
+                        value={row.parent ?? ""}
+                        disabled={row.level === 1}
+                        onChange={(event) =>
+                          apply(setSpaceParent(value, row.code, event.target.value || null))
+                        }
+                        className={`input-theme rounded px-2 py-1.5 text-sm${
+                          parentMissing ? " is-invalid" : ""
+                        }`}
+                        aria-label={`${row.name || "空間"}的上級空間`}
+                      >
+                        {row.level === 1 && <option value="">（最上層）</option>}
+                        {parentMissing && <option value="">（請選擇上級空間）</option>}
+                        {parentOptions.map((unit) => (
+                          <option key={unit.code} value={unit.code}>
+                            {unit.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={row.orgUnit ?? ""}
+                        onChange={(event) =>
+                          patch(row.code, { orgUnit: event.target.value || null })
+                        }
+                        className="input-theme rounded px-2 py-1.5 text-sm"
+                        aria-label={`${row.name || "空間"}的隸屬單位`}
+                      >
+                        <option value="">（隸屬單位未指定）</option>
+                        {orgUnits.map((unit) => (
+                          <option key={unit.code} value={unit.code}>
+                            {unit.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     {parentMissing && (
                       <span className="block text-xs text-danger mt-1">請選擇上級空間</span>
                     )}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <select
-                      value={row.orgUnit ?? ""}
-                      onChange={(event) => patch(row.code, { orgUnit: event.target.value || null })}
-                      className="input-theme rounded px-2 py-1.5 text-sm"
-                      aria-label={`${row.name || "空間"}的隸屬單位`}
-                    >
-                      <option value="">（未指定）</option>
-                      {orgUnits.map((unit) => (
-                        <option key={unit.code} value={unit.code}>
-                          {unit.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <input
-                      type="checkbox"
-                      checked={row.openForBooking}
-                      onChange={(event) => patch(row.code, { openForBooking: event.target.checked })}
-                      className="cursor-pointer"
-                      aria-label={`${row.name || "空間"}是否開放借用`}
-                    />
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <input
-                      type="number"
-                      min={0}
-                      max={SPACE_CAPACITY_MAX}
-                      value={row.capacity ?? ""}
-                      onChange={(event) => {
-                        const text = event.target.value;
-                        if (text === "") {
-                          patch(row.code, { capacity: null });
-                          return;
-                        }
-                        const next = Number(text);
-                        if (!Number.isInteger(next) || next < 0 || next > SPACE_CAPACITY_MAX) return;
-                        patch(row.code, { capacity: next });
-                      }}
-                      placeholder="未填寫"
-                      className="input-theme rounded px-2 py-1.5 text-sm w-24"
-                      aria-label={`${row.name || "空間"}的容納人數`}
-                    />
+                    <div className="flex flex-col gap-[2px]">
+                      <label className="inline-flex items-center gap-1 text-xs text-t2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={row.openForBooking}
+                          onChange={(event) =>
+                            patch(row.code, { openForBooking: event.target.checked })
+                          }
+                          className="cursor-pointer"
+                          aria-label={`${row.name || "空間"}是否開放借用`}
+                        />
+                        開放借用
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={SPACE_CAPACITY_MAX}
+                        value={row.capacity ?? ""}
+                        onChange={(event) => {
+                          const text = event.target.value;
+                          if (text === "") {
+                            patch(row.code, { capacity: null });
+                            return;
+                          }
+                          const next = Number(text);
+                          if (!Number.isInteger(next) || next < 0 || next > SPACE_CAPACITY_MAX)
+                            return;
+                          patch(row.code, { capacity: next });
+                        }}
+                        placeholder="容納人數"
+                        className="input-theme rounded px-2 py-1.5 text-sm w-24"
+                        aria-label={`${row.name || "空間"}的容納人數`}
+                      />
+                    </div>
                   </td>
                   <td className="px-3 py-2">
                     <input
