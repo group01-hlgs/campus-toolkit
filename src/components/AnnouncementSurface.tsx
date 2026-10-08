@@ -161,7 +161,13 @@ export default function AnnouncementSurface({
               }`}
             >
               {pinnedItems.map((item) => (
-                <BannerRow key={item.id} item={item} showPinnedMark={false} sizes={sizes} />
+                <BannerRow
+                  key={item.id}
+                  item={item}
+                  showPinnedMark={false}
+                  pinnedMarkOnMetaLine={true}
+                  sizes={sizes}
+                />
               ))}
             </ul>
           )}
@@ -203,16 +209,19 @@ interface FontSizeClasses {
 function BannerRow({
   item,
   showPinnedMark = true,
+  pinnedMarkOnMetaLine = false,
   sizes,
 }: {
   item: AnnouncementSurfaceItem;
   showPinnedMark?: boolean;
+  /** true＝「置頂」標註改放在第 3 行（公告資訊）最前面 */
+  pinnedMarkOnMetaLine?: boolean;
   sizes: FontSizeClasses;
 }) {
   return (
     <li className="border-b border-themed pb-2 last:border-0 last:pb-0">
       <div className="flex items-center gap-1.5">
-        {showPinnedMark && item.pinned && (
+        {showPinnedMark && !pinnedMarkOnMetaLine && item.pinned && (
           <span className={`${sizes.meta} text-primary shrink-0`}>置頂</span>
         )}
         <span className={`${sizes.title} font-medium text-t1 truncate`}>
@@ -221,6 +230,9 @@ function BannerRow({
       </div>
       <p className={`${sizes.body} text-t2 mt-0.5 truncate`}>{clipText(item.body, 40)}</p>
       <p className={`${sizes.meta} text-t3 mt-0.5`}>
+        {pinnedMarkOnMetaLine && item.pinned && (
+          <span className="text-primary font-medium mr-1">置頂</span>
+        )}
         {item.categoryName}｜{item.authorName}｜
         {new Date(item.publishAt).toLocaleString("zh-TW")}
       </p>
