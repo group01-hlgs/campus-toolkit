@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { fetchSettings } from "@/lib/settings-client";
 import { defaultSettings } from "@/types/settings";
 import Copyright from "@/components/Copyright";
+import AdSense from "@/components/AdSense";
 
 interface AnnouncementDetail {
   id: string;
@@ -211,6 +212,13 @@ export default function AnnouncementDetailPage() {
       </div>
 
       <hr className="w-full max-w-4xl border-themed mb-4" />
+
+      {/* 廣告區域 */}
+      {settings.sponsorAdEnabled && (
+        <div className="w-full max-w-4xl mb-4">
+          <AdSense />
+        </div>
+      )}
 
       {/* 版權宣告 */}
       <div className="w-full max-w-4xl mt-auto mb-8">
