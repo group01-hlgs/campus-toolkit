@@ -216,36 +216,37 @@ export default function SchoolSpacesEditor() {
             />
           </label>
         ))}
-        {/* 檢視切換（表格／視覺化） */}
-        <div className="ml-auto flex gap-2" role="group" aria-label="檢視方式">
-          <button
-            type="button"
-            onClick={() => setMode("table")}
-            aria-pressed={mode === "table"}
-            className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
-              mode === "table" ? "btn-theme" : "border border-themed text-t2"
-            }`}
-          >
-            表格
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("tree")}
-            aria-pressed={mode === "tree"}
-            className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
-              mode === "tree" ? "btn-theme" : "border border-themed text-t2"
-            }`}
-          >
-            視覺化
-          </button>
-          {saveButtons}
-        </div>
+        <div className="ml-auto">{saveButtons}</div>
       </div>
 
       {validationBlock}
       <p className="text-xs text-t3 mb-3">
         {dirty ? "有尚未儲存的變更，記得按「儲存變更」。" : "已與伺服器同步。"}
       </p>
+
+      {/* 檢視切換（表格／視覺化）：置於列表正上方 */}
+      <div className="flex items-center gap-2 mb-3" role="group" aria-label="檢視方式">
+        <button
+          type="button"
+          onClick={() => setMode("table")}
+          aria-pressed={mode === "table"}
+          className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
+            mode === "table" ? "btn-theme" : "border border-themed text-t2"
+          }`}
+        >
+          表格
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("tree")}
+          aria-pressed={mode === "tree"}
+          className={`rounded-lg px-4 py-2 text-sm cursor-pointer ${
+            mode === "tree" ? "btn-theme" : "border border-themed text-t2"
+          }`}
+        >
+          視覺化
+        </button>
+      </div>
 
       {mode === "table" ? (
         <SchoolSpacesTable value={draft} orgUnits={orgUnits} onChange={setDraft} />
