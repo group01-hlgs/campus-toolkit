@@ -368,6 +368,8 @@ export async function listInboxAnnouncements(
       .limit(INBOX_LIMIT)
       .get();
     const now = Date.now();
+    // 置頂原則關閉時：不論資料庫中 pinned 值，一律視為未置頂
+    const enablePinned = settings.policies.enablePinned;
     const items: AnnouncementInboxItem[] = [];
     for (const doc of snap.docs) {
       const record = readAnnouncementRecord(doc.id, doc.data());
@@ -394,7 +396,7 @@ export async function listInboxAnnouncements(
         isPublic: record.isPublic === true,
         publishAt: record.publishAt,
         expireAt: record.expireAt,
-        pinned: record.pinned === true,
+        pinned: enablePinned && record.pinned === true,
         expiringSoon: isExpiringSoon(record, now),
       });
     }
@@ -443,6 +445,8 @@ export async function listSurfaceAnnouncements(
     }
     const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
     const now = Date.now();
+    // 置頂原則關閉時：不論資料庫中 pinned 值，一律視為未置頂
+    const enablePinned = settings.policies.enablePinned;
     const items: AnnouncementSurfaceItem[] = [];
     for (const doc of snap.docs) {
       const record = readAnnouncementRecord(doc.id, doc.data());
@@ -461,7 +465,7 @@ export async function listSurfaceAnnouncements(
         authorName: record.authorName,
         publishAt: record.publishAt,
         expireAt: record.expireAt,
-        pinned: record.pinned === true,
+        pinned: enablePinned && record.pinned === true,
         isPublic: record.isPublic === true,
       });
     }
