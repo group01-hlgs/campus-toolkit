@@ -120,8 +120,8 @@ export default function SchoolSpacesTable({
   }, [value.units]);
 
   /**
-   * 隸屬單位下拉選項：有下級的單位以 optgroup 分組（下級自動縮排），
-   * 第 3 層以下攤平在所屬分組內（以「└」前綴標示層級）；無下級的單位維持平面選項。
+   * 隸屬單位下拉選項：以樹狀順序平面列出（每個單位只出現一次），
+   * 下一層以全形空白縮排顯示；第 1 層不縮排。
    */
   const orgSelectOptions = useMemo(() => {
     const byParent = new Map<string | null, SpaceOrgOption[]>();
@@ -131,40 +131,19 @@ export default function SchoolSpacesTable({
       if (bucket) bucket.push(unit);
       else byParent.set(key, [unit]);
     }
-    const walk = (parentCode: string, depth: number, sink: React.ReactNode[]) => {
-      for (const child of byParent.get(parentCode) ?? []) {
-        sink.push(
-          <option key={child.code} value={child.code}>
-            {depth > 1 ? `${"　".repeat(depth - 1)}└ ` : ""}
-            {child.name}
+    const items: React.ReactNode[] = [];
+    const walk = (parentCode: string | null, depth: number) => {
+      for (const unit of byParent.get(parentCode) ?? []) {
+        items.push(
+          <option key={unit.code} value={unit.code}>
+            {depth > 0 ? "　".repeat(depth) : ""}
+            {unit.name}
           </option>
         );
-        walk(child.code, depth + 1, sink);
+        walk(unit.code, depth + 1);
       }
     };
-    const items: React.ReactNode[] = [];
-    for (const top of byParent.get(null) ?? []) {
-      const kids = byParent.get(top.code) ?? [];
-      if (kids.length === 0) {
-        items.push(
-          <option key={top.code} value={top.code}>
-            {top.name}
-          </option>
-        );
-        continue;
-      }
-      const children: React.ReactNode[] = [
-        <option key={top.code} value={top.code}>
-          {top.name}（本單位）
-        </option>,
-      ];
-      walk(top.code, 2, children);
-      items.push(
-        <optgroup key={top.code} label={top.name}>
-          {children}
-        </optgroup>
-      );
-    }
+    walk(null, 0);
     return items;
   }, [orgUnits]);
 

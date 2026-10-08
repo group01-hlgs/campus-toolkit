@@ -29,7 +29,7 @@ const noStore = { "Cache-Control": "no-store" };
  * 「隸屬單位」引用單位層級設定（settings/school）的單位 code，故讀寫前都先取一次 org。
  */
 
-/** 單位清單（供表單「隸屬單位」下拉分組顯示）：取 code、名稱、層級與上級 */
+/** 單位清單（供表單「隸屬單位」下拉樹狀縮排顯示）：取 code、名稱、層級與上級 */
 function orgOptionsOf(raw: unknown): SpaceOrgOption[] {
   return readOrgStructure(raw).units.map((unit) => ({
     code: unit.code,
