@@ -7,6 +7,8 @@ import {
   ANNOUNCEMENT_SURFACES,
   ANNOUNCEMENT_SURFACE_METHOD_LABELS,
   announcementPermissionText,
+  ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
+  ANNOUNCEMENT_FALLBACK_CATEGORY_NAME,
   DEFAULT_ANNOUNCEMENT_SETTINGS,
   isAnnouncementReadable,
   type AnnouncementCategory,
@@ -19,6 +21,7 @@ import {
   type AnnouncementSurfaces,
 } from "@/types/announcements";
 import { ROLE_LABELS, type UserRole } from "@/types/users";
+import { normalizeCategoryId } from "@/types/category";
 import { useDataSaver } from "@/lib/data-saver";
 import RevealListCard from "@/components/RevealListCard";
 
@@ -189,7 +192,7 @@ export default function AdminAnnouncementsPage() {
       const payload = {
         title: form.title,
         body: form.body,
-        categoryId: form.categoryId,
+        categoryId: formCategoryId,
         // 閱讀權限「無」＝公開：不帶身分與班級（伺服端一律正規化為全校、全身分）
         audience: {
           roles: form.isPublic ? [] : form.roles,
@@ -309,9 +312,18 @@ export default function AdminAnnouncementsPage() {
     return (
       categories.find((c) => c.id === id)?.name ||
       settings.categories.find((c) => c.id === id)?.name ||
-      id
+      // 分類已被刪除：顯示時自動歸到後備分類，不露出原始 id
+      ANNOUNCEMENT_FALLBACK_CATEGORY_NAME
     );
   }
+
+  // 表單目前生效的分類：id 已被刪除（或停用）時自動歸到後備分類「一般公告」
+  const enabledCategories = categories.filter((c) => c.enabled);
+  const formCategoryId = normalizeCategoryId(
+    enabledCategories,
+    ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
+    form.categoryId
+  );
 
   const searchKeyword = keyword.trim().toLowerCase();
   const filteredItems = items.filter((item) => {
@@ -476,59 +488,78 @@ export default function AdminAnnouncementsPage() {
         <div>
           <span className="block text-t2 mb-1">分類名稱、啟用與排序</span>
             <div className="space-y-2">
-              {categories.map((cat, index) => (
-                <div key={cat.id || index} className="flex items-center gap-2">
-                  <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
-                  <input
-                    className="w-28 input-theme rounded px-2 py-1"
-                    value={cat.name}
-                    onChange={(e) => {
-                      const next = [...categories];
-                      next[index] = { ...cat, name: e.target.value };
-                      setCategories(next);
-                    }}
-                    placeholder="名稱"
-                  />
-                  <label className="inline-flex items-center gap-1 text-xs text-t2">
+              {categories.map((cat, index) => {
+                const isFallback = cat.id === ANNOUNCEMENT_FALLBACK_CATEGORY_ID;
+                return (
+                  <div key={cat.id || index} className="flex items-center gap-2">
+                    <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
                     <input
-                      type="checkbox"
-                      checked={cat.enabled}
+                      className="w-28 input-theme rounded px-2 py-1"
+                      value={cat.name}
                       onChange={(e) => {
                         const next = [...categories];
-                        next[index] = { ...cat, enabled: e.target.checked };
+                        next[index] = { ...cat, name: e.target.value };
                         setCategories(next);
                       }}
+                      placeholder="名稱"
                     />
-                    啟用
-                  </label>
-                  <button
-                    type="button"
-                    className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
-                    disabled={index === 0}
-                    onClick={() => moveCategory(index, -1)}
-                    title="上移"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
-                    disabled={index === categories.length - 1}
-                    onClick={() => moveCategory(index, 1)}
-                    title="下移"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs text-t3 hover:text-danger cursor-pointer"
-                    onClick={() => setCategories(categories.filter((_, i) => i !== index))}
-                  >
-                    刪除
-                  </button>
-                </div>
-              ))}
+                    <label className="inline-flex items-center gap-1 text-xs text-t2">
+                      <input
+                        type="checkbox"
+                        checked={cat.enabled}
+                        disabled={isFallback}
+                        title={isFallback ? "後備分類必須啟用" : undefined}
+                        onChange={(e) => {
+                          const next = [...categories];
+                          next[index] = { ...cat, enabled: e.target.checked };
+                          setCategories(next);
+                        }}
+                      />
+                      啟用
+                    </label>
+                    <button
+                      type="button"
+                      className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                      disabled={index === 0}
+                      onClick={() => moveCategory(index, -1)}
+                      title="上移"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                      disabled={index === categories.length - 1}
+                      onClick={() => moveCategory(index, 1)}
+                      title="下移"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      className={`text-xs px-1 ${
+                        isFallback
+                          ? "text-t3 cursor-not-allowed"
+                          : "text-t3 hover:text-danger cursor-pointer"
+                      }`}
+                      disabled={isFallback}
+                      title={
+                        isFallback
+                          ? `後備分類「${ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」不可刪除`
+                          : undefined
+                      }
+                      onClick={() => setCategories(categories.filter((_, i) => i !== index))}
+                    >
+                      刪除
+                    </button>
+                  </div>
+                );
+              })}
             </div>
+            <p className="text-xs text-t3 mt-2">
+              「{ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」為後備分類（不可刪除／停用）：其他分類被刪除後，
+              已發佈的公告會在顯示時自動歸入「{ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」，不需批次搬移資料。
+            </p>
             <button
               type="button"
               className="mt-2 btn-soft rounded px-3 py-1 text-xs cursor-pointer"
@@ -615,17 +646,20 @@ export default function AdminAnnouncementsPage() {
                   <select
                     id="ann-cat"
                     className="w-full input-theme rounded px-3 py-2"
-                    value={form.categoryId}
+                    value={formCategoryId}
                     onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
                   >
-                    {categories
-                      .filter((c) => c.enabled)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
+                    {enabledCategories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
                   </select>
+                  {form.id && formCategoryId !== form.categoryId && (
+                    <p className="text-xs text-t3 mt-1">
+                      原分類已刪除，已自動歸入「{ANNOUNCEMENT_FALLBACK_CATEGORY_NAME}」
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-t2 mb-1" htmlFor="ann-expire">

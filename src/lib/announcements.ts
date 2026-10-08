@@ -20,7 +20,9 @@ import {
   AnnouncementSurfaces,
   announcementCategoryName,
   announcementToFirestore,
+  ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
   audienceClassScoped,
+  defaultAnnouncementFallbackCategory,
   defaultAnnouncementSurfaces,
   DEFAULT_ANNOUNCEMENT_CATEGORIES,
   DEFAULT_ANNOUNCEMENT_POLICIES,
@@ -35,6 +37,7 @@ import {
   type AnnouncementInboxItem,
 } from "@/types/announcements";
 import { UserRole } from "@/types/users";
+import { ensureFallbackCategory } from "@/types/category";
 
 /**
  * 公告功能模組（server-only）。
@@ -492,7 +495,7 @@ export async function saveAnnouncementSettings(input: {
   policies?: Partial<AnnouncementPolicies>;
 }): Promise<AnnouncementSettings> {
   const current = await getAnnouncementSettings();
-  const categories = Array.isArray(input.categories)
+  const base = Array.isArray(input.categories)
     ? input.categories
         .map((item, index) => ({
           id: typeof item.id === "string" ? item.id.trim().slice(0, 64) : "",
@@ -502,6 +505,13 @@ export async function saveAnnouncementSettings(input: {
         }))
         .filter((item) => item.id && item.name)
     : current.categories;
+  const safe = base.length > 0 ? base : [...DEFAULT_ANNOUNCEMENT_CATEGORIES];
+  // 後備分類「一般公告」不可被刪除：即使管理端刪掉也補回並強制啟用
+  const categories = ensureFallbackCategory(
+    safe,
+    ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
+    () => defaultAnnouncementFallbackCategory(safe.length)
+  );
   // 顯示位置：逐 key 套用；未提供的 key 沿用現值（缺欄位時退回預設）
   const surfaces: AnnouncementSurfaces = {
     ...defaultAnnouncementSurfaces(),
@@ -532,7 +542,7 @@ export async function saveAnnouncementSettings(input: {
     }
   }
   const next: AnnouncementSettings = {
-    categories: categories.length > 0 ? categories : [...DEFAULT_ANNOUNCEMENT_CATEGORIES],
+    categories,
     defaultRemindersEnabled:
       typeof input.defaultRemindersEnabled === "boolean"
         ? input.defaultRemindersEnabled

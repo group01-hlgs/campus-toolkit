@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
-import { calendarEventEnd, type CalendarEventItem } from "@/types/calendar";
+import {
+  calendarEventEnd,
+  CALENDAR_FALLBACK_CATEGORY_ID,
+  CALENDAR_FALLBACK_CATEGORY_NAME,
+  type CalendarCategory,
+  type CalendarEventItem,
+} from "@/types/calendar";
+import { normalizeCategoryId, resolveCategoryName } from "@/types/category";
 import { ROLE_LABELS, type UserRole } from "@/types/users";
 
 type Flash = { type: "success" | "error"; text: string } | null;
@@ -81,7 +88,7 @@ interface CalendarResponse {
   items?: CalendarEventItem[];
   classCode?: string | null;
   displayName?: string;
-  categories?: { id: string; name: string }[];
+  categories?: CalendarCategory[];
   remindersEnabled?: boolean;
   /** 發佈單位預設值（教職員名冊「單位」） */
   publishUnit?: string;
@@ -103,7 +110,7 @@ export default function CalendarView({
   const [items, setItems] = useState<CalendarEventItem[]>([]);
   const [classCode, setClassCode] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [categories, setCategories] = useState<CalendarCategory[]>([]);
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [unitDefault, setUnitDefault] = useState("");
   const [loading, setLoading] = useState(true);
@@ -129,6 +136,7 @@ export default function CalendarView({
     endAtText: "",
     important: false,
     classScoped: false,
+    categoryId: "",
     publishUnit: "",
     roles: ["student", "parent", "staff"] as UserRole[],
   });
@@ -194,18 +202,30 @@ export default function CalendarView({
   }, [load]);
 
   const categoryName = useCallback(
-    (categoryId: string) => categories.find((c) => c.id === categoryId)?.name || "其他",
+    (categoryId: string) =>
+      resolveCategoryName(
+        categories,
+        CALENDAR_FALLBACK_CATEGORY_ID,
+        CALENDAR_FALLBACK_CATEGORY_NAME,
+        categoryId
+      ),
     [categories]
   );
+
+  // 建立表單的行事曆類型：未選→第一個啟用中的類型；已失效→後備類型「其他」
+  const enabledCategories = useMemo(() => categories.filter((c) => c.enabled), [categories]);
+  const formCategoryId = form.categoryId
+    ? normalizeCategoryId(enabledCategories, CALENDAR_FALLBACK_CATEGORY_ID, form.categoryId)
+    : (enabledCategories[0]?.id ?? CALENDAR_FALLBACK_CATEGORY_ID);
 
   const visibleItems = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const sorted = [...items].sort((a, b) => a.startAt - b.startAt);
     if (!kw) return sorted;
     return sorted.filter((item) =>
-      `${item.title}\n${item.description ?? ""}\n${item.location ?? ""}\n${categoryName(
-        item.categoryId
-      )}`
+      `${item.title}\n${item.description ?? ""}\n${item.location ?? ""}\n${
+        item.categoryName || categoryName(item.categoryId)
+      }`
         .toLowerCase()
         .includes(kw)
     );
@@ -324,6 +344,7 @@ export default function CalendarView({
           startAt: form.allDay ? undefined : startAt,
           endAt: form.allDay ? null : (parseDatetimeLocal(form.endAtText) ?? null),
           important: form.important,
+          categoryId: formCategoryId,
           publishUnit: form.publishUnit || unitDefault,
           audience: { roles: form.roles, classCodes },
         }),
@@ -414,6 +435,23 @@ export default function CalendarView({
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   maxLength={2000}
                 />
+              </div>
+              <div>
+                <label className="block text-xs text-t2 mb-1" htmlFor="cv-cat">
+                  行事曆類型
+                </label>
+                <select
+                  id="cv-cat"
+                  className="w-full input-theme rounded px-3 py-2 text-sm"
+                  value={formCategoryId}
+                  onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                >
+                  {enabledCategories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-xs text-t2 mb-1" htmlFor="cv-unit">
@@ -684,7 +722,7 @@ export default function CalendarView({
                     <EventCard
                       key={item.id}
                       item={item}
-                      categoryName={categoryName(item.categoryId)}
+                      categoryName={item.categoryName || categoryName(item.categoryId)}
                       sizes={sizes}
                       expanded={expandedId === item.id}
                       onToggleExpand={() =>
@@ -708,7 +746,7 @@ export default function CalendarView({
                 <EventCard
                   key={item.id}
                   item={item}
-                  categoryName={categoryName(item.categoryId)}
+                  categoryName={item.categoryName || categoryName(item.categoryId)}
                   sizes={sizes}
                   expanded={expandedId === item.id}
                   onToggleExpand={() =>

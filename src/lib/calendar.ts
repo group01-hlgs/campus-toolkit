@@ -21,8 +21,10 @@ import {
   calendarEventToItem,
   audienceClassScoped,
   canViewCalendarEvent,
+  CALENDAR_FALLBACK_CATEGORY_ID,
   DEFAULT_CALENDAR_CATEGORIES,
   DEFAULT_CALENDAR_SETTINGS,
+  defaultCalendarFallbackCategory,
   isCalendarEventActive,
   readCalendarEventRecord,
   readCalendarSettings,
@@ -30,6 +32,7 @@ import {
   validateCalendarInput,
 } from "@/types/calendar";
 import type { UserRole } from "@/types/users";
+import { ensureFallbackCategory } from "@/types/category";
 
 /**
  * 行事曆功能模組（server-only）。
@@ -352,7 +355,7 @@ export async function saveCalendarSettings(input: {
   defaultRemindersEnabled?: boolean;
 }): Promise<CalendarSettings> {
   const current = await getCalendarSettings();
-  const categories = Array.isArray(input.categories)
+  const base = Array.isArray(input.categories)
     ? input.categories
         .map((item, index) => ({
           id: typeof item.id === "string" ? item.id.trim().slice(0, 64) : "",
@@ -362,8 +365,13 @@ export async function saveCalendarSettings(input: {
         }))
         .filter((item) => item.id && item.name)
     : current.categories;
+  const safe = base.length > 0 ? base : [...DEFAULT_CALENDAR_CATEGORIES];
+  // 後備類型「其他」不可被刪除：即使管理端刪掉也補回並強制啟用
+  const categories = ensureFallbackCategory(safe, CALENDAR_FALLBACK_CATEGORY_ID, () =>
+    defaultCalendarFallbackCategory(safe.length)
+  );
   const next: CalendarSettings = {
-    categories: categories.length > 0 ? categories : [...DEFAULT_CALENDAR_CATEGORIES],
+    categories,
     defaultRemindersEnabled:
       typeof input.defaultRemindersEnabled === "boolean"
         ? input.defaultRemindersEnabled

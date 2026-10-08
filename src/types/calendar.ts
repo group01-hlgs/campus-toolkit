@@ -11,6 +11,7 @@
  */
 
 import { ALL_ROLES, ROLE_LABELS, UserRole } from "./users";
+import { ensureFallbackCategory, resolveCategoryName } from "./category";
 
 export const CALENDAR_COLLECTION = "calendarEvents";
 export const CALENDAR_SETTINGS_DOC_ID = "calendar";
@@ -58,6 +59,23 @@ export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
   categories: DEFAULT_CALENDAR_CATEGORIES,
   defaultRemindersEnabled: true,
 };
+
+/**
+ * 後備行事曆類型（不可刪除）：類型被刪除後，既有行程顯示時自動歸入此類型。
+ * 見 `types/category.ts` 的刪除機制說明。
+ */
+export const CALENDAR_FALLBACK_CATEGORY_ID = "other";
+export const CALENDAR_FALLBACK_CATEGORY_NAME = "其他";
+
+/** 補齊後備類型用的預設條目（sortOrder 由呼叫端決定） */
+export function defaultCalendarFallbackCategory(sortOrder: number): CalendarCategory {
+  return {
+    id: CALENDAR_FALLBACK_CATEGORY_ID,
+    name: CALENDAR_FALLBACK_CATEGORY_NAME,
+    sortOrder,
+    enabled: true,
+  };
+}
 
 export interface CalendarEventRecord {
   id: string;
@@ -282,7 +300,8 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
   const description = text(input.description, DESCRIPTION_MAX);
   const location = text(input.location, LOCATION_MAX);
   const important = input.important === true;
-  const categoryId = text(input.categoryId, CATEGORY_ID_MAX) || DEFAULT_CALENDAR_CATEGORIES[0].id;
+  const categoryId =
+    text(input.categoryId, CATEGORY_ID_MAX) || CALENDAR_FALLBACK_CATEGORY_ID;
   const publishUnit = text(input.publishUnit, PUBLISH_UNIT_MAX) || undefined;
 
   const now = Date.now();
@@ -501,6 +520,10 @@ export function readCalendarSettings(raw: unknown): CalendarSettings {
       .filter((item): item is CalendarCategory => item !== null);
   }
   if (categories.length === 0) categories = [...DEFAULT_CALENDAR_CATEGORIES];
+  // 後備類型（其他）不可被刪除：讀入時補齊並強制啟用（僅記憶體，不寫回）
+  categories = ensureFallbackCategory(categories, CALENDAR_FALLBACK_CATEGORY_ID, () =>
+    defaultCalendarFallbackCategory(categories.length)
+  );
   return {
     categories,
     defaultRemindersEnabled: data?.defaultRemindersEnabled !== false,
@@ -512,9 +535,11 @@ export function calendarCategoryName(
   settings: CalendarSettings,
   categoryId: string
 ): string {
-  return (
-    settings.categories.find((item) => item.id === categoryId)?.name ||
-    (categoryId ? categoryId : "其他")
+  return resolveCategoryName(
+    settings.categories,
+    CALENDAR_FALLBACK_CATEGORY_ID,
+    CALENDAR_FALLBACK_CATEGORY_NAME,
+    categoryId
   );
 }
 

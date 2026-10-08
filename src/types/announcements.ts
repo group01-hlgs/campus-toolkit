@@ -9,6 +9,7 @@
  */
 
 import { ALL_ROLES, ROLE_LABELS, UserRole } from "./users";
+import { ensureFallbackCategory, resolveCategoryName } from "./category";
 
 export const ANNOUNCEMENTS_COLLECTION = "announcements";
 export const ANNOUNCEMENT_SETTINGS_DOC_ID = "announcements";
@@ -178,6 +179,24 @@ export const DEFAULT_ANNOUNCEMENT_SETTINGS: AnnouncementSettings = {
   surfaces: defaultAnnouncementSurfaces(),
   policies: DEFAULT_ANNOUNCEMENT_POLICIES,
 };
+
+/**
+ * 後備公告分類（不可刪除）：分類被刪除後，既有公告顯示時自動歸入此分類。
+ * 沿用預設的「一般公告」——它本來就是顯示兜底值，不另外新增標籤。
+ * 見 `types/category.ts` 的刪除機制說明。
+ */
+export const ANNOUNCEMENT_FALLBACK_CATEGORY_ID = "general";
+export const ANNOUNCEMENT_FALLBACK_CATEGORY_NAME = "一般公告";
+
+/** 補齊後備分類用的預設條目（sortOrder 由呼叫端決定） */
+export function defaultAnnouncementFallbackCategory(sortOrder: number): AnnouncementCategory {
+  return {
+    id: ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
+    name: ANNOUNCEMENT_FALLBACK_CATEGORY_NAME,
+    sortOrder,
+    enabled: true,
+  };
+}
 
 export interface AnnouncementRecord {
   id: string;
@@ -423,7 +442,8 @@ export function validateAnnouncementInput(
     value: {
       title,
       body,
-      categoryId: text(input.categoryId, 64) || DEFAULT_ANNOUNCEMENT_CATEGORIES[0].id,
+      categoryId:
+        text(input.categoryId, 64) || ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
       audience: normalizedAudience,
       isPublic,
       publishAt,
@@ -539,6 +559,10 @@ export function readAnnouncementSettings(raw: unknown): AnnouncementSettings {
       .filter((item): item is AnnouncementCategory => item !== null);
   }
   if (categories.length === 0) categories = [...DEFAULT_ANNOUNCEMENT_CATEGORIES];
+  // 後備分類（一般公告）不可被刪除：讀入時補齊並強制啟用（僅記憶體，不寫回）
+  categories = ensureFallbackCategory(categories, ANNOUNCEMENT_FALLBACK_CATEGORY_ID, () =>
+    defaultAnnouncementFallbackCategory(categories.length)
+  );
 
   // 5 個顯示位置：逐 key 寬容讀取，缺漏／毀損一律退回預設（未設定＝顯示）
   const surfaces: AnnouncementSurfaces = defaultAnnouncementSurfaces();
@@ -590,5 +614,10 @@ export function announcementCategoryName(
   settings: AnnouncementSettings,
   categoryId: string
 ): string {
-  return settings.categories.find((item) => item.id === categoryId)?.name ?? "一般公告";
+  return resolveCategoryName(
+    settings.categories,
+    ANNOUNCEMENT_FALLBACK_CATEGORY_ID,
+    ANNOUNCEMENT_FALLBACK_CATEGORY_NAME,
+    categoryId
+  );
 }
