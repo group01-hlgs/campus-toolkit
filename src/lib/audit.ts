@@ -40,7 +40,11 @@ export type ActivityAction =
   | "announcements_updated"
   | "announcements_archived"
   | "announcements_staff_posted"
-  | "announcements_settings_updated";
+  | "announcements_settings_updated"
+  | "calendar_created"
+  | "calendar_updated"
+  | "calendar_cancelled"
+  | "calendar_settings_updated";
 
 export interface ActivityEntry {
   userId?: string;

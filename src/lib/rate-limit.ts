@@ -215,4 +215,12 @@ export const RATE = {
   ANNOUNCEMENTS_INBOX: { limit: 60, windowMs: 60_000 },
   /** 公告：教職員發佈 */
   ANNOUNCEMENTS_STAFF_POST: { limit: 20, windowMs: 60_000 },
+  /** 行事曆：管理端清單／單筆讀取 */
+  CALENDAR_ADMIN_GET: { limit: 60, windowMs: 60_000 },
+  /** 行事曆：管理端建立／更新／取消／儲存設定 */
+  CALENDAR_ADMIN_MUTATE: { limit: 40, windowMs: 60_000 },
+  /** 行事曆：各身分行程列表與單筆讀取 */
+  CALENDAR_LIST: { limit: 60, windowMs: 60_000 },
+  /** 行事曆：教職員建立行程 */
+  CALENDAR_STAFF_CREATE: { limit: 20, windowMs: 60_000 },
 } as const;

@@ -117,6 +117,16 @@ export const MODULES = [
     children: [],
   },
   {
+    value: "calendar",
+    label: "行事曆",
+    category: "校務資料",
+    description: "建立與管理校務行程，四種身分皆可檢視；其他模組可經接口掛勾行程。",
+    scope: "assignable",
+    status: "built",
+    href: "/admin/calendar",
+    children: [],
+  },
+  {
     value: "activity",
     label: "稽核紀錄",
     category: "系統與紀錄",

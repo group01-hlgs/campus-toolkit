@@ -162,11 +162,17 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     value: "calendar",
     label: "行事曆",
     kind: "builtin",
-    status: "planned",
+    status: "live",
     description: "校務行事曆與各類日程的建立、發佈與檢視。",
-    href: "",
+    href: "/admin/calendar",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
+    // 行事曆對四身分皆提供（檢視）；管理端另受「指定功能模組」把關
+    provides: {
+      student: true,
+      parent: true,
+      staff: true,
+      admin: true,
+    },
   },
   {
     value: "spaceBooking",
