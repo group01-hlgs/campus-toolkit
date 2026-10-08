@@ -155,7 +155,7 @@ export default function SchoolSpacesTable({
       }
       const children: React.ReactNode[] = [
         <option key={top.code} value={top.code}>
-          {top.name}
+          {top.name}（本單位）
         </option>,
       ];
       walk(top.code, 2, children);
