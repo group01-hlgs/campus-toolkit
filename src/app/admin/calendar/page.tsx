@@ -125,7 +125,7 @@ export default function AdminCalendarPage() {
     DEFAULT_CALENDAR_SETTINGS.categories
   );
   const [remindersEnabled, setRemindersEnabled] = useState(true);
-  const [cardOpen, setCardOpen] = useState({ categories: false });
+  const [cardOpen, setCardOpen] = useState({ settings: false, categories: false });
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | CalendarEventStatus>("all");
   const [month, setMonth] = useState<string | null>(null);
@@ -358,128 +358,140 @@ export default function AdminCalendarPage() {
         </div>
       )}
 
-      {/* 1. 設定卡片（行事曆類型管理，預設收合） */}
+      {/* 1. 設定管理（預設收合）：收納行事曆設定 */}
       <SettingsCard
-        title="行事曆設定"
-        open={cardOpen.categories}
-        onToggle={() => setCardOpen((prev) => ({ ...prev, categories: !prev.categories }))}
+        title="設定管理"
+        open={cardOpen.settings}
+        onToggle={() => setCardOpen((prev) => ({ ...prev, settings: !prev.settings }))}
       >
-        <div className="space-y-4">
-          <div>
-            <span className="block text-t2 mb-1">行事曆類型名稱、啟用與排序</span>
-            <div className="space-y-2">
-              {categories.map((cat, index) => {
-                const isFallback = cat.id === CALENDAR_FALLBACK_CATEGORY_ID;
-                return (
-                  <div key={cat.id || index} className="flex items-center gap-2">
-                    <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
-                    <input
-                      className="w-28 input-theme rounded px-2 py-1"
-                      value={cat.name}
-                      onChange={(e) => {
-                        const next = [...categories];
-                        next[index] = { ...cat, name: e.target.value };
-                        setCategories(next);
-                      }}
-                      placeholder="名稱"
-                    />
-                    <label className="inline-flex items-center gap-1 text-xs text-t2">
-                      <input
-                        type="checkbox"
-                        checked={cat.enabled}
-                        disabled={isFallback}
-                        title={isFallback ? "後備類型必須啟用" : undefined}
-                        onChange={(e) => {
-                          const next = [...categories];
-                          next[index] = { ...cat, enabled: e.target.checked };
-                          setCategories(next);
-                        }}
-                      />
-                      啟用
-                    </label>
-                    <button
-                      type="button"
-                      className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
-                      disabled={index === 0}
-                      onClick={() => moveCategory(index, -1)}
-                      title="上移"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
-                      disabled={index === categories.length - 1}
-                      onClick={() => moveCategory(index, 1)}
-                      title="下移"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className={`text-xs px-1 ${
-                        isFallback
-                          ? "text-t3 cursor-not-allowed"
-                          : "text-t3 hover:text-danger cursor-pointer"
-                      }`}
-                      disabled={isFallback}
-                      title={
-                        isFallback
-                          ? `後備類型「${CALENDAR_FALLBACK_CATEGORY_NAME}」不可刪除`
-                          : undefined
-                      }
-                      onClick={() => setCategories(categories.filter((_, i) => i !== index))}
-                    >
-                      刪除
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-t3 mt-2">
-              「{CALENDAR_FALLBACK_CATEGORY_NAME}」為後備類型（不可刪除／停用）：其他類型被刪除後，
-              已發佈的行程會在顯示時自動歸入「{CALENDAR_FALLBACK_CATEGORY_NAME}」，不需批次搬移資料。
-            </p>
-            <button
-              type="button"
-              className="mt-2 btn-soft rounded px-3 py-1 text-xs cursor-pointer"
-              onClick={() =>
-                setCategories([
-                  ...categories,
-                  {
-                    id: `custom_${Date.now()}`,
-                    name: "",
-                    sortOrder: categories.length,
-                    enabled: true,
-                  },
-                ])
-              }
-            >
-              ＋ 新增行事曆類型
-            </button>
-          </div>
-
-          <label className="inline-flex items-center gap-1.5 text-sm text-t1">
-            <input
-              type="checkbox"
-              checked={remindersEnabled}
-              onChange={(e) => setRemindersEnabled(e.target.checked)}
-            />
-            啟用個人提醒（行程清單的「提醒我」按鈕；非推播，開啟頁面才更新）
-          </label>
-
-          <button
-            type="button"
-            onClick={saveSettings}
-            disabled={saving}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+          {/* 1-1. 設定卡片（行事曆類型管理，預設收合） */}
+          <SettingsCard
+            title="行事曆設定"
+            open={cardOpen.categories}
+            onToggle={() => setCardOpen((prev) => ({ ...prev, categories: !prev.categories }))}
           >
-            {saving ? "處理中..." : "儲存設定"}
-          </button>
-          <p className="text-xs text-t3">
-            跨模組發佈行程請呼叫 <code>publishScheduleFromModule()</code>（src/lib/calendar.ts）。
-          </p>
-        </div>
+            <div>
+              <div className="space-y-4">
+                <div>
+                  <span className="block text-t2 mb-1">行事曆類型名稱、啟用與排序</span>
+                  <div className="space-y-2">
+                    {categories.map((cat, index) => {
+                      const isFallback = cat.id === CALENDAR_FALLBACK_CATEGORY_ID;
+                      return (
+                        <div key={cat.id || index} className="flex items-center gap-2">
+                          <span className="text-xs text-t3 w-4 text-center">{index + 1}</span>
+                          <input
+                            className="w-28 input-theme rounded px-2 py-1"
+                            value={cat.name}
+                            onChange={(e) => {
+                              const next = [...categories];
+                              next[index] = { ...cat, name: e.target.value };
+                              setCategories(next);
+                            }}
+                            placeholder="名稱"
+                          />
+                          <label className="inline-flex items-center gap-1 text-xs text-t2">
+                            <input
+                              type="checkbox"
+                              checked={cat.enabled}
+                              disabled={isFallback}
+                              title={isFallback ? "後備類型必須啟用" : undefined}
+                              onChange={(e) => {
+                                const next = [...categories];
+                                next[index] = { ...cat, enabled: e.target.checked };
+                                setCategories(next);
+                              }}
+                            />
+                            啟用
+                          </label>
+                          <button
+                            type="button"
+                            className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                            disabled={index === 0}
+                            onClick={() => moveCategory(index, -1)}
+                            title="上移"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs text-t3 hover:text-t1 cursor-pointer px-1"
+                            disabled={index === categories.length - 1}
+                            onClick={() => moveCategory(index, 1)}
+                            title="下移"
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className={`text-xs px-1 ${
+                              isFallback
+                                ? "text-t3 cursor-not-allowed"
+                                : "text-t3 hover:text-danger cursor-pointer"
+                            }`}
+                            disabled={isFallback}
+                            title={
+                              isFallback
+                                ? `後備類型「${CALENDAR_FALLBACK_CATEGORY_NAME}」不可刪除`
+                                : undefined
+                            }
+                            onClick={() => setCategories(categories.filter((_, i) => i !== index))}
+                          >
+                            刪除
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-t3 mt-2">
+                    「{CALENDAR_FALLBACK_CATEGORY_NAME}」為後備類型（不可刪除／停用）：其他類型被刪除後，
+                    已發佈的行程會在顯示時自動歸入「{CALENDAR_FALLBACK_CATEGORY_NAME}」，不需批次搬移資料。
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-2 btn-soft rounded px-3 py-1 text-xs cursor-pointer"
+                    onClick={() =>
+                      setCategories([
+                        ...categories,
+                        {
+                          id: `custom_${Date.now()}`,
+                          name: "",
+                          sortOrder: categories.length,
+                          enabled: true,
+                        },
+                      ])
+                    }
+                  >
+                    ＋ 新增行事曆類型
+                  </button>
+                </div>
+
+                <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                  <input
+                    type="checkbox"
+                    checked={remindersEnabled}
+                    onChange={(e) => setRemindersEnabled(e.target.checked)}
+                  />
+                  啟用個人提醒（行程清單的「提醒我」按鈕；非推播，開啟頁面才更新）
+                </label>
+              </div>
+
+              {/* 儲存設定與上方元件固定 10px 間距 */}
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? "處理中..." : "儲存設定"}
+                </button>
+              </div>
+              <p className="mt-4 text-xs text-t3">
+                跨模組發佈行程請呼叫 <code>publishScheduleFromModule()</code>（src/lib/calendar.ts）。
+              </p>
+            </div>
+          </SettingsCard>
       </SettingsCard>
 
       {/* 2. 建立／編輯行程（預設收合） */}
