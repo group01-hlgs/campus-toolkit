@@ -230,14 +230,14 @@ export default function OrgUnitTable({
                     {children > 0 ? `${children} 個` : "—"}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
-                    <div className="inline-flex flex-wrap justify-end gap-2">
+                    <div className="inline-flex flex-wrap justify-end gap-1">
                       <button
                         type="button"
                         onClick={() => apply(moveSibling(value, row.code, -1))}
                         disabled={!canUp}
                         title={canUp ? "與上一個同層單位對調順位" : "已是同層的第一個單位"}
                         aria-label="上移"
-                        className="btn-theme rounded px-2 py-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="rounded p-1 text-t2 hover:text-t1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <IconArrowUp />
                       </button>
@@ -247,7 +247,7 @@ export default function OrgUnitTable({
                         disabled={!canDown}
                         title={canDown ? "與下一個同層單位對調順位" : "已是同層的最後一個單位"}
                         aria-label="下移"
-                        className="btn-theme rounded px-2 py-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="rounded p-1 text-t2 hover:text-t1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <IconArrowDown />
                       </button>
@@ -257,7 +257,7 @@ export default function OrgUnitTable({
                         disabled={!canAddChild}
                         title={canAddChild ? "在此單位下新增子單位" : "已達學校層級數上限"}
                         aria-label="新增子單位"
-                        className="btn-theme rounded px-2 py-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="rounded p-1 text-t2 hover:text-t1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <IconPlus />
                       </button>
@@ -266,7 +266,7 @@ export default function OrgUnitTable({
                         onClick={() => apply(removeUnit(value, row.code))}
                         title="刪除此單位"
                         aria-label="刪除"
-                        className="btn-danger rounded px-2 py-1.5 cursor-pointer"
+                        className="rounded p-1 text-danger hover:opacity-70 cursor-pointer"
                       >
                         <IconTrash />
                       </button>
