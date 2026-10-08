@@ -11,6 +11,7 @@ import type {
 interface SurfaceResponse {
   success?: boolean;
   surface?: AnnouncementSurfaceSetting;
+  enablePinned?: boolean;
   items?: AnnouncementSurfaceItem[];
 }
 
@@ -70,6 +71,7 @@ export default function AnnouncementSurface({
   const [setting, setSetting] = useState<AnnouncementSurfaceSetting | null>(null);
   const [items, setItems] = useState<AnnouncementSurfaceItem[]>([]);
   const [fontSize, setFontSize] = useState<FontSize>("small");
+  const [enablePinned, setEnablePinned] = useState(true);
 
   useEffect(() => {
     setFontSize(readStoredFontSize());
@@ -82,6 +84,7 @@ export default function AnnouncementSurface({
       .then((data: SurfaceResponse | null) => {
         if (cancelled || !data?.success) return;
         setSetting(data.surface ?? null);
+        setEnablePinned(data.enablePinned !== false);
         setItems(Array.isArray(data.items) ? data.items : []);
       })
       .catch(() => {
@@ -130,7 +133,8 @@ export default function AnnouncementSurface({
   );
 
   // 橫幅（儲存值 marquee）：三行卡片——標題／內容摘要／公告資訊
-  if (setting.method === "marquee") {
+  // 置頂原則關閉時：橫幅模式退化為清單（無置頂可強調）
+  if (setting.method === "marquee" && enablePinned) {
     return (
       <section className={className} aria-label="系統公告">
         {heading}
@@ -147,7 +151,8 @@ export default function AnnouncementSurface({
 
   // 「清單，置頂公告橫幅」（儲存值 pinnedTop）：
   // 置頂公告＝三行卡片置頂，其餘＝單行清單（完全沒有置頂時全為單行）
-  if (setting.method === "pinnedTop") {
+  // 置頂原則關閉時：一律以清單樣式呈現
+  if (setting.method === "pinnedTop" && enablePinned) {
     const pinnedItems = items.filter((item) => item.pinned);
     const restItems = items.filter((item) => !item.pinned);
     return (

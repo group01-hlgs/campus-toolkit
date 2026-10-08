@@ -58,6 +58,7 @@ interface InboxResponse {
   classCode?: string | null;
   displayName?: string;
   displayMethod?: AnnouncementSurfaceMethod;
+  enablePinned?: boolean;
   remindersEnabled?: boolean;
 }
 
@@ -89,6 +90,7 @@ export default function AnnouncementsInbox({
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [togglingReminder, setTogglingReminder] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<FontSize>("small");
+  const [enablePinned, setEnablePinned] = useState(true);
 
   useEffect(() => {
     setFontSize(readStoredFontSize());
@@ -133,6 +135,7 @@ export default function AnnouncementsInbox({
         setItems(data.items ?? []);
         setClassCode(data.classCode ?? null);
         if (data.displayMethod) setDisplayMethod(data.displayMethod);
+        setEnablePinned(data.enablePinned !== false);
         if (typeof data.remindersEnabled === "boolean") {
           setRemindersEnabled(data.remindersEnabled);
         }
@@ -228,8 +231,10 @@ export default function AnnouncementsInbox({
   // 橫幅模式的橫幅來源：置頂公告優先；完全沒有置頂時改用最新一則
   //（items 由伺服器排序＝置頂在前、再依發布時間新到舊；
   // 已按「關閉」的橫幅不重複顯示，該則改回一般清單）
+  // 置頂原則關閉時：一律以清單樣式呈現
+  const effectiveMethod = enablePinned ? displayMethod : "list";
   const bannerSource =
-    displayMethod === "marquee"
+    effectiveMethod === "marquee"
       ? items.some((item) => item.pinned)
         ? items.filter((item) => item.pinned)
         : items.slice(0, 1)
@@ -383,9 +388,9 @@ export default function AnnouncementsInbox({
         </div>
         <p className="text-xs text-t3 mb-3">
           顯示方式：
-          {displayMethod === "marquee"
+          {effectiveMethod === "marquee"
             ? "置頂公告以橫幅顯示（無置頂時取最新一則）"
-            : displayMethod === "pinnedTop"
+            : effectiveMethod === "pinnedTop"
               ? "置頂公告以橫幅三行顯示，其餘為單行清單（點擊展開）"
               : "清單（全文展開）"}
           ；過期公告已自動隱藏
@@ -398,7 +403,7 @@ export default function AnnouncementsInbox({
           <>
             {/* 橫幅模式：置頂公告以醒目橫幅顯示；完全沒有置頂時改用最新一則
                 （可於本機關閉橫幅，該則回到一般清單，不影響他人） */}
-            {displayMethod === "marquee" &&
+            {effectiveMethod === "marquee" &&
               bannerItems.map((item) => (
                 <div
                   key={`banner-${item.id}`}
@@ -434,7 +439,7 @@ export default function AnnouncementsInbox({
 
             {/* 置頂區（pinnedTop 模式）：置頂公告以橫幅三行卡顯示——
                 第 1 行標題 20 字內、第 2 行內容摘要 40 字內、第 3 行公告資訊（分類｜作者｜日期） */}
-            {displayMethod === "pinnedTop" &&
+            {effectiveMethod === "pinnedTop" &&
               items.filter((item) => item.pinned).length > 0 && (
                 <div className="mb-4">
                   <h4 className="text-sm font-bold text-primary mb-2">置頂公告</h4>
@@ -451,7 +456,7 @@ export default function AnnouncementsInbox({
             {/* 一般清單：
                 list／marquee＝全文卡片（marquee 已顯示於橫幅者不重複列出）；
                 pinnedTop＝其餘公告收為單行（日期｜分類｜標題 20 字內），點擊展開內文 */}
-            {displayMethod === "pinnedTop" ? (
+            {effectiveMethod === "pinnedTop" ? (
               <ul className="space-y-2">
                 {items
                   .filter((item) => !item.pinned)

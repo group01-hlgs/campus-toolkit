@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const setting = settings.surfaces[surface];
     if (!setting.enabled) {
       return NextResponse.json(
-        { success: true, surface: setting, items: [] },
+        { success: true, surface: setting, enablePinned: settings.policies.enablePinned, items: [] },
         { headers: noStore }
       );
     }
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       setting.limit
     );
     return NextResponse.json(
-      { success: true, surface: setting, items },
+      { success: true, surface: setting, enablePinned: settings.policies.enablePinned, items },
       { headers: noStore }
     );
   } catch (error) {

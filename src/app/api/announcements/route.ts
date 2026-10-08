@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
         classCode: classCode || null,
         displayName: session.displayName,
         displayMethod: surfaceSetting?.method ?? "list",
+        enablePinned: settings.policies.enablePinned,
         categories: settings.categories,
         remindersEnabled: settings.defaultRemindersEnabled,
         reminderIds,
