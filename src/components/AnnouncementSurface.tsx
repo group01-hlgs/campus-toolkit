@@ -229,9 +229,15 @@ function BannerRow({
         {showPinnedMark && !pinnedMarkOnMetaLine && item.pinned && (
           <span className={`${sizes.meta} text-primary shrink-0`}>置頂</span>
         )}
-        <span className={`${sizes.title} font-medium text-t1 truncate`}>
-          {clipText(item.title, 20)}
-        </span>
+        <a
+          href={`/announcements/${item.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${sizes.title} font-medium text-t1 truncate hover:text-primary inline-flex items-center gap-1 min-w-0`}
+        >
+          <span className="truncate">{clipText(item.title, 20)}</span>
+          <ExternalLinkIcon />
+        </a>
       </div>
       <p className={`${sizes.body} text-t2 mt-0.5 truncate`}>{clipText(item.body, 40)}</p>
       <p className={`${sizes.meta} text-t3 mt-0.5`}>
@@ -256,8 +262,36 @@ function ListRow({ item, sizes }: { item: AnnouncementSurfaceItem; sizes: FontSi
       )}
       <span className="truncate text-t2 min-w-0">
         {new Date(item.publishAt).toLocaleDateString("zh-TW")}｜{item.categoryName}｜
-        <span className="font-medium text-t1">{clipText(item.title, 20)}</span>
+        <a
+          href={`/announcements/${item.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-t1 hover:text-primary inline-flex items-center gap-1"
+        >
+          <span className="truncate">{clipText(item.title, 20)}</span>
+          <ExternalLinkIcon />
+        </a>
       </span>
     </li>
+  );
+}
+
+/** 跳出新頁圖示（external-link） */
+function ExternalLinkIcon() {
+  return (
+    <svg
+      className="w-3.5 h-3.5 shrink-0 text-t3 hover:text-primary"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+      />
+    </svg>
   );
 }
