@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  ANNOUNCEMENT_DISPLAY_METHOD_LABELS,
   ANNOUNCEMENT_PERMISSION_ROLES,
   ANNOUNCEMENT_SURFACE_LABELS,
   ANNOUNCEMENT_SURFACES,
@@ -11,7 +10,6 @@ import {
   DEFAULT_ANNOUNCEMENT_SETTINGS,
   isAnnouncementReadable,
   type AnnouncementCategory,
-  type AnnouncementDisplayMethod,
   type AnnouncementPolicies,
   type AnnouncementRecord,
   type AnnouncementSettings,
@@ -73,7 +71,7 @@ function parseDatetimeLocal(value: string): number | null {
 
 /**
  * 系統公告（僅超級／被指派「系統公告」的管理員）。
- * 版面順序：設定卡片（公告顯示方式／顯示位置／公告分類／公告原則管理，可收合）
+ * 版面順序：設定卡片（公告原則管理／公告顯示方式／顯示位置／公告分類，全部預設收合）
  * → 建立／編輯公告（預設收納）→ 公告清單（標題列有搜尋，省流閘門外）。
  * 清單依系統「省流開關」：啟用時進頁不載入，改按鈕或搜尋時載入（與帳號／名冊清單一致）。
  */
@@ -90,7 +88,6 @@ export default function AdminAnnouncementsPage() {
   // 建立／編輯表單：預設收納；點「展開」或由清單按「編輯」時展開
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [displayMethod, setDisplayMethod] = useState<AnnouncementDisplayMethod>("list");
   const [categories, setCategories] = useState<AnnouncementCategory[]>(
     DEFAULT_ANNOUNCEMENT_SETTINGS.categories
   );
@@ -102,12 +99,11 @@ export default function AdminAnnouncementsPage() {
   const [policies, setPolicies] = useState<AnnouncementPolicies>(
     DEFAULT_ANNOUNCEMENT_SETTINGS.policies
   );
-  // 設定卡片收合：公告顯示方式／公告分類預設收合；顯示位置／公告原則管理預設展開
+  // 設定卡片收合：全部預設收合
   const [cardOpen, setCardOpen] = useState({
-    method: false,
-    surfaces: true,
+    policies: false,
+    surfaces: false,
     categories: false,
-    policies: true,
   });
   // 清單關鍵字搜尋（省流閘門外：輸入即載入清單再過濾）
   const [keyword, setKeyword] = useState("");
@@ -119,10 +115,9 @@ export default function AdminAnnouncementsPage() {
     return () => clearTimeout(timer);
   }, [flash]);
 
-  /** 套用設定回應（公告顯示方式、分類、顯示位置、公告原則） */
+  /** 套用設定回應（分類、顯示位置、公告原則） */
   const applySettings = useCallback((next: AnnouncementSettings) => {
     setSettings(next);
-    setDisplayMethod(next.displayMethod);
     setCategories(next.categories);
     setSurfaces(next.surfaces ?? DEFAULT_ANNOUNCEMENT_SETTINGS.surfaces);
     setPolicies(next.policies ?? DEFAULT_ANNOUNCEMENT_SETTINGS.policies);
@@ -277,7 +272,7 @@ export default function AdminAnnouncementsPage() {
       const res = await fetch("/api/admin/announcements/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayMethod, categories, surfaces, policies }),
+        body: JSON.stringify({ categories, surfaces, policies }),
       });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "設定儲存失敗");
@@ -351,38 +346,36 @@ export default function AdminAnnouncementsPage() {
         </div>
       )}
 
-      {/* 1-1. 公告顯示方式（預設收合） */}
+      {/* 1-1. 公告原則管理（預設收合，第一順位） */}
       <SettingsCard
-        title="公告顯示方式"
-        open={cardOpen.method}
-        onToggle={() => toggleCard("method")}
+        title="公告原則管理"
+        open={cardOpen.policies}
+        onToggle={() => toggleCard("policies")}
       >
         <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <label className="text-t2 sm:w-48 shrink-0" htmlFor="ann-display">
-              顯示方式（各身分「公告」頁）
-            </label>
-            <select
-              id="ann-display"
-              className="flex-1 input-theme rounded px-3 py-2"
-              value={displayMethod}
-              onChange={(e) =>
-                setDisplayMethod(e.target.value as AnnouncementDisplayMethod)
-              }
-            >
-              {(Object.keys(ANNOUNCEMENT_DISPLAY_METHOD_LABELS) as AnnouncementDisplayMethod[]).map(
-                (key) => (
-                  <option key={key} value={key}>
-                    {ANNOUNCEMENT_DISPLAY_METHOD_LABELS[key]}
-                  </option>
-                )
-              )}
-            </select>
-          </div>
-          <p className="text-xs text-t3">
-            清單＝全文卡片；「清單，置頂公告橫幅」＝置頂公告以橫幅三行顯示、其餘為單行清單（點擊展開）；
-            橫幅＝頂部橫幅顯示置頂公告（完全沒有置頂時改用最新一則）。
-          </p>
+          <PolicyRow
+            id="pol-pinned"
+            label="啟用「置頂」（預設啟用）"
+            checked={policies.enablePinned}
+            onChange={(checked) => setPolicies((prev) => ({ ...prev, enablePinned: checked }))}
+            hint="允許管理員將公告設為置頂；置頂公告排在各身分收件匣頂部，並以醒目方式呈現。關閉後新增與編輯皆無法再設定置頂（避免公告區被過多置頂公告佔據）。"
+          />
+          <PolicyRow
+            id="pol-expire"
+            label="強制到期時間下架（預設啟用）"
+            checked={policies.forceExpire}
+            onChange={(checked) => setPolicies((prev) => ({ ...prev, forceExpire: checked }))}
+            hint="到期時間留空的公告，自動以發布後一個月為到期時間；到期後自動離開收件匣（避免過舊公告長期佔據公告區）。"
+          />
+          <PolicyRow
+            id="pol-delete"
+            label="下架公告真實刪除（預設停用）"
+            checked={policies.hardDeleteExpired}
+            onChange={(checked) =>
+              setPolicies((prev) => ({ ...prev, hardDeleteExpired: checked }))
+            }
+            hint="開啟後，封存或到期的公告連同個人提醒一併從資料庫真實刪除（無法恢復）。關閉時僅隱藏保留：不進入收件匣，也不提供搜尋。"
+          />
           <button
             type="button"
             onClick={saveSettings}
@@ -391,15 +384,10 @@ export default function AdminAnnouncementsPage() {
           >
             {saving ? "處理中..." : "儲存設定"}
           </button>
-          <p className="text-xs text-t3">
-            現行公告顯示方式：{ANNOUNCEMENT_DISPLAY_METHOD_LABELS[settings.displayMethod]}
-            ；顯示位置啟用 {ANNOUNCEMENT_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處
-            ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
-          </p>
         </div>
       </SettingsCard>
 
-      {/* 1-2. 顯示位置（預設展開） */}
+      {/* 1-2. 顯示位置（預設收合） */}
       <SettingsCard
         title="顯示位置"
         open={cardOpen.surfaces}
@@ -463,6 +451,10 @@ export default function AdminAnnouncementsPage() {
             </p>
             <p className="text-xs text-t3 mt-1">
               「系統首頁」只顯示閱讀權限＝「無」的公告；各身分首頁依其身分顯示。
+            </p>
+            <p className="text-xs text-t3 mt-1">
+              顯示位置啟用 {ANNOUNCEMENT_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處
+              ；跨模組發文請呼叫 <code>publishFromModule()</code>（src/lib/announcements.ts）。
             </p>
           </div>
           <button
@@ -563,47 +555,6 @@ export default function AdminAnnouncementsPage() {
           >
             {saving ? "處理中..." : "儲存設定"}
           </button>
-      </SettingsCard>
-
-      {/* 1-4. 公告原則管理（預設展開） */}
-      <SettingsCard
-        title="公告原則管理"
-        open={cardOpen.policies}
-        onToggle={() => toggleCard("policies")}
-      >
-        <div className="space-y-3">
-          <PolicyRow
-            id="pol-pinned"
-            label="啟用「置頂」（預設啟用）"
-            checked={policies.enablePinned}
-            onChange={(checked) => setPolicies((prev) => ({ ...prev, enablePinned: checked }))}
-            hint="允許管理員將公告設為置頂；置頂公告排在各身分收件匣頂部，並以醒目方式呈現。關閉後新增與編輯皆無法再設定置頂（避免公告區被過多置頂公告佔據）。"
-          />
-          <PolicyRow
-            id="pol-expire"
-            label="強制到期時間下架（預設啟用）"
-            checked={policies.forceExpire}
-            onChange={(checked) => setPolicies((prev) => ({ ...prev, forceExpire: checked }))}
-            hint="到期時間留空的公告，自動以發布後一個月為到期時間；到期後自動離開收件匣（避免過舊公告長期佔據公告區）。"
-          />
-          <PolicyRow
-            id="pol-delete"
-            label="下架公告真實刪除（預設停用）"
-            checked={policies.hardDeleteExpired}
-            onChange={(checked) =>
-              setPolicies((prev) => ({ ...prev, hardDeleteExpired: checked }))
-            }
-            hint="開啟後，封存或到期的公告連同個人提醒一併從資料庫真實刪除（無法恢復）。關閉時僅隱藏保留：不進入收件匣，也不提供搜尋。"
-          />
-          <button
-            type="button"
-            onClick={saveSettings}
-            disabled={saving}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-          >
-            {saving ? "處理中..." : "儲存設定"}
-          </button>
-        </div>
       </SettingsCard>
 
       {/* 2. 建立／編輯公告（預設收納） */}
@@ -957,7 +908,7 @@ function SettingsCard({
   );
 }
 
-/** 公告原則列：核取框＋「？」說明文字 */
+/** 公告原則列：核取框＋「？」說明（點選才顯示） */
 function PolicyRow({
   id,
   label,
@@ -971,6 +922,7 @@ function PolicyRow({
   onChange: (checked: boolean) => void;
   hint: string;
 }) {
+  const [showHint, setShowHint] = useState(false);
   return (
     <div>
       <label
@@ -985,15 +937,18 @@ function PolicyRow({
         />
         {label}
       </label>
-      <p className="text-xs text-t3 mt-0.5 pl-6">
-        <span
-          aria-hidden="true"
-          className="inline-block w-4 h-4 leading-4 text-center border border-themed rounded-full text-t2 mr-1"
-        >
-          ?
-        </span>
-        {hint}
-      </p>
+      <button
+        type="button"
+        aria-expanded={showHint}
+        onClick={() => setShowHint((prev) => !prev)}
+        className="ml-1.5 inline-flex w-4 h-4 leading-4 items-center justify-center border border-themed rounded-full text-t2 text-xs cursor-pointer hover:bg-themed"
+        title="顯示說明"
+      >
+        ?
+      </button>
+      {showHint && (
+        <p className="text-xs text-t3 mt-0.5 pl-6">{hint}</p>
+      )}
     </div>
   );
 }

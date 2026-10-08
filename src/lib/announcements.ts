@@ -11,7 +11,6 @@ import {
   ANNOUNCEMENT_SURFACES,
   AnnouncementAudience,
   AnnouncementCategory,
-  AnnouncementDisplayMethod,
   AnnouncementRecord,
   AnnouncementPolicies,
   AnnouncementReminderItem,
@@ -484,7 +483,6 @@ export async function getAnnouncement(id: string): Promise<AnnouncementRecord | 
 /** 儲存模組設定（管理端；整份覆寫 settings/announcements） */
 export async function saveAnnouncementSettings(input: {
   categories?: AnnouncementCategory[];
-  displayMethod?: AnnouncementDisplayMethod;
   defaultRemindersEnabled?: boolean;
   surfaces?: Partial<AnnouncementSurfaces>;
   policies?: Partial<AnnouncementPolicies>;
@@ -531,7 +529,6 @@ export async function saveAnnouncementSettings(input: {
   }
   const next: AnnouncementSettings = {
     categories: categories.length > 0 ? categories : [...DEFAULT_ANNOUNCEMENT_CATEGORIES],
-    displayMethod: input.displayMethod ?? current.displayMethod,
     defaultRemindersEnabled:
       typeof input.defaultRemindersEnabled === "boolean"
         ? input.defaultRemindersEnabled

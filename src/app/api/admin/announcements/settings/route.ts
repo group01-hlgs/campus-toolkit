@@ -6,7 +6,6 @@ import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getAnnouncementSettings, saveAnnouncementSettings } from "@/lib/announcements";
 import type {
-  AnnouncementDisplayMethod,
   AnnouncementCategory,
   AnnouncementPolicies,
   AnnouncementSurfaces,
@@ -58,11 +57,6 @@ export async function PUT(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const methodRaw = typeof body.displayMethod === "string" ? body.displayMethod : "";
-    const displayMethod: AnnouncementDisplayMethod | undefined =
-      methodRaw === "list" || methodRaw === "pinnedTop" || methodRaw === "banner"
-        ? methodRaw
-        : undefined;
 
     const categories = Array.isArray(body.categories)
       ? (body.categories as unknown[]).map((item) => {
@@ -109,7 +103,6 @@ export async function PUT(request: NextRequest) {
 
     const settings = await saveAnnouncementSettings({
       categories,
-      displayMethod,
       surfaces,
       policies,
       defaultRemindersEnabled:
@@ -123,7 +116,7 @@ export async function PUT(request: NextRequest) {
       role: "admin",
       action: "announcements_settings_updated",
       ip: getClientIp(request),
-      details: `更新公告模組設定（公告顯示方式=${settings.displayMethod}，分類 ${settings.categories.length} 筆，顯示位置啟用 ${
+      details: `更新公告模組設定（分類 ${settings.categories.length} 筆，顯示位置啟用 ${
         ANNOUNCEMENT_SURFACES.filter((key) => settings.surfaces[key].enabled).length
       }/5 處，原則：置頂=${settings.policies.enablePinned ? "開" : "關"}、強制到期=${
         settings.policies.forceExpire ? "開" : "關"

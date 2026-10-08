@@ -6,7 +6,7 @@ import { fetchSession } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
 import { clipText } from "@/types/announcements";
 import type {
-  AnnouncementDisplayMethod,
+  AnnouncementSurfaceMethod,
   AnnouncementInboxItem,
 } from "@/types/announcements";
 import { ROLE_LABELS, type UserRole } from "@/types/users";
@@ -19,11 +19,11 @@ interface InboxResponse {
   items?: AnnouncementInboxItem[];
   classCode?: string | null;
   displayName?: string;
-  displayMethod?: AnnouncementDisplayMethod;
+  displayMethod?: AnnouncementSurfaceMethod;
   remindersEnabled?: boolean;
 }
 
-/** 各身分公告收件匣（學生／家長／教職員共用；教職員另可發佈） */
+/** 各身分公告頁（學生／家長／教職員共用；教職員另可發佈） */
 export default function AnnouncementsInbox({
   role,
   canPublish,
@@ -35,7 +35,7 @@ export default function AnnouncementsInbox({
   const [items, setItems] = useState<AnnouncementInboxItem[]>([]);
   const [classCode, setClassCode] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
-  const [displayMethod, setDisplayMethod] = useState<AnnouncementDisplayMethod>("list");
+  const [displayMethod, setDisplayMethod] = useState<AnnouncementSurfaceMethod>("list");
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState<Flash>(null);
   const [title, setTitle] = useState("");
@@ -177,7 +177,7 @@ export default function AnnouncementsInbox({
   //（items 由伺服器排序＝置頂在前、再依發布時間新到舊；
   // 已按「關閉」的橫幅不重複顯示，該則改回一般清單）
   const bannerSource =
-    displayMethod === "banner"
+    displayMethod === "marquee"
       ? items.some((item) => item.pinned)
         ? items.filter((item) => item.pinned)
         : items.slice(0, 1)
@@ -309,10 +309,10 @@ export default function AnnouncementsInbox({
       )}
 
       <section>
-        <h3 className="text-lg font-bold text-t1 mb-1">收件匣</h3>
+        <h3 className="text-lg font-bold text-t1 mb-1">公告</h3>
         <p className="text-xs text-t3 mb-3">
           顯示方式：
-          {displayMethod === "banner"
+          {displayMethod === "marquee"
             ? "置頂公告以橫幅顯示（無置頂時取最新一則）"
             : displayMethod === "pinnedTop"
               ? "置頂公告以橫幅三行顯示，其餘為單行清單（點擊展開）"
@@ -327,7 +327,7 @@ export default function AnnouncementsInbox({
           <>
             {/* 橫幅模式：置頂公告以醒目橫幅顯示；完全沒有置頂時改用最新一則
                 （可於本機關閉橫幅，該則回到一般清單，不影響他人） */}
-            {displayMethod === "banner" &&
+            {displayMethod === "marquee" &&
               bannerItems.map((item) => (
                 <div
                   key={`banner-${item.id}`}
@@ -376,7 +376,7 @@ export default function AnnouncementsInbox({
               )}
 
             {/* 一般清單：
-                list／banner＝全文卡片（banner 已顯示於橫幅者不重複列出）；
+                list／marquee＝全文卡片（marquee 已顯示於橫幅者不重複列出）；
                 pinnedTop＝其餘公告收為單行（日期｜分類｜標題 20 字內），點擊展開內文 */}
             {displayMethod === "pinnedTop" ? (
               <ul className="space-y-2">

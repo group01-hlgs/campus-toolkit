@@ -17,14 +17,6 @@ export const ANNOUNCEMENT_REMINDERS_COLLECTION = "announcementReminders";
 
 export type AnnouncementStatus = "published" | "archived";
 
-export type AnnouncementDisplayMethod = "list" | "pinnedTop" | "banner";
-
-export const ANNOUNCEMENT_DISPLAY_METHOD_LABELS: Record<AnnouncementDisplayMethod, string> = {
-  list: "清單",
-  pinnedTop: "清單，置頂公告橫幅",
-  banner: "橫幅",
-};
-
 /** 依字數截斷（超出加 ...）；空白整併成單行——橫幅三行與單行清單共用 */
 export function clipText(text: string, max: number): string {
   const chars = Array.from(text.replace(/\s+/g, " ").trim());
@@ -165,8 +157,6 @@ export const DEFAULT_ANNOUNCEMENT_POLICIES: AnnouncementPolicies = {
 
 export interface AnnouncementSettings {
   categories: AnnouncementCategory[];
-  /** 收件匣（各身分公告頁）的顯示方式 */
-  displayMethod: AnnouncementDisplayMethod;
   /** 期 A 預設值；個人提醒介面於後續階段接上 */
   defaultRemindersEnabled: boolean;
   /** 5 個顯示位置的顯示與否／方式／筆數 */
@@ -184,7 +174,6 @@ export const DEFAULT_ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
 
 export const DEFAULT_ANNOUNCEMENT_SETTINGS: AnnouncementSettings = {
   categories: DEFAULT_ANNOUNCEMENT_CATEGORIES,
-  displayMethod: "list",
   defaultRemindersEnabled: true,
   surfaces: defaultAnnouncementSurfaces(),
   policies: DEFAULT_ANNOUNCEMENT_POLICIES,
@@ -551,10 +540,6 @@ export function readAnnouncementSettings(raw: unknown): AnnouncementSettings {
   }
   if (categories.length === 0) categories = [...DEFAULT_ANNOUNCEMENT_CATEGORIES];
 
-  const methodRaw = typeof data?.displayMethod === "string" ? data.displayMethod : "";
-  const displayMethod: AnnouncementDisplayMethod =
-    methodRaw === "pinnedTop" || methodRaw === "banner" ? methodRaw : "list";
-
   // 5 個顯示位置：逐 key 寬容讀取，缺漏／毀損一律退回預設（未設定＝顯示）
   const surfaces: AnnouncementSurfaces = defaultAnnouncementSurfaces();
   const rawSurfaces = data?.surfaces;
@@ -584,7 +569,6 @@ export function readAnnouncementSettings(raw: unknown): AnnouncementSettings {
 
   return {
     categories,
-    displayMethod,
     defaultRemindersEnabled: data?.defaultRemindersEnabled !== false,
     surfaces,
     policies,

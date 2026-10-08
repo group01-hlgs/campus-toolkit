@@ -23,8 +23,8 @@ function entryClassCode(entry: Record<string, unknown> | null | undefined): stri
 }
 
 /**
- * GET：角色收件匣
- * ?scope=inbox（預設）依 session 身分＋名冊班級過濾
+ * GET：角色公告列表（依 session 身分＋名冊班級過濾）
+ * 顯示方式依「顯示位置」對應身分的設定（surfaces[role].method）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -54,6 +54,8 @@ export async function GET(request: NextRequest) {
       ...item,
       reminded: reminderIds.includes(item.id),
     }));
+    // 顯示方式：取「顯示位置」對應身分的設定
+    const surfaceSetting = settings.surfaces[session.role];
     return NextResponse.json(
       {
         success: true,
@@ -61,8 +63,7 @@ export async function GET(request: NextRequest) {
         role: session.role,
         classCode: classCode || null,
         displayName: session.displayName,
-        // 顯示方式與分類：收件匣套用置頂區／橫幅（期 B）
-        displayMethod: settings.displayMethod,
+        displayMethod: surfaceSetting?.method ?? "list",
         categories: settings.categories,
         remindersEnabled: settings.defaultRemindersEnabled,
         reminderIds,
@@ -179,13 +180,14 @@ export async function POST(request: NextRequest) {
       classCode: ownClass || null,
     });
     const settings = await getAnnouncementSettings();
+    const surfaceSetting = settings.surfaces[session.role];
     return NextResponse.json(
       {
         success: true,
         message: "公告已發佈",
         id,
         items,
-        displayMethod: settings.displayMethod,
+        displayMethod: surfaceSetting?.method ?? "list",
         categories: settings.categories,
       },
       { headers: noStore }
