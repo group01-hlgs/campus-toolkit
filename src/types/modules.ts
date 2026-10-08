@@ -85,7 +85,7 @@ export const MODULES = [
     value: "schoolSettings",
     label: "學校基本設定",
     category: "校務資料",
-    description: "維護校務基本資料、單位層級、年段班級與各式代碼表。",
+    description: "維護校務基本資料、單位層級、年段班級、各式代碼表與樓層空間。",
     scope: "superOnly",
     status: "built",
     href: "/admin/school-settings",
@@ -94,6 +94,7 @@ export const MODULES = [
       { label: "單位層級設定", href: "/admin/school-settings/org" },
       { label: "年段班級設定", href: "/admin/school-settings/classes" },
       { label: "各式代碼表", href: "/admin/school-settings/codes" },
+      { label: "樓層空間設定", href: "/admin/school-settings/spaces" },
     ],
   },
   {
