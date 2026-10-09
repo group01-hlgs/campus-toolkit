@@ -12,6 +12,7 @@ import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import ModuleIcon from "@/components/ModuleIcon";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import AnnouncementSurface from "@/components/AnnouncementSurface";
+import CalendarSurface from "@/components/CalendarSurface";
 import { fetchSession, logout, UserSession } from "@/lib/session";
 import { MODULES } from "@/types/modules";
 import versionData from "@/version.json";
@@ -148,6 +149,9 @@ export default function AdminPage() {
 
       {/* 系統公告：切換身分下拉選單下方、第一個登出按鈕上方 */}
       <AnnouncementSurface surface="admin" className="content-width mb-3" />
+
+      {/* 行程（單一行、尚未結束的第 1 則） */}
+      <CalendarSurface surface="admin" className="content-width mb-3" />
 
       {/* 登出按鈕 */}
       <div className="content-width flex justify-end mb-2.5">

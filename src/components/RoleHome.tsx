@@ -15,6 +15,7 @@ import RoleSwitcher from "@/components/RoleSwitcher";
 import ModuleIcon from "@/components/ModuleIcon";
 import AnnouncementReminderBell from "@/components/AnnouncementReminderBell";
 import AnnouncementSurface from "@/components/AnnouncementSurface";
+import CalendarSurface from "@/components/CalendarSurface";
 import { fetchSettings } from "@/lib/settings-client";
 
 const accountModule = {
@@ -146,6 +147,9 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
       {announcementsVisible && (
         <AnnouncementSurface surface={role} className="content-width mb-3" />
       )}
+
+      {/* 行程（單一行、尚未結束的第 1 則） */}
+      {calendarVisible && <CalendarSurface surface={role} className="content-width mb-3" />}
 
       <div className="content-width flex justify-end items-center gap-2 mb-4">
         {announcementsVisible && (

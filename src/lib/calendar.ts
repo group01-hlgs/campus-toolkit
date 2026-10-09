@@ -7,31 +7,39 @@ import {
   CALENDAR_COLLECTION,
   CALENDAR_REMINDERS_COLLECTION,
   CALENDAR_SETTINGS_DOC_ID,
+  CALENDAR_SURFACES,
   AdminCalendarEventRow,
   CalendarAudience,
   CalendarCategory,
   CalendarEventItem,
   CalendarEventRecord,
   CalendarEventStatus,
+  CalendarPolicies,
   CalendarReminderItem,
   CalendarSettings,
   CalendarEventInput,
+  CalendarSurface,
+  CalendarSurfaceItem,
+  CalendarSurfaces,
   calendarCategoryName,
+  calendarEventEnd,
   calendarEventToFirestore,
   calendarEventToItem,
   audienceClassScoped,
   canViewCalendarEvent,
   CALENDAR_FALLBACK_CATEGORY_ID,
   DEFAULT_CALENDAR_CATEGORIES,
+  DEFAULT_CALENDAR_POLICIES,
   DEFAULT_CALENDAR_SETTINGS,
   defaultCalendarFallbackCategory,
+  defaultCalendarSurfaces,
   isCalendarEventActive,
   readCalendarEventRecord,
   readCalendarSettings,
   startOfTodayMs,
   validateCalendarInput,
 } from "@/types/calendar";
-import type { UserRole } from "@/types/users";
+import { ALL_ROLES, type UserRole } from "@/types/users";
 import { ensureFallbackCategory } from "@/types/category";
 
 /**
@@ -41,7 +49,8 @@ import { ensureFallbackCategory } from "@/types/category";
  * 1. 只寫 `calendarEvents` 集合；校驗失敗拋錯（title 非空、時間合法、roles 非空）；
  * 2. `sourceModule` 必填；有 `sourceRef` 時以 `sourceModule+sourceRef` 定位：
  *    存在→覆寫欄位（updatedAt 遞增），不存在→新建；無 `sourceRef` 每次皆新建；
- * 3. `status: "cancelled"` 保留文件（不刪除），供來源模組對帳；
+ * 3. `status: "cancelled"` 預設保留文件（不刪除），供來源模組對帳；
+ *    「規則設定」開啟「下架行程真實刪除」時改為連同個人提醒真實刪除；
  * 4. 寫入後內建 `invalidateCalendarCache()`（清 `calendar:` 前綴讀快取）；
  * 5. 取消／過期事件不回給任何讀取端。
  *
@@ -56,6 +65,16 @@ const ADMIN_LIST_LIMIT = 200;
 const REMINDER_LIMIT = 50;
 /** `getAll` 分塊上限（規範鐵律 4：200 筆／批） */
 const GET_ALL_CHUNK = 200;
+/** 顯示位置一次取回的上限（排序後再截斷；目前統一只回尚未結束的第 1 則） */
+const SURFACE_FETCH_LIMIT = 30;
+/** 顯示位置／行程列表的短快取 TTL（寫入後由 `invalidateCalendarCache()` 清前綴） */
+const SURFACE_TTL_MS = 15_000;
+/** 真實刪除一張 WriteBatch 的文件上限（留餘裕） */
+const DELETE_BATCH_LIMIT = 400;
+/** `in` 查詢每批上限（Firestore 上限 30） */
+const IN_QUERY_CHUNK = 30;
+/** 下架原則批次清除「已取消行程」的單次掃描上限 */
+const PURGE_SCAN_LIMIT = 200;
 
 /** 讀取行事曆模組設定（settings/calendar，30 秒快取） */
 export async function getCalendarSettings(): Promise<CalendarSettings> {
@@ -214,11 +233,11 @@ export async function createCalendarEvent(
   return publishScheduleFromModule({ ...input, sourceModule: input.sourceModule || "calendar" });
 }
 
-/** 更新行程（僅改可編輯欄位；id、來源與建立者固定） */
+/** 更新行程（僅改可編輯欄位；id、來源與建立者固定）。回傳 `deleted=true` 表示因下架原則被真實刪除 */
 export async function updateCalendarEvent(
   id: string,
   patch: PublishScheduleFromModuleInput
-): Promise<void> {
+): Promise<{ deleted: boolean }> {
   const db = getAdminDb();
   const ref = db.collection(CALENDAR_COLLECTION).doc(id);
   const snap = await ref.get();
@@ -247,13 +266,79 @@ export async function updateCalendarEvent(
     semester: validation.value.semester ?? current.semester,
     updatedAt: now,
   };
+  // 下架原則＝真實刪除：取消的行程連同個人提醒直接刪除（不可恢復）
+  if (next.status === "cancelled") {
+    const settings = await getCalendarSettings();
+    if (settings.policies.hardDeleteCancelled) {
+      await hardDeleteCalendarEvent(id);
+      invalidateCalendarCache();
+      return { deleted: true };
+    }
+  }
   await ref.set(calendarEventToFirestore(next), { merge: false });
   invalidateCalendarCache();
+  return { deleted: false };
 }
 
-/** 取消行程（保留文件、不顯示，供對帳） */
-export async function cancelCalendarEvent(id: string): Promise<void> {
-  await updateCalendarEvent(id, { sourceModule: "calendar", status: "cancelled" });
+/** 取消行程。回傳 `deleted=true` 表示因下架原則被真實刪除 */
+export async function cancelCalendarEvent(id: string): Promise<{ deleted: boolean }> {
+  return updateCalendarEvent(id, { sourceModule: "calendar", status: "cancelled" });
+}
+
+/** 真實刪除單則行程及其所有個人提醒文件（下架原則＝真實刪除時使用） */
+async function hardDeleteCalendarEvent(id: string): Promise<void> {
+  const db = getAdminDb();
+  const remSnap = await db
+    .collection(CALENDAR_REMINDERS_COLLECTION)
+    .where("eventId", "==", id)
+    .get();
+  const refs = [
+    db.collection(CALENDAR_COLLECTION).doc(id),
+    ...remSnap.docs.map((doc) => db.collection(CALENDAR_REMINDERS_COLLECTION).doc(doc.id)),
+  ];
+  await deleteInBatches(db, refs);
+}
+
+async function deleteInBatches(db: ReturnType<typeof getAdminDb>, refs: DocumentReference[]) {
+  for (let i = 0; i < refs.length; i += DELETE_BATCH_LIMIT) {
+    const batch = db.batch();
+    refs.slice(i, i + DELETE_BATCH_LIMIT).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+/**
+ * 行程原則「下架行程真實刪除」的批次清除：
+ * 掃描已取消的行程，連同個人提醒一併刪除。
+ * 單欄位等值查詢＋`limit`（鐵律 2、3），個人提醒以 `in` 30 值／批（鐵律 4）；
+ * 由管理端清單載入時呼叫（policies.hardDeleteCancelled=true 才會執行）。
+ */
+export async function purgeDownCalendarEvents(): Promise<number> {
+  const db = getAdminDb();
+  const snap = await db
+    .collection(CALENDAR_COLLECTION)
+    .where("status", "==", "cancelled")
+    .limit(PURGE_SCAN_LIMIT)
+    .get();
+  const ids = snap.docs.map((doc) => doc.id);
+  if (ids.length === 0) return 0;
+
+  const reminderIds: string[] = [];
+  for (let i = 0; i < ids.length; i += IN_QUERY_CHUNK) {
+    const remSnap = await db
+      .collection(CALENDAR_REMINDERS_COLLECTION)
+      .where("eventId", "in", ids.slice(i, i + IN_QUERY_CHUNK))
+      .get();
+    remSnap.docs.forEach((doc) => reminderIds.push(doc.id));
+  }
+
+  const refs = [
+    ...ids.map((id) => db.collection(CALENDAR_COLLECTION).doc(id)),
+    ...reminderIds.map((rid) => db.collection(CALENDAR_REMINDERS_COLLECTION).doc(rid)),
+  ];
+  await deleteInBatches(db, refs);
+  invalidateCalendarCache();
+  return ids.length;
 }
 
 /** 是否可由該身分編輯：管理員＝全部；教職員＝僅自己建立的 */
@@ -349,10 +434,79 @@ export async function getReadableCalendarEvent(
   return { record, categoryName: calendarCategoryName(settings, record.categoryId) };
 }
 
+export interface CalendarSurfaceQuery {
+  surface: CalendarSurface;
+  /** null＝未登入（僅 `login` 顯示位置允許；只取四種身分皆可見的行程） */
+  role: UserRole | null;
+  classCode?: string | null;
+}
+
+/**
+ * 顯示位置（系統首頁登入表單上方／四種身分功能首頁）的行程：
+ * 尚未結束的行程中，依開始時間取最早者（管理端目前統一只顯示第 1 則）。
+ *
+ * 過濾下推（鐵律 2）：`status == active` ＋ `startAt >= 今日零時`，
+ * 登入者再疊 `audienceRoles array-contains role`；班級與「尚未結束」在記憶體過濾
+ * （量級同列表，並以 `limit` 有界，鐵律 3）。15 秒 `cachedRead`，
+ * 寫入後由 `invalidateCalendarCache()` 清 `calendar:` 前綴失效。
+ */
+export async function listSurfaceCalendarEvents(
+  query: CalendarSurfaceQuery,
+  limit: number = 1
+): Promise<CalendarSurfaceItem[]> {
+  const { surface, role, classCode } = query;
+  const take = Math.min(Math.max(Math.round(limit) || 1, 1), 20);
+  const from = startOfTodayMs();
+  const cacheKey = `${LIST_CACHE_PREFIX}surface:${surface}:${role ?? "guest"}:${
+    classCode || "*"
+  }:${take}`;
+  return cachedRead(cacheKey, SURFACE_TTL_MS, async () => {
+    const settings = await getCalendarSettings();
+    let request = getAdminDb()
+      .collection(CALENDAR_COLLECTION)
+      .where("status", "==", "active")
+      .where("startAt", ">=", from);
+    if (role) request = request.where("audienceRoles", "array-contains", role);
+    const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
+    const now = Date.now();
+    const records: CalendarEventRecord[] = [];
+    for (const doc of snap.docs) {
+      const record = readCalendarEventRecord(doc.id, doc.data());
+      if (!record) continue;
+      if (!isCalendarEventActive(record, now)) continue;
+      // 顯示「尚未結束」的行程（進行中與未來皆可）
+      if (calendarEventEnd(record) < now) continue;
+      if (role) {
+        if (!canViewCalendarEvent(record.audience, role, classCode)) continue;
+      } else {
+        // 未登入（系統首頁）：只顯示四種身分皆可見、且不限班級的行程
+        if (!ALL_ROLES.every((r) => record.audience.roles.includes(r))) continue;
+        if (audienceClassScoped(record.audience)) continue;
+      }
+      records.push(record);
+    }
+    records.sort((a, b) => a.startAt - b.startAt || a.createdAt - b.createdAt);
+    return records.slice(0, take).map((record) => ({
+      id: record.id,
+      title: record.title,
+      startAt: record.startAt,
+      endAt: record.endAt,
+      allDayDate: record.allDayDate,
+      important: record.important,
+      categoryId: record.categoryId,
+      categoryName: calendarCategoryName(settings, record.categoryId),
+      sourceModule: record.sourceModule,
+      publishUnit: record.publishUnit,
+    }));
+  });
+}
+
 /** 儲存模組設定（管理端；整份覆寫 settings/calendar） */
 export async function saveCalendarSettings(input: {
   categories?: CalendarCategory[];
   defaultRemindersEnabled?: boolean;
+  surfaces?: Partial<CalendarSurfaces>;
+  policies?: Partial<CalendarPolicies>;
 }): Promise<CalendarSettings> {
   const current = await getCalendarSettings();
   const base = Array.isArray(input.categories)
@@ -370,12 +524,37 @@ export async function saveCalendarSettings(input: {
   const categories = ensureFallbackCategory(safe, CALENDAR_FALLBACK_CATEGORY_ID, () =>
     defaultCalendarFallbackCategory(safe.length)
   );
+  // 顯示位置：逐 key 套用；未提供的 key 沿用現值（缺欄位時退回預設）
+  const surfaces: CalendarSurfaces = {
+    ...defaultCalendarSurfaces(),
+    ...current.surfaces,
+  };
+  if (input.surfaces && typeof input.surfaces === "object") {
+    for (const key of CALENDAR_SURFACES) {
+      const patch = input.surfaces[key];
+      if (!patch || typeof patch !== "object") continue;
+      surfaces[key] = { enabled: patch.enabled !== false };
+    }
+  }
+  // 行程原則：逐 key 套用；未提供的欄位沿用現值（缺欄位時退回預設）
+  const policies: CalendarPolicies = {
+    ...DEFAULT_CALENDAR_POLICIES,
+    ...current.policies,
+  };
+  if (input.policies && typeof input.policies === "object") {
+    const patch = input.policies;
+    if (typeof patch.hardDeleteCancelled === "boolean") {
+      policies.hardDeleteCancelled = patch.hardDeleteCancelled;
+    }
+  }
   const next: CalendarSettings = {
     categories,
     defaultRemindersEnabled:
       typeof input.defaultRemindersEnabled === "boolean"
         ? input.defaultRemindersEnabled
         : current.defaultRemindersEnabled,
+    surfaces,
+    policies,
   };
   await getAdminDb()
     .collection("settings")

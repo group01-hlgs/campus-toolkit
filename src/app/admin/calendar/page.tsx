@@ -4,11 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CALENDAR_FALLBACK_CATEGORY_ID,
   CALENDAR_FALLBACK_CATEGORY_NAME,
+  CALENDAR_SURFACE_LABELS,
+  CALENDAR_SURFACES,
+  DEFAULT_CALENDAR_POLICIES,
   DEFAULT_CALENDAR_SETTINGS,
   type AdminCalendarEventRow,
   type CalendarCategory,
   type CalendarEventStatus,
+  type CalendarPolicies,
   type CalendarSettings,
+  type CalendarSurfaces,
 } from "@/types/calendar";
 import { normalizeCategoryId } from "@/types/category";
 import { ROLE_LABELS, ALL_ROLES, type UserRole } from "@/types/users";
@@ -106,8 +111,8 @@ function formatRange(item: {
 
 /**
  * 行事曆（僅超級／被指派「行事曆」的管理員）。
- * 版面順序：設定卡片（分類管理，預設收合）→ 建立／編輯行程（預設收合）
- * → 行程清單（月份切換、搜尋、狀態篩選）。
+ * 版面順序：設定卡片（規則設定／顯示位置／行程類型，全部預設收合）
+ * → 建立／編輯行程（預設收合）→ 行程清單（月份切換、搜尋、狀態篩選）。
  * 清單依系統「省流開關」：啟用時進頁不載入，改按鈕或搜尋時載入（同公告／帳號清單）。
  */
 export default function AdminCalendarPage() {
@@ -125,7 +130,18 @@ export default function AdminCalendarPage() {
     DEFAULT_CALENDAR_SETTINGS.categories
   );
   const [remindersEnabled, setRemindersEnabled] = useState(true);
-  const [cardOpen, setCardOpen] = useState({ settings: false, categories: false });
+  // 5 個顯示位置的顯示與否（顯示方式統一：單一行、尚未結束的第 1 則行程）
+  const [surfaces, setSurfaces] = useState<CalendarSurfaces>(
+    DEFAULT_CALENDAR_SETTINGS.surfaces
+  );
+  // 行程原則（下架行程真實刪除）
+  const [policies, setPolicies] = useState<CalendarPolicies>(DEFAULT_CALENDAR_POLICIES);
+  const [cardOpen, setCardOpen] = useState({
+    settings: false,
+    policies: false,
+    surfaces: false,
+    categories: false,
+  });
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | CalendarEventStatus>("all");
   const [month, setMonth] = useState<string | null>(null);
@@ -140,6 +156,8 @@ export default function AdminCalendarPage() {
     setSettings(next);
     setCategories(next.categories);
     setRemindersEnabled(next.defaultRemindersEnabled !== false);
+    setSurfaces(next.surfaces ?? DEFAULT_CALENDAR_SETTINGS.surfaces);
+    setPolicies(next.policies ?? DEFAULT_CALENDAR_POLICIES);
   }, []);
 
   const loadSettings = useCallback(async () => {
@@ -237,7 +255,9 @@ export default function AdminCalendarPage() {
     if (saving) return;
     const confirmText =
       status === "cancelled"
-        ? "確定要取消此行程？（文件會保留，但不再顯示給任何身分）"
+        ? policies.hardDeleteCancelled
+          ? "確定要下架此行程？（已啟用「下架行程真實刪除」：將連同個人提醒一併刪除，無法恢復）"
+          : "確定要取消此行程？（文件會保留，但不再顯示給任何身分）"
         : "確定要恢復此行程？";
     if (!window.confirm(confirmText)) return;
     setSaving(true);
@@ -290,7 +310,12 @@ export default function AdminCalendarPage() {
       const res = await fetch("/api/admin/calendar/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categories, defaultRemindersEnabled: remindersEnabled }),
+        body: JSON.stringify({
+          categories,
+          defaultRemindersEnabled: remindersEnabled,
+          surfaces,
+          policies,
+        }),
       });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "設定儲存失敗");
@@ -358,13 +383,97 @@ export default function AdminCalendarPage() {
         </div>
       )}
 
-      {/* 1. 設定管理（預設收合）：收納行事曆設定 */}
+      {/* 1. 設定管理（預設收合）：收納規則設定／顯示位置／行程類型三張卡片 */}
       <SettingsCard
         title="設定管理"
         open={cardOpen.settings}
         onToggle={() => setCardOpen((prev) => ({ ...prev, settings: !prev.settings }))}
       >
-          {/* 1-1. 設定卡片（行程類型管理，預設收合） */}
+        <div className="space-y-6">
+          {/* 1-1. 規則設定（預設收合，第一順位）：行程原則 */}
+          <SettingsCard
+            title="規則設定"
+            open={cardOpen.policies}
+            onToggle={() => setCardOpen((prev) => ({ ...prev, policies: !prev.policies }))}
+          >
+            <div>
+              <div className="space-y-3">
+                <PolicyRow
+                  id="pol-hard-delete"
+                  label="下架行程真實刪除（預設停用）"
+                  checked={policies.hardDeleteCancelled}
+                  onChange={(checked) =>
+                    setPolicies((prev) => ({ ...prev, hardDeleteCancelled: checked }))
+                  }
+                  hint="開啟後，取消（下架）的行程連同個人提醒一併從資料庫真實刪除（無法恢復）。關閉時僅隱藏保留：文件不顯示給任何身分，供來源模組對帳。"
+                />
+              </div>
+              {/* 儲存設定與上方元件固定 10px 間距 */}
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? "處理中..." : "儲存設定"}
+                </button>
+              </div>
+            </div>
+          </SettingsCard>
+
+          {/* 1-2. 顯示位置（預設收合）：5 處顯示與否（顯示方式統一） */}
+          <SettingsCard
+            title="顯示位置"
+            open={cardOpen.surfaces}
+            onToggle={() => setCardOpen((prev) => ({ ...prev, surfaces: !prev.surfaces }))}
+          >
+            <div>
+              <span className="block text-t2 mb-1">顯示與否，5 處各自設定</span>
+              <div className="space-y-2">
+                {CALENDAR_SURFACES.map((key) => (
+                  <label
+                    key={key}
+                    className="inline-flex items-center gap-1.5 text-sm text-t1 w-60"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={surfaces[key].enabled}
+                      onChange={(e) =>
+                        setSurfaces((prev) => ({
+                          ...prev,
+                          [key]: { enabled: e.target.checked },
+                        }))
+                      }
+                    />
+                    {CALENDAR_SURFACE_LABELS[key]}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-t3 mt-1">
+                顯示方式統一處理：單一行（日期｜行程類型｜標題），顯示尚未結束的第 1 則行程。
+              </p>
+              <p className="text-xs text-t3 mt-1">
+                「系統首頁」只顯示四種身分皆可見、且不限班級的行程；各身分首頁依其身分顯示。
+              </p>
+              <p className="text-xs text-t3 mt-1">
+                顯示位置啟用 {CALENDAR_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處。
+              </p>
+              {/* 儲存設定與上方元件固定 10px 間距 */}
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? "處理中..." : "儲存設定"}
+                </button>
+              </div>
+            </div>
+          </SettingsCard>
+
+          {/* 1-3. 行程類型（預設收合） */}
           <SettingsCard
             title="行程類型"
             open={cardOpen.categories}
@@ -492,6 +601,7 @@ export default function AdminCalendarPage() {
               </p>
             </div>
           </SettingsCard>
+        </div>
       </SettingsCard>
 
       {/* 2. 建立／編輯行程（預設收合） */}
@@ -860,7 +970,7 @@ export default function AdminCalendarPage() {
                             disabled={saving}
                             className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
                           >
-                            取消
+                            {policies.hardDeleteCancelled ? "下架" : "取消"}
                           </button>
                         ) : (
                           <button
@@ -882,7 +992,8 @@ export default function AdminCalendarPage() {
         </div>
         {!gating && listLoaded && (
           <p className="text-xs text-t3 mt-2">
-            已取消的行程保留文件但不會回給任何身分；單頁最多載入最近 200 筆行程。
+            已取消的行程保留文件但不會回給任何身分（「下架行程真實刪除」開啟時改為連同個人提醒刪除）；
+            單頁最多載入最近 200 筆行程。
           </p>
         )}
       </section>
@@ -917,5 +1028,48 @@ function SettingsCard({
       </button>
       {open && <div className="px-5 pt-2.5 pb-5">{children}</div>}
     </section>
+  );
+}
+
+/** 行程原則列：核取框＋「？」說明（點選才顯示） */
+function PolicyRow({
+  id,
+  label,
+  checked,
+  onChange,
+  hint,
+}: {
+  id: string;
+  label: React.ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  hint: string;
+}) {
+  const [showHint, setShowHint] = useState(false);
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="inline-flex items-center gap-1.5 text-sm text-t1 cursor-pointer"
+      >
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        {label}
+      </label>
+      <button
+        type="button"
+        aria-expanded={showHint}
+        onClick={() => setShowHint((prev) => !prev)}
+        className="ml-1.5 inline-flex w-4 h-4 leading-4 items-center justify-center border border-themed rounded-full text-t2 text-xs cursor-pointer hover:bg-themed"
+        title="顯示說明"
+      >
+        ?
+      </button>
+      {showHint && <p className="text-xs text-t3 mt-0.5 pl-6">{hint}</p>}
+    </div>
   );
 }

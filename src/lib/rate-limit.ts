@@ -227,4 +227,6 @@ export const RATE = {
   CALENDAR_LIST: { limit: 60, windowMs: 60_000 },
   /** 行事曆：教職員建立行程 */
   CALENDAR_STAFF_CREATE: { limit: 20, windowMs: 60_000 },
+  /** 行事曆：顯示位置（系統首頁與四種身分功能首頁）讀取 */
+  CALENDAR_SURFACE: { limit: 60, windowMs: 60_000 },
 } as const;

@@ -3,7 +3,7 @@
  *
  * 資料存於 Firestore `calendarEvents` 集合（不入 settings/system，避免整份覆寫抹掉）。
  * 個人提醒存 `calendarReminders`（doc id＝`${eventId}_${uid}`）。
- * 模組設定（分類、提醒開關）存 `settings/calendar` 單文件。
+ * 模組設定（分類、提醒開關、顯示位置、行程原則）存 `settings/calendar` 單文件。
  *
  * 跨模組協議：其他模組在伺服器端呼叫 `src/lib/calendar.ts` 的
  * `publishScheduleFromModule()`（含 upsert 語意），只寫本集合、必填 `sourceModule`，
@@ -41,10 +41,75 @@ export interface CalendarCategory {
   enabled: boolean;
 }
 
+/**
+ * 行程顯示位置（5 處，比照系統公告）：
+ * 系統首頁登入表單上方＋四種身分功能首頁（切換身分下拉選單下方、第一個登出按鈕上方）。
+ * 每處由管理員決定「顯示與否」。
+ */
+export type CalendarSurface = "login" | "student" | "parent" | "staff" | "admin";
+
+export const CALENDAR_SURFACES: CalendarSurface[] = [
+  "login",
+  "student",
+  "parent",
+  "staff",
+  "admin",
+];
+
+export const CALENDAR_SURFACE_LABELS: Record<CalendarSurface, string> = {
+  login: "系統首頁（登入表單上方）",
+  student: "學生功能首頁",
+  parent: "家長功能首頁",
+  staff: "教職員功能首頁",
+  admin: "管理員功能首頁",
+};
+
+export function isCalendarSurface(value: unknown): value is CalendarSurface {
+  return typeof value === "string" && (CALENDAR_SURFACES as string[]).includes(value);
+}
+
+/**
+ * 顯示位置設定：目前僅「顯示與否」——顯示方式統一處理（單一行、
+ * 顯示尚未結束的第 1 則行程），日後要逐處設定方式／筆數時再擴充欄位。
+ */
+export interface CalendarSurfaceSetting {
+  enabled: boolean;
+}
+
+export type CalendarSurfaces = Record<CalendarSurface, CalendarSurfaceSetting>;
+
+export function defaultCalendarSurfaces(): CalendarSurfaces {
+  const setting: CalendarSurfaceSetting = { enabled: true };
+  return {
+    login: { ...setting },
+    student: { ...setting },
+    parent: { ...setting },
+    staff: { ...setting },
+    admin: { ...setting },
+  };
+}
+
+/**
+ * 行程原則（「規則設定」卡片設定）：
+ * `hardDeleteCancelled`＝下架（取消）行程真實刪除——文件連同個人提醒一併刪除，
+ * 關閉（預設）＝保留文件、僅不再顯示給任何身分（供來源模組對帳）。
+ */
+export interface CalendarPolicies {
+  hardDeleteCancelled: boolean;
+}
+
+export const DEFAULT_CALENDAR_POLICIES: CalendarPolicies = {
+  hardDeleteCancelled: false,
+};
+
 export interface CalendarSettings {
   categories: CalendarCategory[];
   /** 是否啟用個人提醒（「提醒我」按鈕） */
   defaultRemindersEnabled: boolean;
+  /** 5 個顯示位置的顯示與否 */
+  surfaces: CalendarSurfaces;
+  /** 行程原則（下架真實刪除） */
+  policies: CalendarPolicies;
 }
 
 export const DEFAULT_CALENDAR_CATEGORIES: CalendarCategory[] = [
@@ -58,6 +123,8 @@ export const DEFAULT_CALENDAR_CATEGORIES: CalendarCategory[] = [
 export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
   categories: DEFAULT_CALENDAR_CATEGORIES,
   defaultRemindersEnabled: true,
+  surfaces: defaultCalendarSurfaces(),
+  policies: DEFAULT_CALENDAR_POLICIES,
 };
 
 /**
@@ -132,7 +199,22 @@ export interface CalendarEventItem {
   reminded?: boolean;
 }
 
-/** 個人行程提醒列表項目 */export interface CalendarReminderItem {
+/** 顯示位置（系統首頁登入表單上方／四種身分功能首頁）回傳的行程項目 */
+export interface CalendarSurfaceItem {
+  id: string;
+  title: string;
+  startAt: number;
+  endAt?: number;
+  allDayDate?: string;
+  important: boolean;
+  categoryId: string;
+  categoryName: string;
+  sourceModule: string;
+  publishUnit?: string;
+}
+
+/** 個人行程提醒列表項目 */
+export interface CalendarReminderItem {
   eventId: string;
   title: string;
   description?: string;
@@ -524,9 +606,35 @@ export function readCalendarSettings(raw: unknown): CalendarSettings {
   categories = ensureFallbackCategory(categories, CALENDAR_FALLBACK_CATEGORY_ID, () =>
     defaultCalendarFallbackCategory(categories.length)
   );
+
+  // 5 個顯示位置：逐 key 寬容讀取，缺漏／毀損一律退回預設（未設定＝顯示）
+  const surfaces: CalendarSurfaces = defaultCalendarSurfaces();
+  const rawSurfaces = data?.surfaces;
+  if (rawSurfaces && typeof rawSurfaces === "object") {
+    const map = rawSurfaces as Record<string, unknown>;
+    for (const key of CALENDAR_SURFACES) {
+      const row = map[key];
+      if (!row || typeof row !== "object") continue;
+      const item = row as Record<string, unknown>;
+      surfaces[key] = { enabled: item.enabled !== false };
+    }
+  }
+
+  // 行程原則：逐 key 寬容讀取，缺漏／毀損一律退回預設
+  const policies: CalendarPolicies = { ...DEFAULT_CALENDAR_POLICIES };
+  const rawPolicies = data?.policies;
+  if (rawPolicies && typeof rawPolicies === "object") {
+    const row = rawPolicies as Record<string, unknown>;
+    if (typeof row.hardDeleteCancelled === "boolean") {
+      policies.hardDeleteCancelled = row.hardDeleteCancelled;
+    }
+  }
+
   return {
     categories,
     defaultRemindersEnabled: data?.defaultRemindersEnabled !== false,
+    surfaces,
+    policies,
   };
 }
 

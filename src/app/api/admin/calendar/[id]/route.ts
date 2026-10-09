@@ -46,7 +46,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-/** PATCH：更新行程（含 status=cancelled 取消） */
+/** PATCH：更新行程（含 status=cancelled 取消；「下架行程真實刪除」開啟時改為真實刪除） */
 export async function PATCH(request: NextRequest, { params }: Params) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -85,7 +85,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           ? ("active" as const)
           : undefined;
 
-    await updateCalendarEvent(id, {
+    const { deleted } = await updateCalendarEvent(id, {
       sourceModule: existing.sourceModule,
       sourceRef: existing.sourceRef,
       title: typeof body.title === "string" ? body.title : undefined,
@@ -110,7 +110,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       role: "admin",
       action: cancelled ? "calendar_cancelled" : "calendar_updated",
       ip: getClientIp(request),
-      details: `${cancelled ? "取消" : "更新"}行程 id=${id}`,
+      details: `${cancelled ? (deleted ? "下架（真實刪除）" : "取消") : "更新"}行程 id=${id}`,
     });
 
     const [events, settings] = await Promise.all([
@@ -120,7 +120,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json(
       {
         success: true,
-        message: cancelled ? "行程已取消" : "行程已更新",
+        message: cancelled
+          ? deleted
+            ? "行程已真實刪除"
+            : "行程已取消"
+          : "行程已更新",
         events,
         settings,
       },
@@ -135,7 +139,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 }
 
-/** POST：取消行程（快捷） */
+/** POST：取消行程（快捷；「下架行程真實刪除」開啟時改為真實刪除） */
 export async function POST(request: NextRequest, { params }: Params) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -157,14 +161,14 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!existing) {
       return NextResponse.json({ success: false, message: "查無此行程" }, { status: 404 });
     }
-    await cancelCalendarEvent(id);
+    const { deleted } = await cancelCalendarEvent(id);
 
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "calendar_cancelled",
       ip: getClientIp(request),
-      details: `取消行程 id=${id}`,
+      details: `${deleted ? "下架（真實刪除）" : "取消"}行程 id=${id}`,
     });
 
     const [events, settings] = await Promise.all([
@@ -172,7 +176,12 @@ export async function POST(request: NextRequest, { params }: Params) {
       getCalendarSettings(),
     ]);
     return NextResponse.json(
-      { success: true, message: "行程已取消", events, settings },
+      {
+        success: true,
+        message: deleted ? "行程已真實刪除" : "行程已取消",
+        events,
+        settings,
+      },
       { headers: noStore }
     );
   } catch (error) {

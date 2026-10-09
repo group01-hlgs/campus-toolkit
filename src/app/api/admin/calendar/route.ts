@@ -9,6 +9,7 @@ import {
   createCalendarEvent,
   getCalendarSettings,
   listAdminCalendarEvents,
+  purgeDownCalendarEvents,
 } from "@/lib/calendar";
 import { parseCalendarAudience } from "@/types/calendar";
 
@@ -28,10 +29,12 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("calendar");
     if (denial) return toAuthResponse(denial);
 
-    const [events, settings] = await Promise.all([
-      listAdminCalendarEvents(),
-      getCalendarSettings(),
-    ]);
+    const settings = await getCalendarSettings();
+    // 下架原則＝真實刪除：清單載入時掃描已取消行程並刪除（含個人提醒）
+    if (settings.policies.hardDeleteCancelled) {
+      await purgeDownCalendarEvents();
+    }
+    const events = await listAdminCalendarEvents();
     return NextResponse.json({ success: true, events, settings }, { headers: noStore });
   } catch (error) {
     console.error("List calendar events error:", error);
