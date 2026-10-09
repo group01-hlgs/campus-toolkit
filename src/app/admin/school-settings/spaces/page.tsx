@@ -7,8 +7,9 @@ import SchoolSpacesEditor from "@/components/SchoolSpacesEditor";
 export default function SchoolSpacesPage() {
   const router = useRouter();
 
+  // 表格欄位多，容器放寬到 max-w-7xl：寬螢幕一次看完整張表，水平卷軸只在真正放不下的窄螢幕出現
   return (
-    <div className="w-full max-w-4xl mb-8">
+    <div className="w-full max-w-7xl mb-8">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <p className="text-sm text-t3">學校基本設定 ／ 樓層空間設定</p>
         <button
