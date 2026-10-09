@@ -612,7 +612,8 @@ const manifests = [];
 if (fs.existsSync(MODULES_DIR)) {
   const entries = fs
     .readdirSync(MODULES_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    // 含 module:link 建立的目錄連結（win32 junction 的 Dirent 是 isSymbolicLink 而非 isDirectory）
+    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
     .sort((a, b) => a.name.localeCompare(b.name));
   for (const entry of entries) {
     const relDir = `src/modules/${entry.name}`;

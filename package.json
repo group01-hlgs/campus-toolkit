@@ -14,6 +14,9 @@
     "pretypecheck": "node scripts/build-module-registry.mjs",
     "typecheck": "tsc --noEmit",
     "module:scan": "node scripts/build-module-registry.mjs",
+    "module:install": "node scripts/module-cli.mjs install",
+    "module:link": "node scripts/module-cli.mjs link",
+    "module:uninstall": "node scripts/module-cli.mjs uninstall",
     "version:bump": "node scripts/version.js"
   },
   "keywords": [],

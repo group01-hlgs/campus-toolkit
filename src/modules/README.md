@@ -47,7 +47,20 @@ manifest `status` 與入口規則：`live` 必須有非空 `href`；`planned`／
   `/api/admin/foo` → `api/admin/foo/route.ts`，可選同目錄 `layout.tsx`）；
   **實體存在才掛載**（manifest 可先註冊後實作）；滯留轉接檔與 `src/app/.gitignore`
   由掃描器自動同步，轉接檔不入 commit。
-- **P3 `module:install`／`module:link`（未做）**：外部 repo 連結與安裝腳本。
+- **P3 `module:install`／`module:link`（已上線）**：外部模組資料夾在地安裝（複製 vendored）
+  或目錄連結（win32 junction，免管理員）。CLI 流程：驗 `module.json` → 放入 `src/modules/<value>`
+  → 寫 `module.lock.json`（安裝清單，lock↔目錄一致性強制【E13】）→ 掃描器驗證鏈 →
+  `npm run lint`；**任一步失敗自動回復原狀**（不留半套）。`module:uninstall -- <value>`
+  反向移除（只刪連結不碰目標；Firestore 資料保留）。
+
+```bash
+npm run module:install   -- <模組資料夾>   # 複製安裝（vendored，隨 commit push 部署）
+npm run module:link      -- <repo 路徑>     # 目錄連結（本機開發）；加 --copy 改複製模式
+npm run module:uninstall -- <value>         # 移除資料夾或連結＋lock 該列
+```
+
+win32 連結後若 `npm run dev` 改檔未即時更新（Turbopack watch 風險【E14】，期 2 驗收），
+改用 `module:link -- <路徑> --copy` 複製模式。
 
 ## 驗證
 
