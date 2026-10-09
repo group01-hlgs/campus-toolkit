@@ -337,6 +337,8 @@ export default function ModulesPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [openDesc, setOpenDesc] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
+  // 卸載確認視窗（modal）：null＝關閉；否則為待卸載的模組
+  const [confirmUninstall, setConfirmUninstall] = useState<FeatureModuleMeta | null>(null);
 
   // 儲存訊息：固定於畫面下方中央，約 3 秒後自動淡出（列表過長也看得到）
   useEffect(() => {
@@ -406,12 +408,16 @@ export default function ModulesPage() {
     void patch({ value: item.value, role, enabled: next }, `${item.value}:${role}`);
   }
 
-  /** 卸載選用模組（僅本機開發；成功後重新載入，註冊表與列表已更新） */
-  async function uninstallModule(item: FeatureModuleMeta) {
+  /** 卸載確認：開啟 modal（不使用瀏覽器原生 confirm） */
+  function uninstallModule(item: FeatureModuleMeta) {
     if (saving) return;
-    if (!window.confirm(`確定卸載「${item.label}」？將移除模組資料夾與安裝清單（Firestore 資料保留）。`)) {
-      return;
-    }
+    setConfirmUninstall(item);
+  }
+
+  /** 確認卸載後執行（僅本機開發；成功後重新載入，註冊表與列表已更新） */
+  async function runUninstall(item: FeatureModuleMeta) {
+    setConfirmUninstall(null);
+    if (saving) return;
     setSaving(`${item.value}:uninstall`);
     setFlash(null);
     try {
@@ -454,6 +460,68 @@ export default function ModulesPage() {
           aria-live="polite"
         >
           {flash.text}
+        </div>
+      )}
+
+      {/* 卸載確認視窗（modal，樣式比照 IdleTimeout 對話框） */}
+      {confirmUninstall && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          role="presentation"
+          onClick={() => setConfirmUninstall(null)}
+        >
+          <div
+            className="bg-card border border-themed rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in w-full max-w-md"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="uninstall-confirm-title"
+            aria-describedby="uninstall-confirm-desc"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex justify-center">
+              <svg
+                className="w-12 h-12"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                style={{ color: "var(--danger)" }}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                />
+              </svg>
+            </div>
+            <div>
+              <p id="uninstall-confirm-title" className="text-lg font-semibold text-t1 mb-2">
+                確定卸載「{confirmUninstall.label}」？
+              </p>
+              <p id="uninstall-confirm-desc" className="text-sm text-t2">
+                將移除模組資料夾與安裝清單；Firestore 模組資料預設保留。
+              </p>
+              <p className="text-xs text-t3 mt-2">此操作僅本機開發可用，執行後無法在畫面上復原。</p>
+            </div>
+            <div className="flex gap-3 justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmUninstall(null)}
+                className="border border-themed rounded-lg px-6 py-2 text-sm font-medium text-t2 hover:text-t1 cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void runUninstall(confirmUninstall)}
+                className="btn-danger rounded-lg px-6 py-2 text-sm font-medium cursor-pointer"
+              >
+                確定卸載
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
