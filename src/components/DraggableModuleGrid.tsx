@@ -100,6 +100,68 @@ function reconcileRows(source: string[][], ids: string[]): string[][] {
   return rows;
 }
 
+interface StoredLayout {
+  rows: string[][];
+  /** 已由使用者自行拖曳定位、不再套用排版規則的卡片 id */
+  anchored: string[];
+}
+
+/** 解析 localStorage 版面：新格式 `{ rows, anchored }` 與舊版二維／一維陣列皆可讀 */
+function parseStoredLayout(raw: string): StoredLayout | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const isString = (value: unknown): value is string => typeof value === "string";
+  const cleanRow = (row: unknown): string[] => (Array.isArray(row) ? row.filter(isString) : []);
+  if (Array.isArray(parsed) && parsed.every((entry) => Array.isArray(entry))) {
+    return { rows: (parsed as unknown[]).map(cleanRow), anchored: [] };
+  }
+  if (Array.isArray(parsed) && parsed.every(isString)) {
+    return { rows: [parsed as string[]], anchored: [] };
+  }
+  if (parsed && typeof parsed === "object") {
+    const stored = parsed as { rows?: unknown; anchored?: unknown };
+    if (!Array.isArray(stored.rows)) return null;
+    return {
+      rows: (stored.rows as unknown[]).map(cleanRow),
+      anchored: Array.isArray(stored.anchored) ? stored.anchored.filter(isString) : [],
+    };
+  }
+  return null;
+}
+
+/**
+ * 排版規則：把子卡片移到錨點卡片正後方（僅在「尚未被使用者拖曳挪動」時套用）。
+ * 有實際變動才回傳新版面，否則回傳 null。
+ */
+function moveAfter(rows: string[][], childId: string, anchorId: string): string[][] | null {
+  if (childId === anchorId) return null;
+  let child: { row: number; index: number } | null = null;
+  let anchor: { row: number; index: number } | null = null;
+  for (let row = 0; row < rows.length; row++) {
+    for (let index = 0; index < rows[row].length; index++) {
+      const id = rows[row][index];
+      if (id === childId) child = { row, index };
+      if (id === anchorId) anchor = { row, index };
+    }
+  }
+  if (!child || !anchor) return null;
+  if (child.row === anchor.row && child.index === anchor.index + 1) return null;
+  const next = rows.map((row) => row.slice());
+  next[child.row].splice(child.index, 1);
+  const cleaned = next.filter((row) => row.length > 0);
+  for (const row of cleaned) {
+    const index = row.indexOf(anchorId);
+    if (index < 0) continue;
+    row.splice(index + 1, 0, childId);
+    return cleaned;
+  }
+  return null;
+}
+
 function sameHint(a: DropHint, b: DropHint): boolean {
   if (a === b) return true;
   if (!a || !b || a.type !== b.type) return false;
@@ -111,6 +173,7 @@ function sameHint(a: DropHint, b: DropHint): boolean {
 /**
  * 功能首頁的入口卡片網格：卡片分成「行」保存，行內超出視窗寬度就自動往下折。
  * 可拖曳調整順序、拖到行與行的間隙另起一行，版面存入 localStorage（每張卡片以 data-card-id 識別）。
+ * 另可給 `anchorAfter` 排版規則（如「行事曆」緊接「系統公告」）：只在使用者尚未自行拖曳該卡片時套用。
  *
  * 實作要點：
  * - 版面模型是二維 string[][]（rows）；行的內容由使用者拖曳決定，視窗寬度只影響折行、不會重排行。
@@ -127,16 +190,25 @@ export default function DraggableModuleGrid({
   storageKey,
   hint = DEFAULT_HINT,
   gridClassName = `${AREA_WIDTH_CLASS} relative flex flex-col gap-y-6 mb-8`,
+  anchorAfter,
 }: {
   items: ModuleCardItem[];
   storageKey: string;
   hint?: string;
   gridClassName?: string;
+  /**
+   * 排版規則：`{ 子卡片 id: 錨點卡片 id }`，子卡片緊接在錨點卡片之後
+   * （如管理員首頁的「行事曆」排在「系統公告」下方）。
+   * 只在使用者尚未自行拖曳該卡片時套用——一旦拖過就以拖曳結果為準並記住。
+   */
+  anchorAfter?: Record<string, string>;
 }) {
   const router = useRouter();
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState<string[][]>(() => [items.map((item) => item.id)]);
   const rowsRef = useRef<string[][]>(rows);
+  /** 已被使用者自行拖曳定位的錨點子卡片（不再套用排版規則），隨版面一起存進 localStorage */
+  const anchoredRef = useRef<Set<string>>(new Set());
   const [dragId, setDragId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<DropHint>(null);
@@ -145,39 +217,45 @@ export default function DraggableModuleGrid({
 
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item] as const)), [items]);
 
+  /** 套用排版規則（anchorAfter）：只移動「使用者尚未自行拖曳」的子卡片 */
+  function applyAnchorRules(source: string[][]): string[][] {
+    if (!anchorAfter) return source;
+    let next = source;
+    for (const [childId, anchorId] of Object.entries(anchorAfter)) {
+      if (anchoredRef.current.has(childId)) continue;
+      const moved = moveAfter(next, childId, anchorId);
+      if (moved) next = moved;
+    }
+    return next;
+  }
+
   // 載入此瀏覽器記住的版面（延後到掛載後執行，避免 SSR 與用戶端渲染不一致）
   useEffect(() => {
-    let parsed: unknown;
+    let raw: string | null = null;
     try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return;
-      parsed = JSON.parse(raw);
+      raw = window.localStorage.getItem(storageKey);
     } catch {
-      // 無法存取或資料毀損時維持預設版面
+      // 無法存取時維持預設版面
       return;
     }
-    let restored: string[][] = [];
-    if (Array.isArray(parsed) && parsed.every((entry) => Array.isArray(entry))) {
-      // 二維格式：每行一個字串陣列
-      restored = (parsed as unknown[][]).map((row) =>
-        row.filter((value): value is string => typeof value === "string")
-      );
-    } else if (Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string")) {
-      // 舊版一維格式：全部視為同一行，排法與舊版 flex-wrap 完全相同，日後由使用者自行拖出分行
-      restored = [parsed as string[]];
-    } else {
-      return;
-    }
-    const next = reconcileRows(restored, items.map((item) => item.id));
-    if (next.length === 0) return;
+    if (!raw) return;
+    const stored = parseStoredLayout(raw);
+    if (!stored) return; // 資料毀損時維持預設版面
+    anchoredRef.current = new Set(stored.anchored);
+    const reconciled = reconcileRows(stored.rows, items.map((item) => item.id));
+    if (reconciled.length === 0) return;
+    const next = applyAnchorRules(reconciled);
     rowsRef.current = next;
     setRows(next);
+    // 只有「排版規則有實際挪動卡片」才存回（讓這次歸位只做一次）；
+    // 對齊卡片清單（reconcile）的變動維持原樣、等使用者拖曳時才存，避免暫時載入不全就覆寫版面
+    if (JSON.stringify(next) !== JSON.stringify(reconciled)) persist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
-  // 卡片有增減時（例如功能改版）同步到版面：新卡片補到最後一行末尾
+  // 卡片有增減時（例如功能改版）同步到版面：新卡片補到最後一行末尾，再套排版規則
   useEffect(() => {
-    const next = reconcileRows(rowsRef.current, items.map((item) => item.id));
+    const next = applyAnchorRules(reconcileRows(rowsRef.current, items.map((item) => item.id)));
     if (JSON.stringify(next) === JSON.stringify(rowsRef.current)) return;
     rowsRef.current = next;
     setRows(next);
@@ -185,7 +263,10 @@ export default function DraggableModuleGrid({
 
   function persist() {
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(rowsRef.current));
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({ rows: rowsRef.current, anchored: [...anchoredRef.current] })
+      );
     } catch {
       // 私隱模式或儲存空間不足時忽略
     }
@@ -383,6 +464,11 @@ export default function DraggableModuleGrid({
 
   function handlePointerEnd() {
     if (dragIdRef.current === null) return;
+    const movedId = dragIdRef.current;
+    // 使用者親手挪動受排版規則管理的卡片＝這張以拖曳結果為準，之後不再套用規則
+    if (movedRef.current && movedId && anchorAfter && anchorAfter[movedId]) {
+      anchoredRef.current.add(movedId);
+    }
     // 拖曳後的這一次 click 不導頁（下一次 pointerdown 會重設）
     suppressClickRef.current = movedRef.current;
     persist();

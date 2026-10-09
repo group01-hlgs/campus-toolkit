@@ -166,8 +166,13 @@ export default function AdminPage() {
       {/* 全域 hr 有 margin: 1rem 0，清掉上間距，與上方登出按鈕維持既有間距 */}
       <hr className="content-width border-themed mb-4 mt-0" />
 
-      {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
-      <DraggableModuleGrid items={visibleModulesCards} storageKey="campusCardOrder.admin" />
+      {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage）；
+          「行事曆」排在「系統公告」下方（使用者自行拖曳過則以拖曳結果為準） */}
+      <DraggableModuleGrid
+        items={visibleModulesCards}
+        storageKey="campusCardOrder.admin"
+        anchorAfter={{ calendar: "announcements" }}
+      />
 
       <hr className="content-width border-themed mb-4" />
 
