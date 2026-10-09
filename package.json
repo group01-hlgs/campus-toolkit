@@ -4,11 +4,16 @@
   "description": "整合校園資訊、選課、公告、社團等功能的綜合性校園工具平台。",
   "private": true,
   "scripts": {
+    "predev": "node scripts/build-module-registry.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/build-module-registry.mjs",
     "build": "next build",
     "start": "next start",
+    "prelint": "node scripts/build-module-registry.mjs",
     "lint": "eslint . && tsc --noEmit",
+    "pretypecheck": "node scripts/build-module-registry.mjs",
     "typecheck": "tsc --noEmit",
+    "module:scan": "node scripts/build-module-registry.mjs",
     "version:bump": "node scripts/version.js"
   },
   "keywords": [],

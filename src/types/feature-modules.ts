@@ -30,6 +30,8 @@
  */
 
 import { MODULES, type ModuleStatus } from "./modules";
+import { GENERATED_MODULE_VALUES } from "./modules.generated";
+import { GENERATED_FEATURE_MODULES } from "./feature-modules.generated";
 import { ALL_ROLES, SUPER_ONLY_ADMIN_MODULES, type UserRole } from "./users";
 
 /** 內建（隨主程式提供、一律啟用）／選用（由超級管理員決定是否啟用） */
@@ -108,6 +110,12 @@ const PROVIDES_STAFF_ADMIN = {
 export const SUPER_ONLY_FEATURE_MODULE_VALUES: readonly string[] = SUPER_ONLY_ADMIN_MODULES;
 
 /**
+ * manifest 產生的權限單位（`src/modules/<value>/module.json`，屬選用模組）——
+ * 不可再派生為內建功能卡；其產品層級卡由產生列（`GENERATED_FEATURE_MODULES`）提供。
+ */
+const GENERATED_MODULE_VALUES_SET: ReadonlySet<string> = new Set(GENERATED_MODULE_VALUES);
+
+/**
  * 內建的管理端功能模組：個人卡片「帳號、身分與安全管理」
  * ＋管理端權限單位（types/modules.ts 的 MODULES，含尚未建頁的稽核紀錄）。
  * 新增管理端功能時會自動出現在這裡，不需要另外維護。
@@ -124,7 +132,7 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     author: DEFAULT_MODULE_AUTHOR,
     provides: PROVIDES_STAFF_ADMIN,
   },
-  ...MODULES.map((item) => ({
+  ...MODULES.filter((item) => !GENERATED_MODULE_VALUES_SET.has(item.value)).map((item) => ({
     value: item.value as string,
     label: item.label,
     kind: "builtin" as const,
@@ -138,7 +146,9 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
 
 /**
  * 未去重的內建＋選用定義（**勿直接導出**）：
- * 由 `MODULES` 派生列先進，手刻列（如 announcements 的產品層級 provides）列在後。
+ * 由 `MODULES` 派生列先進，手刻列（如 announcements 的產品層級 provides）列在後，
+ * manifest 產生列（選用模組，`src/modules/<value>/module.json`）最後——同代碼後者勝，
+ * 故 manifest 可直接覆寫手刻的選用佔位列。
  */
 const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   ...ADMIN_FEATURE_MODULES,
@@ -224,10 +234,14 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     author: DEFAULT_MODULE_AUTHOR,
     provides: PROVIDES_STAFF_ADMIN,
   },
+  // manifest 產生列（scripts/build-module-registry.mjs；後者勝，可覆寫上方選用佔位列）
+  ...GENERATED_FEATURE_MODULES,
 ];
 
 /**
- * 新增功能模組時在 `RAW_FEATURE_MODULES` 加一列（內建排前面，選用排後面）。
+ * 新增功能模組時在 `RAW_FEATURE_MODULES` 加一列（內建排前面，選用排後面）；
+ * **選用（外掛）模組改由 manifest 註冊**：放 `src/modules/<value>/module.json`
+ * 即自動出現在產生列，勿另手刻（佔位列可日後移除）。
  * 同代碼以**列在後者**為準：由 `MODULES` 派生的內建列（provides 預設教職員＋管理員）
  * 會被後方手刻列覆寫（如 announcements 四身分皆提供），註冊表因此不會出現重複列。
  */

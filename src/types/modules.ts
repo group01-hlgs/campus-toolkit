@@ -19,7 +19,13 @@
  * - `scope`：core＝核心（不需指派、每位管理員皆有）；assignable＝可指派；superOnly＝僅超級管理員
  *   （含學校基本設定、功能模組管理與統計儀表板——入口卡片、頁面與 API 皆只對超級開放）；
  * - `status`：built＝已上線；apiOnly＝API 已上線、頁面未建；planned＝規劃中。
+ *
+ * 選用（外掛）功能模組的權限單位由 `src/modules/<value>/module.json` 的
+ * `permission.mode: "new"` 自動併入（`scripts/build-module-registry.mjs` 產生
+ * `modules.generated.ts`）——本檔手刻列只放內建單位，勿另手刻外掛列。
  */
+
+import { GENERATED_MODULES } from "./modules.generated";
 
 /** 權限單位的分類（帳號／校務資料／系統，供日後依類檢視權限時使用） */
 export const MODULE_CATEGORIES = ["帳號與權限", "校務資料", "系統與紀錄"] as const;
@@ -50,7 +56,8 @@ export interface ModuleMeta {
   children: readonly ModuleChild[];
 }
 
-export const MODULES = [
+/** 手刻的內建權限單位（選用模組的單位由 manifest 自動產生，見檔頭） */
+const HAND_MODULES = [
   {
     value: "users",
     label: "使用者帳號管理",
@@ -158,6 +165,12 @@ export const MODULES = [
     children: [],
   },
 ] as const satisfies readonly ModuleMeta[];
+
+/**
+ * 權限單位註冊表＝手刻內建列 ＋ manifest 產生列（後者來源 `src/modules/<value>/module.json`）。
+ * 同代碼不得重複——由 `scripts/build-module-registry.mjs` build 期 fail-fast。
+ */
+export const MODULES = [...HAND_MODULES, ...GENERATED_MODULES] as const satisfies readonly ModuleMeta[];
 
 /** 模組代碼的聯合型別（＝`users.ts` 的 `AdminModule`） */
 export type ModuleValue = (typeof MODULES)[number]["value"];
