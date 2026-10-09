@@ -10,6 +10,7 @@ import type {
   AnnouncementInboxItem,
 } from "@/types/announcements";
 import { ROLE_LABELS, type UserRole } from "@/types/users";
+import PinIcon from "@/components/PinIcon";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -411,7 +412,12 @@ export default function AnnouncementsInbox({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <h4 className={`${FONT_SIZE_CLASSES[fontSize].title} font-bold text-t1 flex items-center gap-1.5`}>
-                      {item.pinned && <span aria-hidden="true">📌</span>}
+                      {item.pinned && (
+                        <>
+                          <PinIcon className="text-primary" />
+                          <span className="sr-only">置頂</span>
+                        </>
+                      )}
                       <span>{item.title}</span>
                       {!item.pinned && (
                         <span className="text-sm font-normal text-t2 border border-themed rounded px-1.5 py-0.5 shrink-0">
@@ -509,8 +515,9 @@ function PinnedBannerRow({
   return (
     <li className="border border-themed border-l-4 border-l-primary bg-card rounded-lg p-4 shadow">
       <div className="flex items-center gap-1.5">
-        <span className={`${sizes.meta} text-primary border border-current rounded px-1.5 py-0.5 shrink-0`}>
-          置頂
+        <span className={`${sizes.meta} text-primary border border-current rounded px-1.5 py-0.5 shrink-0 inline-flex items-center gap-0.5`}>
+          <PinIcon size={14} />
+          <span className="sr-only">置頂</span>
         </span>
         <span className={`${sizes.title} font-bold text-t1 truncate`}>{clipText(item.title, 20)}</span>
       </div>
@@ -547,8 +554,9 @@ function AnnouncementCard({
             </span>
           )}
           {item.pinned && (
-            <span className="text-sm text-primary border border-current rounded px-1.5 py-0.5">
-              置頂
+            <span className="text-sm text-primary border border-current rounded px-1.5 py-0.5 inline-flex items-center gap-0.5">
+              <PinIcon size={14} />
+              <span className="sr-only">置頂</span>
             </span>
           )}
           {item.expiringSoon && (

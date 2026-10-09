@@ -382,12 +382,7 @@ export default function AdminAnnouncementsPage() {
               <div className="space-y-3">
                 <PolicyRow
                   id="pol-pinned"
-                  label={
-                    <>
-                      啟用 <PinIcon />
-                      <span className="sr-only">置頂</span>（預設啟用）
-                    </>
-                  }
+                  label="啟用「置頂」（預設啟用）"
                   checked={policies.enablePinned}
                   onChange={(checked) => setPolicies((prev) => ({ ...prev, enablePinned: checked }))}
                   hint="允許管理員將公告設為置頂；置頂公告排在各身分收件匣頂部，並以醒目方式呈現。關閉後新增與編輯皆無法再設定置頂（避免公告區被過多置頂公告佔據）。"
@@ -882,7 +877,10 @@ export default function AdminAnnouncementsPage() {
                       <td className="px-3 py-2">
                         <span className="font-medium">{item.title}</span>
                         {item.pinned && (
-                          <span className="ml-1.5 text-xs text-primary">置頂</span>
+                          <span className="ml-1.5 text-primary inline-flex items-center align-middle">
+                            <PinIcon size={14} />
+                            <span className="sr-only">置頂</span>
+                          </span>
                         )}
                         {item.sourceModule !== "announcements" && (
                           <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>

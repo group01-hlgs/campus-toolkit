@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { clipText } from "@/types/announcements";
+import PinIcon from "@/components/PinIcon";
 import type {
   AnnouncementSurface as AnnouncementSurfaceKey,
   AnnouncementSurfaceItem,
@@ -220,7 +221,7 @@ interface FontSizeClasses {
   meta: string;
 }
 
-/** 三行卡片（橫幅條目；置頂群組不重複標「置頂」） */
+/** 三行卡片（橫幅條目；置頂群組不重複標 pin 圖示） */
 function BannerRow({
   item,
   showPinnedMark = true,
@@ -229,7 +230,7 @@ function BannerRow({
 }: {
   item: AnnouncementSurfaceItem;
   showPinnedMark?: boolean;
-  /** true＝「置頂」標註改放在第 3 行（公告資訊）最前面 */
+  /** true＝pin 圖示標註改放在第 3 行（公告資訊）最前面 */
   pinnedMarkOnMetaLine?: boolean;
   sizes: FontSizeClasses;
 }) {
@@ -237,7 +238,10 @@ function BannerRow({
     <li className="border-b border-themed pb-2 last:border-0 last:pb-0">
       <div className="flex items-center gap-1.5">
         {showPinnedMark && !pinnedMarkOnMetaLine && item.pinned && (
-          <span className={`${sizes.meta} text-primary shrink-0`}>置頂</span>
+          <>
+            <PinIcon className="text-primary" />
+            <span className="sr-only">置頂</span>
+          </>
         )}
         <a
           href={`/announcements/${item.id}`}
@@ -252,7 +256,10 @@ function BannerRow({
       <p className={`${sizes.body} text-t2 mt-0.5 truncate`}>{clipText(item.body, 40)}</p>
       <p className={`${sizes.meta} text-t3 mt-0.5`}>
         {pinnedMarkOnMetaLine && item.pinned && (
-          <span className="text-primary font-medium mr-1">置頂</span>
+          <>
+            <PinIcon className="text-primary mr-1" />
+            <span className="sr-only">置頂</span>
+          </>
         )}
         {item.categoryName}｜{item.authorName}｜
         {new Date(item.publishAt).toLocaleString("zh-TW")}
@@ -261,14 +268,17 @@ function BannerRow({
   );
 }
 
-/** 單行清單條目（日期｜分類｜標題 20 字內；置頂者標「置頂」） */
+/** 單行清單條目（日期｜分類｜標題 20 字內；置頂者標 pin 圖示） */
 function ListRow({ item, sizes }: { item: AnnouncementSurfaceItem; sizes: FontSizeClasses }) {
   return (
     <li
       className={`flex items-center gap-1.5 ${sizes.meta} border-b border-themed pb-1.5 last:border-0 last:pb-0`}
     >
       {item.pinned && (
-        <span className="text-primary font-medium shrink-0">置頂</span>
+        <>
+          <PinIcon className="text-primary" />
+          <span className="sr-only">置頂</span>
+        </>
       )}
       <span className="truncate text-t2 min-w-0">
         {new Date(item.publishAt).toLocaleDateString("zh-TW")}｜{item.categoryName}｜

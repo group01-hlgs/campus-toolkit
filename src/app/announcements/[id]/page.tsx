@@ -6,6 +6,7 @@ import { fetchSettings } from "@/lib/settings-client";
 import { defaultSettings } from "@/types/settings";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
+import PinIcon from "@/components/PinIcon";
 
 interface AnnouncementDetail {
   id: string;
@@ -178,8 +179,9 @@ export default function AnnouncementDetailPage() {
                 ))}
               </div>
               {announcement.pinned && (
-                <span className="text-sm text-primary border border-current rounded px-2 py-0.5">
-                  置頂
+                <span className="text-sm text-primary border border-current rounded px-2 py-0.5 inline-flex items-center gap-1">
+                  <PinIcon size={14} />
+                  <span className="sr-only">置頂</span>
                 </span>
               )}
             </div>
