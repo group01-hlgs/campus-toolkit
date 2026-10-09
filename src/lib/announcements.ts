@@ -17,6 +17,7 @@ import {
   AnnouncementSettings,
   AnnouncementSurface,
   AnnouncementSurfaceItem,
+  AnnouncementArchiveItem,
   AnnouncementSurfaces,
   announcementCategoryName,
   announcementToFirestore,
@@ -54,11 +55,14 @@ import { ensureFallbackCategory } from "@/types/category";
 
 const INBOX_CACHE_PREFIX = "announcements:inbox:";
 const SURFACE_CACHE_PREFIX = "announcements:surface:";
+const ARCHIVE_CACHE_PREFIX = "announcements:archive:";
 const INBOX_TTL_MS = 15_000;
 const ADMIN_LIST_LIMIT = 100;
 const INBOX_LIMIT = 50;
 /** 顯示位置一次取回的上限（排序後再依設定筆數截斷） */
 const SURFACE_FETCH_LIMIT = 30;
+/** 公告專頁一次取回的上限（前端再分頁切片，0 額外 Firestore 讀取） */
+const ARCHIVE_LIMIT = 100;
 const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 /** 真實刪除一張 WriteBatch 的文件上限（留餘裕） */
 const DELETE_BATCH_LIMIT = 400;
@@ -99,10 +103,11 @@ export async function getAnnouncementSettings(): Promise<AnnouncementSettings> {
   }
 }
 
-/** 公告變更後：清收件匣／顯示位置快取＋管理端清單（epoch） */
+/** 公告變更後：清收件匣／顯示位置／公告專頁快取＋管理端清單（epoch） */
 export function invalidateAnnouncementsCache(): void {
   invalidateReadCache(INBOX_CACHE_PREFIX);
   invalidateReadCache(SURFACE_CACHE_PREFIX);
+  invalidateReadCache(ARCHIVE_CACHE_PREFIX);
   // 管理端清單若日後改用 cachedListRead，epoch 遞增會一併涵蓋；
   // 目前管理清單直讀＋短 TTL，此呼叫同步清 settings 相關無害
   void invalidateAdminListCache();
@@ -477,6 +482,76 @@ export async function listSurfaceAnnouncements(
       return b.publishAt - a.publishAt;
     });
     return items.slice(0, take);
+  });
+}
+
+/** 讀取單則公告（管理端編輯用） */
+export interface ArchiveQuery {
+  /** null＝未登入（只取閱讀權限＝「無」的公開公告） */
+  role: UserRole | null;
+  classCode?: string | null;
+}
+
+/**
+ * 公告專頁（`/announcements`）：5 處顯示位置共用的「全部公告」清單。
+ *
+ * 過濾下推（鐵律 2）與顯示位置同一套——
+ * - 未登入：`isPublic == true`（閱讀權限「無」）；
+ * - 一般身分：`audienceRoles array-contains role`（公開公告的 roles 含全身分，一併命中）；
+ * - 管理員：`status == published`（可見全部公告）。
+ * 班級／到期於記憶體過濾（同收件匣／顯示位置）；單次 `limit(ARCHIVE_LIMIT)`
+ * 為有界查詢（鐵律 3），前端以共用分頁元件切片，翻頁不增加任何 Firestore 讀取；
+ * 15 秒 cachedRead，寫入後由 `invalidateAnnouncementsCache()` 清前綴失效。
+ */
+export async function listArchiveAnnouncements(
+  query: ArchiveQuery
+): Promise<AnnouncementArchiveItem[]> {
+  const { role, classCode } = query;
+  const cacheKey = `${ARCHIVE_CACHE_PREFIX}${role ?? "guest"}:${classCode || "*"}`;
+  return cachedRead(cacheKey, INBOX_TTL_MS, async () => {
+    const settings = await getAnnouncementSettings();
+    let request = getAdminDb()
+      .collection(ANNOUNCEMENTS_COLLECTION)
+      .where("status", "==", "published");
+    if (!role) {
+      request = request.where("isPublic", "==", true);
+    } else if (role !== "admin") {
+      request = request.where("audienceRoles", "array-contains", role);
+    }
+    const snap = await request.limit(ARCHIVE_LIMIT).get();
+    const now = Date.now();
+    // 置頂原則關閉時：不論資料庫中 pinned 值，一律視為未置頂
+    const enablePinned = settings.policies.enablePinned;
+    const items: AnnouncementArchiveItem[] = [];
+    for (const doc of snap.docs) {
+      const record = readAnnouncementRecord(doc.id, doc.data());
+      if (!record) continue;
+      if (!isAnnouncementReadable(record, now)) continue;
+      const scoped = audienceClassScoped(record.audience);
+      if (scoped) {
+        if (!classCode) continue;
+        if (!record.audience.classCodes.includes(classCode)) continue;
+      }
+      items.push({
+        id: record.id,
+        title: record.title,
+        body: record.body,
+        categoryId: record.categoryId,
+        categoryName: announcementCategoryName(settings, record.categoryId),
+        sourceModule: record.sourceModule,
+        authorName: record.authorName,
+        publishAt: record.publishAt,
+        expireAt: record.expireAt,
+        pinned: enablePinned && record.pinned === true,
+        isPublic: record.isPublic === true,
+        classScoped: scoped,
+      });
+    }
+    items.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return b.publishAt - a.publishAt;
+    });
+    return items;
   });
 }
 

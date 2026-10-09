@@ -268,6 +268,14 @@ export interface AnnouncementSurfaceItem {
   isPublic: boolean;
 }
 
+/**
+ * 公告專頁（`/announcements`，5 處顯示位置共用入口）回傳的公告項目：
+ * 比顯示位置多帶 `classScoped`，供專頁標示班級／校級。
+ */
+export interface AnnouncementArchiveItem extends AnnouncementSurfaceItem {
+  classScoped: boolean;
+}
+
 /** 個人提醒（首頁鈴鐺／提醒列表）：僅回仍可閱讀的公告 */
 export interface AnnouncementReminderItem {
   announcementId: string;

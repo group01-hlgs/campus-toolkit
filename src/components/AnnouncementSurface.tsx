@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { clipText } from "@/types/announcements";
 import type {
   AnnouncementSurface as AnnouncementSurfaceKey,
@@ -60,6 +61,7 @@ function readStoredFontSize(): FontSize {
  * 清單＝單行（日期｜分類｜標題 20 字內）；
  * 「清單，置頂公告橫幅」＝置頂三行卡片＋其餘單行；橫幅＝全部三行卡片。
  * 字級由使用者以標題旁「小／中／大」切換，存 localStorage。
+ * 標題右側「全部公告 ›」連到公告專頁 `/announcements`（不分設定筆數，附通用分頁）。
  */
 export default function AnnouncementSurface({
   surface,
@@ -109,6 +111,7 @@ export default function AnnouncementSurface({
   }
 
   // 標題＋字級切換按鈕放在卡片「外面」，5 處顯示位置一致
+  // 右側「全部公告」＝專頁入口（`/announcements`，不分設定筆數、附通用分頁）
   const heading = (
     <div className="flex items-center gap-3 mb-2">
       <h3 className={`${sizes.heading} font-bold text-t1`}>系統公告</h3>
@@ -129,6 +132,13 @@ export default function AnnouncementSurface({
           </button>
         ))}
       </div>
+      <Link
+        href="/announcements"
+        className="ml-auto text-sm text-primary hover:underline shrink-0"
+        title="查看全部公告（不分顯示筆數）"
+      >
+        全部公告 ›
+      </Link>
     </div>
   );
 
