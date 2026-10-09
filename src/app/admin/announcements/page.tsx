@@ -381,7 +381,12 @@ export default function AdminAnnouncementsPage() {
               <div className="space-y-3">
                 <PolicyRow
                   id="pol-pinned"
-                  label="啟用「置頂」（預設啟用）"
+                  label={
+                    <>
+                      啟用 <PinIcon />
+                      <span className="sr-only">置頂</span>（預設啟用）
+                    </>
+                  }
                   checked={policies.enablePinned}
                   onChange={(checked) => setPolicies((prev) => ({ ...prev, enablePinned: checked }))}
                   hint="允許管理員將公告設為置頂；置頂公告排在各身分收件匣頂部，並以醒目方式呈現。關閉後新增與編輯皆無法再設定置頂（避免公告區被過多置頂公告佔據）。"
@@ -975,6 +980,27 @@ function SettingsCard({
   );
 }
 
+/** 置頂圖示（替代標籤裡突兀的「置頂」兩字；寬高 16、隨文字主色） */
+function PinIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="inline-block align-[-3px]"
+    >
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
 /** 公告原則列：核取框＋「？」說明（點選才顯示） */
 function PolicyRow({
   id,
@@ -984,7 +1010,7 @@ function PolicyRow({
   hint,
 }: {
   id: string;
-  label: string;
+  label: React.ReactNode;
   checked: boolean;
   onChange: (checked: boolean) => void;
   hint: string;
