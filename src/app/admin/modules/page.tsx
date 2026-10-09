@@ -235,7 +235,7 @@ function BuiltinRow({
   );
 }
 
-/** 選用功能模組列表列：總開關＋四種身分顯示與否，僅超級管理員可切換 */
+/** 選用功能模組列表列：總開關（任何已安裝模組皆可切換）＋四種身分顯示與否＋操作（卸載，僅本機開發），僅超級管理員可操作 */
 function OptionalRow({
   item,
   open,
@@ -246,6 +246,7 @@ function OptionalRow({
   saving,
   onToggleMaster,
   onToggleRole,
+  onUninstall,
 }: {
   item: FeatureModuleMeta;
   open: boolean;
@@ -256,20 +257,15 @@ function OptionalRow({
   saving: boolean;
   onToggleMaster: (item: FeatureModuleMeta, next: boolean) => void;
   onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
+  onUninstall: (item: FeatureModuleMeta) => void;
 }) {
-  const live = item.status === "live";
-  const stateText = !live ? "未上線" : enabled ? "已啟用" : "未啟用";
-  const stateClass = !live ? "text-t3" : enabled ? "text-success" : "text-t2";
-  const disabledReason = !live
-    ? "模組尚未上線"
-    : !isSuper
-      ? "僅超級管理員可啟用／停用"
-      : saving
-        ? "處理中..."
-        : undefined;
+  const stateText = enabled ? "已啟用" : "未啟用";
+  const stateClass = enabled ? "text-success" : "text-t2";
+  const disabledReason = !isSuper ? "僅超級管理員可操作" : saving ? "處理中..." : undefined;
+  const isDev = process.env.NODE_ENV === "development";
   return (
     <>
-      <tr className={`border-b border-themed last:border-0 text-t1${live ? "" : " opacity-70"}`}>
+      <tr className="border-b border-themed last:border-0 text-t1">
         <td className="px-3 py-2 whitespace-nowrap">
           <span className="flex items-center gap-2">
             <span className="font-medium">{item.label}</span>
@@ -286,28 +282,42 @@ function OptionalRow({
         <td className="px-3 py-2 whitespace-nowrap">
           <span className="flex items-center gap-2">
             <span className={`text-sm font-medium ${stateClass}`}>{stateText}</span>
-            {live ? (
-              <button
-                type="button"
-                onClick={() => onToggleMaster(item, !enabled)}
-                disabled={!isSuper || saving}
-                title={disabledReason}
-                className={
-                  enabled
-                    ? "btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-                    : "btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-                }
-              >
-                {saving ? "處理中..." : enabled ? "停用" : "啟用"}
-              </button>
-            ) : (
-              <span className="text-xs text-t3">尚未提供</span>
-            )}
+            <button
+              type="button"
+              onClick={() => onToggleMaster(item, !enabled)}
+              disabled={!isSuper || saving}
+              title={disabledReason}
+              className={
+                enabled
+                  ? "btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+                  : "btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+              }
+            >
+              {saving ? "處理中..." : enabled ? "停用" : "啟用"}
+            </button>
           </span>
         </td>
         <RoleCells item={item} switches={switches} disabled={!isSuper || saving} onToggle={onToggleRole} />
+        <td className="px-3 py-2 whitespace-nowrap text-right">
+          {isDev ? (
+            <button
+              type="button"
+              onClick={() => onUninstall(item)}
+              disabled={!isSuper || saving}
+              title={
+                disabledReason ??
+                "移除模組資料夾與安裝清單（Firestore 資料保留）；僅本機開發可用"
+              }
+              className="btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              卸載
+            </button>
+          ) : (
+            <span className="text-xs text-t3">—</span>
+          )}
+        </td>
       </tr>
-      <DescriptionRow item={item} open={open} colSpan={7} />
+      <DescriptionRow item={item} open={open} colSpan={8} />
     </>
   );
 }
@@ -396,6 +406,32 @@ export default function ModulesPage() {
     void patch({ value: item.value, role, enabled: next }, `${item.value}:${role}`);
   }
 
+  /** 卸載選用模組（僅本機開發；成功後重新載入，註冊表與列表已更新） */
+  async function uninstallModule(item: FeatureModuleMeta) {
+    if (saving) return;
+    if (!window.confirm(`確定卸載「${item.label}」？將移除模組資料夾與安裝清單（Firestore 資料保留）。`)) {
+      return;
+    }
+    setSaving(`${item.value}:uninstall`);
+    setFlash(null);
+    try {
+      const res = await fetch("/api/admin/feature-modules", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: item.value }),
+      });
+      const data: FeatureModulesResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `操作失敗（HTTP ${res.status}）`);
+      }
+      setFlash({ type: "success", text: data.message || "已卸載" });
+      window.location.reload();
+    } catch (error) {
+      setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
+      setSaving(null);
+    }
+  }
+
   function toggleHelp(value: string) {
     setOpenDesc((current) => (current === value ? null : value));
   }
@@ -482,8 +518,10 @@ export default function ModulesPage() {
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">選用功能模組</h3>
           <p className="text-xs text-t3">
-            每個模組有一個總開關，由超級管理員啟用／停用（尚未上線者不可啟用）；
+            已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用；
+            「狀態」為模組作者宣告的進度資訊，不影響開關。
             四種身分欄：綠勾「提供」＋顯示與否勾選（提供功能＝否者顯示「未提供」）。
+            操作欄「卸載」僅本機開發可用（部署環境須經 git 移除）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
@@ -500,18 +538,19 @@ export default function ModulesPage() {
                     {ROLE_LABELS[role]}
                   </th>
                 ))}
+                <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
                     {loadingText}
                   </td>
                 </tr>
               ) : optionals.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
                     沒有選用功能模組
                   </td>
                 </tr>
@@ -525,9 +564,10 @@ export default function ModulesPage() {
                     enabled={enabled[item.value] === true}
                     switches={roles[item.value]}
                     isSuper={isSuper}
-                    saving={saving === item.value}
+                    saving={saving === item.value || saving === `${item.value}:uninstall`}
                     onToggleMaster={toggleMaster}
                     onToggleRole={toggleRole}
+                    onUninstall={uninstallModule}
                   />
                 ))
               )}

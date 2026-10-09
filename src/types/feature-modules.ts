@@ -37,7 +37,7 @@ import { ALL_ROLES, SUPER_ONLY_ADMIN_MODULES, type UserRole } from "./users";
 /** 內建（隨主程式提供、一律啟用）／選用（由超級管理員決定是否啟用） */
 export type FeatureModuleKind = "builtin" | "optional";
 
-/** 實作狀態：已上線／開發中／規劃中（未上線的模組不可啟用、也沒有入口） */
+/** 實作狀態：已上線／開發中／規劃中（展示資訊；入口看 href，可否啟用由超級管理員總開關決定） */
 export type FeatureModuleStatus = "live" | "building" | "planned";
 
 export const FEATURE_MODULE_STATUS_LABELS: Record<FeatureModuleStatus, string> = {
@@ -184,57 +184,7 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
       admin: true,
     },
   },
-  {
-    value: "spaceBooking",
-    label: "學校空間預約模組",
-    kind: "optional",
-    status: "planned",
-    description: "教室、場地等學校空間的預約、審核與使用紀錄。",
-    href: "",
-    author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
-  },
-  {
-    value: "examRegistration",
-    label: "升學與模擬考報名模組",
-    kind: "optional",
-    status: "planned",
-    description: "升學相關考試與模擬考的報名、造冊與名單管理。",
-    href: "",
-    author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
-  },
-  {
-    value: "selfLearning",
-    label: "自主學習模組",
-    kind: "optional",
-    status: "planned",
-    description: "自主學習計畫的申請、歷程記錄與審查。",
-    href: "",
-    author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
-  },
-  {
-    value: "learningPortfolio",
-    label: "學習歷程模組",
-    kind: "optional",
-    status: "planned",
-    description: "學習歷程檔案的收集、整理與提交。",
-    href: "",
-    author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
-  },
-  {
-    value: "attendance",
-    label: "線上點名模組",
-    kind: "optional",
-    status: "planned",
-    description: "課堂點名、缺曠紀錄與出缺統計。",
-    href: "",
-    author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
-  },
-  // manifest 產生列（scripts/build-module-registry.mjs；後者勝，可覆寫上方選用佔位列）
+  // manifest 產生列（scripts/build-module-registry.mjs；後者勝，可覆寫手刻列）
   ...GENERATED_FEATURE_MODULES,
 ];
 
@@ -267,9 +217,13 @@ export function featureModulesOfKind(kind: FeatureModuleKind): readonly FeatureM
   return FEATURE_MODULES.filter((item) => item.kind === kind);
 }
 
-/** 可否切換啟用狀態：僅「選用且已上線」的模組可啟用（伺服器端同步把關） */
+/**
+ * 可否切換啟用狀態：選用模組一律可由超級管理員切換（安裝即可用）；
+ * `status` 為作者宣告的展示資訊，不再把關。預設未啟用的 fail-safe 見 readFeatureModulesEnabled。
+ * 伺服器端同步把關（api/admin/feature-modules PATCH）。
+ */
 export function isTogglableFeatureModule(meta: FeatureModuleMeta): boolean {
-  return meta.kind === "optional" && meta.status === "live";
+  return meta.kind === "optional";
 }
 
 /**
