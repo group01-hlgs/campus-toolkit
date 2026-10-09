@@ -12,6 +12,7 @@ interface ReminderSummary {
  * 首頁公告提醒鈴鐺（期 C）：
  * 讀取個人仍有效的提醒，有內容時顯示數量徽章；點擊進入公告頁。
  * 非系統推播——使用者打開首頁時才會更新。
+ * 管理員於「公告管理設定」關閉個人提醒時不渲染（待設定回應後才顯示，避免閃現）。
  */
 export default function AnnouncementReminderBell({
   role,
@@ -21,13 +22,22 @@ export default function AnnouncementReminderBell({
   href: string;
 }) {
   const [summary, setSummary] = useState<ReminderSummary | null>(null);
+  // null＝尚未取得開關值；false＝管理員已停用個人提醒（不顯示鈴鐺）
+  const [enabled, setEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/announcements/reminders", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (cancelled || !data?.success) return;
+        if (cancelled) return;
+        if (!data?.success) {
+          // 查詢失敗／未取得開關：維持顯示（fail-open）
+          setEnabled(true);
+          return;
+        }
+        setEnabled(data.remindersEnabled !== false);
+        if (data.remindersEnabled === false) return;
         const items = Array.isArray(data.items) ? data.items : [];
         setSummary({
           count: items.length,
@@ -35,12 +45,17 @@ export default function AnnouncementReminderBell({
         });
       })
       .catch(() => {
-        if (!cancelled) setSummary({ count: 0, titles: [] });
+        if (cancelled) return;
+        setEnabled(true);
+        setSummary({ count: 0, titles: [] });
       });
     return () => {
       cancelled = true;
     };
   }, [role]);
+
+  // 開關值未確定前先不渲染：停用時不會先閃現再消失
+  if (enabled !== true) return null;
 
   const count = summary?.count ?? 0;
   const tip =

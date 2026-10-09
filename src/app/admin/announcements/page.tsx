@@ -74,7 +74,7 @@ function parseDatetimeLocal(value: string): number | null {
 
 /**
  * 系統公告（僅超級／被指派「系統公告」的管理員）。
- * 版面順序：設定卡片（公告原則管理／公告顯示方式／顯示位置／公告分類，全部預設收合）
+ * 版面順序：設定卡片（公告管理設定／公告顯示方式／顯示位置／公告分類，全部預設收合）
  * → 建立／編輯公告（預設收納）→ 公告清單（標題列有搜尋，省流閘門外）。
  * 清單依系統「省流開關」：啟用時進頁不載入，改按鈕或搜尋時載入（與帳號／名冊清單一致）。
  */
@@ -102,6 +102,10 @@ export default function AdminAnnouncementsPage() {
   const [policies, setPolicies] = useState<AnnouncementPolicies>(
     DEFAULT_ANNOUNCEMENT_SETTINGS.policies
   );
+  // 個人公告提醒（首頁鈴鐺＋收件匣「提醒我」按鈕）啟用與否
+  const [remindersEnabled, setRemindersEnabled] = useState<boolean>(
+    DEFAULT_ANNOUNCEMENT_SETTINGS.defaultRemindersEnabled
+  );
   // 設定卡片收合：全部預設收合（外層「設定管理」與其下三張卡片都收合）
   const [cardOpen, setCardOpen] = useState({
     settings: false,
@@ -125,6 +129,7 @@ export default function AdminAnnouncementsPage() {
     setCategories(next.categories);
     setSurfaces(next.surfaces ?? DEFAULT_ANNOUNCEMENT_SETTINGS.surfaces);
     setPolicies(next.policies ?? DEFAULT_ANNOUNCEMENT_SETTINGS.policies);
+    setRemindersEnabled(next.defaultRemindersEnabled !== false);
   }, []);
 
   /** 僅載入模組設定（settings 文檔，不讀公告清單——省流） */
@@ -276,7 +281,7 @@ export default function AdminAnnouncementsPage() {
       const res = await fetch("/api/admin/announcements/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categories, surfaces, policies }),
+        body: JSON.stringify({ categories, surfaces, policies, defaultRemindersEnabled: remindersEnabled }),
       });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "設定儲存失敗");
@@ -366,9 +371,9 @@ export default function AdminAnnouncementsPage() {
         onToggle={() => toggleCard("settings")}
       >
         <div className="space-y-6">
-          {/* 1-1. 公告原則管理（預設收合，第一順位） */}
+          {/* 1-1. 公告管理設定（預設收合，第一順位）：公告原則＋個人提醒開關 */}
           <SettingsCard
-            title="公告原則管理"
+            title="公告管理設定"
             open={cardOpen.policies}
             onToggle={() => toggleCard("policies")}
           >
@@ -396,6 +401,13 @@ export default function AdminAnnouncementsPage() {
                     setPolicies((prev) => ({ ...prev, hardDeleteExpired: checked }))
                   }
                   hint="開啟後，封存或到期的公告連同個人提醒一併從資料庫真實刪除（無法恢復）。關閉時僅隱藏保留：不進入收件匣，也不提供搜尋。"
+                />
+                <PolicyRow
+                  id="pol-reminders"
+                  label="啟用個人公告提醒・首頁鈴鐺（預設啟用）"
+                  checked={remindersEnabled}
+                  onChange={(checked) => setRemindersEnabled(checked)}
+                  hint="啟用後，各身分功能首頁顯示公告提醒鈴鐺（有提醒時顯示則數徽章），公告清單也提供「提醒我」按鈕。關閉後鈴鐺與提醒按鈕一律隱藏。提醒為個人設定、非系統推播，開啟首頁時才更新。"
                 />
               </div>
               {/* 儲存設定與上方元件固定 10px 間距 */}
@@ -768,7 +780,7 @@ export default function AdminAnnouncementsPage() {
                   />
                   {policies.enablePinned
                     ? "公告排序在各身分收件匣頂部（「清單，置頂公告橫幅／橫幅」方式另有醒目呈現）"
-                    : "已在「公告原則管理」關閉置頂功能，儲存時將不設定置頂"}
+                    : "已在「公告管理設定」關閉置頂功能，儲存時將不設定置頂"}
                 </label>
               </div>
               <div className="flex gap-2 pt-1">

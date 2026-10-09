@@ -32,17 +32,30 @@ export async function GET(request: NextRequest) {
     if (!session) return toAuthResponse({ status: 401, message: "未登入或登入已失效" });
 
     const classCode = entryClassCode(session.__entry);
-    const [items, reminderIds, settings] = await Promise.all([
+    // 閘門：管理員停用個人提醒時不讀取提醒資料（省掉兩次查詢）
+    const settings = await getAnnouncementSettings();
+    if (settings.defaultRemindersEnabled === false) {
+      return NextResponse.json(
+        {
+          success: true,
+          items: [],
+          reminderIds: [],
+          remindersEnabled: false,
+          count: 0,
+        },
+        { headers: noStore }
+      );
+    }
+    const [items, reminderIds] = await Promise.all([
       listMyReminders(session.uid, session.role, classCode || null),
       listMyReminderIds(session.uid),
-      getAnnouncementSettings(),
     ]);
     return NextResponse.json(
       {
         success: true,
         items,
         reminderIds,
-        remindersEnabled: settings.defaultRemindersEnabled,
+        remindersEnabled: true,
         count: items.length,
       },
       { headers: noStore }
@@ -78,6 +91,15 @@ export async function POST(request: NextRequest) {
       typeof body.announcementId === "string" ? body.announcementId.trim() : "";
     if (!announcementId) {
       return NextResponse.json({ success: false, message: "缺少公告識別" }, { status: 400 });
+    }
+
+    // 閘門：管理員已停用個人提醒（鈴鐺與提醒按鈕已隱藏，此處防直連繞過）
+    const settings = await getAnnouncementSettings();
+    if (settings.defaultRemindersEnabled === false) {
+      return NextResponse.json(
+        { success: false, message: "個人公告提醒功能已停用" },
+        { status: 403 }
+      );
     }
 
     const result = await toggleAnnouncementReminder(session.uid, announcementId);

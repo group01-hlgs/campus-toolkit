@@ -120,7 +120,9 @@ export async function PUT(request: NextRequest) {
         ANNOUNCEMENT_SURFACES.filter((key) => settings.surfaces[key].enabled).length
       }/5 處，原則：置頂=${settings.policies.enablePinned ? "開" : "關"}、強制到期=${
         settings.policies.forceExpire ? "開" : "關"
-      }、真實刪除=${settings.policies.hardDeleteExpired ? "開" : "關"}）`,
+      }、真實刪除=${settings.policies.hardDeleteExpired ? "開" : "關"}、個人提醒=${
+        settings.defaultRemindersEnabled ? "開" : "關"
+      }）`,
     });
 
     return NextResponse.json(
