@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { toAuthResponse, verifySession } from "@/lib/dal";
+import { serverErrorMessage } from "@/lib/api-error";
 import { getCalendarSettings, listSurfaceCalendarEvents } from "@/lib/calendar";
 import { isCalendarSurface } from "@/types/calendar";
 
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Calendar surface error:", error);
     return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      { success: false, message: serverErrorMessage(error, "系統錯誤") },
       { status: 500 }
     );
   }
