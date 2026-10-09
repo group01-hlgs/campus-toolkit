@@ -32,8 +32,10 @@ function dateLabel(item: CalendarSurfaceItem): string {
  * 系統首頁登入表單上方、四種身分功能首頁（切換身分下拉選單下方、第一個登出按鈕上方）。
  * 顯示與否由「行事曆 › 設定管理 › 顯示位置」逐處設定。
  *
- * 版面：標題「行事曆」右側固定放「進入行事曆」入口 SVG；
+ * 版面：標題「行事曆」右側固定放「進入行事曆」入口 SVG（＝行事曆功能首頁，
+ * 各身分為 `${ROLE_HOME[身分]}/calendar`，系統首頁未登入回首頁 `/`）；
  * 有尚未結束的行程（含今天）才多顯示 1 條「開始時間最近的那一則」，
+ * 該條標題連到「單筆行程內容頁」`/calendar/[id]`（跳出新頁，比照公告條目）；
  * 沒有行程時只顯示入口，不整塊隱藏（API 異常時同樣只顯示入口）。
  */
 export default function CalendarSurface({
@@ -103,21 +105,41 @@ export default function CalendarSurface({
               )}
               <span className="truncate text-t2 min-w-0">
                 {dateLabel(item)}｜{item.categoryName}｜
-                {calendarHref ? (
-                  <Link
-                    href={calendarHref}
-                    className="font-medium text-t1 hover:text-primary inline-flex min-w-0"
-                  >
-                    <span className="truncate">{item.title}</span>
-                  </Link>
-                ) : (
-                  <span className="font-medium text-t1">{item.title}</span>
-                )}
+                <a
+                  href={`/calendar/${item.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="查看行程內容（新視窗）"
+                  className="font-medium text-t1 hover:text-primary inline-flex min-w-0"
+                >
+                  <span className="truncate">{item.title}</span>
+                  <ExternalLinkIcon />
+                </a>
               </span>
             </li>
           </ul>
         </div>
       )}
     </section>
+  );
+}
+
+/** 跳出新頁圖示（external-link，比照公告顯示位置） */
+function ExternalLinkIcon() {
+  return (
+    <svg
+      className="w-3.5 h-3.5 shrink-0 text-t3 hover:text-primary ml-0.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+      />
+    </svg>
   );
 }
