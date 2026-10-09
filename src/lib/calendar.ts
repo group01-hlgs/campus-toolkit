@@ -421,19 +421,6 @@ export async function listCalendarEvents(
   });
 }
 
-/** 讀取單則行程（使用者端；權限判定在 API 路由） */
-export async function getReadableCalendarEvent(
-  id: string,
-  role: UserRole,
-  classCode: string | null | undefined
-): Promise<{ record: CalendarEventRecord; categoryName: string } | null> {
-  const record = await getCalendarEvent(id);
-  if (!record || !isCalendarEventActive(record)) return null;
-  if (role !== "admin" && !canViewCalendarEvent(record.audience, role, classCode)) return null;
-  const settings = await getCalendarSettings();
-  return { record, categoryName: calendarCategoryName(settings, record.categoryId) };
-}
-
 export interface CalendarSurfaceQuery {
   surface: CalendarSurface;
   /** null＝未登入（僅 `login` 顯示位置允許；只取四種身分皆可見的行程） */

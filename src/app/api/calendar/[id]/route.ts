@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { toAuthResponse, verifySession } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getReadableCalendarEvent } from "@/lib/calendar";
-import { calendarEventToItem } from "@/types/calendar";
+import { getCalendarEvent, getCalendarSettings } from "@/lib/calendar";
+import {
+  calendarEventToItem,
+  calendarCategoryName,
+  canViewCalendarEvent,
+  isCalendarEventActive,
+  isCalendarEventPublicReadable,
+} from "@/types/calendar";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -14,7 +20,12 @@ function entryClassCode(entry: Record<string, unknown> | null | undefined): stri
 
 type Params = { params: Promise<{ id: string }> };
 
-/** GET：單則行程內容（受眾與班級判定同列表） */
+/**
+ * GET：單則行程內容（顯示位置「跳出新頁」用）。
+ * 權限與顯示位置一致：
+ * - 公開行程（受眾含四種身分且非班級限定，同 `surface=login` 公開規則）：不需登入即可查閱；
+ * - 其餘行程：須登入，且依身分／班級判定（管理員可讀全部）。
+ */
 export async function GET(request: NextRequest, { params }: Params) {
   try {
     const limited = enforceRateLimit(
@@ -25,24 +36,40 @@ export async function GET(request: NextRequest, { params }: Params) {
     );
     if (limited) return limited;
 
-    const session = await verifySession();
-    if (!session) return toAuthResponse({ status: 401, message: "未登入或登入已失效" });
-
     const { id } = await params;
     if (!id || id.length > 64) {
       return NextResponse.json({ success: false, message: "查無此行程" }, { status: 404 });
     }
 
-    const classCode = entryClassCode(session.__entry);
-    const found = await getReadableCalendarEvent(id, session.role, classCode || null);
-    if (!found) {
+    const record = await getCalendarEvent(id);
+    if (!record || !isCalendarEventActive(record)) {
       return NextResponse.json({ success: false, message: "查無此行程" }, { status: 404 });
     }
 
-    return NextResponse.json(
-      { success: true, event: calendarEventToItem(found.record, found.categoryName) },
-      { headers: noStore }
-    );
+    const settings = await getCalendarSettings();
+    const payload = calendarEventToItem(record, calendarCategoryName(settings, record.categoryId));
+
+    // 公開行程：任何人可讀（四種身分皆可見、不限班級＝全校公告性質）
+    if (isCalendarEventPublicReadable(record.audience)) {
+      return NextResponse.json({ success: true, event: payload }, { headers: noStore });
+    }
+
+    // 非公開行程：須登入
+    const session = await verifySession();
+    if (!session) {
+      return toAuthResponse({ status: 401, message: "請登入後再查看此行程" });
+    }
+
+    // 一般身分：須受眾包含該身分＋班級相符（管理員可讀全部）
+    const classCode = entryClassCode(session.__entry);
+    if (
+      session.role !== "admin" &&
+      !canViewCalendarEvent(record.audience, session.role, classCode || null)
+    ) {
+      return NextResponse.json({ success: false, message: "無權限閱讀此行程" }, { status: 403 });
+    }
+
+    return NextResponse.json({ success: true, event: payload }, { headers: noStore });
   } catch (error) {
     console.error("Get calendar event error:", error);
     return NextResponse.json(

@@ -30,7 +30,8 @@ function formatRange(item: CalendarEventItem): string {
 /**
  * 單筆行程內容頁（顯示位置行程列「跳出新頁」用，比照單則公告內容頁）。
  * 版面比照系統設定外殼（標題區域＋內容卡片），不提供返回功能頁與登出按鈕。
- * 權限由 API 端判定（需登入，且依身分／班級過濾；未登入回 401 → 引導回首頁登入）。
+ * 權限由 API 端判定：公開行程（受眾含四種身分且非班級限定）**免登入可讀**；
+ * 其餘行程須登入（401 → 請先登入）且依身分／班級過濾（403 → 無權限）。
  */
 export default function CalendarEventDetailPage() {
   const params = useParams<{ id: string }>();
@@ -121,12 +122,14 @@ export default function CalendarEventDetailPage() {
               {needLogin ? "請先登入" : "無法顯示行程"}
             </p>
             <p className="text-sm text-t2">{error}</p>
-            <a
-              href="/"
-              className="btn-soft rounded-lg px-4 py-2 text-sm mt-4 inline-block cursor-pointer"
-            >
-              回首頁登入
-            </a>
+            {needLogin && (
+              <a
+                href="/"
+                className="btn-soft rounded-lg px-4 py-2 text-sm mt-4 inline-block cursor-pointer"
+              >
+                回首頁登入
+              </a>
+            )}
           </div>
         ) : event ? (
           <div className="border border-themed rounded-lg bg-card p-6">

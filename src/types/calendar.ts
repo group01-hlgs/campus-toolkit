@@ -272,6 +272,17 @@ export function canViewCalendarEvent(
   return audienceHasRole(audience, role) && audienceCoversClass(audience, classCode);
 }
 
+/**
+ * 免登入可讀（公開）行程：受眾含四種身分且不限班級——
+ * 與系統首頁顯示位置（`surface=login`）的公開規則完全一致
+ * （四種身分選、非班級限定＝全校皆可看，故不需身分即可查閱）。
+ */
+export function isCalendarEventPublicReadable(audience: CalendarAudience): boolean {
+  return (
+    !audienceClassScoped(audience) && ALL_ROLES.every((role) => audienceHasRole(audience, role))
+  );
+}
+
 /** 本地時區的該日零時（epoch ms）；日期非法回 0 */
 export function allDayStartMs(date: string): number {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
