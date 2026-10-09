@@ -84,7 +84,7 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { success: true, message: "行事曆設定已儲存", settings },
+      { success: true, message: "行程類型設定已儲存", settings },
       { headers: noStore }
     );
   } catch (error) {

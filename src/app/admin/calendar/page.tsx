@@ -364,9 +364,9 @@ export default function AdminCalendarPage() {
         open={cardOpen.settings}
         onToggle={() => setCardOpen((prev) => ({ ...prev, settings: !prev.settings }))}
       >
-          {/* 1-1. 設定卡片（行事曆類型管理，預設收合） */}
+          {/* 1-1. 設定卡片（行程類型管理，預設收合） */}
           <SettingsCard
-            title="行事曆設定"
+            title="行程類型"
             open={cardOpen.categories}
             onToggle={() => setCardOpen((prev) => ({ ...prev, categories: !prev.categories }))}
           >
