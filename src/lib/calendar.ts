@@ -34,19 +34,20 @@ import {
   defaultCalendarFallbackCategory,
   defaultCalendarSurfaces,
   isCalendarEventActive,
+  isCalendarEventPublicReadable,
   readCalendarEventRecord,
   readCalendarSettings,
   startOfTodayMs,
   validateCalendarInput,
 } from "@/types/calendar";
-import { ALL_ROLES, type UserRole } from "@/types/users";
+import type { UserRole } from "@/types/users";
 import { ensureFallbackCategory } from "@/types/category";
 
 /**
  * 行事曆功能模組（server-only）。
  *
  * 跨模組行程接口協議（其他模組請照此呼叫，勿自開平行集合）：
- * 1. 只寫 `calendarEvents` 集合；校驗失敗拋錯（title 非空、時間合法、roles 非空）；
+ * 1. 只寫 `calendarEvents` 集合；校驗失敗拋錯（title 非空、時間合法、閱讀權限非空）；
  * 2. `sourceModule` 必填；有 `sourceRef` 時以 `sourceModule+sourceRef` 定位：
  *    存在→覆寫欄位（updatedAt 遞增），不存在→新建；無 `sourceRef` 每次皆新建；
  * 3. `status: "cancelled"` 預設保留文件（不刪除），供來源模組對帳；
@@ -118,6 +119,8 @@ export interface PublishScheduleFromModuleInput {
   /** 發佈單位（如：教務處）；缺省＝沿用現值 */
   publishUnit?: string;
   audience?: CalendarAudience;
+  /** 閱讀權限「無」＝公開（不需登入）；與身分選項互斥 */
+  isPublic?: boolean;
   /** 取消時傳 "cancelled"（保留文件）；預設 "active" */
   status?: CalendarEventStatus;
   createdBy?: { uid: string; name: string; role: UserRole };
@@ -143,6 +146,7 @@ function mergeScheduleInput(
     categoryId: input.categoryId ?? existing?.categoryId,
     publishUnit: input.publishUnit ?? existing?.publishUnit,
     audience: input.audience ?? existing?.audience ?? { roles: [], classCodes: [] },
+    isPublic: input.isPublic ?? existing?.isPublic ?? false,
     academicYear: input.academicYear ?? existing?.academicYear,
     semester: input.semester ?? existing?.semester,
   };
@@ -201,6 +205,7 @@ export async function publishScheduleFromModule(
     sourceModule,
     sourceRef: sourceRef || undefined,
     audience: validation.value.audience,
+    isPublic: validation.value.isPublic,
     status,
     createdBy:
       input.createdBy ??
@@ -261,6 +266,7 @@ export async function updateCalendarEvent(
     categoryId: validation.value.categoryId,
     publishUnit: validation.value.publishUnit,
     audience: validation.value.audience,
+    isPublic: validation.value.isPublic,
     status: patch.status === "cancelled" ? "cancelled" : patch.status === "active" ? "active" : current.status,
     academicYear: validation.value.academicYear ?? current.academicYear,
     semester: validation.value.semester ?? current.semester,
@@ -423,7 +429,7 @@ export async function listCalendarEvents(
 
 export interface CalendarSurfaceQuery {
   surface: CalendarSurface;
-  /** null＝未登入（僅 `login` 顯示位置允許；只取四種身分皆可見的行程） */
+  /** null＝未登入（僅 `login` 顯示位置允許；只取閱讀權限「無」的公開行程） */
   role: UserRole | null;
   classCode?: string | null;
 }
@@ -433,9 +439,10 @@ export interface CalendarSurfaceQuery {
  * 尚未結束的行程中，依開始時間取最早者（管理端目前統一只顯示第 1 則）。
  *
  * 過濾下推（鐵律 2）：`status == active` ＋ `startAt >= 今日零時`，
- * 登入者再疊 `audienceRoles array-contains role`；班級與「尚未結束」在記憶體過濾
- * （量級同列表，並以 `limit` 有界，鐵律 3）。15 秒 `cachedRead`，
- * 寫入後由 `invalidateCalendarCache()` 清 `calendar:` 前綴失效。
+ * 登入者再疊 `audienceRoles array-contains role`；班級、「尚未結束」與未登入的
+ * 公開判定（閱讀權限「無」）在記憶體過濾（量級同列表，並以 `limit` 有界，鐵律 3）。
+ * 15 秒 `cachedRead`，寫入後由 `invalidateCalendarCache()` 清 `calendar:` 前綴失效。
+ * 註：未登入不加 `isPublic == true` 下推——與範圍條件同查需另建複合索引，改以記憶體過濾。
  */
 export async function listSurfaceCalendarEvents(
   query: CalendarSurfaceQuery,
@@ -466,9 +473,8 @@ export async function listSurfaceCalendarEvents(
       if (role) {
         if (!canViewCalendarEvent(record.audience, role, classCode)) continue;
       } else {
-        // 未登入（系統首頁）：只顯示四種身分皆可見、且不限班級的行程
-        if (!ALL_ROLES.every((r) => record.audience.roles.includes(r))) continue;
-        if (audienceClassScoped(record.audience)) continue;
+        // 未登入（系統首頁）：只顯示閱讀權限「無」（isPublic）的公開行程
+        if (!isCalendarEventPublicReadable(record)) continue;
       }
       records.push(record);
     }

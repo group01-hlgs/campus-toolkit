@@ -23,7 +23,7 @@ type Params = { params: Promise<{ id: string }> };
 /**
  * GET：單則行程內容（顯示位置「跳出新頁」用）。
  * 權限與顯示位置一致：
- * - 公開行程（受眾含四種身分且非班級限定，同 `surface=login` 公開規則）：不需登入即可查閱；
+ * - 閱讀權限「無」（`isPublic`）的公開行程：不需登入即可查閱；
  * - 其餘行程：須登入，且依身分／班級判定（管理員可讀全部）。
  */
 export async function GET(request: NextRequest, { params }: Params) {
@@ -49,8 +49,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     const settings = await getCalendarSettings();
     const payload = calendarEventToItem(record, calendarCategoryName(settings, record.categoryId));
 
-    // 公開行程：任何人可讀（四種身分皆可見、不限班級＝全校公告性質）
-    if (isCalendarEventPublicReadable(record.audience)) {
+    // 公開行程（閱讀權限「無」）：任何人可讀
+    if (isCalendarEventPublicReadable(record)) {
       return NextResponse.json({ success: true, event: payload }, { headers: noStore });
     }
 

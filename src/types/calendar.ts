@@ -25,7 +25,7 @@ export type CalendarEventStatus = "active" | "cancelled";
 export const ALL_CLASSES_SENTINEL = "*";
 
 export interface CalendarAudience {
-  /** 可見身分（至少一個） */
+  /** 閱讀權限（至少一個身分；「無」＝公開時由系統補為四身分以便 array-contains 查詢） */
   roles: UserRole[];
   /**
    * 班級代碼；空陣列或含 `*` ＝不限班級。
@@ -159,6 +159,8 @@ export interface CalendarEventRecord {
   sourceModule: string; // 必填：來源模組代碼；行事曆自己建＝"calendar"
   sourceRef?: string; // 來源資料 id（如預約單號），改期/取消靠它定位
   audience: CalendarAudience;
+  /** 閱讀權限「無」＝公開：不需登入即可查閱（與身分選項互斥，公開時一律全校） */
+  isPublic: boolean;
   status: CalendarEventStatus;
   createdBy: { uid: string; name: string; role: UserRole };
   /** 發佈單位（如：教務處）；教職員建立時預帶名冊「單位」，可改 */
@@ -186,6 +188,8 @@ export interface CalendarEventItem {
   audienceRoles: UserRole[];
   classScoped: boolean;
   classCodes: string[];
+  /** 閱讀權限「無」＝公開（不需登入） */
+  isPublic: boolean;
   status: CalendarEventStatus;
   createdByName: string;
   createdByRole: UserRole;
@@ -273,14 +277,15 @@ export function canViewCalendarEvent(
 }
 
 /**
- * 免登入可讀（公開）行程：受眾含四種身分且不限班級——
- * 與系統首頁顯示位置（`surface=login`）的公開規則完全一致
- * （四種身分選、非班級限定＝全校皆可看，故不需身分即可查閱）。
+ * 免登入可讀（公開）行程：閱讀權限「無」（`isPublic`）且不限班級——
+ * 與系統首頁顯示位置（`surface=login`）的公開規則一致。
+ * 注意：只有明選「無」才公開（勾滿四身分不等於公開）。
  */
-export function isCalendarEventPublicReadable(audience: CalendarAudience): boolean {
-  return (
-    !audienceClassScoped(audience) && ALL_ROLES.every((role) => audienceHasRole(audience, role))
-  );
+export function isCalendarEventPublicReadable(record: {
+  isPublic?: boolean;
+  audience: CalendarAudience;
+}): boolean {
+  return record.isPublic === true && !audienceClassScoped(record.audience);
 }
 
 /** 本地時區的該日零時（epoch ms）；日期非法回 0 */
@@ -329,6 +334,8 @@ export interface CalendarEventInput {
   /** 發佈單位（如：教務處）；缺省＝沿用現值（upsert 時） */
   publishUnit?: string;
   audience: CalendarAudience;
+  /** 閱讀權限「無」＝公開（不需登入）；與身分選項互斥 */
+  isPublic?: boolean;
   academicYear?: number;
   semester?: 1 | 2;
 }
@@ -344,6 +351,7 @@ export interface ValidatedCalendarEventInput {
   categoryId: string;
   publishUnit?: string;
   audience: CalendarAudience;
+  isPublic: boolean;
   academicYear?: number;
   semester?: 1 | 2;
 }
@@ -368,19 +376,33 @@ function text(value: unknown, max: number): string {
 
 /**
  * 驗證並正規化行程輸入（建立表單、編輯與跨模組 publish 共用）。
- * 條件：標題非空、時間合法（endAt ≥ startAt）、roles 非空——見規劃書 §4.2 契約條文 1。
+ * 條件：標題非空、時間合法（endAt ≥ startAt）、閱讀權限非空——
+ * 「閱讀權限：無」（isPublic）等同公開、免登入，屬合法的「非空」——見規劃書 §4.2 契約條文 1。
  */
 export function validateCalendarInput(input: CalendarEventInput): CalendarValidation {
   const title = text(input.title, TITLE_MAX);
   if (!title) return { ok: false, message: "請填寫行程標題" };
 
   const allowed = ALL_ROLES;
-  const roles = Array.isArray(input.audience?.roles)
-    ? ALL_ROLES.filter((role) => input.audience.roles.includes(role) && allowed.includes(role))
-    : [];
-  if (roles.length === 0) return { ok: false, message: "請至少選擇一個可見身分" };
+  // 閱讀權限「無」＝公開：任何身分皆可見，且不套班級限制（訪客沒有班級）
+  const isPublic = input.isPublic === true;
+  let roles: UserRole[];
+  if (isPublic) {
+    roles = [...ALL_ROLES];
+  } else {
+    roles = Array.isArray(input.audience?.roles)
+      ? ALL_ROLES.filter((role) => input.audience.roles.includes(role) && allowed.includes(role))
+      : [];
+    if (roles.length === 0) {
+      return { ok: false, message: "請至少選擇一個行程閱讀權限（或勾選「無」）" };
+    }
+  }
 
-  const rawCodes = Array.isArray(input.audience?.classCodes) ? input.audience.classCodes : [];
+  const rawCodes = isPublic
+    ? []
+    : Array.isArray(input.audience?.classCodes)
+      ? input.audience.classCodes
+      : [];
   const classCodes: string[] = [];
   for (const raw of rawCodes) {
     const code = text(raw, CLASS_CODE_MAX);
@@ -421,6 +443,7 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
         categoryId,
         publishUnit,
         audience: normalizedAudience,
+        isPublic,
         academicYear:
           typeof input.academicYear === "number" && input.academicYear > 0
             ? input.academicYear
@@ -456,7 +479,9 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
       endAt,
       important,
       categoryId,
+      publishUnit,
       audience: normalizedAudience,
+      isPublic,
       academicYear:
         typeof input.academicYear === "number" && input.academicYear > 0
           ? input.academicYear
@@ -514,6 +539,7 @@ export function readCalendarEventRecord(
     sourceModule: typeof raw.sourceModule === "string" ? raw.sourceModule : "calendar",
     sourceRef: typeof raw.sourceRef === "string" && raw.sourceRef ? raw.sourceRef : undefined,
     audience,
+    isPublic: raw.isPublic === true,
     status,
     createdBy: {
       uid: typeof createdByRaw?.uid === "string" ? createdByRaw.uid : "",
@@ -549,6 +575,7 @@ export function calendarEventToFirestore(
     ...(record.sourceRef ? { sourceRef: record.sourceRef } : {}),
     audienceRoles: record.audience.roles,
     audienceClassCodes: record.audience.classCodes,
+    isPublic: record.isPublic === true,
     status: record.status,
     createdBy: record.createdBy,
     ...(record.publishUnit ? { publishUnit: record.publishUnit } : {}),
@@ -580,6 +607,7 @@ export function calendarEventToItem(
     audienceRoles: record.audience.roles,
     classScoped: audienceClassScoped(record.audience),
     classCodes: record.audience.classCodes,
+    isPublic: record.isPublic,
     status: record.status,
     createdByName: record.createdBy.name,
     createdByRole: record.createdBy.role,
@@ -662,23 +690,28 @@ export function calendarCategoryName(
   );
 }
 
-/** 行程權限顯示文字：身分名稱串接 */
-export function calendarPermissionText(audience: CalendarAudience): string {
+/** 行程權限顯示文字：閱讀權限「無」＝「無（公開）」，否則身分名稱串接 */
+export function calendarPermissionText(audience: CalendarAudience, isPublic: boolean): string {
+  if (isPublic) return "無（公開）";
   const roles = audience.roles ?? [];
   if (roles.length === 0) return "—";
   return roles.map((role) => ROLE_LABELS[role]).join("、");
 }
 
 /**
- * 請求體的 `audience` → 受眾（寬容解析；roles 缺漏回 null 由呼叫端決定是否擋下）。
+ * 請求體的 `audience` → 受眾（寬容解析；非公開且 roles 缺漏回 null 由呼叫端擋下）。
+ * `allowEmptyRoles`＝閱讀權限「無」（公開）時放行空 roles（正規化交給 `validateCalendarInput`）。
  * 非法班級代碼一律捨棄，空陣列＝不限班級。
  */
-export function parseCalendarAudience(raw: unknown): CalendarAudience | null {
+export function parseCalendarAudience(
+  raw: unknown,
+  allowEmptyRoles = false
+): CalendarAudience | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
   const rawRoles = Array.isArray(data.roles) ? data.roles : [];
   const roles = ALL_ROLES.filter((role) => rawRoles.includes(role));
-  if (roles.length === 0) return null;
+  if (roles.length === 0 && !allowEmptyRoles) return null;
   const classCodes = Array.isArray(data.classCodes)
     ? (data.classCodes as unknown[])
         .filter((code): code is string => typeof code === "string" && code.trim() !== "")

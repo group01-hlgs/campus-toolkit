@@ -70,11 +70,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    // 閱讀權限：「無」＝公開（isPublic）；未帶欄位時沿用現值（與身分選項互斥）
+    const isPublic = typeof body.isPublic === "boolean" ? body.isPublic : undefined;
+    const effectivePublic = isPublic ?? existing.isPublic;
     const audience =
-      body.audience !== undefined ? parseCalendarAudience(body.audience) : undefined;
+      body.audience !== undefined
+        ? parseCalendarAudience(body.audience, effectivePublic)
+        : undefined;
     if (body.audience !== undefined && !audience) {
       return NextResponse.json(
-        { success: false, message: "可見範圍無效（請至少選擇一個身分）" },
+        { success: false, message: "閱讀權限無效（請至少選擇一個身分，或勾選「無」）" },
         { status: 400 }
       );
     }
@@ -101,6 +106,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       publishUnit:
         typeof body.publishUnit === "string" ? body.publishUnit : undefined,
       audience: audience ?? undefined,
+      isPublic,
       status,
     });
 

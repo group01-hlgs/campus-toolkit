@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST：教職員（或管理員）建立行程。
- * 教職員：可見身分限 student/parent/staff；若限定班級必須包含自己導師班。
+ * 教職員：閱讀權限（身分）限 student/parent/staff；若限定班級必須包含自己導師班。
  */
 export async function POST(request: NextRequest) {
   try {
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
         : (["student", "parent", "staff"] as UserRole[]).filter((role) => rawRoles.includes(role));
     if (allowedRoles.length === 0) {
       return NextResponse.json(
-        { success: false, message: "請至少選擇一個可見身分" },
+        { success: false, message: "請至少選擇一個行程閱讀權限" },
         { status: 400 }
       );
     }
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
       role: session.role,
       action: "calendar_created",
       ip: getClientIp(request),
-      details: `建立行程 id=${id}（可見身分：${allowedRoles.join("、")}${
+      details: `建立行程 id=${id}（閱讀權限：${allowedRoles.join("、")}${
         classCodes.length > 0 ? `，班級 ${classCodes.join("、")}` : "，全校"
       }，學年 ${period.academicYear}-${period.semester}）`,
     });

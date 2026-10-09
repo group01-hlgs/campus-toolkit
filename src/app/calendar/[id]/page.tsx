@@ -30,7 +30,7 @@ function formatRange(item: CalendarEventItem): string {
 /**
  * 單筆行程內容頁（顯示位置行程列「跳出新頁」用，比照單則公告內容頁）。
  * 版面比照系統設定外殼（標題區域＋內容卡片），不提供返回功能頁與登出按鈕。
- * 權限由 API 端判定：公開行程（受眾含四種身分且非班級限定）**免登入可讀**；
+ * 權限由 API 端判定：閱讀權限「無」（`isPublic`）的公開行程**免登入可讀**；
  * 其餘行程須登入（401 → 請先登入）且依身分／班級過濾（403 → 無權限）。
  */
 export default function CalendarEventDetailPage() {

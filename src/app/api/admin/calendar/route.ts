@@ -66,10 +66,12 @@ export async function POST(request: NextRequest) {
     if (!body) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
     }
-    const audience = parseCalendarAudience(body.audience);
+    // 閱讀權限：「無」＝公開（isPublic，不需登入），與身分選項互斥
+    const isPublic = body.isPublic === true;
+    const audience = parseCalendarAudience(body.audience, isPublic);
     if (!audience) {
       return NextResponse.json(
-        { success: false, message: "可見範圍無效（請至少選擇一個身分）" },
+        { success: false, message: "閱讀權限無效（請至少選擇一個身分，或勾選「無」）" },
         { status: 400 }
       );
     }
@@ -88,6 +90,7 @@ export async function POST(request: NextRequest) {
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
       publishUnit: typeof body.publishUnit === "string" ? body.publishUnit : undefined,
       audience,
+      isPublic,
       status: "active",
       createdBy: {
         uid: session.uid,
@@ -101,7 +104,9 @@ export async function POST(request: NextRequest) {
       role: "admin",
       action: "calendar_created",
       ip: getClientIp(request),
-      details: `建立行程（id=${id}，可見身分=${audience.roles.join("、")}，學年 ${period.academicYear}-${period.semester}）`,
+      details: `建立行程（id=${id}，閱讀權限=${
+        isPublic ? "無（公開）" : audience.roles.join("、") || "—"
+      }，學年 ${period.academicYear}-${period.semester}）`,
     });
 
     const [events, settings] = await Promise.all([

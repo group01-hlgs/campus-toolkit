@@ -443,7 +443,7 @@ export default function Home() {
       {/* 系統公告（閱讀權限＝「無」者顯示；不需登入即可閱讀） */}
       <AnnouncementSurface surface="login" className="w-full max-w-md mb-4" />
 
-      {/* 行程（四種身分皆可見、且不限班級者顯示；單一行、尚未結束的第 1 則） */}
+      {/* 行程（閱讀權限＝「無」者顯示；不需登入即可查閱；單一行、尚未結束的第 1 則） */}
       <CalendarSurface surface="login" className="w-full max-w-md mb-4" />
 
       {/* 登入表單 */}

@@ -14,6 +14,7 @@ import {
   type CalendarPolicies,
   type CalendarSettings,
   type CalendarSurfaces,
+  calendarPermissionText,
 } from "@/types/calendar";
 import { normalizeCategoryId } from "@/types/category";
 import { ROLE_LABELS, ALL_ROLES, type UserRole } from "@/types/users";
@@ -43,6 +44,8 @@ interface FormState {
   publishUnit: string;
   roles: UserRole[];
   classCodesText: string;
+  /** 閱讀權限「無」＝公開（不需登入）；與身分勾選互斥 */
+  isPublic: boolean;
 }
 
 const emptyForm: FormState = {
@@ -58,6 +61,7 @@ const emptyForm: FormState = {
   publishUnit: "",
   roles: ["student", "parent", "staff", "admin"],
   classCodesText: "",
+  isPublic: false,
 };
 
 function toDatetimeLocal(ms?: number): string {
@@ -231,7 +235,11 @@ export default function AdminCalendarPage() {
         important: form.important,
         categoryId: formCategoryId,
         publishUnit: form.publishUnit,
-        audience: { roles: form.roles, classCodes },
+        audience: {
+          roles: form.isPublic ? [] : form.roles,
+          classCodes: form.isPublic ? [] : classCodes,
+        },
+        isPublic: form.isPublic,
       };
       const res = await fetch(form.id ? `/api/admin/calendar/${form.id}` : "/api/admin/calendar", {
         method: form.id ? "PATCH" : "POST",
@@ -291,8 +299,13 @@ export default function AdminCalendarPage() {
       important: item.important === true,
       categoryId: item.categoryId,
       publishUnit: item.publishUnit ?? "",
-      roles: item.audience.roles.filter((role) => (ALL_ROLES as string[]).includes(role)),
-      classCodesText: item.audience.classCodes.filter((c) => c !== "*").join(", "),
+      roles: item.isPublic
+        ? []
+        : item.audience.roles.filter((role) => (ALL_ROLES as string[]).includes(role)),
+      classCodesText: item.isPublic
+        ? ""
+        : item.audience.classCodes.filter((c) => c !== "*").join(", "),
+      isPublic: item.isPublic === true,
     });
     setFormOpen(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -455,7 +468,7 @@ export default function AdminCalendarPage() {
                 才多顯示 1 條最近的行程，沒有行程則只顯示入口。
               </p>
               <p className="text-xs text-t3 mt-1">
-                「系統首頁」只顯示四種身分皆可見、且不限班級的行程；各身分首頁依其身分顯示。
+                「系統首頁」只顯示閱讀權限「無」（不需登入）的公開行程；各身分首頁依其身分顯示。
               </p>
               <p className="text-xs text-t3 mt-1">
                 顯示位置啟用 {CALENDAR_SURFACES.filter((key) => surfaces[key].enabled).length} / 5 處。
@@ -766,16 +779,34 @@ export default function AdminCalendarPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">
-                <span className="text-t2 sm:w-40 shrink-0">可見身分</span>
+                <span className="text-t2 sm:w-40 shrink-0">閱讀權限</span>
                 <div className="flex-1">
                   <div className="flex flex-wrap gap-3">
+                    <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                      <input
+                        type="checkbox"
+                        checked={form.isPublic}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            isPublic: e.target.checked,
+                            roles: e.target.checked ? [] : prev.roles,
+                            classCodesText: e.target.checked ? "" : prev.classCodesText,
+                          }))
+                        }
+                      />
+                      無（公開，不需登入即可查閱）
+                    </label>
                     {ALL_ROLES.map((role) => (
                       <label
                         key={role}
-                        className="inline-flex items-center gap-1.5 text-sm text-t1"
+                        className={`inline-flex items-center gap-1.5 text-sm ${
+                          form.isPublic ? "text-t3" : "text-t1"
+                        }`}
                       >
                         <input
                           type="checkbox"
+                          disabled={form.isPublic}
                           checked={form.roles.includes(role)}
                           onChange={() => toggleRole(role)}
                         />
@@ -783,7 +814,9 @@ export default function AdminCalendarPage() {
                       </label>
                     ))}
                   </div>
-                  <p className="text-xs text-t3 mt-1">至少勾選一個身分。</p>
+                  <p className="text-xs text-t3 mt-1">
+                    勾選「無」＝任何人（含未登入）皆可查閱、一律全校；勾選身分＝僅該身分登入後可見（可多選，與「無」互斥）。
+                  </p>
                 </div>
               </div>
 
@@ -793,10 +826,11 @@ export default function AdminCalendarPage() {
                 </label>
                 <input
                   id="cal-classes"
-                  className="flex-1 input-theme rounded px-3 py-2"
+                  className="flex-1 input-theme rounded px-3 py-2 disabled:opacity-50"
                   value={form.classCodesText}
+                  disabled={form.isPublic}
                   onChange={(e) => setForm({ ...form, classCodesText: e.target.value })}
-                  placeholder="例如：101, 102"
+                  placeholder={form.isPublic ? "閱讀權限「無」＝全校" : "例如：101, 102"}
                 />
               </div>
 
@@ -905,7 +939,7 @@ export default function AdminCalendarPage() {
                   <th className="px-3 py-2 font-medium">標題</th>
                   <th className="px-3 py-2 font-medium">時間</th>
                   <th className="px-3 py-2 font-medium">地點</th>
-                  <th className="px-3 py-2 font-medium">可見範圍</th>
+                  <th className="px-3 py-2 font-medium">閱讀權限</th>
                   <th className="px-3 py-2 font-medium">發佈單位</th>
                   <th className="px-3 py-2 font-medium">發佈者</th>
                   <th className="px-3 py-2 font-medium">狀態</th>
@@ -939,7 +973,7 @@ export default function AdminCalendarPage() {
                       </td>
                       <td className="px-3 py-2 text-t2">{item.location || "—"}</td>
                       <td className="px-3 py-2 text-t2">
-                        {item.audience.roles.map((r) => ROLE_LABELS[r]).join("、") || "—"}
+                        {calendarPermissionText(item.audience, item.isPublic)}
                         {item.audience.classCodes[0] !== "*" &&
                         item.audience.classCodes.length > 0
                           ? `（${item.audience.classCodes.join("、")}）`
