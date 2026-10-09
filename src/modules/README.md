@@ -11,7 +11,7 @@ src/modules/<模組代碼>/          ← 資料夾名 ＝ manifest 的 value（�
 └── package.json                 # 僅 scripts（可選）；dependencies 一律不生效（禁止）
 ```
 
-## 註冊方式（期 0 批次 1 已上線）
+## 註冊方式（期 0 批次 1＋2 已上線）
 
 1. 建 `src/modules/<value>/module.json`（必填欄位與範例見
    `docs/主程式模組與功能模組.md` §3.2、擴充欄位見
@@ -21,9 +21,11 @@ src/modules/<模組代碼>/          ← 資料夾名 ＝ manifest 的 value（�
    - **驗證**：欄位、`value` 撞名、`routes` 前綴白名單與路徑撞名【E13】、
      `rateLimits`/`auditActions` 模組前綴、零新依賴【E10】、
      `contractVersion`／`minHostVersion`、lock↔目錄一致性【E13】等，不合規 **fail-fast**。
-   - **產生**（產物在 `src/types/*.generated.ts`，**不入 git**、勿手改）：
-     - `feature-modules.generated.ts`：產品層級功能模組列（`kind` 恆 `optional`）
-     - `modules.generated.ts`：`permission.mode: "new"` 的權限單位列
+   - **產生**（產物**不入 git**、勿手改）：
+     - `src/types/feature-modules.generated.ts`：產品層級功能模組列（`kind` 恆 `optional`）
+     - `src/types/modules.generated.ts`：`permission.mode: "new"` 的權限單位列
+     - `src/lib/rate.generated.ts`：限流桶，併入 `lib/rate-limit.ts` 的 `RATE`（批次 2）
+     - `src/lib/activity-actions.generated.ts`：稽核動作，併入 `lib/audit.ts` 的 `ActivityAction`（批次 2）
 3. `npm run lint` 通過 → `/admin/modules`「選用功能模組」表即可見到該卡
    （`status`：`planned`＝規劃中、`building`＝開發中、`live`＝已上線）。
 
@@ -32,10 +34,12 @@ manifest `status` 與入口規則：`live` 必須有非空 `href`；`planned`／
 
 ## 批次狀態（兩批切法，見規劃書 §7）
 
-- **批次 1（本碼頭，已提供）**：掛載點、掃描器、兩張註冊表自動合併。
+- **批次 1（已上線）**：掛載點、掃描器、功能模組列與權限單位表自動合併。
   模組卡、權限單位（可指派、`requireAdminModule` 認得）即時生效。
-- **批次 2（未做）**：`RATE`／`ActivityAction`／`ModuleIcon` 三表合併——
-  在那之前**頁面型模組**（無自訂 API）為限；API 需三表先補。
+- **批次 2（已上線）**：`RATE`／`ActivityAction` 兩表自動合併——manifest 的
+  `rateLimits`／`auditActions`（須帶模組代碼前綴，與內建撞名即報錯）產生列
+  併入兩表，API 型模組可呼叫 `enforceRateLimit(RATE.X)` 並寫自訂稽核動作。
+  `ModuleIcon` 不需合併：icon key 未註冊時既有程式碼自動用預設圖示（fallback）。
 - **P2 薄轉接檔（未做）**：`routes` 目前僅驗證、尚未掛載——
   模組頁面要能開，須待 `src/app/**` 轉接檔產生器落地。
 - **P3 `module:install`／`module:link`（未做）**：外部 repo 連結與安裝腳本。

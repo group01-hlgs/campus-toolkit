@@ -1,5 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
+import type { GeneratedActivityAction } from "@/lib/activity-actions.generated";
 
 export type ActivityAction =
   | "login"
@@ -45,7 +46,9 @@ export type ActivityAction =
   | "calendar_created"
   | "calendar_updated"
   | "calendar_cancelled"
-  | "calendar_settings_updated";
+  | "calendar_settings_updated"
+  /** 選用模組 manifest（auditActions）自動併入【期 0 批次 2】；空表時為 never */
+  | GeneratedActivityAction;
 
 export interface ActivityEntry {
   userId?: string;

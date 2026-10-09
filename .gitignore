@@ -57,6 +57,8 @@ next-env.d.ts
 # 模組註冊表產生物（scripts/build-module-registry.mjs，predev/prebuild/prelint 產生）
 src/types/feature-modules.generated.ts
 src/types/modules.generated.ts
+src/lib/rate.generated.ts
+src/lib/activity-actions.generated.ts
 
 # IDE
 .vscode/

@@ -3,9 +3,11 @@
  *
  * 掃描 `src/modules/<value>/module.json`（manifest，規格見
  * `docs/主程式模組與功能模組.md` §3.2 與 `docs/模組市集與外掛開發.md` §3.3），
- * 驗證後產生兩個產物（不入 git，見 .gitignore）：
+ * 驗證後產生四個產物（不入 git，見 .gitignore）：
  *   - `src/types/feature-modules.generated.ts` —— 產品層級功能模組列（kind 恆 optional）
  *   - `src/types/modules.generated.ts`         —— `permission.mode: "new"` 的權限單位列
+ *   - `src/lib/rate.generated.ts`              —— 限流桶，併入 `lib/rate-limit.ts` 的 RATE（期 0 批次 2）
+ *   - `src/lib/activity-actions.generated.ts`  —— 稽核動作，併入 `lib/audit.ts` 的 ActivityAction（期 0 批次 2）
  *
  * 自動執行：package.json 的 predev / prebuild / prelint / pretypecheck。
  * 不合規一律 fail-fast（exit 1）：逐項列出中文錯誤訊息並標明檔案；
@@ -23,6 +25,10 @@ const VERSION_FILE = path.join(ROOT, "src", "version.json");
 const LOCK_FILE = path.join(ROOT, "module.lock.json");
 const OUT_FEATURE = path.join(ROOT, "src", "types", "feature-modules.generated.ts");
 const OUT_MODULES = path.join(ROOT, "src", "types", "modules.generated.ts");
+const RATE_TABLE = path.join(ROOT, "src", "lib", "rate-limit.ts");
+const AUDIT_TABLE = path.join(ROOT, "src", "lib", "audit.ts");
+const OUT_RATE = path.join(ROOT, "src", "lib", "rate.generated.ts");
+const OUT_ACTIONS = path.join(ROOT, "src", "lib", "activity-actions.generated.ts");
 
 /** 主程式當前契約版本（與 module-sdk 的 MODULE_CONTRACT_VERSION 同步；SDK 建立前手動維持） */
 const MODULE_CONTRACT_VERSION = 1;
@@ -96,6 +102,23 @@ function routeFileExists(kind, routePath) {
     kind === "page" ? ["page.tsx", "page.ts", "page.jsx", "page.js"] : ["route.ts", "route.js"];
   return names.some((name) => fs.existsSync(path.join(base, name)));
 }
+/** 既有 RATE 桶（lib/rate-limit.ts 手刻列；撞名＝與內建覆寫同一鍵，報錯） */
+function collectBuiltinRateKeys() {
+  const keys = new Set();
+  if (!fs.existsSync(RATE_TABLE)) return keys;
+  const src = fs.readFileSync(RATE_TABLE, "utf-8");
+  for (const m of src.matchAll(/^\s{2}([A-Z][A-Z0-9_]*):\s*\{\s*limit:/gm)) keys.add(m[1]);
+  return keys;
+}
+/** 既有 ActivityAction 聯集字串（lib/audit.ts；撞名＝型別重複，報錯） */
+function collectBuiltinAuditActions() {
+  const actions = new Set();
+  if (!fs.existsSync(AUDIT_TABLE)) return actions;
+  const src = fs.readFileSync(AUDIT_TABLE, "utf-8");
+  const union = src.match(/export type ActivityAction =([\s\S]*?);/);
+  if (union) for (const m of union[1].matchAll(/"([a-z0-9_]+)"/g)) actions.add(m[1]);
+  return actions;
+}
 
 const errors = [];
 const warnings = [];
@@ -113,7 +136,7 @@ function isNonEmptyString(value) {
 }
 
 /** 單一 manifest 的結構驗證（對應文件 §3.2 規則 1–4 與 §3.3 擴充 5–9） */
-function validateManifest(relDir, dirName, m, reserved) {
+function validateManifest(relDir, dirName, m, reserved, ctx) {
   const at = (msg) => fail(`${relDir}/module.json`, msg);
 
   if (!/^[a-z][A-Za-z0-9]*$/.test(dirName)) at(`資料夾名 ${dirName} 需為 camelCase 小寫起頭`);
@@ -202,13 +225,33 @@ function validateManifest(relDir, dirName, m, reserved) {
       at("rateLimits 需為陣列");
     } else {
       const prefix = `${toUpperSnake(m.value)}_`;
+      const seen = new Set();
       m.rateLimits.forEach((bucket, i) => {
         if (!bucket || typeof bucket !== "object") {
           at(`rateLimits[${i}] 需為物件`);
           return;
         }
-        if (!isNonEmptyString(bucket.key) || !bucket.key.startsWith(prefix)) {
+        const key = bucket.key;
+        if (!isNonEmptyString(key) || !/^[A-Z][A-Z0-9_]*$/.test(key)) {
+          at(`rateLimits[${i}].key 需為 UPPER_SNAKE（英數字與底線，大寫起頭）`);
+          return;
+        }
+        let duplicate = false;
+        if (!key.startsWith(prefix)) {
           at(`rateLimits[${i}].key 需以「${prefix}」開頭（模組代碼前綴）`);
+        } else if (seen.has(key)) {
+          duplicate = true;
+          at(`rateLimits 重複：${key}`);
+        } else {
+          seen.add(key);
+        }
+        if (duplicate) return;
+        if (ctx.builtinRateKeys.has(key)) {
+          at(`rateLimits key「${key}」與內建 RATE 桶撞名（外掛不可覆寫內建）`);
+        } else if (ctx.allRateKeys.has(key)) {
+          at(`rateLimits key「${key}」與「${ctx.allRateKeys.get(key)}」的 manifest 撞名`);
+        } else {
+          ctx.allRateKeys.set(key, m.value);
         }
         if (!Number.isInteger(bucket.limit) || bucket.limit <= 0) {
           at(`rateLimits[${i}].limit 需為正整數`);
@@ -225,11 +268,28 @@ function validateManifest(relDir, dirName, m, reserved) {
       at("auditActions 需為陣列");
     } else {
       const prefix = `${camelToSnake(m.value)}_`;
+      const seen = new Set();
       m.auditActions.forEach((action, i) => {
         if (!isNonEmptyString(action) || !/^[a-z][a-z0-9_]*$/.test(action)) {
           at(`auditActions[${i}] 需為 snake_case 小寫字串`);
-        } else if (!action.startsWith(prefix)) {
+          return;
+        }
+        let duplicate = false;
+        if (!action.startsWith(prefix)) {
           at(`auditActions[${i}]「${action}」需以「${prefix}」開頭（模組代碼前綴）`);
+        } else if (seen.has(action)) {
+          duplicate = true;
+          at(`auditActions 重複：${action}`);
+        } else {
+          seen.add(action);
+        }
+        if (duplicate) return;
+        if (ctx.builtinActions.has(action)) {
+          at(`auditActions「${action}」與內建 ActivityAction 撞名（外掛不可覆寫內建）`);
+        } else if (ctx.allActions.has(action)) {
+          at(`auditActions「${action}」與「${ctx.allActions.get(action)}」的 manifest 撞名`);
+        } else {
+          ctx.allActions.set(action, m.value);
         }
       });
     }
@@ -370,9 +430,44 @@ function renderModulesFile(manifests) {
   ].join("\n");
 }
 
+/** 產生 rate.generated.ts 內容（manifest rateLimits 併入 RATE，後者勝同鍵已被驗證擋下） */
+function renderRateFile(manifests) {
+  const rows = [];
+  for (const m of manifests) {
+    if (!Array.isArray(m.rateLimits)) continue;
+    for (const bucket of m.rateLimits) {
+      if (!bucket || !isString(bucket.key)) continue;
+      rows.push(`  ${bucket.key}: { limit: ${bucket.limit}, windowMs: ${bucket.windowMs} },`);
+    }
+  }
+  return [GENERATED_HEADER, "export const GENERATED_RATE = {", ...rows, "} as const;", ""].join("\n");
+}
+
+/** 產生 activity-actions.generated.ts 內容（manifest auditActions 併入 ActivityAction） */
+function renderActionsFile(manifests) {
+  const actions = [];
+  for (const m of manifests) {
+    if (!Array.isArray(m.auditActions)) continue;
+    for (const action of m.auditActions) if (isString(action)) actions.push(action);
+  }
+  const union = actions.length === 0 ? "never" : actions.map((a) => JSON.stringify(a)).join(" | ");
+  return [
+    GENERATED_HEADER,
+    "/** manifest auditActions 併入 lib/audit.ts 的 ActivityAction（無產生列時為 never） */",
+    `export type GeneratedActivityAction = ${union};`,
+    "",
+  ].join("\n");
+}
+
 // ——— 主流程 ———
 
 const reserved = collectReservedValues();
+const ctx = {
+  builtinRateKeys: collectBuiltinRateKeys(),
+  builtinActions: collectBuiltinAuditActions(),
+  allRateKeys: new Map(),
+  allActions: new Map(),
+};
 const manifests = [];
 
 if (fs.existsSync(MODULES_DIR)) {
@@ -392,7 +487,7 @@ if (fs.existsSync(MODULES_DIR)) {
       fail(`${relDir}/module.json`, `JSON 解析失敗：${parsed.error ?? "非物件"}`);
       continue;
     }
-    validateManifest(relDir, entry.name, parsed.data, reserved);
+    validateManifest(relDir, entry.name, parsed.data, reserved, ctx);
     manifests.push(parsed.data);
   }
 }
@@ -433,8 +528,18 @@ if (errors.length > 0) {
 }
 
 const newPermission = manifests.filter((m) => m.permission && m.permission.mode === "new");
+const rateCount = manifests.reduce(
+  (n, m) => n + (Array.isArray(m.rateLimits) ? m.rateLimits.length : 0),
+  0
+);
+const actionCount = manifests.reduce(
+  (n, m) => n + (Array.isArray(m.auditActions) ? m.auditActions.length : 0),
+  0
+);
 fs.writeFileSync(OUT_FEATURE, renderFeatureFile(manifests), "utf-8");
 fs.writeFileSync(OUT_MODULES, renderModulesFile(newPermission), "utf-8");
+fs.writeFileSync(OUT_RATE, renderRateFile(manifests), "utf-8");
+fs.writeFileSync(OUT_ACTIONS, renderActionsFile(manifests), "utf-8");
 process.stdout.write(
-  `模組註冊表：${manifests.length} 個 manifest（功能列 ${manifests.length}、權限列 ${newPermission.length}）\n`
+  `模組註冊表：${manifests.length} 個 manifest（功能列 ${manifests.length}、權限列 ${newPermission.length}、限流桶 ${rateCount}、稽核動作 ${actionCount}）\n`
 );

@@ -1,6 +1,7 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/audit";
+import { GENERATED_RATE } from "@/lib/rate.generated";
 
 /**
  * 進程內 sliding-window rate limiter。
@@ -127,7 +128,8 @@ export function enforceAccountRateLimit(
   return null;
 }
 
-export const RATE = {
+/** 手刻限流桶（外掛不可撞名，掃描器驗證） */
+const HAND_RATE = {
   LOGIN: { limit: 10, windowMs: 60_000 },
   LOGIN_ACCOUNT: { limit: 30, windowMs: 15 * 60_000 },
   GOOGLE: { limit: 10, windowMs: 60_000 },
@@ -230,3 +232,6 @@ export const RATE = {
   /** 行事曆：顯示位置（系統首頁與四種身分功能首頁）讀取 */
   CALENDAR_SURFACE: { limit: 60, windowMs: 60_000 },
 } as const;
+
+/** 限流桶表：內建手刻列＋選用模組 manifest（rateLimits）自動併入【期 0 批次 2】 */
+export const RATE = { ...HAND_RATE, ...GENERATED_RATE };
