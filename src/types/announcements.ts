@@ -139,7 +139,7 @@ export interface AnnouncementCategory {
 }
 
 /**
- * 公告原則（「公告管理設定」卡片設定）：
+ * 公告原則（「規則設定」卡片設定）：
  * - `enablePinned`：允許將公告設為置頂（關閉＝新增／編輯皆無法再設定置頂）；
  * - `forceExpire`：到期時間留空時自動補上發布後一個月，避免過舊公告長期佔據公告區；
  * - `hardDeleteExpired`：封存或到期的公告連同個人提醒真實刪除（關閉＝僅隱藏保留、不進入搜尋）。
@@ -158,7 +158,7 @@ export const DEFAULT_ANNOUNCEMENT_POLICIES: AnnouncementPolicies = {
 
 export interface AnnouncementSettings {
   categories: AnnouncementCategory[];
-  /** 是否啟用個人公告提醒（首頁鈴鐺＋收件匣「提醒我」按鈕），管理於「公告管理設定」切換 */
+  /** 是否啟用個人公告提醒（首頁鈴鐺＋收件匣「提醒我」按鈕），管理於「規則設定」切換 */
   defaultRemindersEnabled: boolean;
   /** 5 個顯示位置的顯示與否／方式／筆數 */
   surfaces: AnnouncementSurfaces;
