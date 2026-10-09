@@ -26,6 +26,8 @@ src/modules/<模組代碼>/          ← 資料夾名 ＝ manifest 的 value（�
      - `src/types/modules.generated.ts`：`permission.mode: "new"` 的權限單位列
      - `src/lib/rate.generated.ts`：限流桶，併入 `lib/rate-limit.ts` 的 `RATE`（批次 2）
      - `src/lib/activity-actions.generated.ts`：稽核動作，併入 `lib/audit.ts` 的 `ActivityAction`（批次 2）
+     - `src/app/**` 薄轉接檔（P2）＋ `src/app/.gitignore`：依 `routes` 掛載模組實體，
+       **實體存在才產生**（未實作＝尚未掛載）；滯留轉接檔自動刪除、不入 commit
 3. `npm run lint` 通過 → `/admin/modules`「選用功能模組」表即可見到該卡
    （`status`：`planned`＝規劃中、`building`＝開發中、`live`＝已上線）。
 
@@ -40,8 +42,11 @@ manifest `status` 與入口規則：`live` 必須有非空 `href`；`planned`／
   `rateLimits`／`auditActions`（須帶模組代碼前綴，與內建撞名即報錯）產生列
   併入兩表，API 型模組可呼叫 `enforceRateLimit(RATE.X)` 並寫自訂稽核動作。
   `ModuleIcon` 不需合併：icon key 未註冊時既有程式碼自動用預設圖示（fallback）。
-- **P2 薄轉接檔（未做）**：`routes` 目前僅驗證、尚未掛載——
-  模組頁面要能開，須待 `src/app/**` 轉接檔產生器落地。
+- **P2 薄轉接檔（已上線）**：依 `routes` 產生 `src/app/**` re-export 轉接檔——
+  實體路徑＝路由路徑鏡像在模組根（如 `/admin/foo` → `admin/foo/page.tsx`，
+  `/api/admin/foo` → `api/admin/foo/route.ts`，可選同目錄 `layout.tsx`）；
+  **實體存在才掛載**（manifest 可先註冊後實作）；滯留轉接檔與 `src/app/.gitignore`
+  由掃描器自動同步，轉接檔不入 commit。
 - **P3 `module:install`／`module:link`（未做）**：外部 repo 連結與安裝腳本。
 
 ## 驗證

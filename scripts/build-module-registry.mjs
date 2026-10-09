@@ -9,6 +9,11 @@
  *   - `src/lib/rate.generated.ts`              —— 限流桶，併入 `lib/rate-limit.ts` 的 RATE（期 0 批次 2）
  *   - `src/lib/activity-actions.generated.ts`  —— 稽核動作，併入 `lib/audit.ts` 的 ActivityAction（期 0 批次 2）
  *
+ * 另依 `routes` 產生 **P2 薄轉接檔**（`src/app/**`，re-export 模組內實體；
+ * 模組實體尚未存在＝尚未掛載，實體出現即自動掛載）：
+ *   轉接檔與 `src/app/.gitignore` 皆不入 commit（生成物零手改，見市集文件 §5），
+ *   滯留轉接檔（manifest 移除或實體消失）自動刪除。
+ *
  * 自動執行：package.json 的 predev / prebuild / prelint / pretypecheck。
  * 不合規一律 fail-fast（exit 1）：逐項列出中文錯誤訊息並標明檔案；
  * 警示（如未實作的掛勾【E9】）只警告、不阻擋。
@@ -29,6 +34,10 @@ const RATE_TABLE = path.join(ROOT, "src", "lib", "rate-limit.ts");
 const AUDIT_TABLE = path.join(ROOT, "src", "lib", "audit.ts");
 const OUT_RATE = path.join(ROOT, "src", "lib", "rate.generated.ts");
 const OUT_ACTIONS = path.join(ROOT, "src", "lib", "activity-actions.generated.ts");
+const APP_DIR = path.join(ROOT, "src", "app");
+const APP_IGNORE = path.join(APP_DIR, ".gitignore");
+/** 薄轉接檔識別字串（撞名豁免與滯留清理都靠它；勿改，會造成重複產生） */
+const ADAPTER_MARKER = "P2 薄轉接檔";
 
 /** 主程式當前契約版本（與 module-sdk 的 MODULE_CONTRACT_VERSION 同步；SDK 建立前手動維持） */
 const MODULE_CONTRACT_VERSION = 1;
@@ -94,13 +103,23 @@ function collectReservedValues() {
   }
   return reserved;
 }
-/** 既有 src/app 路由是否已存在（P2 薄轉接檔產生後須豁免本模組自己的轉接檔） */
+/** 既有 src/app 路由是否已存在（自家薄轉接檔＝將被覆寫，不算撞名） */
+function isOwnAdapter(file) {
+  try {
+    return fs.readFileSync(file, "utf-8").includes(ADAPTER_MARKER);
+  } catch {
+    return false;
+  }
+}
 function routeFileExists(kind, routePath) {
   const rel = routePath.replace(/^\//, "").replace(/\/$/, "");
-  const base = path.join(ROOT, "src", "app", rel);
+  const base = path.join(APP_DIR, rel);
   const names =
     kind === "page" ? ["page.tsx", "page.ts", "page.jsx", "page.js"] : ["route.ts", "route.js"];
-  return names.some((name) => fs.existsSync(path.join(base, name)));
+  return names.some((name) => {
+    const file = path.join(base, name);
+    return fs.existsSync(file) && !isOwnAdapter(file);
+  });
 }
 /** 既有 RATE 桶（lib/rate-limit.ts 手刻列；撞名＝與內建覆寫同一鍵，報錯） */
 function collectBuiltinRateKeys() {
@@ -184,6 +203,10 @@ function validateManifest(relDir, dirName, m, reserved, ctx) {
       }
       if (!isNonEmptyString(p)) {
         at(`routes[${i}].path 缺少或為空`);
+        return;
+      }
+      if (p.length > 1 && p.endsWith("/")) {
+        at(`routes[${i}].path「${p}」不可有結尾斜線`);
         return;
       }
       if (kind === "page") {
@@ -459,6 +482,122 @@ function renderActionsFile(manifests) {
   ].join("\n");
 }
 
+// ——— P2 薄轉接檔 ———
+
+const ADAPTER_HEADER = [
+  `// ⚠️ ${ADAPTER_MARKER}：由 scripts/build-module-registry.mjs 依 manifest routes 自動產生，請勿手改。`,
+  "// 模組實體（src/modules/<value>/<路徑>/…）才是本體；本檔只是 re-export 掛載點。",
+  "",
+].join("\n");
+const PAGE_ENTITIES = ["page.tsx", "page.ts", "page.jsx", "page.js"];
+const LAYOUT_ENTITIES = ["layout.tsx", "layout.ts", "layout.jsx", "layout.js"];
+const ROUTE_ENTITIES = ["route.ts", "route.js"];
+const ADAPTER_CANDIDATES = /^(page|layout|route)\.(tsx|ts|jsx|js)$/;
+
+function findEntity(dir, candidates) {
+  return candidates.find((name) => fs.existsSync(path.join(dir, name)));
+}
+
+function writeAdapter(file, body) {
+  const content = `${ADAPTER_HEADER}${body}\n`;
+  if (fs.existsSync(file) && fs.readFileSync(file, "utf-8") === content) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content, "utf-8");
+}
+
+function pruneEmptyDirs(startDir) {
+  let dir = startDir;
+  while (dir !== APP_DIR && dir.startsWith(APP_DIR)) {
+    if (!fs.existsSync(dir) || fs.readdirSync(dir).length > 0) break;
+    fs.rmdirSync(dir);
+    dir = path.dirname(dir);
+  }
+}
+
+/** 滯留轉接檔清理：識別到 ADAPTER_MARKER 但不屬目前應產生清單者刪除，並收合空目錄；回傳刪除數 */
+function removeStaleAdapters(wanted) {
+  let removed = 0;
+  const stack = [APP_DIR];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      if (!ADAPTER_CANDIDATES.test(entry.name)) continue;
+      const rel = path.relative(APP_DIR, full).split(path.sep).join("/");
+      if (wanted.has(rel) || !isOwnAdapter(full)) continue;
+      fs.rmSync(full);
+      pruneEmptyDirs(path.dirname(full));
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+/** src/app/.gitignore：逐一列出轉接檔（生成物不入 commit；檔本身需入 git 才能在各環境生效） */
+function writeAppIgnore(adapterPaths) {
+  const lines = [
+    "# P2 模組薄轉接檔（scripts/build-module-registry.mjs 產生）——列入 commit 即破壞「生成物不入 commit」約定",
+    ...[...adapterPaths].sort().map((rel) => `/${rel}`),
+    "",
+  ];
+  const content = lines.join("\n");
+  if (fs.existsSync(APP_IGNORE) && fs.readFileSync(APP_IGNORE, "utf-8") === content) return;
+  fs.writeFileSync(APP_IGNORE, content, "utf-8");
+}
+
+/** 依 manifest routes 同步薄轉接檔（實體存在才掛載）；回傳產生的轉接檔路徑清單 */
+function syncAdapters(manifests) {
+  const wanted = new Set();
+  for (const m of manifests) {
+    if (!Array.isArray(m.routes) || !isString(m.value)) continue;
+    for (const route of m.routes) {
+      if (!route || !isString(route.path) || (route.kind !== "page" && route.kind !== "api")) continue;
+      const targetRel = route.path.replace(/^\//, "").replace(/\/$/, "");
+      if (targetRel === "") continue;
+      const entityDir = path.join(ROOT, "src", "modules", m.value, targetRel);
+      const adapterDir = path.join(APP_DIR, targetRel);
+      if (route.kind === "page") {
+        if (!findEntity(entityDir, PAGE_ENTITIES)) continue; // 尚未實作＝尚未掛載
+        const pageRel = `${targetRel}/page.tsx`;
+        writeAdapter(
+          path.join(adapterDir, "page.tsx"),
+          `export { default } from "@/modules/${m.value}/${targetRel}/page";\n`
+        );
+        wanted.add(pageRel);
+        if (findEntity(entityDir, LAYOUT_ENTITIES)) {
+          const layoutRel = `${targetRel}/layout.tsx`;
+          writeAdapter(
+            path.join(adapterDir, "layout.tsx"),
+            `export { default } from "@/modules/${m.value}/${targetRel}/layout";\n`
+          );
+          wanted.add(layoutRel);
+        }
+      } else {
+        if (!findEntity(entityDir, ROUTE_ENTITIES)) continue;
+        const routeRel = `${targetRel}/route.ts`;
+        writeAdapter(
+          path.join(adapterDir, "route.ts"),
+          `export * from "@/modules/${m.value}/${targetRel}/route";\n`
+        );
+        wanted.add(routeRel);
+      }
+    }
+  }
+  const stale = removeStaleAdapters(wanted);
+  if (stale > 0) {
+    // 滯留轉接檔已刪：.next 的 route 型別驗證檔仍引用它，留著會讓 tsc --noEmit 失敗；
+    // 刪掉讓下次 dev/build 重建（lint 只跑 eslint+tsc，不依賴它）
+    fs.rmSync(path.join(ROOT, ".next", "types"), { recursive: true, force: true });
+    process.stdout.write(`[module-registry] 已移除 ${stale} 個滯留轉接檔，重置 .next/types 型別驗證\n`);
+  }
+  writeAppIgnore(wanted);
+  return wanted.size;
+}
+
 // ——— 主流程 ———
 
 const reserved = collectReservedValues();
@@ -503,6 +642,23 @@ for (const m of manifests) {
   }
 }
 
+// 路由路徑全域唯一（跨 manifest；同路徑不同模組＝轉接檔互寫）
+const seenRoutes = new Map();
+for (const m of manifests) {
+  if (!Array.isArray(m.routes) || !isString(m.value)) continue;
+  for (const route of m.routes) {
+    if (!route || !isString(route.path)) continue;
+    if (seenRoutes.has(route.path)) {
+      fail(
+        `${m.value} manifest`,
+        `路由「${route.path}」已由「${seenRoutes.get(route.path)}」宣告（路徑全域唯一）`
+      );
+    } else {
+      seenRoutes.set(route.path, m.value);
+    }
+  }
+}
+
 // 【E13】module.lock.json ↔ 目錄一致性（lock 存在時雙向檢查）
 if (fs.existsSync(LOCK_FILE)) {
   const lock = readJson(LOCK_FILE);
@@ -540,6 +696,7 @@ fs.writeFileSync(OUT_FEATURE, renderFeatureFile(manifests), "utf-8");
 fs.writeFileSync(OUT_MODULES, renderModulesFile(newPermission), "utf-8");
 fs.writeFileSync(OUT_RATE, renderRateFile(manifests), "utf-8");
 fs.writeFileSync(OUT_ACTIONS, renderActionsFile(manifests), "utf-8");
+const adapterCount = syncAdapters(manifests);
 process.stdout.write(
-  `模組註冊表：${manifests.length} 個 manifest（功能列 ${manifests.length}、權限列 ${newPermission.length}、限流桶 ${rateCount}、稽核動作 ${actionCount}）\n`
+  `模組註冊表：${manifests.length} 個 manifest（功能列 ${manifests.length}、權限列 ${newPermission.length}、限流桶 ${rateCount}、稽核動作 ${actionCount}、轉接檔 ${adapterCount}）\n`
 );
