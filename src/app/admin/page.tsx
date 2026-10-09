@@ -125,9 +125,14 @@ export default function AdminPage() {
       <HomepageCornerWrench />
       <HomepageCornerChangE />
       <HomepageCornerExam />
-      {/* 標題區域 */}
+      {/* 標題區域（版本號僅管理員可見，接在系統名稱後、間距 5px，維持原字級） */}
       <div className="text-center mb-2">
-        <h1 className="text-4xl font-bold mb-2">{settings.systemName || "數位校園工具箱"}</h1>
+        <h1 className="text-4xl font-bold mb-2">
+          {settings.systemName || "數位校園工具箱"}
+          <span className="ml-[5px] text-xs font-normal text-t3" title={versionLabel}>
+            {versionLabel}
+          </span>
+        </h1>
         <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
         <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
       </div>
@@ -154,12 +159,7 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* 主程式版本（第一個登出按鈕下方、第一條分隔線上方，靠左） */}
-      <div className="content-width text-left text-xs text-t3 mb-1.25" title={versionLabel}>
-        {versionLabel}
-      </div>
-
-      {/* 全域 hr 有 margin: 1rem 0，這裡清掉上間距，只保留版本號給的 5px */}
+      {/* 全域 hr 有 margin: 1rem 0，清掉上間距，與上方登出按鈕維持既有間距 */}
       <hr className="content-width border-themed mb-4 mt-0" />
 
       {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
