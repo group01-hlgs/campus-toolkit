@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { toAuthResponse, verifySession } from "@/lib/dal";
+import { serverErrorMessage } from "@/lib/api-error";
 import { getCalendarSettings, listSurfaceCalendarEvents } from "@/lib/calendar";
 import { isCalendarSurface } from "@/types/calendar";
 
@@ -15,7 +16,8 @@ function entryClassCode(entry: Record<string, unknown> | null | undefined): stri
  * GET：顯示位置的行程（系統首頁登入表單上方／四種身分功能首頁）。
  * ?surface=login｜student｜parent｜staff｜admin
  *
- * 顯示方式統一：只回尚未結束的第 1 則行程。
+ * 顯示方式統一：只回尚未結束（含今天）且開始時間最近的 1 則行程；
+ * 無行程時回空陣列，「進入行事曆」入口由顯示元件固定呈現。
  * `surface=login`（未登入也可讀）只回四種身分皆可見的行程；
  * 其餘位置須登入，依 session 身分過濾。
  */
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Calendar surface error:", error);
     return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      { success: false, message: serverErrorMessage(error, "系統錯誤") },
       { status: 500 }
     );
   }

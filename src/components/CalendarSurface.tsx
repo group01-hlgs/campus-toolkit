@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import ModuleIcon from "@/components/ModuleIcon";
 import type {
   CalendarSurface as CalendarSurfaceKey,
   CalendarSurfaceItem,
@@ -29,8 +30,11 @@ function dateLabel(item: CalendarSurfaceItem): string {
 /**
  * 行程顯示位置（5 處共用）：
  * 系統首頁登入表單上方、四種身分功能首頁（切換身分下拉選單下方、第一個登出按鈕上方）。
- * 顯示與否由「行事曆 › 設定管理 › 顯示位置」逐處設定；
- * 顯示方式目前統一處理——單一行、顯示尚未結束的第 1 則行程。
+ * 顯示與否由「行事曆 › 設定管理 › 顯示位置」逐處設定。
+ *
+ * 版面：標題「行事曆」右側固定放「進入行事曆」入口 SVG；
+ * 有尚未結束的行程（含今天）才多顯示 1 條「開始時間最近的那一則」，
+ * 沒有行程時只顯示入口，不整塊隱藏（API 異常時同樣只顯示入口）。
  */
 export default function CalendarSurface({
   surface,
@@ -40,6 +44,7 @@ export default function CalendarSurface({
   className?: string;
 }) {
   const [setting, setSetting] = useState<CalendarSurfaceSetting | null>(null);
+  const [failed, setFailed] = useState(false);
   const [items, setItems] = useState<CalendarSurfaceItem[]>([]);
 
   useEffect(() => {
@@ -47,62 +52,72 @@ export default function CalendarSurface({
     fetch(`/api/calendar/surface?surface=${surface}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: SurfaceResponse | null) => {
-        if (cancelled || !data?.success) return;
+        if (cancelled) return;
+        if (!data?.success) {
+          setFailed(true);
+          return;
+        }
         setSetting(data.surface ?? null);
         setItems(Array.isArray(data.items) ? data.items : []);
       })
       .catch(() => {
-        // 讀取失敗＝不顯示，不打擾登入／首頁
+        // 讀取失敗＝只顯示入口，不打擾登入／首頁
+        if (!cancelled) setFailed(true);
       });
     return () => {
       cancelled = true;
     };
   }, [surface]);
 
-  if (!setting || !setting.enabled || items.length === 0) return null;
+  // 顯示位置被關閉 → 整塊不出現；載入中（尚未有結果）→ 先不出現，避免關閉時閃一下
+  if (setting && !setting.enabled) return null;
+  if (!setting && !failed) return null;
 
   const item = items[0];
-  const href = surface === "login" ? null : `${ROLE_HOME[surface]}/calendar`;
+  // 入口：登入後的首頁進各自行事曆；系統首頁（未登入）進回首頁（登入後才能看完整行事曆）
+  const calendarHref = surface === "login" ? null : `${ROLE_HOME[surface]}/calendar`;
+  const entryHref = calendarHref ?? "/";
 
   return (
-    <section className={className} aria-label="行程">
+    <section className={className} aria-label="行事曆">
       <div className="flex items-center gap-3 mb-2">
-        <h3 className="text-base font-bold text-t1">近期行程</h3>
-        {href && (
-          <Link
-            href={href}
-            className="ml-auto text-sm text-primary hover:underline shrink-0"
-            title="查看全部行程"
-          >
-            全部行程 ›
-          </Link>
-        )}
+        <h3 className="text-base font-bold text-t1">行事曆</h3>
+        <Link
+          href={entryHref}
+          title={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
+          aria-label={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
+          className="ml-auto shrink-0 p-1 text-t2 hover:text-primary transition"
+        >
+          <ModuleIcon value="calendar" className="w-5 h-5" />
+        </Link>
       </div>
-      <div className="border border-themed rounded-lg bg-card p-4">
-        <ul>
-          <li className="flex items-center gap-1.5 text-sm border-b border-themed pb-1.5 last:border-0 last:pb-0">
-            {item.important && (
-              <span className="text-primary shrink-0" aria-hidden="true">
-                ★
-                <span className="sr-only">重要</span>
-              </span>
-            )}
-            <span className="truncate text-t2 min-w-0">
-              {dateLabel(item)}｜{item.categoryName}｜
-              {href ? (
-                <Link
-                  href={href}
-                  className="font-medium text-t1 hover:text-primary inline-flex min-w-0"
-                >
-                  <span className="truncate">{item.title}</span>
-                </Link>
-              ) : (
-                <span className="font-medium text-t1">{item.title}</span>
+      {item && (
+        <div className="border border-themed rounded-lg bg-card p-4">
+          <ul>
+            <li className="flex items-center gap-1.5 text-sm border-b border-themed pb-1.5 last:border-0 last:pb-0">
+              {item.important && (
+                <span className="text-primary shrink-0" aria-hidden="true">
+                  ★
+                  <span className="sr-only">重要</span>
+                </span>
               )}
-            </span>
-          </li>
-        </ul>
-      </div>
+              <span className="truncate text-t2 min-w-0">
+                {dateLabel(item)}｜{item.categoryName}｜
+                {calendarHref ? (
+                  <Link
+                    href={calendarHref}
+                    className="font-medium text-t1 hover:text-primary inline-flex min-w-0"
+                  >
+                    <span className="truncate">{item.title}</span>
+                  </Link>
+                ) : (
+                  <span className="font-medium text-t1">{item.title}</span>
+                )}
+              </span>
+            </li>
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

@@ -451,7 +451,8 @@ export default function AdminCalendarPage() {
                 ))}
               </div>
               <p className="text-xs text-t3 mt-1">
-                顯示方式統一處理：單一行（日期｜行程類型｜標題），顯示尚未結束的第 1 則行程。
+                顯示方式統一處理：標題右側固定放「進入行事曆」入口圖示；有尚未結束（含今天）的行程
+                才多顯示 1 條最近的行程，沒有行程則只顯示入口。
               </p>
               <p className="text-xs text-t3 mt-1">
                 「系統首頁」只顯示四種身分皆可見、且不限班級的行程；各身分首頁依其身分顯示。
