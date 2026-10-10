@@ -35,6 +35,7 @@ import {
   defaultCalendarSurfaces,
   isCalendarEventActive,
   isCalendarEventPublicReadable,
+  normalizeCalendarSurfaceLimit,
   readCalendarEventRecord,
   readCalendarSettings,
   startOfTodayMs,
@@ -436,7 +437,8 @@ export interface CalendarSurfaceQuery {
 
 /**
  * 顯示位置（系統首頁登入表單上方／四種身分功能首頁）的行程：
- * 尚未結束的行程中，依開始時間取最早者（管理端目前統一只顯示第 1 則）。
+ * 尚未結束的行程中，依開始時間取最近的前 `limit` 則（該位置「顯示筆數」設定，
+ * 預設 5；前端以上下箭頭逐則翻頁）。
  *
  * 過濾下推（鐵律 2）：`status == active` ＋ `startAt >= 今日零時`，
  * 登入者再疊 `audienceRoles array-contains role`；班級、「尚未結束」與未登入的
@@ -526,7 +528,10 @@ export async function saveCalendarSettings(input: {
     for (const key of CALENDAR_SURFACES) {
       const patch = input.surfaces[key];
       if (!patch || typeof patch !== "object") continue;
-      surfaces[key] = { enabled: patch.enabled !== false };
+      surfaces[key] = {
+        enabled: patch.enabled !== false,
+        limit: normalizeCalendarSurfaceLimit(patch.limit),
+      };
     }
   }
   // 行程原則：逐 key 套用；未提供的欄位沿用現值（缺欄位時退回預設）

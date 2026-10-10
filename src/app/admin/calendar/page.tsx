@@ -5,6 +5,8 @@ import {
   CALENDAR_FALLBACK_CATEGORY_ID,
   CALENDAR_FALLBACK_CATEGORY_NAME,
   CALENDAR_SURFACE_LABELS,
+  CALENDAR_SURFACE_LIMIT_MAX,
+  CALENDAR_SURFACE_LIMIT_MIN,
   CALENDAR_SURFACES,
   DEFAULT_CALENDAR_POLICIES,
   DEFAULT_CALENDAR_SETTINGS,
@@ -134,7 +136,7 @@ export default function AdminCalendarPage() {
     DEFAULT_CALENDAR_SETTINGS.categories
   );
   const [remindersEnabled, setRemindersEnabled] = useState(true);
-  // 5 個顯示位置的顯示與否（顯示方式統一：單一行、尚未結束的第 1 則行程）
+  // 5 個顯示位置的顯示與否＋可翻頁則數（顯示方式統一：單一行、上下箭頭逐則翻頁）
   const [surfaces, setSurfaces] = useState<CalendarSurfaces>(
     DEFAULT_CALENDAR_SETTINGS.surfaces
   );
@@ -435,37 +437,54 @@ export default function AdminCalendarPage() {
             </div>
           </SettingsCard>
 
-          {/* 1-2. 顯示位置（預設收合）：5 處顯示與否（顯示方式統一） */}
+          {/* 1-2. 顯示位置（預設收合）：5 處顯示與否＋可翻頁則數（顯示方式統一） */}
           <SettingsCard
             title="顯示位置"
             open={cardOpen.surfaces}
             onToggle={() => setCardOpen((prev) => ({ ...prev, surfaces: !prev.surfaces }))}
           >
             <div>
-              <span className="block text-t2 mb-1">顯示與否，5 處各自設定</span>
+              <span className="block text-t2 mb-1">顯示與否／顯示筆數，5 處各自設定</span>
               <div className="space-y-2">
                 {CALENDAR_SURFACES.map((key) => (
-                  <label
-                    key={key}
-                    className="inline-flex items-center gap-1.5 text-sm text-t1 w-60"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={surfaces[key].enabled}
-                      onChange={(e) =>
-                        setSurfaces((prev) => ({
-                          ...prev,
-                          [key]: { enabled: e.target.checked },
-                        }))
-                      }
-                    />
-                    {CALENDAR_SURFACE_LABELS[key]}
-                  </label>
+                  <div key={key} className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 text-sm text-t1 w-60">
+                      <input
+                        type="checkbox"
+                        checked={surfaces[key].enabled}
+                        onChange={(e) =>
+                          setSurfaces((prev) => ({
+                            ...prev,
+                            [key]: { ...prev[key], enabled: e.target.checked },
+                          }))
+                        }
+                      />
+                      {CALENDAR_SURFACE_LABELS[key]}
+                    </label>
+                    <label className="inline-flex items-center gap-1 text-xs text-t2">
+                      顯示筆數
+                      <input
+                        type="number"
+                        min={CALENDAR_SURFACE_LIMIT_MIN}
+                        max={CALENDAR_SURFACE_LIMIT_MAX}
+                        className="w-16 input-theme rounded px-2 py-1 disabled:opacity-50"
+                        value={surfaces[key].limit}
+                        disabled={!surfaces[key].enabled}
+                        onChange={(e) =>
+                          setSurfaces((prev) => ({
+                            ...prev,
+                            [key]: { ...prev[key], limit: Number(e.target.value) },
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
                 ))}
               </div>
               <p className="text-xs text-t3 mt-1">
-                顯示方式統一處理：標題右側固定放「進入行事曆」入口圖示；有尚未結束（含今天）的行程
-                才多顯示 1 條最近的行程，沒有行程則只顯示入口。
+                顯示方式統一處理：標題右側固定放「進入行事曆」入口圖示；有 2 則以上尚未結束（含今天）的行程
+                時，行程列右側出現上下箭頭逐則翻頁（預設 5 則，省 Firestore 讀取量）；翻到盡頭再按箭頭則改為「前往行事曆」連結。
+                沒有行程則只顯示入口。
               </p>
               <p className="text-xs text-t3 mt-1">
                 「系統首頁」只顯示閱讀權限「無」（不需登入）的公開行程；各身分首頁依其身分顯示。

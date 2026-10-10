@@ -6,7 +6,11 @@ import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCalendarSettings, saveCalendarSettings } from "@/lib/calendar";
 import type { CalendarCategory, CalendarPolicies, CalendarSurfaces } from "@/types/calendar";
-import { CALENDAR_SURFACES, DEFAULT_CALENDAR_POLICIES } from "@/types/calendar";
+import {
+  CALENDAR_SURFACES,
+  CALENDAR_SURFACE_LIMIT_DEFAULT,
+  DEFAULT_CALENDAR_POLICIES,
+} from "@/types/calendar";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -74,7 +78,14 @@ export async function PUT(request: NextRequest) {
       for (const key of CALENDAR_SURFACES) {
         const row = raw[key];
         if (!row || typeof row !== "object") continue;
-        surfaces[key] = { enabled: (row as Record<string, unknown>).enabled !== false };
+        const item = row as Record<string, unknown>;
+        surfaces[key] = {
+          enabled: item.enabled !== false,
+          limit:
+            typeof item.limit === "number" && Number.isFinite(item.limit)
+              ? item.limit
+              : CALENDAR_SURFACE_LIMIT_DEFAULT,
+        };
       }
       if (Object.keys(surfaces).length === 0) surfaces = undefined;
     }

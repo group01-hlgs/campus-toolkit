@@ -69,17 +69,36 @@ export function isCalendarSurface(value: unknown): value is CalendarSurface {
 }
 
 /**
- * 顯示位置設定：目前僅「顯示與否」——顯示方式統一處理（單一行、
- * 顯示尚未結束的第 1 則行程），日後要逐處設定方式／筆數時再擴充欄位。
+ * 顯示位置設定：顯示與否＋可翻頁的行程則數（`limit`）。
+ * 顯示方式統一：單一行、由最近行程起以上下箭頭逐則翻頁（見 `CalendarSurface`）。
  */
 export interface CalendarSurfaceSetting {
   enabled: boolean;
+  /** 可翻頁的行程則數（1～20；預設 5——省 Firestore 讀取量） */
+  limit: number;
 }
 
 export type CalendarSurfaces = Record<CalendarSurface, CalendarSurfaceSetting>;
 
+export const CALENDAR_SURFACE_LIMIT_MIN = 1;
+export const CALENDAR_SURFACE_LIMIT_MAX = 20;
+export const CALENDAR_SURFACE_LIMIT_DEFAULT = 5;
+
+/** 顯示筆數寬容解析（缺漏／毀損退回預設 5、並夾在 1～20） */
+export function normalizeCalendarSurfaceLimit(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return CALENDAR_SURFACE_LIMIT_DEFAULT;
+  return Math.min(
+    CALENDAR_SURFACE_LIMIT_MAX,
+    Math.max(CALENDAR_SURFACE_LIMIT_MIN, Math.round(n))
+  );
+}
+
 export function defaultCalendarSurfaces(): CalendarSurfaces {
-  const setting: CalendarSurfaceSetting = { enabled: true };
+  const setting: CalendarSurfaceSetting = {
+    enabled: true,
+    limit: CALENDAR_SURFACE_LIMIT_DEFAULT,
+  };
   return {
     login: { ...setting },
     student: { ...setting },
@@ -646,7 +665,7 @@ export function readCalendarSettings(raw: unknown): CalendarSettings {
     defaultCalendarFallbackCategory(categories.length)
   );
 
-  // 5 個顯示位置：逐 key 寬容讀取，缺漏／毀損一律退回預設（未設定＝顯示）
+  // 5 個顯示位置：逐 key 寬容讀取，缺漏／毀損一律退回預設（未設定＝顯示、筆數 5）
   const surfaces: CalendarSurfaces = defaultCalendarSurfaces();
   const rawSurfaces = data?.surfaces;
   if (rawSurfaces && typeof rawSurfaces === "object") {
@@ -655,7 +674,10 @@ export function readCalendarSettings(raw: unknown): CalendarSettings {
       const row = map[key];
       if (!row || typeof row !== "object") continue;
       const item = row as Record<string, unknown>;
-      surfaces[key] = { enabled: item.enabled !== false };
+      surfaces[key] = {
+        enabled: item.enabled !== false,
+        limit: normalizeCalendarSurfaceLimit(item.limit),
+      };
     }
   }
 

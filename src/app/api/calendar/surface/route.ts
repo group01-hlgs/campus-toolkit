@@ -16,7 +16,8 @@ function entryClassCode(entry: Record<string, unknown> | null | undefined): stri
  * GET：顯示位置的行程（系統首頁登入表單上方／四種身分功能首頁）。
  * ?surface=login｜student｜parent｜staff｜admin
  *
- * 顯示方式統一：只回尚未結束（含今天）且開始時間最近的 1 則行程；
+ * 回傳尚未結束（含今天）且開始時間最近的前 N 則行程
+ * （N＝該位置「顯示筆數」設定，預設 5；前端以上下箭頭逐則翻頁）；
  * 無行程時回空陣列，「進入行事曆」入口由顯示元件固定呈現。
  * `surface=login`（未登入也可讀）只回閱讀權限「無」的公開行程；
  * 其餘位置須登入，依 session 身分過濾。
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
 
     const role = surface === "login" || !session ? null : session.role;
     const classCode = role && session ? entryClassCode(session.__entry) || null : null;
-    const items = await listSurfaceCalendarEvents({ surface, role, classCode }, 1);
+    const items = await listSurfaceCalendarEvents({ surface, role, classCode }, setting.limit);
     return NextResponse.json(
       { success: true, surface: setting, items },
       { headers: noStore }
