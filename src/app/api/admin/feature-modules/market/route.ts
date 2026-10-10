@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { parseModuleMarketIndex } from "@/types/module-market";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,14 @@ function resolveMarketIndexUrl(): string | null {
 
 export async function GET(request: NextRequest) {
   try {
+    const limited = enforceRateLimit(
+      request,
+      "feature-modules",
+      RATE.FEATURE_MODULES_GET.limit,
+      RATE.FEATURE_MODULES_GET.windowMs
+    );
+    if (limited) return limited;
+
     const { session, denial } = await requireAdminModule("modules");
     if (denial) return toAuthResponse(denial);
 
