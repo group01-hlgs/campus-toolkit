@@ -51,12 +51,13 @@ export async function getFeatureModuleRoles(): Promise<FeatureModuleRolesMap> {
 /**
  * 某身分可見的功能模組代碼清單（供首頁卡片過濾）。
  * 超級管理員完全不受限制時，請由呼叫端直接回註冊表全部代碼
- * （見 api/settings 的 GET）；本函式僅處理一般身分的 provides＋顯示開關。
+ * （見 api/settings 的 GET）；本函式處理一般身分的 provides＋顯示開關＋
+ * **選用模組總開關**（停用即對該身分隱藏入口卡，fail-safe【0.393】）。
  */
 export async function getVisibleFeatureModuleValues(
   role: UserRole,
   options?: { isSuper?: boolean }
 ): Promise<string[]> {
-  const roles = await getFeatureModuleRoles();
-  return visibleFeatureModuleValues(role, roles, options);
+  const { roles, enabled } = await loadFeatureModuleSettings();
+  return visibleFeatureModuleValues(role, roles, { ...options, enabled });
 }

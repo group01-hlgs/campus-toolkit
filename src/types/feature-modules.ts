@@ -282,26 +282,28 @@ export function isFeatureModuleProvided(value: string, role: UserRole): boolean 
 
 /**
  * 該模組對該身分是否可見。
- * - **超級管理員（role=admin 且 isSuper）完全不受限制**：一律 true（不看 provides、不看顯示開關）；
- * - 其他：provides＝false → false；provides＝true → 顯示開關 !== false（缺省＝可見）。
+ * - **超級管理員（role=admin 且 isSuper）完全不受限制**：一律 true（不看 provides、顯示開關、啟用狀態）；
+ * - 其他：選用模組須總開關啟用（options.enabled，fail-safe 未啟用即隱藏【0.393】）
+ *   → provides＝false → false；provides＝true → 顯示開關 !== false（缺省＝可見）。
  */
 export function isFeatureModuleVisible(
   value: string,
   role: UserRole,
   display: FeatureModuleRoleSwitches | undefined,
-  options?: { isSuper?: boolean }
+  options?: { isSuper?: boolean; enabled?: FeatureModulesEnabledMap }
 ): boolean {
   if (options?.isSuper === true && role === "admin") return true;
   const meta = featureModuleMeta(value);
   if (!meta || !meta.provides[role]) return false;
+  if (meta.kind === "optional" && options?.enabled && options.enabled[value] !== true) return false;
   return display?.[role] !== false;
 }
 
-/** 某身分可見的功能模組代碼清單（供首頁卡片過濾） */
+/** 某身分可見的功能模組代碼清單（供首頁卡片過濾）；選用模組以總開關為前提【0.393】 */
 export function visibleFeatureModuleValues(
   role: UserRole,
   rolesMap: FeatureModuleRolesMap,
-  options?: { isSuper?: boolean }
+  options?: { isSuper?: boolean; enabled?: FeatureModulesEnabledMap }
 ): string[] {
   return FEATURE_MODULES.filter((item) =>
     isFeatureModuleVisible(item.value, role, rolesMap[item.value], options)
