@@ -124,7 +124,8 @@ const GENERATED_MODULE_VALUES_SET: ReadonlySet<string> = new Set(GENERATED_MODUL
  * 內建的管理端功能模組：個人卡片「帳號、身分與安全管理」
  * ＋管理端權限單位（types/modules.ts 的 MODULES，含尚未建頁的稽核紀錄）。
  * 新增管理端功能時會自動出現在這裡，不需要另外維護。
- * 提供功能預設＝教職員與管理員（學生／家長暫不提供）。
+ * 提供功能預設＝教職員與管理員（學生／家長暫不提供）；
+ * 例外：account 是個人頁、人人皆有，四身分皆提供（見該列 provides）。
  */
 const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   {
@@ -135,7 +136,14 @@ const ADMIN_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     description: "維護自己的個人資料、密碼與兩階段驗證等帳號安全設定。",
     href: "/admin/admins",
     author: DEFAULT_MODULE_AUTHOR,
-    provides: PROVIDES_STAFF_ADMIN,
+    // 個人頁、人人皆有（學生／家長在各自身分首頁亦有入口卡）：
+    // 不套「教職員與管理員提供」預設，四身分皆提供
+    provides: {
+      student: true,
+      parent: true,
+      staff: true,
+      admin: true,
+    },
   },
   ...MODULES.filter((item) => !GENERATED_MODULE_VALUES_SET.has(item.value)).map((item) => ({
     value: item.value as string,
