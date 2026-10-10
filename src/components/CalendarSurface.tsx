@@ -32,11 +32,11 @@ function dateLabel(item: CalendarSurfaceItem): string {
  * 系統首頁登入表單上方、四種身分功能首頁（切換身分下拉選單下方、第一個登出按鈕上方）。
  * 顯示與否與可翻頁則數由「行事曆 › 設定管理 › 顯示位置」逐處設定（筆數預設 5，省流量）。
  *
- * 版面：標題「行事曆」右側固定放「進入行事曆」入口 SVG（＝行事曆功能首頁，
- * 各身分為 `${ROLE_HOME[身分]}/calendar`，系統首頁未登入回首頁 `/`）；
- * 有 2 則以上尚未結束的行程（含今天）時，行程列右側加上下箭頭逐則翻頁
- * （一次只顯示 1 條，標題連到「單筆行程內容頁」`/calendar/[id]`，跳出新頁）；
- * 翻到盡頭再按該方向的箭頭時，該箭頭改為「前往行事曆」連結（另一方向仍可折返）。
+ * 版面：標題「行事曆」右側＝翻頁箭頭（2 則以上才出現，水平左右排列；
+ * 一次只顯示 1 條，標題連到「單筆行程內容頁」`/calendar/[id]`，跳出新頁）
+ * ＋「進入行事曆」入口 SVG（＝行事曆功能首頁，各身分為 `${ROLE_HOME[身分]}/calendar`，
+ * 系統首頁未登入連回首頁 `/`）；翻到盡頭再按該方向箭頭時，箭頭符號不變、
+ * 只改為「前往行事曆」連結（另一方向仍可折返）。
  * 行動版（<sm）日期｜類型與標題各佔一行，避免標題被截斷；
  * 沒有行程時只顯示入口，不整塊隱藏（API 異常時同樣只顯示入口）。
  */
@@ -52,7 +52,7 @@ export default function CalendarSurface({
   const [items, setItems] = useState<CalendarSurfaceItem[]>([]);
   // 目前顯示第幾則（0＝最近）；entryDir＝已按到盡頭、該方向箭頭改為行事曆連結
   const [index, setIndex] = useState(0);
-  const [entryDir, setEntryDir] = useState<"up" | "down" | null>(null);
+  const [entryDir, setEntryDir] = useState<"prev" | "next" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,21 +89,21 @@ export default function CalendarSurface({
   // 2 則以上才出現翻頁箭頭（單則維持原樣，無箭頭可翻）
   const paged = items.length >= 2;
 
-  function goUp() {
+  function goPrev() {
     if (index > 0) {
       setIndex(index - 1);
       setEntryDir(null);
     } else {
-      setEntryDir("up");
+      setEntryDir("prev");
     }
   }
 
-  function goDown() {
+  function goNext() {
     if (index < items.length - 1) {
       setIndex(index + 1);
       setEntryDir(null);
     } else {
-      setEntryDir("down");
+      setEntryDir("next");
     }
   }
 
@@ -111,14 +111,46 @@ export default function CalendarSurface({
     <section className={className} aria-label="行事曆">
       <div className="flex items-center gap-3 mb-2">
         <h3 className="text-base font-bold text-t1">行事曆</h3>
-        <Link
-          href={entryHref}
-          title={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
-          aria-label={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
-          className="ml-auto shrink-0 p-1 text-t2 hover:text-primary transition"
-        >
-          <ModuleIcon value="calendar" className="w-5 h-5" />
-        </Link>
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          {paged && (
+            entryDir === "prev" ? (
+              <EntryLink href={entryHref} direction="prev" />
+            ) : (
+              <button
+                type="button"
+                onClick={goPrev}
+                title="上一則行程"
+                aria-label="上一則行程"
+                className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer"
+              >
+                <ArrowIcon direction="prev" />
+              </button>
+            )
+          )}
+          {paged && (
+            entryDir === "next" ? (
+              <EntryLink href={entryHref} direction="next" />
+            ) : (
+              <button
+                type="button"
+                onClick={goNext}
+                title="下一則行程"
+                aria-label="下一則行程"
+                className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer"
+              >
+                <ArrowIcon direction="next" />
+              </button>
+            )
+          )}
+          <Link
+            href={entryHref}
+            title={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
+            aria-label={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
+            className="p-1 text-t2 hover:text-primary transition"
+          >
+            <ModuleIcon value="calendar" className="w-5 h-5" />
+          </Link>
+        </div>
       </div>
       {item && (
         <div className="border border-themed rounded-lg bg-card p-4">
@@ -147,36 +179,6 @@ export default function CalendarSurface({
                   <ExternalLinkIcon />
                 </a>
               </div>
-              {paged && (
-                <div className="flex flex-col shrink-0 gap-0.5 self-center">
-                  {entryDir === "up" ? (
-                    <EntryLink href={entryHref} direction="up" />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={goUp}
-                      title="上一則行程"
-                      aria-label="上一則行程"
-                      className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer"
-                    >
-                      <ArrowIcon direction="up" />
-                    </button>
-                  )}
-                  {entryDir === "down" ? (
-                    <EntryLink href={entryHref} direction="down" />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={goDown}
-                      title="下一則行程"
-                      aria-label="下一則行程"
-                      className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer"
-                    >
-                      <ArrowIcon direction="down" />
-                    </button>
-                  )}
-                </div>
-              )}
             </li>
           </ul>
         </div>
@@ -185,8 +187,8 @@ export default function CalendarSurface({
   );
 }
 
-/** 上／下翻頁箭頭 SVG */
-function ArrowIcon({ direction }: { direction: "up" | "down" }) {
+/** 左／右翻頁箭頭 SVG（盡頭時符號不變，僅改為行事曆連結） */
+function ArrowIcon({ direction }: { direction: "prev" | "next" }) {
   return (
     <svg
       className="w-4 h-4"
@@ -199,14 +201,17 @@ function ArrowIcon({ direction }: { direction: "up" | "down" }) {
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d={direction === "up" ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"}
+        d={direction === "prev" ? "M15 18l-6-6 6-6" : "M9 18l6-6-6-6"}
       />
     </svg>
   );
 }
 
-/** 翻到盡頭後，該方向箭頭改為「前往行事曆」連結（外框與箭頭同尺寸） */
-function EntryLink({ href, direction }: { href: string; direction: "up" | "down" }) {
+/**
+ * 翻到盡頭後，該方向箭頭改為「前往行事曆」連結——
+ * 圖示與一般箭頭完全相同（符號一致），僅容器由 button 換成 Link。
+ */
+function EntryLink({ href, direction }: { href: string; direction: "prev" | "next" }) {
   return (
     <Link
       href={href}
@@ -214,24 +219,7 @@ function EntryLink({ href, direction }: { href: string; direction: "up" | "down"
       aria-label="前往行事曆（查看更多行程）"
       className="p-1 rounded text-primary hover:bg-surface"
     >
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-        aria-hidden="true"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d={
-            direction === "up"
-              ? "M5 15l7-7 7 7M12 8v13" // 上箭頭＋豎線：向上離開
-              : "M19 9l-7 7-7-7M12 16V3" // 下箭頭＋豎線：向下離開
-          }
-        />
-      </svg>
+      <ArrowIcon direction={direction} />
     </Link>
   );
 }
