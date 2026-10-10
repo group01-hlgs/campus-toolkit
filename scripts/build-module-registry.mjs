@@ -613,8 +613,10 @@ function syncAdapters(manifests) {
   if (stale > 0) {
     // 滯留轉接檔已刪：.next 的 route 型別驗證檔仍引用它，留著會讓 tsc --noEmit 失敗；
     // 刪掉讓下次 dev/build 重建（lint 只跑 eslint+tsc，不依賴它）
+    // dev 伺服器寫在 .next/dev/types（0.399 實測漏清會產生殘引用假錯誤）
     fs.rmSync(path.join(ROOT, ".next", "types"), { recursive: true, force: true });
-    process.stdout.write(`[module-registry] 已移除 ${stale} 個滯留轉接檔，重置 .next/types 型別驗證\n`);
+    fs.rmSync(path.join(ROOT, ".next", "dev", "types"), { recursive: true, force: true });
+    process.stdout.write(`[module-registry] 已移除 ${stale} 個滯留轉接檔，重置 .next/types 與 .next/dev/types 型別驗證\n`);
   }
   writeAppIgnore(wanted);
   return wanted.size;
