@@ -59,8 +59,11 @@ npm run module:link      -- <repo 路徑>     # 目錄連結（本機開發）�
 npm run module:uninstall -- <value>         # 移除資料夾或連結＋lock 該列
 ```
 
-win32 連結後若 `npm run dev` 改檔未即時更新（Turbopack watch 風險【E14】，期 2 驗收），
-改用 `module:link -- <路徑> --copy` 複製模式。
+win32 連結後若 `npm run dev` 改檔未即時更新（Turbopack watch 風險【E14】已實證：junction 不可用），
+改用 `module:link -- <路徑> --copy --watch` 複製＋監聽同步（0.389 起）。
+- **P4 API 啟用閘（已上線 0.390）**：選用模組的 API 建議在鑑權後呼叫
+  `requireFeatureModuleEnabled(value, session)`（`@/lib/module-gate`）——總開關關閉時回 403
+  （fail-safe 關閉）、超級管理員 bypass、builtin 恒放行。
 
 ## 驗證
 
