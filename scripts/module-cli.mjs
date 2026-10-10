@@ -218,8 +218,42 @@ function buildLockEntry(mode, sourceArg, manifest, sha256, copyFlag) {
 
 // ——— install / link ———
 
+/**
+ * copy-sync watch【E14 備案落地】：監聽來源資料夾，變更即整棵重複製到掛載點；
+ * 若動到 module.json 另重跑掃描器（轉接檔與註冊表跟著更新）。程序常駐（Ctrl+C 結束）。
+ */
+function startWatch(source, target) {
+  out(`[module-cli] watch 模式：監聽 ${source}（Ctrl+C 結束）；動到 module.json 會自動重跑掃描器`);
+  let timer = null;
+  let manifestChanged = false;
+  const sync = () => {
+    try {
+      copyTree(source, target);
+      if (manifestChanged) {
+        manifestChanged = false;
+        runScanner();
+      }
+      out(`[module-cli] 已同步 ${new Date().toTimeString().slice(0, 8)}`);
+    } catch (e) {
+      console.error(`[module-cli] 同步失敗：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  fs.watch(source, { recursive: true }, (_event, filename) => {
+    if (filename) {
+      const first = filename.split(path.sep)[0];
+      if (EXCLUDE.has(first)) return;
+      if (filename === "module.json") manifestChanged = true;
+    }
+    if (timer) globalThis.clearTimeout(timer);
+    timer = globalThis.setTimeout(sync, 300);
+  });
+}
+
 function installOrLink(mode, sourceArg, opts) {
   requireTarget(mode, sourceArg);
+  if (opts.watch && !opts.copy) {
+    fail("--watch 需搭配 --copy（win32 junction 無法可靠監聽，風險【E14】）");
+  }
   const { source, manifest } = validateSource(sourceArg);
   const value = manifest.value;
   const target = path.join(MODULES_DIR, value);
@@ -270,8 +304,11 @@ function installOrLink(mode, sourceArg, opts) {
     out("[module-cli] 啟用：/admin/modules（預設未啟用 fail-safe）。");
     if (mode === "link" && process.platform === "win32" && !opts.copy) {
       out(
-        "[module-cli] 提示：連結為 win32 junction；若 npm run dev 改檔未即時更新（Turbopack watch 風險【E14】），改用 npm run module:link -- <路徑> --copy 以複製模式同步。"
+        "[module-cli] 提示：連結為 win32 junction；若 npm run dev 改檔未即時更新（Turbopack watch 風險【E14】），改用 npm run module:link -- <路徑> --copy --watch 以複製＋監聽同步。"
       );
+    }
+    if (mode === "link" && opts.watch && opts.copy) {
+      startWatch(source, target);
     }
   } catch (e) {
     if (e instanceof CliError) throw e; // 驗證鏈失敗已在站內回復過，勿二次包裹
@@ -319,7 +356,7 @@ function uninstall(value) {
 function main() {
   const args = process.argv.slice(2);
   const command = args[0];
-  const opts = { copy: args.includes("--copy") };
+  const opts = { copy: args.includes("--copy"), watch: args.includes("--watch") };
   const positional = args.filter((a) => !a.startsWith("--")).slice(1);
   const targetArg = positional[0];
 
