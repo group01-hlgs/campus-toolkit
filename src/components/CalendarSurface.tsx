@@ -142,14 +142,17 @@ export default function CalendarSurface({
               </button>
             )
           )}
-          <Link
-            href={entryHref}
-            title={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
-            aria-label={calendarHref ? "進入行事曆" : "登入後開啟行事曆"}
-            className="p-1 text-t2 hover:text-primary transition"
-          >
-            <ModuleIcon value="calendar" className="w-5 h-5" />
-          </Link>
+          {/* 完整行事曆入口：僅在有實際頁面時顯示（登入頁無頁可開，不出死按鈕） */}
+          {calendarHref && (
+            <Link
+              href={calendarHref}
+              title="進入行事曆"
+              aria-label="進入行事曆"
+              className="p-1 text-t2 hover:text-primary transition"
+            >
+              <ModuleIcon value="calendar" className="w-5 h-5" />
+            </Link>
+          )}
         </div>
       </div>
       {item && (
