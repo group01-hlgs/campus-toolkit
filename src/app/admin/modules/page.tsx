@@ -449,6 +449,16 @@ export default function ModulesPage() {
 
   return (
     <div className="w-full max-w-5xl mb-8 space-y-6">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => router.push("/admin/modules/market")}
+          className="btn-theme rounded px-4 py-2 text-sm cursor-pointer"
+        >
+          開啟模組市集
+        </button>
+      </div>
+
       {/* 固定位置儲存訊息（下方中央 toast，自動淡出） */}
       {flash && (
         <div

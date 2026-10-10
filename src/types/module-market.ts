@@ -1,0 +1,87 @@
+export interface ModuleMarketEntry {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  latestVersion?: string;
+  minHostVersion?: string;
+  repoUrl?: string;
+  downloadUrl?: string;
+  checksumSha256?: string;
+  category?: string;
+  tags?: string[];
+}
+
+export interface ModuleMarketIndex {
+  generatedAt?: string;
+  marketplaceVersion?: string;
+  modules: ModuleMarketEntry[];
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const arr = value
+    .map((item) => readString(item))
+    .filter((item): item is string => item !== null);
+  return arr.length > 0 ? arr : undefined;
+}
+
+export function parseModuleMarketEntry(value: unknown): ModuleMarketEntry | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const entry = value as Record<string, unknown>;
+  const id = readString(entry.id);
+  const name = readString(entry.name);
+  const version = readString(entry.version);
+
+  if (!id || !name || !version) {
+    return null;
+  }
+
+  const description = readString(entry.description) ?? "";
+  const repoUrl = readString(entry.repoUrl) ?? undefined;
+  const downloadUrl = readString(entry.downloadUrl) ?? undefined;
+  const checksumSha256 = readString(entry.checksumSha256) ?? undefined;
+  const minHostVersion = readString(entry.minHostVersion) ?? undefined;
+  const latestVersion = readString(entry.latestVersion) ?? version;
+
+  return {
+    id,
+    name,
+    description,
+    version,
+    latestVersion,
+    minHostVersion,
+    repoUrl,
+    downloadUrl,
+    checksumSha256,
+    category: readString(entry.category) ?? undefined,
+    tags: readStringArray(entry.tags),
+  };
+}
+
+export function parseModuleMarketIndex(value: unknown): ModuleMarketIndex | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const index = value as Record<string, unknown>;
+  const rawModules = Array.isArray(index.modules) ? index.modules : [];
+  const modules = rawModules
+    .map((module) => parseModuleMarketEntry(module))
+    .filter((module): module is ModuleMarketEntry => module !== null);
+
+  return {
+    generatedAt: readString(index.generatedAt) ?? undefined,
+    marketplaceVersion: readString(index.marketplaceVersion) ?? undefined,
+    modules,
+  };
+}
