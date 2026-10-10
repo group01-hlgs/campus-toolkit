@@ -17,6 +17,7 @@ import AnnouncementReminderBell from "@/components/AnnouncementReminderBell";
 import AnnouncementSurface from "@/components/AnnouncementSurface";
 import CalendarSurface from "@/components/CalendarSurface";
 import { fetchSettings } from "@/lib/settings-client";
+import { FEATURE_MODULES } from "@/types/feature-modules";
 
 const accountModule = {
   icon: (
@@ -125,6 +126,22 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
         ]
       : []),
   ];
+  // 選用（外掛）功能模組卡：visibleModules 已含 provides＋顯示開關＋總開關（0.392）；
+  // href 取該身分的入口（掃描器由 routes 映射的 roleHrefs）；無此身分頁面者不出卡
+  const optionalCards =
+    visibleModules === null
+      ? []
+      : FEATURE_MODULES.filter(
+          (item) =>
+            item.kind === "optional" &&
+            visibleModules.includes(item.value) &&
+            typeof item.roleHrefs?.[role] === "string"
+        ).map((item) => ({
+          icon: <ModuleIcon value={item.value} />,
+          label: item.label,
+          id: item.value,
+          href: item.roleHrefs?.[role] as string,
+        }));
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
@@ -164,7 +181,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
 
       {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
       <DraggableModuleGrid
-        items={entryCards}
+        items={[...entryCards, ...optionalCards]}
         storageKey={`campusCardOrder.${role}`}
       />
 

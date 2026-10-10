@@ -383,6 +383,27 @@ function renderFeatureFile(manifests) {
   const rows = manifests.map((m) => {
     const a = m.author;
     const p = m.provides;
+    // 各身分入口：取 routes 中該前綴的首個 page 路徑（RoleHome 非管理員首頁組卡用）
+    const roleHrefs = {};
+    for (const [role, prefix] of Object.entries({
+      student: "/student",
+      parent: "/parent",
+      staff: "/staff",
+      admin: "/admin",
+    })) {
+      const hit = (Array.isArray(m.routes) ? m.routes : []).find(
+        (r) => r && r.kind === "page" && typeof r.path === "string" && r.path.startsWith(`${prefix}/`)
+      );
+      if (hit) roleHrefs[role] = hit.path;
+    }
+    const roleHrefsLines =
+      Object.keys(roleHrefs).length > 0
+        ? [
+            "    roleHrefs: {",
+            ...Object.entries(roleHrefs).map(([role, path]) => `      ${role}: ${JSON.stringify(path)},`),
+            "    },",
+          ]
+        : [];
     return [
       "  {",
       `    value: ${JSON.stringify(m.value)},`,
@@ -403,6 +424,7 @@ function renderFeatureFile(manifests) {
       `      staff: ${p.staff === true},`,
       `      admin: ${p.admin === true},`,
       "    },",
+      ...roleHrefsLines,
       "  },",
     ].join("\n");
   });

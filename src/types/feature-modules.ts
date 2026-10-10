@@ -78,6 +78,11 @@ export interface FeatureModuleMeta {
   description: string;
   /** 模組入口路由（""＝尚未建頁） */
   href: string;
+  /**
+   * 各身分入口（掃描器由 routes 的 page 路徑自動映射，選用模組才有）：
+   * 非管理員首頁（RoleHome）以它組選用模組卡；無該身分頁面者不出卡。
+   */
+  roleHrefs?: Partial<Record<UserRole, string>>;
   /** 作者與版本資訊（唯讀展示） */
   author: FeatureModuleAuthor;
   /**
