@@ -129,18 +129,33 @@ function extractArchive(filePath: string, extension: string): string {
         { encoding: "utf-8" }
       );
       if (result.status !== 0) {
-        throw new Error(result.stderr?.toString() || "ZIP 解壓失敗");
+        const detail = result.error?.message || result.stderr?.toString() || result.stdout?.toString() || "";
+        throw new Error(`ZIP 解壓失敗（Windows）：${detail || "無可用錯誤輸出"}`);
       }
     } else {
-      const result = spawnSync("unzip", ["-q", filePath, "-d", dir], { encoding: "utf-8" });
-      if (result.status !== 0) {
-        throw new Error(result.stderr?.toString() || "ZIP 解壓失敗");
+      const unzipResult = spawnSync("unzip", ["-q", filePath, "-d", dir], { encoding: "utf-8" });
+      if (unzipResult.status !== 0) {
+        const tarResult = spawnSync("tar", ["-xf", filePath, "-C", dir], { encoding: "utf-8" });
+        if (tarResult.status !== 0) {
+          const unzipDetail =
+            unzipResult.error?.message ||
+            unzipResult.stderr?.toString() ||
+            unzipResult.stdout?.toString() ||
+            "無可用錯誤輸出";
+          const tarDetail =
+            tarResult.error?.message ||
+            tarResult.stderr?.toString() ||
+            tarResult.stdout?.toString() ||
+            "無可用錯誤輸出";
+          throw new Error(`ZIP 解壓失敗（unzip/tar）：${unzipDetail}；${tarDetail}`);
+        }
       }
     }
   } else {
     const result = spawnSync("tar", ["-xzf", filePath, "-C", dir], { encoding: "utf-8" });
     if (result.status !== 0) {
-      throw new Error(result.stderr?.toString() || "tar 解壓失敗");
+      const detail = result.error?.message || result.stderr?.toString() || result.stdout?.toString() || "";
+      throw new Error(`tar 解壓失敗：${detail || "無可用錯誤輸出"}`);
     }
   }
 
