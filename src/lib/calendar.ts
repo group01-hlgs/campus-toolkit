@@ -69,8 +69,8 @@ const ADMIN_LIST_LIMIT = 200;
 const REMINDER_LIMIT = 50;
 /** `getAll` 分塊上限（規範鐵律 4：200 筆／批） */
 const GET_ALL_CHUNK = 200;
-/** 顯示位置一次取回的上限（排序後再截斷；目前統一只回尚未結束的第 1 則） */
-const SURFACE_FETCH_LIMIT = 30;
+/** 顯示位置一次取回的上限（記憶體過濾後再截斷；免複合索引策略下需比舊版 30 寬鬆，避免受眾過濾後取不到足量） */
+const SURFACE_FETCH_LIMIT = 100;
 /** 顯示位置／行程列表的短快取 TTL（寫入後由 `invalidateCalendarCache()` 清前綴） */
 const SURFACE_TTL_MS = 15_000;
 /** 真實刪除一張 WriteBatch 的文件上限（留餘裕） */
@@ -442,15 +442,12 @@ export interface CalendarSurfaceQuery {
  * 尚未結束的行程中，依開始時間取最近的前 `limit` 則（該位置「顯示筆數」設定，
  * 預設 5；前端以上下箭頭逐則翻頁）。
  *
- * 過濾下推（鐵律 2）：`status == active` ＋ `startAt >= 今日零時`，
- * 登入者再疊 `audienceRoles array-contains role`；班級、「尚未結束」與未登入的
- * 公開判定（閱讀權限「無」）在記憶體過濾（量級同列表，並以 `limit` 有界，鐵律 3）。
- * 15 秒 `cachedRead`，寫入後由 `invalidateCalendarCache()` 清 `calendar:` 前綴失效。
- * 註：未登入不加 `isPublic == true` 下推——與範圍條件同查需另建複合索引，改以記憶體過濾。
- * 管理員豁免（比照提醒列表與管理端清單）：`role === "admin"` 不受受眾限制——
- * 行事曆受眾若只勾「學生」，管理員首頁的行事曆顯示區同樣要看得到（校務視角）。
- * 管理員路徑刻意只下推 `startAt` 單欄位（走自動索引、免複合索引，
- * 與管理端清單同策略）——status／尚未結束改記憶體過濾（量級以 SURFACE_FETCH_LIMIT 有界）。
+ * 查詢策略（與管理端清單一致）：僅下推 `startAt` 單欄位（走自動索引、**免複合索引**，
+ * 任何 Firestore 專案開箱即用——曾因開發專案缺複合索引導致四個顯示區全掛）；
+ * status／尚未結束／受眾（含管理員豁免、未登入公開判定）全在記憶體過濾，
+ * 量級以 SURFACE_FETCH_LIMIT 有界（鐵律 3），15 秒 `cachedRead` 摊平讀取成本
+ * （寫入後由 `invalidateCalendarCache()` 清 `calendar:` 前綴失效）。
+ * 管理員比照提醒列表與管理端清單：不受受眾限制（校務視角）。
  */
 export async function listSurfaceCalendarEvents(
   query: CalendarSurfaceQuery,
@@ -465,14 +462,12 @@ export async function listSurfaceCalendarEvents(
   return cachedRead(cacheKey, SURFACE_TTL_MS, async () => {
     const settings = await getCalendarSettings();
     const isAdmin = role === "admin";
-    const col = getAdminDb().collection(CALENDAR_COLLECTION);
-    let request = isAdmin
-      ? col.where("startAt", ">=", from).orderBy("startAt")
-      : col.where("status", "==", "active").where("startAt", ">=", from);
-    if (!isAdmin && role) {
-      request = request.where("audienceRoles", "array-contains", role);
-    }
-    const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
+    const snap = await getAdminDb()
+      .collection(CALENDAR_COLLECTION)
+      .where("startAt", ">=", from)
+      .orderBy("startAt")
+      .limit(SURFACE_FETCH_LIMIT)
+      .get();
     const now = Date.now();
     const records: CalendarEventRecord[] = [];
     for (const doc of snap.docs) {
