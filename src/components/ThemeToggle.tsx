@@ -2,10 +2,22 @@
 
 import { useState } from "react";
 import { useTheme } from "@/contexts/ThemeContext";
+import { defaultTheme } from "@/lib/themes";
+import { removeInstalledTheme, syncInstalledThemesToAccount } from "@/lib/theme-store";
 
 export default function ThemeToggle() {
-  const { currentTheme, setTheme, availableThemes } = useTheme();
+  const { currentTheme, setTheme, availableThemes, refreshAvailableThemes } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+
+  function handleDeleteCustom(themeId: string, themeName: string) {
+    if (!window.confirm(`確定刪除自訂主題「${themeName}」？`)) return;
+    removeInstalledTheme(themeId);
+    void syncInstalledThemesToAccount();
+    if (currentTheme.id === themeId) {
+      setTheme(defaultTheme.id);
+    }
+    refreshAvailableThemes();
+  }
 
   return (
     <>
@@ -82,47 +94,60 @@ export default function ThemeToggle() {
         {/* 主題列表 */}
         <div className="overflow-y-auto h-[calc(100%-140px)] p-2">
           {availableThemes.map((theme) => (
-            <button
-              key={theme.id}
-              onClick={() => {
-                setTheme(theme.id);
-                setIsOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors text-left ${
-                currentTheme.id === theme.id ? "font-semibold" : ""
-              }`}
-              style={{
-                backgroundColor:
-                  currentTheme.id === theme.id ? "var(--bg2)" : "transparent",
-                color: currentTheme.id === theme.id ? "var(--t1)" : "var(--t2)",
-              }}
-            >
-              <div
-                className="w-4 h-4 rounded-full flex-shrink-0"
-                style={{
-                  backgroundColor: theme.preview,
-                  border: `2px solid ${
-                    currentTheme.id === theme.id ? "var(--t1)" : "var(--bd2)"
-                  }`,
-                  boxShadow:
-                    currentTheme.id === theme.id
-                      ? `0 0 0 2px var(--bg), 0 0 0 3.5px var(--t1)`
-                      : "none",
+            <div key={theme.id} className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  setTheme(theme.id);
+                  setIsOpen(false);
                 }}
-              />
-              <span>{theme.name}</span>
-              {currentTheme.id === theme.id && (
-                <svg
-                  className="w-4 h-4 ml-auto"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
+                className={`flex-1 min-w-0 flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors text-left ${
+                  currentTheme.id === theme.id ? "font-semibold" : ""
+                }`}
+                style={{
+                  backgroundColor:
+                    currentTheme.id === theme.id ? "var(--bg2)" : "transparent",
+                  color: currentTheme.id === theme.id ? "var(--t1)" : "var(--t2)",
+                }}
+              >
+                <div
+                  className="w-4 h-4 rounded-full flex-shrink-0"
+                  style={{
+                    backgroundColor: theme.preview,
+                    border: `2px solid ${
+                      currentTheme.id === theme.id ? "var(--t1)" : "var(--bd2)"
+                    }`,
+                    boxShadow:
+                      currentTheme.id === theme.id
+                        ? `0 0 0 2px var(--bg), 0 0 0 3.5px var(--t1)`
+                        : "none",
+                  }}
+                />
+                <span className="truncate">{theme.name}</span>
+                {currentTheme.id === theme.id && (
+                  <svg
+                    className="w-4 h-4 ml-auto flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+              {theme.id.startsWith("custom:") && (
+                <button
+                  onClick={() => handleDeleteCustom(theme.id, theme.name)}
+                  title="刪除這個自訂主題"
+                  className="flex-shrink-0 w-8 h-8 rounded-lg cursor-pointer flex items-center justify-center"
+                  style={{ color: "var(--t3)" }}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               )}
-            </button>
+            </div>
           ))}
         </div>
 

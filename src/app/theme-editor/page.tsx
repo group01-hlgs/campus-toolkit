@@ -170,16 +170,19 @@ export default function ThemeEditorPage() {
     }
   }
 
-  function handleDelete() {
-    if (!currentId) return;
-    removeInstalledTheme(currentId);
+  function handleDelete(themeId: string) {
+    const label = readStoredTheme(themeId)?.name ?? themeId;
+    if (!window.confirm(`確定刪除自訂主題「${label}」？刪除後無法復原。`)) return;
+    removeInstalledTheme(themeId);
     void syncInstalledThemesToAccount();
-    if (currentTheme.id === currentId) {
+    if (currentTheme.id === themeId) {
       setTheme(builtinThemes[0]!.id);
     }
+    if (currentId === themeId) {
+      setCurrentId(null);
+    }
     refreshAvailableThemes();
-    setCurrentId(null);
-    setMessage({ kind: "success", text: "已刪除這個自訂主題" });
+    setMessage({ kind: "success", text: `已刪除自訂主題「${label}」` });
     setShowSubmit(false);
   }
 
@@ -331,21 +334,40 @@ export default function ThemeEditorPage() {
               </div>
 
               {customThemes.length > 0 && (
-                <label className="block space-y-1 text-sm">
-                  <span className="text-t2">載入已儲存的自訂主題</span>
-                  <select
-                    value=""
-                    onChange={(event) => loadCustom(event.target.value)}
-                    className="w-full rounded border border-themed bg-card px-3 py-2 text-t1 cursor-pointer"
-                  >
-                    <option value="">選擇...</option>
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold text-t1">已儲存的自訂主題</div>
+                  <div className="space-y-1">
                     {customThemes.map((record) => (
-                      <option key={record.id} value={record.id}>
-                        {record.name}
-                      </option>
+                      <div
+                        key={record.id}
+                        className="flex items-center justify-between gap-2 border border-themed rounded px-3 py-2 text-sm"
+                      >
+                        <span className="text-t1 truncate">
+                          {record.name}
+                          {currentId === record.id && (
+                            <span className="ml-2 text-xs text-success">編輯中</span>
+                          )}
+                        </span>
+                        <span className="flex gap-2 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => loadCustom(record.id)}
+                            className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
+                          >
+                            載入編輯
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(record.id)}
+                            className="rounded px-3 py-1 text-xs border border-danger/60 text-danger cursor-pointer"
+                          >
+                            刪除
+                          </button>
+                        </span>
+                      </div>
                     ))}
-                  </select>
-                </label>
+                  </div>
+                </div>
               )}
 
               {COLOR_GROUPS.map((group) => (
@@ -411,7 +433,7 @@ export default function ThemeEditorPage() {
                 {currentId && (
                   <button
                     type="button"
-                    onClick={handleDelete}
+                    onClick={() => currentId && handleDelete(currentId)}
                     className="rounded px-3 py-2 text-sm border border-danger/60 text-danger cursor-pointer"
                   >
                     刪除
