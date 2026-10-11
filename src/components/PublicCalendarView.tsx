@@ -330,94 +330,99 @@ export default function PublicCalendarView({
         {card(
           <div className="overflow-x-auto">
             <div className="min-w-[560px]">
-              {/* 表頭 */}
-              <div className="flex border-b border-themed">
-                <div className="w-10 shrink-0" />
-                {dayColumns.map((d) => {
-                  const isToday = dayKey(d) === dayKey(new Date());
-                  return (
-                    <div
-                      key={dayKey(d)}
-                      className={`flex-1 text-center text-xs py-1 border-l border-themed ${
-                        isToday ? "text-primary font-bold" : "text-t2"
-                      }`}
-                    >
-                      {WEEK_LABELS[d.getDay()]} {formatMD(d)}
-                    </div>
-                  );
-                })}
-              </div>
-              {/* 全天條帶 */}
-              {(() => {
-                const allDayEvents = items.filter((ev) =>
-                  isAllDay(ev) && dayColumns.some((d) => eventDayKeys(ev).has(dayKey(d)))
-                );
-                return (
+              {/* 垂直捲動容器：表頭／全天／時間軸同容器，捲軸佔的寬度對齊三者一致（否則直線錯位） */}
+              <div className="overflow-y-auto" style={{ maxHeight: "70vh" }}>
+                {/* 表頭＋全天條帶：垂直捲動時黏在頂端 */}
+                <div className="sticky top-0 z-10 bg-card">
                   <div className="flex border-b border-themed">
-                    <div className="w-10 shrink-0 text-[10px] text-t3 text-center py-1">全天</div>
+                    <div className="w-10 shrink-0" />
                     {dayColumns.map((d) => {
-                      const key = dayKey(d);
-                      const list = allDayEvents.filter((ev) => eventDayKeys(ev).has(key));
+                      const isToday = dayKey(d) === dayKey(new Date());
                       return (
-                        <div key={key} className="flex-1 min-h-[24px] border-l border-themed px-1 py-0.5 space-y-0.5">
-                          {list.map((ev) => (
-                            <EventChip key={ev.id} ev={ev} />
-                          ))}
+                        <div
+                          key={dayKey(d)}
+                          className={`flex-1 text-center text-xs py-1 border-l border-themed ${
+                            isToday ? "text-primary font-bold" : "text-t2"
+                          }`}
+                        >
+                          {WEEK_LABELS[d.getDay()]} {formatMD(d)}
                         </div>
                       );
                     })}
                   </div>
-                );
-              })()}
-              {/* 時間縱軸＋事件層 */}
-              <div className="flex overflow-y-auto" style={{ maxHeight: "70vh" }}>
-                <div className="w-10 shrink-0" style={{ height: gridHeight }}>
-                  {Array.from({ length: 24 }, (_, h) => (
-                    <div key={h} className="text-[10px] text-t3 text-right pr-1 -mt-1" style={{ height: HOUR_H }}>
-                      {String(h).padStart(2, "0")}
-                    </div>
-                  ))}
-                </div>
-                {dayColumns.map((d) => {
-                  const key = dayKey(d);
-                  const timed = items.filter((ev) => !isAllDay(ev) && eventDayKeys(ev).has(key));
-                  return (
-                    <div key={key} className="flex-1 relative border-l border-themed" style={{ height: gridHeight }}>
-                      {Array.from({ length: 24 }, (_, h) => (
-                        <div key={h} className="border-b border-themed" style={{ height: HOUR_H }} />
-                      ))}
-                      {timed.map((ev) => {
-                        const dayStart = startOfDay(d).getTime();
-                        const s = Math.max(ev.startAt, dayStart);
-                        const rawEnd = ev.endAt && ev.endAt > ev.startAt ? ev.endAt : ev.startAt + 3_600_000;
-                        const e = Math.min(rawEnd, dayStart + 86_400_000);
-                        const startMin = (s - dayStart) / 60_000;
-                        const durMin = Math.max((e - s) / 60_000, 15);
-                        const top = (startMin / 60) * HOUR_H;
-                        const height = Math.max((durMin / 60) * HOUR_H, 18);
-                        return (
-                          <a
-                            key={ev.id}
-                            href={`/calendar/${ev.id}`}
-                            className="absolute left-0.5 right-0.5 rounded border border-themed bg-surface px-1 py-0.5 overflow-hidden hover:border-primary transition"
-                            style={{ top, height }}
-                            title={`${formatHM(ev.startAt)} ${ev.title}`}
-                          >
-                            <div className="flex items-center gap-0.5 text-[11px] font-medium text-t1 min-w-0">
-                              {ev.important && (
-                                <span className="text-primary shrink-0" aria-hidden="true">
-                                  ★
-                                </span>
-                              )}
-                              <span className="shrink-0 text-t2">{formatHM(ev.startAt)}</span>
-                              <span className="truncate">{ev.title}</span>
+                  {/* 全天條帶 */}
+                  {(() => {
+                    const allDayEvents = items.filter((ev) =>
+                      isAllDay(ev) && dayColumns.some((d) => eventDayKeys(ev).has(dayKey(d)))
+                    );
+                    return (
+                      <div className="flex border-b border-themed">
+                        <div className="w-10 shrink-0 text-[10px] text-t3 text-center py-1">全天</div>
+                        {dayColumns.map((d) => {
+                          const key = dayKey(d);
+                          const list = allDayEvents.filter((ev) => eventDayKeys(ev).has(key));
+                          return (
+                            <div key={key} className="flex-1 min-h-[24px] border-l border-themed px-1 py-0.5 space-y-0.5">
+                              {list.map((ev) => (
+                                <EventChip key={ev.id} ev={ev} />
+                              ))}
                             </div>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+                {/* 時間縱軸＋事件層 */}
+                <div className="flex">
+                  <div className="w-10 shrink-0" style={{ height: gridHeight }}>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <div key={h} className="text-[10px] text-t3 text-right pr-1 -mt-1" style={{ height: HOUR_H }}>
+                        {String(h).padStart(2, "0")}
+                      </div>
+                    ))}
+                  </div>
+                  {dayColumns.map((d) => {
+                    const key = dayKey(d);
+                    const timed = items.filter((ev) => !isAllDay(ev) && eventDayKeys(ev).has(key));
+                    return (
+                      <div key={key} className="flex-1 relative border-l border-themed" style={{ height: gridHeight }}>
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <div key={h} className="border-b border-themed" style={{ height: HOUR_H }} />
+                        ))}
+                        {timed.map((ev) => {
+                          const dayStart = startOfDay(d).getTime();
+                          const s = Math.max(ev.startAt, dayStart);
+                          const rawEnd = ev.endAt && ev.endAt > ev.startAt ? ev.endAt : ev.startAt + 3_600_000;
+                          const e = Math.min(rawEnd, dayStart + 86_400_000);
+                          const startMin = (s - dayStart) / 60_000;
+                          const durMin = Math.max((e - s) / 60_000, 15);
+                          const top = (startMin / 60) * HOUR_H;
+                          const height = Math.max((durMin / 60) * HOUR_H, 18);
+                          return (
+                            <a
+                              key={ev.id}
+                              href={`/calendar/${ev.id}`}
+                              className="absolute left-0.5 right-0.5 rounded border border-themed bg-surface px-1 py-0.5 overflow-hidden hover:border-primary transition"
+                              style={{ top, height }}
+                              title={`${formatHM(ev.startAt)} ${ev.title}`}
+                            >
+                              <div className="flex items-center gap-0.5 text-[11px] font-medium text-t1 min-w-0">
+                                {ev.important && (
+                                  <span className="text-primary shrink-0" aria-hidden="true">
+                                    ★
+                                  </span>
+                                )}
+                                <span className="shrink-0 text-t2">{formatHM(ev.startAt)}</span>
+                                <span className="truncate">{ev.title}</span>
+                              </div>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
