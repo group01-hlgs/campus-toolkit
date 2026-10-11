@@ -89,10 +89,12 @@ export default function CalendarSurface({
   if (!setting && !failed) return null;
 
   const item = items[Math.min(index, items.length - 1)];
-  // 入口：登入後的首頁進各自行事曆；系統首頁（未登入）進回首頁（登入後才能看完整行事曆）
-// 入口：登入頁＝公開行事曆頁 /calendar（未登入可瀏覽）；其餘身分＝各自行事曆專頁
-const calendarHref = surface === "login" ? "/calendar" : `${ROLE_HOME[surface]}/calendar`;
-const entryHref = calendarHref;
+  // 入口：登入頁＝公開行事曆檢視頁 /calendar（未登入可瀏覽）；
+  // 學生／家長／教職員＝各自行事曆檢視專頁；
+  // 管理員也走 /calendar 檢視頁（/admin/calendar 是管理頁，不是檢視頁——避免入口誤接到管理介面）
+  const calendarHref =
+    surface === "login" || surface === "admin" ? "/calendar" : `${ROLE_HOME[surface]}/calendar`;
+  const entryHref = calendarHref;
   // 2 則以上才出現翻頁箭頭（單則維持原樣，無箭頭可翻）
   const paged = items.length >= 2;
 
