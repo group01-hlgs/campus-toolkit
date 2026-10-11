@@ -447,6 +447,8 @@ export interface CalendarSurfaceQuery {
  * 公開判定（閱讀權限「無」）在記憶體過濾（量級同列表，並以 `limit` 有界，鐵律 3）。
  * 15 秒 `cachedRead`，寫入後由 `invalidateCalendarCache()` 清 `calendar:` 前綴失效。
  * 註：未登入不加 `isPublic == true` 下推——與範圍條件同查需另建複合索引，改以記憶體過濾。
+ * 管理員豁免（比照提醒列表與管理端清單）：`role === "admin"` 不受受眾限制——
+ * 行事曆受眾若只勾「學生」，管理員首頁的行事曆顯示區同樣要看得到（校務視角）。
  */
 export async function listSurfaceCalendarEvents(
   query: CalendarSurfaceQuery,
@@ -464,7 +466,7 @@ export async function listSurfaceCalendarEvents(
       .collection(CALENDAR_COLLECTION)
       .where("status", "==", "active")
       .where("startAt", ">=", from);
-    if (role) request = request.where("audienceRoles", "array-contains", role);
+    if (role && role !== "admin") request = request.where("audienceRoles", "array-contains", role);
     const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
     const now = Date.now();
     const records: CalendarEventRecord[] = [];
@@ -475,7 +477,7 @@ export async function listSurfaceCalendarEvents(
       // 顯示「尚未結束」的行程（進行中與未來皆可）
       if (calendarEventEnd(record) < now) continue;
       if (role) {
-        if (!canViewCalendarEvent(record.audience, role, classCode)) continue;
+        if (role !== "admin" && !canViewCalendarEvent(record.audience, role, classCode)) continue;
       } else {
         // 未登入（系統首頁）：只顯示閱讀權限「無」（isPublic）的公開行程
         if (!isCalendarEventPublicReadable(record)) continue;
