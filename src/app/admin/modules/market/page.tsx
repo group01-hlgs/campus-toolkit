@@ -28,6 +28,8 @@ interface InstallResponse {
   success: boolean;
   message?: string;
   alreadyInstalled?: boolean;
+  branch?: string;
+  commitUrl?: string;
 }
 
 interface MarketConfigResponse {
@@ -44,6 +46,8 @@ export default function ModuleMarketPage() {
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [installMessage, setInstallMessage] = useState<string | null>(null);
   const [installKind, setInstallKind] = useState<"success" | "error" | null>(null);
+  const [installCommitUrl, setInstallCommitUrl] = useState<string | null>(null);
+  const [installBranch, setInstallBranch] = useState<string | null>(null);
   const [marketUrlInput, setMarketUrlInput] = useState("");
   const [savingMarketUrl, setSavingMarketUrl] = useState(false);
   const [marketUrlMessage, setMarketUrlMessage] = useState<string | null>(null);
@@ -93,6 +97,8 @@ export default function ModuleMarketPage() {
     setInstallingId(module.id);
     setInstallKind(null);
     setInstallMessage(null);
+    setInstallCommitUrl(null);
+    setInstallBranch(null);
 
     try {
       const response = await fetch("/api/admin/feature-modules/market/install", {
@@ -112,13 +118,16 @@ export default function ModuleMarketPage() {
 
       setInstallKind("success");
       setInstallMessage(data.message || "安裝成功");
+      setInstallCommitUrl(data.commitUrl ?? null);
+      setInstallBranch(data.branch ?? null);
       setInstallingId(null);
-      window.location.reload();
     } catch (installError) {
       setInstallKind("error");
       setInstallMessage(
         installError instanceof Error ? installError.message : "模組安裝失敗"
       );
+      setInstallCommitUrl(null);
+      setInstallBranch(null);
       setInstallingId(null);
     }
   }
@@ -218,7 +227,22 @@ export default function ModuleMarketPage() {
             installKind === "success" ? "border-success/60 bg-success/10 text-success" : "border-danger/60 bg-danger/10 text-danger"
           }`}
         >
-          {installMessage}
+          <p>{installMessage}</p>
+          {(installCommitUrl || installBranch) && (
+            <div className="mt-2 text-xs">
+              {installBranch && <p>分支：{installBranch}</p>}
+              {installCommitUrl && (
+                <a
+                  href={installCommitUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  查看提交紀錄
+                </a>
+              )}
+            </div>
+          )}
         </div>
       )}
 
