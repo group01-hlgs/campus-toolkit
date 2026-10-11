@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import AdmZip from "adm-zip";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
@@ -116,40 +117,12 @@ function extractArchive(filePath: string, extension: string): string {
   const dir = path.dirname(filePath);
 
   if (extension === ".zip") {
-    if (process.platform === "win32") {
-      const result = spawnSync(
-        "powershell",
-        [
-          "-NoProfile",
-          "-ExecutionPolicy",
-          "Bypass",
-          "-Command",
-          `Expand-Archive -Path '${filePath}' -DestinationPath '${dir}' -Force`,
-        ],
-        { encoding: "utf-8" }
-      );
-      if (result.status !== 0) {
-        const detail = result.error?.message || result.stderr?.toString() || result.stdout?.toString() || "";
-        throw new Error(`ZIP 解壓失敗（Windows）：${detail || "無可用錯誤輸出"}`);
-      }
-    } else {
-      const unzipResult = spawnSync("unzip", ["-q", filePath, "-d", dir], { encoding: "utf-8" });
-      if (unzipResult.status !== 0) {
-        const tarResult = spawnSync("tar", ["-xf", filePath, "-C", dir], { encoding: "utf-8" });
-        if (tarResult.status !== 0) {
-          const unzipDetail =
-            unzipResult.error?.message ||
-            unzipResult.stderr?.toString() ||
-            unzipResult.stdout?.toString() ||
-            "無可用錯誤輸出";
-          const tarDetail =
-            tarResult.error?.message ||
-            tarResult.stderr?.toString() ||
-            tarResult.stdout?.toString() ||
-            "無可用錯誤輸出";
-          throw new Error(`ZIP 解壓失敗（unzip/tar）：${unzipDetail}；${tarDetail}`);
-        }
-      }
+    try {
+      const zip = new AdmZip(filePath);
+      zip.extractAllTo(dir, true);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`ZIP 解壓失敗（adm-zip）：${detail}`);
     }
   } else {
     const result = spawnSync("tar", ["-xzf", filePath, "-C", dir], { encoding: "utf-8" });
