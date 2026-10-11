@@ -20,6 +20,8 @@ interface ThemeContextType {
   forcedTheme: ThemeId | null;
   setForcedTheme: (id: ThemeId | null) => void;
   availableThemes: Theme[];
+  /** 重新收集可用主題（主題編輯器儲存／刪除後呼叫） */
+  refreshAvailableThemes: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
@@ -28,6 +30,7 @@ const ThemeContext = createContext<ThemeContextType>({
   forcedTheme: null,
   setForcedTheme: () => {},
   availableThemes: builtinThemes,
+  refreshAvailableThemes: () => {},
 });
 
 /** 主題解析（協議 §3）：內建主題優先，其後為已安裝的 market:/custom: 主題 */
@@ -151,6 +154,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  function refreshAvailableThemes() {
+    setAvailableThemes(collectAvailableThemes());
+  }
+
   return (
     <ThemeContext.Provider
       value={{
@@ -159,6 +166,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         forcedTheme,
         setForcedTheme,
         availableThemes,
+        refreshAvailableThemes,
       }}
     >
       {children}

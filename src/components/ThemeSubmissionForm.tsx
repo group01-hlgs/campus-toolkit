@@ -56,21 +56,34 @@ interface SubmitResponse {
   branch?: string;
 }
 
+export interface ThemeSubmissionInitialValues {
+  id?: string;
+  name?: string;
+  description?: string;
+  tags?: string[];
+  colors?: Record<string, string>;
+}
+
 export default function ThemeSubmissionForm({
   endpoint,
   submitLabel,
+  initialValues,
 }: {
   endpoint: string;
   submitLabel: string;
+  initialValues?: ThemeSubmissionInitialValues;
 }) {
-  const [name, setName] = useState("");
-  const [id, setId] = useState("");
-  const [idTouched, setIdTouched] = useState(false);
-  const [description, setDescription] = useState("");
+  const [name, setName] = useState(initialValues?.name ?? "");
+  const [id, setId] = useState(initialValues?.id ?? "");
+  const [idTouched, setIdTouched] = useState(!!initialValues?.id);
+  const [description, setDescription] = useState(initialValues?.description ?? "");
   const [author, setAuthor] = useState("");
-  const [tagsText, setTagsText] = useState("");
-  const [colors, setColors] = useState<Record<string, string>>({ ...DEFAULT_COLORS });
-  const [radius, setRadius] = useState("8px");
+  const [tagsText, setTagsText] = useState((initialValues?.tags ?? []).join(", "));
+  const [colors, setColors] = useState<Record<string, string>>({
+    ...DEFAULT_COLORS,
+    ...(initialValues?.colors ?? {}),
+  });
+  const [radius, setRadius] = useState(initialValues?.colors?.["--radius"] ?? "8px");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ kind: "success" | "error"; message: string; prUrl?: string } | null>(null);
 

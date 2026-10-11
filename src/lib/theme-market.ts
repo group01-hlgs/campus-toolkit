@@ -41,11 +41,18 @@ export interface ThemeManifest {
   cssFile: string;
 }
 
+/**
+ * 內建預設市集來源：fork 的學校零設定即可使用主題市集。
+ * 環境變數 THEME_MARKET_INDEX_URL / THEME_MARKET_URL 僅供「想指向自己市集」的部署覆寫。
+ */
+export const DEFAULT_THEME_MARKET_INDEX_URL =
+  "https://raw.githubusercontent.com/takan003/campus-toolkit-theme-marketplace/main/index.json";
+
 export function resolveThemeMarketIndexUrl(): string | null {
   const candidate =
     process.env.THEME_MARKET_INDEX_URL?.trim() ||
     process.env.THEME_MARKET_URL?.trim() ||
-    "";
+    DEFAULT_THEME_MARKET_INDEX_URL;
 
   if (!candidate) {
     return null;

@@ -135,8 +135,8 @@ export default function ThemeToggle() {
           }}
         >
           <div>共 {availableThemes.length} 款可用主題</div>
-          <a href="/theme-submit" className="underline" style={{ color: "var(--link)" }}>
-            投稿我的主題 →
+          <a href="/theme-editor" className="underline" style={{ color: "var(--link)" }}>
+            編輯我的主題 →
           </a>
         </div>
         </div>
