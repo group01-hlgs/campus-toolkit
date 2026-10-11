@@ -22,6 +22,8 @@ interface MarketResponse {
   message?: string;
   modules?: MarketModuleEntry[];
   marketUrl?: string;
+  installedModules?: Record<string, string>;
+  canUninstall?: boolean;
 }
 
 interface InstallResponse {
@@ -38,6 +40,11 @@ interface MarketConfigResponse {
   marketUrl?: string;
 }
 
+interface ToggleInstallResponse {
+  success: boolean;
+  message?: string;
+}
+
 export default function ModuleMarketPage() {
   const router = useRouter();
   const [modules, setModules] = useState<MarketModuleEntry[]>([]);
@@ -48,25 +55,35 @@ export default function ModuleMarketPage() {
   const [installKind, setInstallKind] = useState<"success" | "error" | null>(null);
   const [installCommitUrl, setInstallCommitUrl] = useState<string | null>(null);
   const [installBranch, setInstallBranch] = useState<string | null>(null);
+  const [installedModules, setInstalledModules] = useState<Record<string, string>>({});
+  const [canUninstall, setCanUninstall] = useState(false);
   const [marketUrlInput, setMarketUrlInput] = useState("");
   const [savingMarketUrl, setSavingMarketUrl] = useState(false);
   const [marketUrlMessage, setMarketUrlMessage] = useState<string | null>(null);
   const [marketUrlKind, setMarketUrlKind] = useState<"success" | "error" | null>(null);
 
+  async function fetchMarket(signal?: AbortSignal): Promise<MarketResponse> {
+    const response = await fetch("/api/admin/feature-modules/market", { cache: "no-store", signal });
+    const data: MarketResponse = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "市集讀取失敗");
+    }
+    return data;
+  }
+
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     async function load() {
       try {
-        const response = await fetch("/api/admin/feature-modules/market", { cache: "no-store" });
-        const data: MarketResponse = await response.json();
-        if (!response.ok || !data.success) {
-          throw new Error(data.message || "市集讀取失敗");
-        }
+        const data = await fetchMarket(controller.signal);
 
         if (!cancelled) {
           setModules(data.modules ?? []);
           setMarketUrlInput(data.marketUrl ?? "");
+          setInstalledModules(data.installedModules ?? {});
+          setCanUninstall(Boolean(data.canUninstall));
           setError(null);
         }
       } catch (loadError) {
@@ -84,8 +101,24 @@ export default function ModuleMarketPage() {
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, []);
+
+  function installedVersion(module: MarketModuleEntry): string | null {
+    return installedModules[module.id] ?? null;
+  }
+
+  function isInstalled(module: MarketModuleEntry): boolean {
+    return !!installedVersion(module);
+  }
+
+  function hasUpdate(module: MarketModuleEntry): boolean {
+    const installed = installedVersion(module);
+    if (!installed) return false;
+    const latest = module.latestVersion || module.version;
+    return installed !== latest;
+  }
 
   async function handleInstall(module: MarketModuleEntry) {
     if (!module.downloadUrl) {
@@ -120,6 +153,10 @@ export default function ModuleMarketPage() {
       setInstallMessage(data.message || "安裝成功");
       setInstallCommitUrl(data.commitUrl ?? null);
       setInstallBranch(data.branch ?? null);
+      setInstalledModules((prev) => ({
+        ...prev,
+        [module.id]: module.latestVersion || module.version,
+      }));
       setInstallingId(null);
     } catch (installError) {
       setInstallKind("error");
@@ -128,6 +165,38 @@ export default function ModuleMarketPage() {
       );
       setInstallCommitUrl(null);
       setInstallBranch(null);
+      setInstallingId(null);
+    }
+  }
+
+  async function handleUninstall(module: MarketModuleEntry) {
+    setInstallingId(module.id);
+    setInstallKind(null);
+    setInstallMessage(null);
+    setInstallCommitUrl(null);
+    setInstallBranch(null);
+
+    try {
+      const response = await fetch("/api/admin/feature-modules", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: module.id }),
+      });
+      const data: ToggleInstallResponse = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "卸載失敗");
+      }
+      setInstallKind("success");
+      setInstallMessage(data.message || "卸載成功");
+      setInstalledModules((prev) => {
+        const next = { ...prev };
+        delete next[module.id];
+        return next;
+      });
+      setInstallingId(null);
+    } catch (uninstallError) {
+      setInstallKind("error");
+      setInstallMessage(uninstallError instanceof Error ? uninstallError.message : "卸載失敗");
       setInstallingId(null);
     }
   }
@@ -151,13 +220,11 @@ export default function ModuleMarketPage() {
       setMarketUrlInput(data.marketUrl ?? "");
       setLoading(true);
       setError(null);
-      const refreshed = await fetch("/api/admin/feature-modules/market", { cache: "no-store" });
-      const refreshedData: MarketResponse = await refreshed.json();
-      if (!refreshed.ok || !refreshedData.success) {
-        throw new Error(refreshedData.message || "重新讀取模組市集失敗");
-      }
+      const refreshedData = await fetchMarket();
       setModules(refreshedData.modules ?? []);
       setMarketUrlInput(refreshedData.marketUrl ?? "");
+      setInstalledModules(refreshedData.installedModules ?? {});
+      setCanUninstall(Boolean(refreshedData.canUninstall));
     } catch (saveError) {
       setMarketUrlKind("error");
       setMarketUrlMessage(saveError instanceof Error ? saveError.message : "儲存模組市集來源失敗");
@@ -281,6 +348,11 @@ export default function ModuleMarketPage() {
                     最低主程式版本：{module.minHostVersion}
                   </span>
                 )}
+                {isInstalled(module) && (
+                  <span className="border border-success/60 rounded px-2 py-1 text-success">
+                    {hasUpdate(module) ? "已安裝（可更新）" : "已安裝"}
+                  </span>
+                )}
                 {module.category && (
                   <span className="border border-themed rounded px-2 py-1">
                     類別：{module.category}
@@ -317,17 +389,44 @@ export default function ModuleMarketPage() {
                   )}
                   <button
                     type="button"
-                    disabled={installingId === module.id}
+                    disabled={installingId === module.id || (isInstalled(module) && !hasUpdate(module))}
                     onClick={() => void handleInstall(module)}
                     className={`rounded px-3 py-1.5 text-xs ${
-                      installingId === module.id
+                      installingId === module.id || (isInstalled(module) && !hasUpdate(module))
                         ? "border border-themed bg-muted text-t3 cursor-wait"
                         : "btn-theme cursor-pointer"
                     }`}
-                    title={installingId === module.id ? "安裝中..." : "安裝模組"}
+                    title={
+                      installingId === module.id
+                        ? "處理中..."
+                        : isInstalled(module) && !hasUpdate(module)
+                          ? "已安裝"
+                          : "安裝模組"
+                    }
                   >
-                    {installingId === module.id ? "安裝中..." : "安裝"}
+                    {installingId === module.id
+                      ? "處理中..."
+                      : isInstalled(module) && !hasUpdate(module)
+                        ? "已安裝"
+                        : hasUpdate(module)
+                          ? "更新"
+                          : "安裝"}
                   </button>
+                  {canUninstall && isInstalled(module) && (
+                    <button
+                      type="button"
+                      disabled={installingId === module.id}
+                      onClick={() => void handleUninstall(module)}
+                      className={`rounded px-3 py-1.5 text-xs ${
+                        installingId === module.id
+                          ? "border border-themed bg-muted text-t3 cursor-wait"
+                          : "border border-danger/60 text-danger cursor-pointer"
+                      }`}
+                      title={installingId === module.id ? "處理中..." : "卸載模組（僅本機開發）"}
+                    >
+                      卸載
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
