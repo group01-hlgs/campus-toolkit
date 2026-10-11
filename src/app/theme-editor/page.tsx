@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { fetchSession, UserSession } from "@/lib/session";
 import { useTheme } from "@/contexts/ThemeContext";
 import { builtinThemes } from "@/lib/themes";
@@ -63,7 +64,24 @@ function copyColors(colors: Record<string, string>): Record<string, string> {
   return next;
 }
 
+/** 各身分的功能首頁（返回功能頁按鈕用） */
+function roleHome(role: string | undefined): string {
+  switch (role) {
+    case "admin":
+      return "/admin";
+    case "staff":
+      return "/staff";
+    case "parent":
+      return "/parent";
+    case "student":
+      return "/student";
+    default:
+      return "/";
+  }
+}
+
 export default function ThemeEditorPage() {
+  const router = useRouter();
   const { setTheme, refreshAvailableThemes, availableThemes, currentTheme } = useTheme();
   const [session, setSession] = useState<UserSession | null>(null);
   const [ready, setReady] = useState(false);
@@ -257,10 +275,34 @@ export default function ThemeEditorPage() {
             <p className="text-xs text-t3">
               自訂主題（custom:）只存在您的帳號與瀏覽器；市集主題（market:）才是全校可見。
             </p>
+            <div className="flex justify-end gap-2 flex-wrap pt-1">
+              <button
+                type="submit"
+                form="theme-editor-form"
+                disabled={busy}
+                className={`rounded px-4 py-2 text-sm ${busy ? "border border-themed bg-muted text-t3 cursor-wait" : "btn-theme cursor-pointer"}`}
+              >
+                {busy ? "處理中..." : currentId ? "儲存並套用" : "儲存並套用（建立新主題）"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSubmit((open) => !open)}
+                className="btn-theme rounded px-4 py-2 text-sm cursor-pointer"
+              >
+                {showSubmit ? "收合投稿表單" : "投稿上架到市集..."}
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push(roleHome(session?.role))}
+                className="rounded px-4 py-2 text-sm border border-themed bg-card text-t2 cursor-pointer"
+              >
+                返回功能頁
+              </button>
+            </div>
           </div>
 
           {/* 下：控制項 */}
-          <form onSubmit={handleSave} className="space-y-5 border border-themed rounded-lg bg-card p-5">
+          <form id="theme-editor-form" onSubmit={handleSave} className="space-y-5 border border-themed rounded-lg bg-card p-5">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block space-y-1 text-sm">
                   <span className="text-t2">主題名稱</span>
@@ -381,6 +423,13 @@ export default function ThemeEditorPage() {
                   className="btn-theme rounded px-4 py-2 text-sm cursor-pointer"
                 >
                   {showSubmit ? "收合投稿表單" : "投稿上架到市集..."}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(roleHome(session?.role))}
+                  className="rounded px-4 py-2 text-sm border border-themed bg-card text-t2 cursor-pointer"
+                >
+                  返回功能頁
                 </button>
               </div>
             </form>
