@@ -179,15 +179,88 @@ export default function ThemeEditorPage() {
         <div>
           <h1 className="text-2xl font-bold text-t1">CSS 主題編輯器</h1>
           <p className="mt-1 text-sm text-t3">
-            選一個基底開始調色，右側即時預覽；按「儲存並套用」只會保存在您的帳號（別人看不到）。
+            選一個基底開始調色，上方即時預覽；按「儲存並套用」只會保存在您的帳號（別人看不到）。
             滿意的話再按「投稿上架」，經管理員審核後全校都能安裝。
           </p>
         </div>
 
-        <div className="grid gap-6" style={{ gridTemplateColumns: "minmax(0,1fr)" }}>
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            {/* 左：控制項 */}
-            <form onSubmit={handleSave} className="space-y-5 border border-themed rounded-lg bg-card p-5">
+        <div className="space-y-6">
+          {/* 上方：即時預覽（桌面版黏在視野頂端，調色不離預覽） */}
+          <div className="space-y-2 lg:sticky lg:top-4 z-10">
+            <div className="text-sm font-semibold text-t1">即時預覽</div>
+            <div
+              className="rounded-lg border border-themed p-4 space-y-3"
+              style={{ background: colors["--bg"], color: colors["--t1"], borderColor: colors["--bd"] }}
+            >
+              <div className="text-xs" style={{ color: colors["--t3"] }}>
+                頁面背景 --bg
+              </div>
+              <div
+                className="rounded border p-3 space-y-2"
+                style={{
+                  background: colors["--card"],
+                  borderColor: colors["--bd"],
+                  borderRadius: colors["--radius"],
+                  boxShadow: colors["--sh"],
+                }}
+              >
+                <div className="font-bold">卡片標題（--t1）</div>
+                <div className="text-sm" style={{ color: colors["--t2"] }}>
+                  次要文字 --t2
+                </div>
+                <div className="text-xs" style={{ color: colors["--t3"] }}>
+                  輔助文字 --t3
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <span
+                    className="px-3 py-1.5 text-xs"
+                    style={{
+                      background: colors["--primary"],
+                      color: colors["--primary-text"],
+                      borderRadius: colors["--radius"],
+                    }}
+                  >
+                    主要按鈕
+                  </span>
+                  <span
+                    className="px-3 py-1.5 text-xs"
+                    style={{
+                      background: colors["--btn-secondary"],
+                      color: colors["--btn-secondary-text"],
+                      borderRadius: colors["--radius"],
+                    }}
+                  >
+                    次要按鈕
+                  </span>
+                  <span
+                    className="px-3 py-1.5 text-xs"
+                    style={{
+                      background: colors["--btn-danger"],
+                      color: colors["--btn-danger-text"],
+                      borderRadius: colors["--radius"],
+                    }}
+                  >
+                    危險按鈕
+                  </span>
+                </div>
+                <div className="text-xs pt-1">
+                  <span style={{ color: colors["--link"] }}>連結文字</span>
+                  <span className="mx-1">·</span>
+                  <span style={{ color: colors["--success"] }}>成功</span>
+                  <span className="mx-1">·</span>
+                  <span style={{ color: colors["--warning"] }}>警告</span>
+                  <span className="mx-1">·</span>
+                  <span style={{ color: colors["--danger"] }}>危險</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-t3">
+              自訂主題（custom:）只存在您的帳號與瀏覽器；市集主題（market:）才是全校可見。
+            </p>
+          </div>
+
+          {/* 下：控制項 */}
+          <form onSubmit={handleSave} className="space-y-5 border border-themed rounded-lg bg-card p-5">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block space-y-1 text-sm">
                   <span className="text-t2">主題名稱</span>
@@ -311,81 +384,6 @@ export default function ThemeEditorPage() {
                 </button>
               </div>
             </form>
-
-            {/* 右：即時預覽 */}
-            <div className="space-y-3">
-              <div className="text-sm font-semibold text-t1">即時預覽</div>
-              <div
-                className="rounded-lg border border-themed p-4 space-y-3"
-                style={{ background: colors["--bg"], color: colors["--t1"], borderColor: colors["--bd"] }}
-              >
-                <div className="text-xs" style={{ color: colors["--t3"] }}>
-                  頁面背景 --bg
-                </div>
-                <div
-                  className="rounded border p-3 space-y-2"
-                  style={{
-                    background: colors["--card"],
-                    borderColor: colors["--bd"],
-                    borderRadius: colors["--radius"],
-                    boxShadow: colors["--sh"],
-                  }}
-                >
-                  <div className="font-bold">卡片標題（--t1）</div>
-                  <div className="text-sm" style={{ color: colors["--t2"] }}>
-                    次要文字 --t2
-                  </div>
-                  <div className="text-xs" style={{ color: colors["--t3"] }}>
-                    輔助文字 --t3
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <span
-                      className="px-3 py-1.5 text-xs"
-                      style={{
-                        background: colors["--primary"],
-                        color: colors["--primary-text"],
-                        borderRadius: colors["--radius"],
-                      }}
-                    >
-                      主要按鈕
-                    </span>
-                    <span
-                      className="px-3 py-1.5 text-xs"
-                      style={{
-                        background: colors["--btn-secondary"],
-                        color: colors["--btn-secondary-text"],
-                        borderRadius: colors["--radius"],
-                      }}
-                    >
-                      次要按鈕
-                    </span>
-                    <span
-                      className="px-3 py-1.5 text-xs"
-                      style={{
-                        background: colors["--btn-danger"],
-                        color: colors["--btn-danger-text"],
-                        borderRadius: colors["--radius"],
-                      }}
-                    >
-                      危險按鈕
-                    </span>
-                  </div>
-                  <div className="text-xs pt-1">
-                    <span style={{ color: colors["--link"] }}>連結文字</span>
-                    <span className="mx-1">·</span>
-                    <span style={{ color: colors["--success"] }}>成功</span>
-                    <span className="mx-1">·</span>
-                    <span style={{ color: colors["--warning"] }}>警告</span>
-                    <span className="mx-1">·</span>
-                    <span style={{ color: colors["--danger"] }}>危險</span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-t3">
-                自訂主題（custom:）只存在您的帳號與瀏覽器；市集主題（market:）才是全校可見。
-              </p>
-            </div>
-          </div>
 
           {showSubmit && (
             <div className="border border-themed rounded-lg bg-card p-5 space-y-3">
