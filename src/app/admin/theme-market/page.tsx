@@ -59,6 +59,12 @@ interface InstallResponse {
   package?: InstallPackage;
 }
 
+interface MarketConfigResponse {
+  success: boolean;
+  message?: string;
+  marketUrl?: string;
+}
+
 export default function ThemeMarketPage() {
   const router = useRouter();
   const { currentTheme, setTheme, availableThemes } = useTheme();
@@ -69,6 +75,10 @@ export default function ThemeMarketPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionKind, setActionKind] = useState<"success" | "error" | null>(null);
   const [installedTick, setInstalledTick] = useState(0);
+  const [marketUrlInput, setMarketUrlInput] = useState("");
+  const [savingMarketUrl, setSavingMarketUrl] = useState(false);
+  const [marketUrlMessage, setMarketUrlMessage] = useState<string | null>(null);
+  const [marketUrlKind, setMarketUrlKind] = useState<"success" | "error" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +93,7 @@ export default function ThemeMarketPage() {
 
         if (!cancelled) {
           setThemes(data.themes ?? []);
+          setMarketUrlInput(data.marketUrl ?? "");
           setError(null);
         }
       } catch (loadError) {
@@ -188,6 +199,42 @@ export default function ThemeMarketPage() {
     return currentTheme.id === `market:${entry.id}`;
   }
 
+  async function handleSaveMarketUrl() {
+    setSavingMarketUrl(true);
+    setMarketUrlKind(null);
+    setMarketUrlMessage(null);
+    try {
+      const response = await fetch("/api/admin/theme-market", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marketUrl: marketUrlInput.trim() }),
+      });
+      const data: MarketConfigResponse = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "儲存主題市集來源失敗");
+      }
+      setMarketUrlKind("success");
+      setMarketUrlMessage(data.message || "主題市集來源已儲存");
+      setMarketUrlInput(data.marketUrl ?? "");
+
+      setLoading(true);
+      setError(null);
+      const refreshed = await fetch("/api/admin/theme-market", { cache: "no-store" });
+      const refreshedData: MarketResponse = await refreshed.json();
+      if (!refreshed.ok || !refreshedData.success) {
+        throw new Error(refreshedData.message || "重新讀取主題市集失敗");
+      }
+      setThemes(refreshedData.themes ?? []);
+      setMarketUrlInput(refreshedData.marketUrl ?? "");
+    } catch (saveError) {
+      setMarketUrlKind("error");
+      setMarketUrlMessage(saveError instanceof Error ? saveError.message : "儲存主題市集來源失敗");
+    } finally {
+      setSavingMarketUrl(false);
+      setLoading(false);
+    }
+  }
+
   void availableThemes;
 
   return (
@@ -206,6 +253,44 @@ export default function ThemeMarketPage() {
         >
           返回功能模組管理
         </button>
+      </div>
+
+      <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-t1">主題市集來源設定</h2>
+          <p className="text-xs text-t3">
+            可在此設定 index.json URL；留空代表回退環境變數（THEME_MARKET_INDEX_URL）。
+          </p>
+        </div>
+        <div className="flex flex-col md:flex-row gap-2">
+          <input
+            value={marketUrlInput}
+            onChange={(event) => setMarketUrlInput(event.target.value)}
+            placeholder="https://example.com/index.json"
+            className="flex-1 rounded border border-themed bg-card px-3 py-2 text-sm text-t1"
+          />
+          <button
+            type="button"
+            onClick={() => void handleSaveMarketUrl()}
+            disabled={savingMarketUrl}
+            className={`rounded px-3 py-2 text-xs ${
+              savingMarketUrl ? "border border-themed bg-muted text-t3 cursor-wait" : "btn-theme cursor-pointer"
+            }`}
+          >
+            {savingMarketUrl ? "儲存中..." : "儲存市集來源"}
+          </button>
+        </div>
+        {marketUrlMessage && (
+          <div
+            className={`rounded border px-3 py-2 text-xs ${
+              marketUrlKind === "success"
+                ? "border-success/60 bg-success/10 text-success"
+                : "border-danger/60 bg-danger/10 text-danger"
+            }`}
+          >
+            {marketUrlMessage}
+          </div>
+        )}
       </div>
 
       {actionMessage && (

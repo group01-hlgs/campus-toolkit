@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { readSystemDoc } from "@/lib/settings-server";
 import { THEME_COLOR_KEYS, REQUIRED_MARKET_THEME_KEYS } from "@/types/theme";
 import { parseThemeMarketIndex, ThemeMarketIndex } from "@/types/theme-market";
 import { defaultTheme } from "@/lib/themes";
@@ -48,18 +49,14 @@ export interface ThemeManifest {
 export const DEFAULT_THEME_MARKET_INDEX_URL =
   "https://raw.githubusercontent.com/takan003/campus-toolkit-theme-marketplace/main/index.json";
 
-export function resolveThemeMarketIndexUrl(): string | null {
-  const candidate =
-    process.env.THEME_MARKET_INDEX_URL?.trim() ||
-    process.env.THEME_MARKET_URL?.trim() ||
-    DEFAULT_THEME_MARKET_INDEX_URL;
+export const THEME_MARKET_INDEX_URL_FIELD = "themeMarketIndexUrl";
 
-  if (!candidate) {
-    return null;
-  }
+function normalizeThemeMarketUrl(candidate: string): string | null {
+  const text = candidate.trim();
+  if (!text) return null;
 
   try {
-    const parsed = new URL(candidate);
+    const parsed = new URL(text);
     const isLocalhostDev =
       process.env.NODE_ENV === "development" &&
       (parsed.protocol === "http:" || parsed.protocol === "https:") &&
@@ -79,8 +76,22 @@ export function resolveThemeMarketIndexUrl(): string | null {
   }
 }
 
-export function resolveThemeMarketHost(): string | null {
-  const marketUrl = resolveThemeMarketIndexUrl();
+export async function resolveThemeMarketIndexUrl(): Promise<string | null> {
+  const raw = await readSystemDoc();
+  const fromSettings =
+    typeof raw?.[THEME_MARKET_INDEX_URL_FIELD] === "string" ? raw[THEME_MARKET_INDEX_URL_FIELD] : "";
+  const fromEnv = process.env.THEME_MARKET_INDEX_URL?.trim() || process.env.THEME_MARKET_URL?.trim() || "";
+
+  return (
+    normalizeThemeMarketUrl(fromSettings) ||
+    normalizeThemeMarketUrl(fromEnv) ||
+    normalizeThemeMarketUrl(DEFAULT_THEME_MARKET_INDEX_URL) ||
+    null
+  );
+}
+
+export async function resolveThemeMarketHost(): Promise<string | null> {
+  const marketUrl = await resolveThemeMarketIndexUrl();
   if (!marketUrl) return null;
   try {
     return new URL(marketUrl).hostname;
@@ -90,7 +101,7 @@ export function resolveThemeMarketHost(): string | null {
 }
 
 /** downloadUrl 安全檢查：https 唯一（dev localhost 例外）＋主機必須＝市集來源主機 */
-export function assertSafeThemeDownloadUrl(raw: string): URL {
+export async function assertSafeThemeDownloadUrl(raw: string): Promise<URL> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -106,9 +117,9 @@ export function assertSafeThemeDownloadUrl(raw: string): URL {
     throw new Error("downloadUrl 僅允許 https（本機開發可允 localhost http）");
   }
 
-  const marketHost = resolveThemeMarketHost();
+  const marketHost = await resolveThemeMarketHost();
   if (!marketHost) {
-    throw new Error("尚未設定 THEME_MARKET_INDEX_URL——無法核對下載來源主機，拒絕安裝");
+    throw new Error("尚未設定主題市集來源 URL——無法核對下載來源主機，拒絕安裝");
   }
   if (url.hostname !== marketHost) {
     throw new Error(`downloadUrl 主機「${url.hostname}」與市集來源「${marketHost}」不一致，拒絕安裝`);
@@ -370,7 +381,7 @@ export async function downloadThemeZip(
   downloadUrl: string,
   expectedSha256: string
 ): Promise<{ filePath: string; sha256: string }> {
-  const url = assertSafeThemeDownloadUrl(downloadUrl);
+  const url = await assertSafeThemeDownloadUrl(downloadUrl);
   if (!url.pathname.toLowerCase().endsWith(".zip")) {
     throw new Error("主題下載檔必須為 .zip");
   }
@@ -516,9 +527,9 @@ let indexCache: { at: number; url: string; index: ThemeMarketIndex } | null = nu
 
 /** 抓取市集索引（5 分鐘記憶體快取；來源不可用時若持有過期快取則降級使用） */
 export async function fetchThemeMarketIndex(): Promise<ThemeMarketIndex> {
-  const marketUrl = resolveThemeMarketIndexUrl();
+  const marketUrl = await resolveThemeMarketIndexUrl();
   if (!marketUrl) {
-    throw new Error("尚未設定 THEME_MARKET_INDEX_URL");
+    throw new Error("尚未設定主題市集來源 URL");
   }
 
   const now = Date.now();

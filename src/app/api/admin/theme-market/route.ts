@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
-import { resolveThemeMarketIndexUrl } from "@/lib/theme-market";
+import { getClientIp, logActivity } from "@/lib/audit";
+import { resolveThemeMarketIndexUrl, THEME_MARKET_INDEX_URL_FIELD } from "@/lib/theme-market";
 import { parseThemeMarketIndex } from "@/types/theme-market";
+import { invalidateSettingsCache, SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +37,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const marketUrl = resolveThemeMarketIndexUrl();
+    const marketUrl = await resolveThemeMarketIndexUrl();
     if (!marketUrl) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "尚未設定 THEME_MARKET_INDEX_URL，請先在 .env.local 或環境變數中填入市集 index.json URL",
+            "尚未設定主題市集來源，請先在「主題市集來源設定」輸入 index.json URL，或設定 THEME_MARKET_INDEX_URL",
         },
         { status: 503 }
       );
@@ -96,6 +100,81 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: false,
       message: error instanceof Error ? error.message : "讀取主題市集失敗",
+    });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
+
+    const limited = enforceRateLimit(
+      request,
+      "theme-market",
+      RATE.THEME_MARKET_MUTATE.limit,
+      RATE.THEME_MARKET_MUTATE.windowMs
+    );
+    if (limited) return limited;
+
+    const { session, denial } = await requireAdminModule("themeMarket");
+    if (denial) return toAuthResponse(denial);
+
+    if (!(await isSuperAdmin(session))) {
+      return NextResponse.json(
+        { success: false, message: "僅超級管理員可設定主題市集來源" },
+        { status: 403 }
+      );
+    }
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const marketUrl = typeof body.marketUrl === "string" ? body.marketUrl.trim() : "";
+    if (marketUrl) {
+      let parsed: URL;
+      try {
+        parsed = new URL(marketUrl);
+      } catch {
+        return NextResponse.json({ success: false, message: "marketUrl 不是合法 URL" }, { status: 400 });
+      }
+
+      const isLocalhostDev =
+        process.env.NODE_ENV === "development" &&
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+      if (!isLocalhostDev && parsed.protocol !== "https:") {
+        return NextResponse.json(
+          { success: false, message: "marketUrl 僅允許 https（開發環境可允 localhost http）" },
+          { status: 400 }
+        );
+      }
+    }
+
+    await getAdminDb()
+      .collection(SETTINGS_COLLECTION)
+      .doc(SETTINGS_DOC_ID)
+      .set({ [THEME_MARKET_INDEX_URL_FIELD]: marketUrl }, { merge: true });
+    invalidateSettingsCache();
+
+    await logActivity({
+      userId: session.uid,
+      role: "admin",
+      action: "theme_market_published",
+      ip: getClientIp(request),
+      details: marketUrl
+        ? `設定主題市集來源：${marketUrl}`
+        : "清除主題市集來源設定（回退環境變數）",
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: marketUrl ? "主題市集來源已更新" : "主題市集來源已清除，將回退環境變數",
+      marketUrl,
+    });
+  } catch (error) {
+    console.error("Theme market config update error:", error);
+    return NextResponse.json({
+      success: false,
+      message: error instanceof Error ? error.message : "更新主題市集設定失敗",
     });
   }
 }
