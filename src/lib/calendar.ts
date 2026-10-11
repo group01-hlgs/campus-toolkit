@@ -388,6 +388,26 @@ export async function listAdminCalendarEvents(): Promise<AdminCalendarEventRow[]
   return rows;
 }
 
+/**
+ * 行程狀態統計（省流模式的輕量數據）：Firestore count 聚合——
+ * 每個計數僅 1 次讀取（不載入文件內容），比載入整份清單省流。
+ * 回傳「顯示中（active，未取消）」與「已取消」兩筆。
+ */
+export async function countCalendarEventsByStatus(): Promise<{
+  active: number;
+  cancelled: number;
+}> {
+  const col = getAdminDb().collection(CALENDAR_COLLECTION);
+  const [activeSnap, cancelledSnap] = await Promise.all([
+    col.where("status", "==", "active").count().get(),
+    col.where("status", "==", "cancelled").count().get(),
+  ]);
+  return {
+    active: activeSnap.data().count,
+    cancelled: cancelledSnap.data().count,
+  };
+}
+
 export interface CalendarListQuery {
   role: UserRole;
   classCode?: string | null;

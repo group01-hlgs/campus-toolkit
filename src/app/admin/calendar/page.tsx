@@ -142,6 +142,8 @@ export default function AdminCalendarPage() {
   );
   // 行程原則（下架行程真實刪除）
   const [policies, setPolicies] = useState<CalendarPolicies>(DEFAULT_CALENDAR_POLICIES);
+  // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次）
+  const [counts, setCounts] = useState<{ active: number; cancelled: number } | null>(null);
   const [cardOpen, setCardOpen] = useState({
     settings: false,
     policies: false,
@@ -206,6 +208,25 @@ export default function AdminCalendarPage() {
     if (listLoaded) return;
     void loadList();
   }, [settingsReady, gating, listLoaded, loadList]);
+
+  // 省流啟用時抓輕量統計（count 聚合，每筆僅 1 次讀取）
+  useEffect(() => {
+    if (!settingsReady || !saverOn) return;
+    let cancelled = false;
+    void fetch("/api/admin/calendar/count", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { success?: boolean; active?: number; cancelled?: number } | null) => {
+        if (!cancelled && data?.success) {
+          setCounts({ active: data.active ?? 0, cancelled: data.cancelled ?? 0 });
+        }
+      })
+      .catch(() => {
+        // 統計取不到就不出現，不影響省流閘門運作
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsReady, saverOn]);
 
   function applyListFromResponse(data: AdminListResponse) {
     if (listLoaded && data.events) setItems(data.events);
@@ -973,9 +994,17 @@ export default function AdminCalendarPage() {
           </div>
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
-          {gating ? (
-            <RevealListCard label="行程" onReveal={() => void loadList()} />
-          ) : loadingList && !listLoaded ? (
+    {gating ? (
+      <RevealListCard
+        label="行程"
+        onReveal={() => void loadList()}
+        summary={
+          counts
+            ? `目前顯示中（未取消）${counts.active} 筆｜已取消 ${counts.cancelled} 筆`
+            : undefined
+        }
+      />
+    ) : loadingList && !listLoaded ? (
             <p className="p-6 text-center text-t3">行程清單載入中...</p>
           ) : (
             <table className="w-full text-sm text-left">
