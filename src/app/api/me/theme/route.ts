@@ -6,6 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { USER_COLLECTION } from "@/types/users";
+import { THEME_COLOR_KEYS } from "@/types/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,24 @@ interface InstalledThemeItem {
   version: string;
   source: string;
   installedAt: string;
+  /** 自訂主題的色彩備援（方案 C：僅在編輯器「儲存」時寫入帳號，供跨裝置還原） */
+  colors?: Record<string, string>;
+}
+
+/** 驗證色彩物件（白名單鍵＋值安全；方案 C 的帳號備援格式） */
+function parseThemeColors(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const source = raw as Record<string, unknown>;
+  const entries = Object.entries(source);
+  if (entries.length === 0 || entries.length > THEME_COLOR_KEYS.length) return null;
+  const colors: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    if (!(THEME_COLOR_KEYS as readonly string[]).includes(key)) return null;
+    if (typeof value !== "string" || !value.trim() || value.length > 160) return null;
+    if (/[;{}]|url\(|expression\(/i.test(value)) return null;
+    colors[key] = value.trim();
+  }
+  return colors;
 }
 
 function parseInstalledThemes(raw: unknown): InstalledThemeItem[] | null {
@@ -36,13 +55,21 @@ function parseInstalledThemes(raw: unknown): InstalledThemeItem[] | null {
     const name = typeof record.name === "string" ? record.name.trim() : "";
     const version = typeof record.version === "string" ? record.version.trim() : "";
     if (!id || !name || !version || !THEME_ID_PATTERN.test(id)) return null;
-    items.push({
+    const entry: InstalledThemeItem = {
       id,
       name: name.slice(0, 100),
       version: version.slice(0, 20),
       source: typeof record.source === "string" ? record.source.slice(0, 20) : "market",
       installedAt: typeof record.installedAt === "string" ? record.installedAt.slice(0, 40) : "",
-    });
+    };
+    if (record.colors !== undefined) {
+      // 僅自訂主題允許附色彩備援（市集主題可從市集重抓，不佔帳號空間）
+      if (!id.startsWith("custom:")) return null;
+      const colors = parseThemeColors(record.colors);
+      if (!colors) return null;
+      entry.colors = colors;
+    }
+    items.push(entry);
   }
   return items;
 }

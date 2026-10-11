@@ -159,7 +159,8 @@ export default function ThemeEditorPage() {
         { colors: colors as unknown as ThemeColors, preview: colors["--bg"] || "#ffffff" }
       );
       setCurrentId(id);
-      void syncInstalledThemesToAccount();
+      // 方案 C：僅在「儲存」這個明確動作時，把該主題色彩備援寫入帳號（跨裝置還原用）
+      void syncInstalledThemesToAccount({ includeColorsFor: id });
       setTheme(id);
       refreshAvailableThemes();
       setMessage({ kind: "success", text: `已儲存並套用「${name.trim() || "我的主題"}」（僅顯示在您的帳號）` });

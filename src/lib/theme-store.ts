@@ -23,6 +23,8 @@ export interface InstalledThemeRecord {
   version: string;
   source: "market" | "custom";
   installedAt: string;
+  /** 自訂主題的色彩備援（方案 C：僅編輯器儲存時寫入帳號，供跨裝置還原） */
+  colors?: Record<string, string>;
 }
 
 interface StoredThemePayload {
@@ -199,8 +201,12 @@ export async function fetchAccountThemePrefs(): Promise<ThemeAccountPrefs | null
   }
 }
 
-/** 儲存目前主題 id 到帳號（防抖由呼叫端處理；失敗靜默——本機快取仍在） */
+/** 儲存目前主題 id 到帳號（方案 C 防呆：本次 session 內值未變則不寫，避免重複寫入吃額度） */
+let lastSyncedThemeId: string | null = null;
+
 export async function saveAccountThemeId(themeId: string): Promise<void> {
+  if (themeId === lastSyncedThemeId) return;
+  lastSyncedThemeId = themeId;
   try {
     await fetch("/api/me/theme", {
       method: "PUT",
@@ -212,15 +218,52 @@ export async function saveAccountThemeId(themeId: string): Promise<void> {
   }
 }
 
-/** 把本機已安裝清單同步到帳號（安裝／卸載後呼叫） */
-export async function syncInstalledThemesToAccount(): Promise<void> {
+/**
+ * 把本機已安裝清單同步到帳號（安裝／卸載後呼叫）。
+ * 方案 C：只在呼叫端指定 includeColorsFor 時（＝編輯器按「儲存」的罕見時刻）
+ * 才把該自訂主題的色彩附上——切主題、登入等高頻行為一律不寫色彩。
+ */
+export async function syncInstalledThemesToAccount(
+  options: { includeColorsFor?: string } = {}
+): Promise<void> {
   try {
+    let list: InstalledThemeRecord[] = listInstalledThemes();
+    if (options.includeColorsFor) {
+      const raw = localStorage.getItem(THEME_PREFIX + options.includeColorsFor);
+      if (raw) {
+        const colors = (JSON.parse(raw) as StoredThemePayload).colors;
+        list = list.map((item) =>
+          item.id === options.includeColorsFor ? { ...item, colors } : item
+        );
+      }
+    }
     await fetch("/api/me/theme", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ installedThemes: listInstalledThemes() }),
+      body: JSON.stringify({ installedThemes: list }),
     });
   } catch {
     // 同上，靜默失敗
   }
+}
+
+/**
+ * 從帳號偏好還原本機缺貨的自訂主題（登入時呼叫，方案 C 的讀回路徑）。
+ * 只還原本機不存在的 custom: 主題；market: 走 ensureMarketTheme 從市集重抓。
+ * 回傳是否有還原任何主題。
+ */
+export function restoreInstalledFromAccount(records: InstalledThemeRecord[]): boolean {
+  if (!isStorageAvailable()) return false;
+  let restored = false;
+  for (const record of records) {
+    if (!record.id.startsWith("custom:") || readStoredTheme(record.id)) continue;
+    const sanitized = sanitizeColors(record.colors);
+    if (!sanitized) continue;
+    saveInstalledTheme(record, {
+      colors: { ...defaultTheme.colors, ...sanitized } as ThemeColors,
+      preview: sanitized["--bg"] ?? defaultTheme.preview,
+    });
+    restored = true;
+  }
+  return restored;
 }

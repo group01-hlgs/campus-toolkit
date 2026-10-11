@@ -8,6 +8,7 @@ import {
   fetchAccountThemePrefs,
   listInstalledThemes,
   readStoredTheme,
+  restoreInstalledFromAccount,
   saveAccountThemeId,
 } from "@/lib/theme-store";
 
@@ -95,13 +96,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const prefs = await fetchAccountThemePrefs();
       if (cancelled || !prefs) return;
 
+      // 方案 C：先從帳號備援還原本機缺貨的自訂主題（僅登入時讀回，不另產生寫入）
+      const restoredCustom = restoreInstalledFromAccount(prefs.installedThemes);
+
       const missing = prefs.installedThemes
         .filter((record) => record.id.startsWith("market:") && !readStoredTheme(record.id))
         .slice(0, 10);
       for (const record of missing) {
         await ensureMarketTheme(record.id);
       }
-      if (missing.length > 0) {
+      if (restoredCustom || missing.length > 0) {
         setAvailableThemes(collectAvailableThemes());
       }
 
