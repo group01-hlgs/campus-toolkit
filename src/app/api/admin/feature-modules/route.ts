@@ -38,8 +38,11 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const [enabled, roles] = await Promise.all([getFeatureModulesEnabled(), getFeatureModuleRoles()]);
+    const canUninstall =
+      process.env.NODE_ENV === "development" ||
+      (process.env.NODE_ENV === "production" && !!resolveModuleMarketGithubConfig());
     return NextResponse.json(
-      { success: true, enabled, roles },
+      { success: true, enabled, roles, canUninstall },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {

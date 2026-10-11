@@ -20,6 +20,7 @@ interface FeatureModulesResponse {
   message?: string;
   enabled?: FeatureModulesEnabledMap;
   roles?: FeatureModuleRolesMap;
+  canUninstall?: boolean;
 }
 
 /** 小標籤（已上線／開發中／規劃中） */
@@ -235,7 +236,7 @@ function BuiltinRow({
   );
 }
 
-/** 選用功能模組列表列：總開關（任何已安裝模組皆可切換）＋四種身分顯示與否＋操作（卸載，僅本機開發），僅超級管理員可操作 */
+/** 選用功能模組列表列：總開關＋四種身分顯示與否＋操作（卸載），僅超級管理員可操作 */
 function OptionalRow({
   item,
   open,
@@ -243,6 +244,7 @@ function OptionalRow({
   enabled,
   switches,
   isSuper,
+  canUninstall,
   saving,
   onToggleMaster,
   onToggleRole,
@@ -254,6 +256,7 @@ function OptionalRow({
   enabled: boolean;
   switches: FeatureModuleRoleSwitches | undefined;
   isSuper: boolean;
+  canUninstall: boolean;
   saving: boolean;
   onToggleMaster: (item: FeatureModuleMeta, next: boolean) => void;
   onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
@@ -262,7 +265,9 @@ function OptionalRow({
   const stateText = enabled ? "已啟用" : "未啟用";
   const stateClass = enabled ? "text-success" : "text-t2";
   const disabledReason = !isSuper ? "僅超級管理員可操作" : saving ? "處理中..." : undefined;
-  const isDev = process.env.NODE_ENV === "development";
+  const uninstallDisabledReason = !canUninstall
+    ? "目前環境尚未完成卸載管線設定"
+    : disabledReason ?? "移除模組程式碼；資料庫資料預設保留";
   return (
     <>
       <tr className="border-b border-themed last:border-0 text-t1">
@@ -299,15 +304,12 @@ function OptionalRow({
         </td>
         <RoleCells item={item} switches={switches} disabled={!isSuper || saving} onToggle={onToggleRole} />
         <td className="px-3 py-2 whitespace-nowrap text-right">
-          {isDev ? (
+          {canUninstall ? (
             <button
               type="button"
               onClick={() => onUninstall(item)}
-              disabled={!isSuper || saving}
-              title={
-                disabledReason ??
-                "移除模組資料夾與安裝清單（Firestore 資料保留）；僅本機開發可用"
-              }
+              disabled={!isSuper || saving || !canUninstall}
+              title={uninstallDisabledReason}
               className="btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
             >
               卸載
@@ -339,6 +341,8 @@ export default function ModulesPage() {
   const [flash, setFlash] = useState<Flash>(null);
   // 卸載確認視窗（modal）：null＝關閉；否則為待卸載的模組
   const [confirmUninstall, setConfirmUninstall] = useState<FeatureModuleMeta | null>(null);
+  const [canUninstall, setCanUninstall] = useState(false);
+  const [backupConfirmed, setBackupConfirmed] = useState(false);
 
   // 儲存訊息：固定於畫面下方中央，約 3 秒後自動淡出（列表過長也看得到）
   useEffect(() => {
@@ -352,15 +356,17 @@ export default function ModulesPage() {
 
     fetch("/api/admin/feature-modules", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+      .then((data: FeatureModulesResponse | null) => {
         if (cancelled) return;
         setEnabled(data?.success && data.enabled ? data.enabled : {});
         setRoles(data?.success && data.roles ? data.roles : {});
+        setCanUninstall(data?.success ? data.canUninstall === true : false);
       })
       .catch(() => {
         if (!cancelled) {
           setEnabled({});
           setRoles({});
+          setCanUninstall(false);
         }
       });
 
@@ -412,6 +418,7 @@ export default function ModulesPage() {
   function uninstallModule(item: FeatureModuleMeta) {
     if (saving) return;
     setConfirmUninstall(item);
+    setBackupConfirmed(false);
   }
 
   /** 確認卸載後執行（僅本機開發；成功後重新載入，註冊表與列表已更新） */
@@ -424,7 +431,7 @@ export default function ModulesPage() {
       const res = await fetch("/api/admin/feature-modules", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: item.value }),
+        body: JSON.stringify({ value: item.value, confirmedBackup: backupConfirmed }),
       });
       const data: FeatureModulesResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
@@ -479,7 +486,10 @@ export default function ModulesPage() {
           className="fixed inset-0 z-[60] flex items-center justify-center px-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
           role="presentation"
-          onClick={() => setConfirmUninstall(null)}
+          onClick={() => {
+            setConfirmUninstall(null);
+            setBackupConfirmed(false);
+          }}
         >
           <div
             className="bg-card border border-themed rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in w-full max-w-md"
@@ -513,20 +523,35 @@ export default function ModulesPage() {
               <p id="uninstall-confirm-desc" className="text-sm text-t2">
                 將移除模組資料夾與安裝清單；Firestore 模組資料預設保留。
               </p>
-              <p className="text-xs text-t3 mt-2">此操作僅本機開發可用，執行後無法在畫面上復原。</p>
+              <p className="text-xs text-t3 mt-2">
+                卸載前請先備份模組關聯資料（例如 Firestore 集合與匯出檔）；資料清理需人工執行。
+              </p>
+              <label className="mt-3 inline-flex items-start gap-2 text-xs text-t2 text-left">
+                <input
+                  type="checkbox"
+                  checked={backupConfirmed}
+                  onChange={(event) => setBackupConfirmed(event.target.checked)}
+                  className="mt-0.5 accent-current"
+                />
+                我已完成備份，並理解卸載後需重新部署才會生效。
+              </label>
             </div>
             <div className="flex gap-3 justify-center pt-2">
               <button
                 type="button"
-                onClick={() => setConfirmUninstall(null)}
+                onClick={() => {
+                  setConfirmUninstall(null);
+                  setBackupConfirmed(false);
+                }}
                 className="border border-themed rounded-lg px-6 py-2 text-sm font-medium text-t2 hover:text-t1 cursor-pointer"
               >
                 取消
               </button>
               <button
                 type="button"
+                disabled={!backupConfirmed}
                 onClick={() => void runUninstall(confirmUninstall)}
-                className="btn-danger rounded-lg px-6 py-2 text-sm font-medium cursor-pointer"
+                className="btn-danger rounded-lg px-6 py-2 text-sm font-medium cursor-pointer disabled:opacity-50"
               >
                 確定卸載
               </button>
@@ -599,7 +624,7 @@ export default function ModulesPage() {
             已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用；
             「狀態」為模組作者宣告的進度資訊，不影響開關。
             四種身分欄：綠勾「提供」＋顯示與否勾選（提供功能＝否者顯示「未提供」）。
-            操作欄「卸載」僅本機開發可用（部署環境須經 git 移除）。
+            操作欄「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
@@ -642,6 +667,7 @@ export default function ModulesPage() {
                     enabled={enabled[item.value] === true}
                     switches={roles[item.value]}
                     isSuper={isSuper}
+                    canUninstall={canUninstall}
                     saving={saving === item.value || saving === `${item.value}:uninstall`}
                     onToggleMaster={toggleMaster}
                     onToggleRole={toggleRole}
