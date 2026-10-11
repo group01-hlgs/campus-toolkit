@@ -449,6 +449,8 @@ export interface CalendarSurfaceQuery {
  * 註：未登入不加 `isPublic == true` 下推——與範圍條件同查需另建複合索引，改以記憶體過濾。
  * 管理員豁免（比照提醒列表與管理端清單）：`role === "admin"` 不受受眾限制——
  * 行事曆受眾若只勾「學生」，管理員首頁的行事曆顯示區同樣要看得到（校務視角）。
+ * 管理員路徑刻意只下推 `startAt` 單欄位（走自動索引、免複合索引，
+ * 與管理端清單同策略）——status／尚未結束改記憶體過濾（量級以 SURFACE_FETCH_LIMIT 有界）。
  */
 export async function listSurfaceCalendarEvents(
   query: CalendarSurfaceQuery,
@@ -462,11 +464,17 @@ export async function listSurfaceCalendarEvents(
   }:${take}`;
   return cachedRead(cacheKey, SURFACE_TTL_MS, async () => {
     const settings = await getCalendarSettings();
-    let request = getAdminDb()
-      .collection(CALENDAR_COLLECTION)
-      .where("status", "==", "active")
-      .where("startAt", ">=", from);
-    if (role && role !== "admin") request = request.where("audienceRoles", "array-contains", role);
+    const isAdmin = role === "admin";
+    let request = getAdminDb().collection(CALENDAR_COLLECTION);
+    if (isAdmin) {
+      // 管理員：單欄位查詢（免複合索引），status／結束時間於記憶體過濾
+      request = request.where("startAt", ">=", from).orderBy("startAt");
+    } else {
+      request = request
+        .where("status", "==", "active")
+        .where("startAt", ">=", from);
+      if (role) request = request.where("audienceRoles", "array-contains", role);
+    }
     const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
     const now = Date.now();
     const records: CalendarEventRecord[] = [];
@@ -477,7 +485,7 @@ export async function listSurfaceCalendarEvents(
       // 顯示「尚未結束」的行程（進行中與未來皆可）
       if (calendarEventEnd(record) < now) continue;
       if (role) {
-        if (role !== "admin" && !canViewCalendarEvent(record.audience, role, classCode)) continue;
+        if (!isAdmin && !canViewCalendarEvent(record.audience, role, classCode)) continue;
       } else {
         // 未登入（系統首頁）：只顯示閱讀權限「無」（isPublic）的公開行程
         if (!isCalendarEventPublicReadable(record)) continue;
