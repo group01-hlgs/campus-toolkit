@@ -678,7 +678,7 @@ export default function CalendarView({
                       onClick={() => setSelectedDay(cell.key)}
                       aria-pressed={isSelected}
                       className={`min-h-16 sm:min-h-20 p-1 text-left border-r border-b border-themed last:border-r-0 cursor-pointer ${
-                        isSelected ? "bg-card border-primary/40" : "hover:bg-card/60"
+                        isSelected ? "bg-card border-primary-soft" : "hover:bg-card/60"
                       } ${cell.inMonth ? "" : "opacity-45"}`}
                     >
                       <span

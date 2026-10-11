@@ -338,6 +338,11 @@ mark {
 .text-danger { color: var(--danger); }
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }
+/* 主色底與主色邊框：Tailwind 預設色表沒有 primary，必須自行定義，
+   否則 bg-primary/border-primary 是空操作（曾使行事曆「今天」圓點白字隱形） */
+.bg-primary { background-color: var(--primary); }
+.border-primary { border-color: var(--primary); }
+.border-primary-soft { border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
 .border-themed { border-color: var(--bd); }
 /* 左側主題色粗邊（置頂橫幅卡）：寫在 .border-themed 之後，左邊框才會蓋過 */
 .border-l-primary { border-left-color: var(--primary); }
