@@ -34,6 +34,10 @@ export interface CommitMarketplaceInstallInput {
   minHostVersion: string;
 }
 
+export interface CommitMarketplaceUninstallInput {
+  moduleId: string;
+}
+
 export function resolveModuleMarketGithubConfig(): ModuleMarketGithubConfig | null {
   const token = process.env.MODULE_MARKET_GITHUB_TOKEN?.trim();
   if (!token) return null;
@@ -239,6 +243,118 @@ export async function commitMarketplaceModuleInstall(
 
   return {
     alreadyInstalled: false,
+    branch: baseBranch,
+    commitSha: String(commit.sha),
+    commitUrl: `https://github.com/${repo}/commit/${String(commit.sha)}`,
+  };
+}
+
+export async function commitMarketplaceModuleUninstall(
+  input: CommitMarketplaceUninstallInput
+): Promise<{ alreadyUninstalled: boolean; branch: string; commitUrl?: string; commitSha?: string }> {
+  const config = resolveModuleMarketGithubConfig();
+  if (!config) {
+    throw new Error(
+      "尚未設定 MODULE_MARKET_GITHUB_TOKEN（或 MODULE_MARKET_GITHUB_REPO / VERCEL_GIT_REPO_OWNER+SLUG）——無法在正式環境自動卸載"
+    );
+  }
+
+  const { token, repo } = config;
+  const [owner, repoName] = repo.split("/");
+  const repoBase = `/repos/${owner}/${repoName}`;
+
+  const repoInfo = await githubRequest(token, repoBase);
+  const baseBranch = typeof repoInfo?.default_branch === "string" ? repoInfo.default_branch : "main";
+
+  const baseRef = await githubRequest(
+    token,
+    `${repoBase}/git/ref/heads/${encodeURIComponent(baseBranch)}`
+  );
+  const baseSha = (baseRef?.object as { sha?: string } | undefined)?.sha;
+  if (!baseSha) {
+    throw new Error("無法取得目標 repo 基準分支位置");
+  }
+
+  const baseCommit = await githubRequest(token, `${repoBase}/git/commits/${baseSha}`);
+  const baseTreeSha = (baseCommit?.tree as { sha?: string } | undefined)?.sha;
+  if (!baseTreeSha) {
+    throw new Error("無法取得目標 repo 基準 tree");
+  }
+
+  const lockRecord = await readRemoteLockFile(token, repoBase, baseBranch);
+  const lock = lockRecord?.lock ?? { lockVersion: 1, modules: [] };
+  const hadModule = lock.modules.some((item) => item.value === input.moduleId);
+  lock.modules = lock.modules.filter((item) => item.value !== input.moduleId);
+
+  const modulePath = `src/modules/${input.moduleId}`;
+  const treePayload = await githubRequest(
+    token,
+    `${repoBase}/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`
+  );
+  const treeItems = Array.isArray(treePayload?.tree)
+    ? (treePayload.tree as Array<{ path?: unknown; type?: unknown }>)
+    : [];
+  const moduleFiles = treeItems
+    .filter((item) => item && item.type === "blob" && typeof item.path === "string")
+    .map((item) => String(item.path))
+    .filter((pathValue) => pathValue.startsWith(`${modulePath}/`));
+
+  if (!hadModule && moduleFiles.length === 0) {
+    return { alreadyUninstalled: true, branch: baseBranch };
+  }
+
+  const treeEntries: Array<Record<string, unknown>> = moduleFiles.map((filePath) => ({
+    path: filePath,
+    mode: "100644",
+    type: "blob",
+    sha: null,
+  }));
+
+  if (lock.modules.length === 0) {
+    treeEntries.push({ path: "module.lock.json", mode: "100644", type: "blob", sha: null });
+  } else {
+    const lockBlob = await githubRequest(token, `${repoBase}/git/blobs`, {
+      method: "POST",
+      body: { content: Buffer.from(`${JSON.stringify(lock, null, 2)}\n`, "utf-8").toString("base64"), encoding: "base64" },
+    });
+    if (!lockBlob?.sha) {
+      throw new Error("建立 module.lock.json blob 失敗");
+    }
+    treeEntries.push({
+      path: "module.lock.json",
+      mode: "100644",
+      type: "blob",
+      sha: lockBlob.sha,
+    });
+  }
+
+  const tree = await githubRequest(token, `${repoBase}/git/trees`, {
+    method: "POST",
+    body: { base_tree: baseTreeSha, tree: treeEntries },
+  });
+  if (!tree?.sha) {
+    throw new Error("建立 tree 失敗");
+  }
+
+  const commit = await githubRequest(token, `${repoBase}/git/commits`, {
+    method: "POST",
+    body: {
+      message: `uninstall(module): ${input.moduleId}`,
+      tree: tree.sha,
+      parents: [baseSha],
+    },
+  });
+  if (!commit?.sha) {
+    throw new Error("建立 commit 失敗");
+  }
+
+  await githubRequest(token, `${repoBase}/git/refs/heads/${encodeURIComponent(baseBranch)}`, {
+    method: "PATCH",
+    body: { sha: commit.sha, force: false },
+  });
+
+  return {
+    alreadyUninstalled: false,
     branch: baseBranch,
     commitSha: String(commit.sha),
     commitUrl: `https://github.com/${repo}/commit/${String(commit.sha)}`,

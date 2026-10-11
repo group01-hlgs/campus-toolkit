@@ -43,6 +43,9 @@ interface MarketConfigResponse {
 interface ToggleInstallResponse {
   success: boolean;
   message?: string;
+  branch?: string;
+  commitUrl?: string;
+  alreadyUninstalled?: boolean;
 }
 
 export default function ModuleMarketPage() {
@@ -61,6 +64,8 @@ export default function ModuleMarketPage() {
   const [savingMarketUrl, setSavingMarketUrl] = useState(false);
   const [marketUrlMessage, setMarketUrlMessage] = useState<string | null>(null);
   const [marketUrlKind, setMarketUrlKind] = useState<"success" | "error" | null>(null);
+  const [uninstallTarget, setUninstallTarget] = useState<MarketModuleEntry | null>(null);
+  const [backupConfirmed, setBackupConfirmed] = useState(false);
 
   async function fetchMarket(signal?: AbortSignal): Promise<MarketResponse> {
     const response = await fetch("/api/admin/feature-modules/market", { cache: "no-store", signal });
@@ -169,18 +174,32 @@ export default function ModuleMarketPage() {
     }
   }
 
-  async function handleUninstall(module: MarketModuleEntry) {
+  function openUninstallModal(module: MarketModuleEntry) {
+    setUninstallTarget(module);
+    setBackupConfirmed(false);
+  }
+
+  function closeUninstallModal() {
+    setUninstallTarget(null);
+    setBackupConfirmed(false);
+  }
+
+  async function handleUninstallConfirmed() {
+    if (!uninstallTarget) return;
+    const module = uninstallTarget;
+    const confirmed = backupConfirmed;
     setInstallingId(module.id);
     setInstallKind(null);
     setInstallMessage(null);
     setInstallCommitUrl(null);
     setInstallBranch(null);
+    closeUninstallModal();
 
     try {
       const response = await fetch("/api/admin/feature-modules", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: module.id }),
+        body: JSON.stringify({ value: module.id, confirmedBackup: confirmed }),
       });
       const data: ToggleInstallResponse = await response.json();
       if (!response.ok || !data.success) {
@@ -188,6 +207,8 @@ export default function ModuleMarketPage() {
       }
       setInstallKind("success");
       setInstallMessage(data.message || "卸載成功");
+      setInstallCommitUrl(data.commitUrl ?? null);
+      setInstallBranch(data.branch ?? null);
       setInstalledModules((prev) => {
         const next = { ...prev };
         delete next[module.id];
@@ -236,6 +257,66 @@ export default function ModuleMarketPage() {
 
   return (
     <div className="w-full max-w-5xl space-y-6">
+      {uninstallTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <button
+            type="button"
+            onClick={closeUninstallModal}
+            className="absolute inset-0 bg-black/40"
+            aria-label="關閉卸載確認視窗"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="uninstall-modal-title"
+            className="relative z-10 w-full max-w-lg rounded-xl border border-danger/50 bg-card p-5 shadow-xl"
+          >
+            <h2 id="uninstall-modal-title" className="text-lg font-bold text-danger">
+              確認卸載模組
+            </h2>
+            <div className="mt-3 space-y-2 text-sm text-t2">
+              <p>
+                你即將卸載「{uninstallTarget.name}」。此動作會從程式碼移除模組並提交部署，入口將消失。
+              </p>
+              <p className="rounded border border-warning/60 bg-warning/10 px-3 py-2 text-warning">
+                ⚠ 警告：請先備份與本模組關聯的資料（例如 Firestore 集合、匯出檔案）。
+                卸載流程預設不會自動刪除資料，但後續人工清理若操作錯誤可能造成不可逆損失。
+              </p>
+            </div>
+            <label className="mt-4 flex items-start gap-2 text-sm text-t1">
+              <input
+                type="checkbox"
+                checked={backupConfirmed}
+                onChange={(event) => setBackupConfirmed(event.target.checked)}
+                className="mt-0.5 accent-current"
+              />
+              我已完成資料備份，並理解卸載後需重新部署才會生效。
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeUninstallModal}
+                className="rounded border border-themed px-3 py-2 text-xs text-t2 hover:text-t1 cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={!backupConfirmed || installingId === uninstallTarget.id}
+                onClick={() => void handleUninstallConfirmed()}
+                className={`rounded px-3 py-2 text-xs ${
+                  !backupConfirmed || installingId === uninstallTarget.id
+                    ? "border border-themed bg-muted text-t3 cursor-not-allowed"
+                    : "border border-danger/60 bg-danger/10 text-danger cursor-pointer"
+                }`}
+              >
+                確認卸載
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-t1">模組市集</h1>
@@ -416,13 +497,13 @@ export default function ModuleMarketPage() {
                     <button
                       type="button"
                       disabled={installingId === module.id}
-                      onClick={() => void handleUninstall(module)}
+                      onClick={() => openUninstallModal(module)}
                       className={`rounded px-3 py-1.5 text-xs ${
                         installingId === module.id
                           ? "border border-themed bg-muted text-t3 cursor-wait"
                           : "border border-danger/60 text-danger cursor-pointer"
                       }`}
-                      title={installingId === module.id ? "處理中..." : "卸載模組（僅本機開發）"}
+                      title={installingId === module.id ? "處理中..." : "卸載模組"}
                     >
                       卸載
                     </button>

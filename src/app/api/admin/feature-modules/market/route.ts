@@ -9,6 +9,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { parseModuleMarketIndex } from "@/types/module-market";
 import { invalidateSettingsCache, SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
 import { MODULE_MARKET_INDEX_URL_FIELD, resolveModuleMarketIndexUrl } from "@/lib/module-market";
+import { resolveModuleMarketGithubConfig } from "@/lib/module-market-github";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,9 @@ export async function GET(request: NextRequest) {
       marketplaceVersion: index.marketplaceVersion,
       modules: index.modules,
       installedModules: readInstalledModules(),
-      canUninstall: process.env.NODE_ENV === "development",
+      canUninstall:
+        process.env.NODE_ENV === "development" ||
+        (process.env.NODE_ENV === "production" && !!resolveModuleMarketGithubConfig()),
     });
   } catch (error) {
     console.error("Market modules fetch error:", error);

@@ -8,6 +8,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
+import { commitMarketplaceModuleUninstall, resolveModuleMarketGithubConfig } from "@/lib/module-market-github";
 import {
   getFeatureModuleRoles,
   getFeatureModulesEnabled,
@@ -160,9 +161,9 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
- * DELETE：卸載選用模組（僅超級管理員；**僅本機開發**）。
+ * DELETE：卸載選用模組（僅超級管理員）。
  * 執行 `scripts/module-cli.mjs uninstall <value>`（刪資料夾＋lock＋重產生註冊表與轉接檔）。
- * 部署環境的檔案系統唯讀、且版本受 git 控制，正式卸載須走 git commit（期 6 市集管線）。
+ * 部署環境走 GitHub 提交管線（刪 src/modules/<value> 與 lock 該列）。
  */
 export async function DELETE(request: NextRequest) {
   try {
@@ -186,18 +187,10 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    if (process.env.NODE_ENV !== "development") {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "部署環境無法直接卸載（檔案受 git 版本控制）；請在 git 移除模組資料夾後 push",
-        },
-        { status: 400 }
-      );
-    }
-
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const value = typeof body.value === "string" ? body.value : "";
+    const confirmedBackup = body.confirmedBackup === true;
+    const isProduction = process.env.NODE_ENV === "production";
     const meta = value ? featureModuleMeta(value) : undefined;
     if (!meta) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
@@ -207,6 +200,50 @@ export async function DELETE(request: NextRequest) {
         { success: false, message: "內建功能模組隨主程式提供，無法卸載" },
         { status: 400 }
       );
+    }
+
+    if (isProduction) {
+      if (!resolveModuleMarketGithubConfig()) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "尚未設定 MODULE_MARKET_GITHUB_TOKEN（或 MODULE_MARKET_GITHUB_REPO / VERCEL_GIT_REPO_OWNER+SLUG）——無法在正式環境自動卸載",
+          },
+          { status: 503 }
+        );
+      }
+      if (!confirmedBackup) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "卸載前請先完成資料備份，並於確認視窗勾選「我已完成備份」後再執行",
+          },
+          { status: 400 }
+        );
+      }
+
+      const committed = await commitMarketplaceModuleUninstall({ moduleId: value });
+      invalidateFeatureModulesCache();
+      await logActivity({
+        userId: session.uid,
+        role: "admin",
+        action: "feature_module_updated",
+        ip: getClientIp(request),
+        details: committed.alreadyUninstalled
+          ? `卸載功能模組「${meta.label}」：遠端已無安裝資料（branch: ${committed.branch}）`
+          : `卸載功能模組「${meta.label}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`,
+      });
+
+      return NextResponse.json({
+        success: true,
+        alreadyUninstalled: committed.alreadyUninstalled,
+        message: committed.alreadyUninstalled
+          ? `${meta.label}目前未安裝（遠端已是卸載狀態）`
+          : `${meta.label}卸載提交已建立，請等待部署完成；資料庫資料預設保留，若需清除請先備份後手動處理`,
+        branch: committed.branch,
+        commitUrl: committed.commitUrl,
+      });
     }
 
     const cli = path.join(process.cwd(), "scripts", "module-cli.mjs");
