@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
 import {
@@ -21,6 +21,13 @@ interface FeatureModulesResponse {
   enabled?: FeatureModulesEnabledMap;
   roles?: FeatureModuleRolesMap;
   canUninstall?: boolean;
+  branch?: string;
+  commitUrl?: string;
+}
+
+interface MarketInstalledResponse {
+  success?: boolean;
+  installedModules?: Record<string, string>;
 }
 
 /** 小標籤（已上線／開發中／規劃中） */
@@ -245,6 +252,7 @@ function OptionalRow({
   switches,
   isSuper,
   canUninstall,
+  pendingUninstall,
   saving,
   onToggleMaster,
   onToggleRole,
@@ -257,6 +265,7 @@ function OptionalRow({
   switches: FeatureModuleRoleSwitches | undefined;
   isSuper: boolean;
   canUninstall: boolean;
+  pendingUninstall?: { branch?: string; commitUrl?: string };
   saving: boolean;
   onToggleMaster: (item: FeatureModuleMeta, next: boolean) => void;
   onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
@@ -304,7 +313,21 @@ function OptionalRow({
         </td>
         <RoleCells item={item} switches={switches} disabled={!isSuper || saving} onToggle={onToggleRole} />
         <td className="px-3 py-2 whitespace-nowrap text-right">
-          {canUninstall ? (
+          {pendingUninstall ? (
+            <span className="text-xs text-warning inline-flex items-center gap-2">
+              部署中…
+              {pendingUninstall.commitUrl ? (
+                <a
+                  href={pendingUninstall.commitUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-warning"
+                >
+                  查看提交
+                </a>
+              ) : null}
+            </span>
+          ) : canUninstall ? (
             <button
               type="button"
               onClick={() => onUninstall(item)}
@@ -343,6 +366,10 @@ export default function ModulesPage() {
   const [confirmUninstall, setConfirmUninstall] = useState<FeatureModuleMeta | null>(null);
   const [canUninstall, setCanUninstall] = useState(false);
   const [backupConfirmed, setBackupConfirmed] = useState(false);
+  const [pendingUninstalls, setPendingUninstalls] = useState<
+    Record<string, { branch?: string; commitUrl?: string }>
+  >({});
+  const pollTimersRef = useRef<Record<string, number>>({});
 
   // 儲存訊息：固定於畫面下方中央，約 3 秒後自動淡出（列表過長也看得到）
   useEffect(() => {
@@ -350,6 +377,13 @@ export default function ModulesPage() {
     const timer = setTimeout(() => setFlash(null), 3000);
     return () => clearTimeout(timer);
   }, [flash]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(pollTimersRef.current).forEach((timerId) => window.clearInterval(timerId));
+      pollTimersRef.current = {};
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,7 +455,7 @@ export default function ModulesPage() {
     setBackupConfirmed(false);
   }
 
-  /** 確認卸載後執行（僅本機開發；成功後重新載入，註冊表與列表已更新） */
+  /** 確認卸載後執行（正式環境送出提交並等待部署；本機開發直接生效） */
   async function runUninstall(item: FeatureModuleMeta) {
     setConfirmUninstall(null);
     if (saving) return;
@@ -437,12 +471,57 @@ export default function ModulesPage() {
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || `操作失敗（HTTP ${res.status}）`);
       }
-      setFlash({ type: "success", text: data.message || "已卸載" });
-      window.location.reload();
+      setSaving(null);
+      if (data.commitUrl || data.branch) {
+        setPendingUninstalls((current) => ({
+          ...current,
+          [item.value]: { branch: data.branch, commitUrl: data.commitUrl },
+        }));
+        setFlash({
+          type: "success",
+          text: `${data.message || "已送出卸載提交"}（部署完成後此頁會自動刷新）`,
+        });
+        startUninstallPolling(item.value);
+      } else {
+        setFlash({ type: "success", text: data.message || "已卸載" });
+        window.location.reload();
+      }
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
       setSaving(null);
     }
+  }
+
+  function startUninstallPolling(moduleValue: string) {
+    if (pollTimersRef.current[moduleValue]) return;
+
+    let attempts = 0;
+    const maxAttempts = 60;
+    const timerId = window.setInterval(async () => {
+      attempts += 1;
+      try {
+        const res = await fetch("/api/admin/feature-modules/market", { cache: "no-store" });
+        const data: MarketInstalledResponse | null = await res.json().catch(() => null);
+        const installed = data?.success && data.installedModules ? data.installedModules : {};
+        if (!installed[moduleValue]) {
+          window.clearInterval(timerId);
+          delete pollTimersRef.current[moduleValue];
+          window.location.reload();
+          return;
+        }
+      } catch {
+        // 忽略暫時的輪詢失敗，讓下一次重試
+      }
+
+      if (attempts >= maxAttempts) {
+        window.clearInterval(timerId);
+        delete pollTimersRef.current[moduleValue];
+        setSaving(null);
+        setFlash({ type: "success", text: "卸載提交已送出；部署時間較長，請稍後手動重新整理。" });
+      }
+    }, 8000);
+
+    pollTimersRef.current[moduleValue] = timerId;
   }
 
   function toggleHelp(value: string) {
@@ -668,7 +747,12 @@ export default function ModulesPage() {
                     switches={roles[item.value]}
                     isSuper={isSuper}
                     canUninstall={canUninstall}
-                    saving={saving === item.value || saving === `${item.value}:uninstall`}
+                    pendingUninstall={pendingUninstalls[item.value]}
+                    saving={
+                      saving === item.value ||
+                      saving === `${item.value}:uninstall` ||
+                      !!pendingUninstalls[item.value]
+                    }
                     onToggleMaster={toggleMaster}
                     onToggleRole={toggleRole}
                     onUninstall={uninstallModule}
