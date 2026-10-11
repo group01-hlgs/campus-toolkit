@@ -564,17 +564,22 @@ export async function listPublicCalendarEvents(limit: number = 20): Promise<Cale
 
 /**
  * 公開行事曆專頁：區間查詢（startAt 單欄位範圍，免複合索引）。
- * 狀態＝active 且公開可讀，於記憶體過濾；取量以 limit 有界（≤200，鐵律 3）。
- * 同日同區間 cachedRead（15 秒），寫入後由 invalidateCalendarCache() 清前綴失效。
+ * 狀態＝active，於記憶體過濾；`viewerIsAdmin`＝檢視者為管理員時放行全部行程
+ * （比照管理端視角——管理員在檢視頁也應看得到僅限管理員的行程），否則只回公開行程。
+ * 取量以 limit 有界（≤200，鐵律 3）。同日同區間 cachedRead（15 秒），
+ * 寫入後由 invalidateCalendarCache() 清前綴失效。
  */
 export async function listPublicCalendarEventsInRange(
   fromMs: number,
   toMs: number,
-  limit: number = 200
+  limit: number = 200,
+  viewerIsAdmin = false
 ): Promise<CalendarSurfaceItem[]> {
   const take = Math.min(Math.max(Math.round(limit) || 1, 1), 200);
   const dayBucket = Math.floor(fromMs / 86_400_000);
-  const cacheKey = `${LIST_CACHE_PREFIX}public:range:${dayBucket}:${toMs}:${take}`;
+  const cacheKey = `${LIST_CACHE_PREFIX}public:range:${dayBucket}:${toMs}:${take}:${
+    viewerIsAdmin ? "admin" : "guest"
+  }`;
   return cachedRead(cacheKey, SURFACE_TTL_MS, async () => {
     const settings = await getCalendarSettings();
     // 回溯限制【管理員設定 policies.publicPastMonths】：起點鉗制在允許的最早月初
@@ -592,7 +597,7 @@ export async function listPublicCalendarEventsInRange(
       const record = readCalendarEventRecord(doc.id, doc.data());
       if (!record) continue;
       if (record.status !== "active") continue;
-      if (!isCalendarEventPublicReadable(record)) continue;
+      if (!viewerIsAdmin && !isCalendarEventPublicReadable(record)) continue;
       if (calendarEventEnd(record) < effectiveFrom) continue;
       records.push(record);
     }
