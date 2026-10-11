@@ -117,6 +117,26 @@ export default function AdminAnnouncementsPage() {
   // 清單關鍵字搜尋（省流閘門外：輸入即載入清單再過濾）
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "archived">("all");
+  // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次）
+  const [counts, setCounts] = useState<{ published: number; archived: number } | null>(null);
+
+  useEffect(() => {
+    if (!settingsReady || !saverOn) return;
+    let cancelled = false;
+    void fetch("/api/admin/announcements/count", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { success?: boolean; published?: number; archived?: number } | null) => {
+        if (!cancelled && data?.success) {
+          setCounts({ published: data.published ?? 0, archived: data.archived ?? 0 });
+        }
+      })
+      .catch(() => {
+        // 統計取不到就不出現，不影響省流閘門運作
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsReady, saverOn]);
 
   useEffect(() => {
     if (!flash) return;
@@ -849,7 +869,15 @@ export default function AdminAnnouncementsPage() {
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
           {gating ? (
-            <RevealListCard label="公告" onReveal={() => void loadList()} />
+            <RevealListCard
+              label="公告"
+              onReveal={() => void loadList()}
+              summary={
+                counts
+                  ? `目前未下架（發布中）${counts.published} 則｜已封存 ${counts.archived} 則`
+                  : undefined
+              }
+            />
           ) : loadingList && !listLoaded ? (
             <p className="p-6 text-center text-t3">公告清單載入中...</p>
           ) : (

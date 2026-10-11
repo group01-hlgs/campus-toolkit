@@ -353,6 +353,26 @@ export async function listAdminAnnouncements(
   return rows;
 }
 
+/**
+ * 公告狀態統計（省流模式的輕量數據）：使用 Firestore count 聚合查詢——
+ * 每個計數僅計 1 次讀取（不載入任何文件內容），遠比載入整份清單省流。
+ * 回傳「發布中（未下架）」與「已封存」兩筆；其他狀態（草稿等）不計。
+ */
+export async function countAnnouncementsByStatus(): Promise<{
+  published: number;
+  archived: number;
+}> {
+  const col = getAdminDb().collection(ANNOUNCEMENTS_COLLECTION);
+  const [publishedSnap, archivedSnap] = await Promise.all([
+    col.where("status", "==", "published").count().get(),
+    col.where("status", "==", "archived").count().get(),
+  ]);
+  return {
+    published: publishedSnap.data().count,
+    archived: archivedSnap.data().count,
+  };
+}
+
 export interface InboxQuery {
   role: UserRole;
   classCode?: string | null;
