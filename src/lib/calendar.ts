@@ -465,15 +465,12 @@ export async function listSurfaceCalendarEvents(
   return cachedRead(cacheKey, SURFACE_TTL_MS, async () => {
     const settings = await getCalendarSettings();
     const isAdmin = role === "admin";
-    let request = getAdminDb().collection(CALENDAR_COLLECTION);
-    if (isAdmin) {
-      // 管理員：單欄位查詢（免複合索引），status／結束時間於記憶體過濾
-      request = request.where("startAt", ">=", from).orderBy("startAt");
-    } else {
-      request = request
-        .where("status", "==", "active")
-        .where("startAt", ">=", from);
-      if (role) request = request.where("audienceRoles", "array-contains", role);
+    const col = getAdminDb().collection(CALENDAR_COLLECTION);
+    let request = isAdmin
+      ? col.where("startAt", ">=", from).orderBy("startAt")
+      : col.where("status", "==", "active").where("startAt", ">=", from);
+    if (!isAdmin && role) {
+      request = request.where("audienceRoles", "array-contains", role);
     }
     const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
     const now = Date.now();
