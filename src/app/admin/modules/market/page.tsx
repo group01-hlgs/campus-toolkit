@@ -73,7 +73,7 @@ export default function ModuleMarketPage() {
   }, []);
 
   async function handleInstall(module: MarketModuleEntry) {
-    if (!module.downloadUrl && !module.repoUrl) {
+    if (!module.downloadUrl) {
       setInstallKind("error");
       setInstallMessage("該模組沒有可安裝來源，請先提供 downloadUrl");
       return;
@@ -90,7 +90,7 @@ export default function ModuleMarketPage() {
         body: JSON.stringify({
           id: module.id,
           downloadUrl: module.downloadUrl,
-          sourcePath: module.repoUrl,
+          checksumSha256: module.checksumSha256,
         }),
       });
 

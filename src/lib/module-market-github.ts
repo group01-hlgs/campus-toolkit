@@ -1,0 +1,246 @@
+import fs from "node:fs";
+import path from "node:path";
+
+const GITHUB_API = "https://api.github.com";
+const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+interface ModuleLockEntry {
+  value: string;
+  version: string;
+  contractVersion: number;
+  minHostVersion: string;
+  sha256: string;
+  source: string;
+  installedAt: string;
+}
+
+interface ModuleLockFile {
+  lockVersion: number;
+  modules: ModuleLockEntry[];
+}
+
+export interface ModuleMarketGithubConfig {
+  token: string;
+  repo: string;
+}
+
+export interface CommitMarketplaceInstallInput {
+  moduleId: string;
+  moduleDir: string;
+  downloadUrl: string;
+  archiveSha256: string;
+  manifestVersion: string;
+  contractVersion: number;
+  minHostVersion: string;
+}
+
+export function resolveModuleMarketGithubConfig(): ModuleMarketGithubConfig | null {
+  const token = process.env.MODULE_MARKET_GITHUB_TOKEN?.trim();
+  if (!token) return null;
+
+  const owner = process.env.VERCEL_GIT_REPO_OWNER?.trim();
+  const slug = process.env.VERCEL_GIT_REPO_SLUG?.trim();
+  const derivedRepo = owner && slug ? `${owner}/${slug}` : "";
+  const repo = process.env.MODULE_MARKET_GITHUB_REPO?.trim() || derivedRepo;
+
+  if (!repo || !REPO_PATTERN.test(repo)) return null;
+  return { token, repo };
+}
+
+async function githubRequest(
+  token: string,
+  apiPath: string,
+  init: { method?: string; body?: unknown; allow404?: boolean } = {}
+): Promise<Record<string, unknown> | null> {
+  const response = await fetch(`${GITHUB_API}${apiPath}`, {
+    method: init.method ?? "GET",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+    cache: "no-store",
+  });
+
+  if (response.status === 404 && init.allow404) return null;
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 240);
+    throw new Error(`GitHub API 失敗（HTTP ${response.status}）：${detail}`);
+  }
+
+  return (await response.json()) as Record<string, unknown>;
+}
+
+function readModuleFiles(moduleDir: string): Array<{ path: string; contentBase64: string }> {
+  const files: Array<{ path: string; contentBase64: string }> = [];
+  const walk = (dir: string) => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".next") continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const rel = path.relative(moduleDir, fullPath).split(path.sep).join("/");
+      files.push({
+        path: rel,
+        contentBase64: fs.readFileSync(fullPath).toString("base64"),
+      });
+    }
+  };
+  walk(moduleDir);
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function parseLockFile(raw: string): ModuleLockFile {
+  const parsed = JSON.parse(raw) as { lockVersion?: unknown; modules?: unknown };
+  const modules = Array.isArray(parsed.modules) ? parsed.modules : [];
+  return {
+    lockVersion: typeof parsed.lockVersion === "number" && Number.isFinite(parsed.lockVersion) ? parsed.lockVersion : 1,
+    modules: modules.filter((item): item is ModuleLockEntry => {
+      return !!item && typeof item === "object" && typeof (item as { value?: unknown }).value === "string";
+    }),
+  };
+}
+
+async function readRemoteLockFile(
+  token: string,
+  repoBase: string,
+  ref: string
+): Promise<{ sha: string; lock: ModuleLockFile } | null> {
+  const lockContent = await githubRequest(
+    token,
+    `${repoBase}/contents/${encodeURIComponent("module.lock.json")}?ref=${encodeURIComponent(ref)}`,
+    { allow404: true }
+  );
+  if (!lockContent) return null;
+
+  const encoded = typeof lockContent.content === "string" ? lockContent.content : "";
+  const fileSha = typeof lockContent.sha === "string" ? lockContent.sha : "";
+  if (!encoded || !fileSha) {
+    throw new Error("讀取 module.lock.json 失敗（內容或 SHA 缺失）");
+  }
+
+  const decoded = Buffer.from(encoded.replace(/\n/g, ""), "base64").toString("utf-8");
+  return { sha: fileSha, lock: parseLockFile(decoded) };
+}
+
+export async function commitMarketplaceModuleInstall(
+  input: CommitMarketplaceInstallInput
+): Promise<{ alreadyInstalled: boolean; branch: string; commitUrl?: string; commitSha?: string }> {
+  const config = resolveModuleMarketGithubConfig();
+  if (!config) {
+    throw new Error(
+      "尚未設定 MODULE_MARKET_GITHUB_TOKEN（或 MODULE_MARKET_GITHUB_REPO / VERCEL_GIT_REPO_OWNER+SLUG）——無法在正式環境自動安裝"
+    );
+  }
+
+  const { token, repo } = config;
+  const [owner, repoName] = repo.split("/");
+  const repoBase = `/repos/${owner}/${repoName}`;
+
+  const repoInfo = await githubRequest(token, repoBase);
+  const baseBranch = typeof repoInfo?.default_branch === "string" ? repoInfo.default_branch : "main";
+
+  const baseRef = await githubRequest(
+    token,
+    `${repoBase}/git/ref/heads/${encodeURIComponent(baseBranch)}`
+  );
+  const baseSha = (baseRef?.object as { sha?: string } | undefined)?.sha;
+  if (!baseSha) {
+    throw new Error("無法取得目標 repo 基準分支位置");
+  }
+
+  const baseCommit = await githubRequest(token, `${repoBase}/git/commits/${baseSha}`);
+  const baseTreeSha = (baseCommit?.tree as { sha?: string } | undefined)?.sha;
+  if (!baseTreeSha) {
+    throw new Error("無法取得目標 repo 基準 tree");
+  }
+
+  const lockRecord = await readRemoteLockFile(token, repoBase, baseBranch);
+  const lock = lockRecord?.lock ?? { lockVersion: 1, modules: [] };
+  if (lock.modules.some((item) => item.value === input.moduleId)) {
+    return { alreadyInstalled: true, branch: baseBranch };
+  }
+
+  lock.modules.push({
+    value: input.moduleId,
+    version: input.manifestVersion,
+    contractVersion: input.contractVersion,
+    minHostVersion: input.minHostVersion,
+    sha256: input.archiveSha256,
+    source: `market:${input.downloadUrl}`,
+    installedAt: new Date().toISOString().slice(0, 10),
+  });
+
+  const moduleFiles = readModuleFiles(input.moduleDir);
+  if (moduleFiles.length === 0) {
+    throw new Error("模組來源資料夾沒有可提交檔案");
+  }
+
+  const treeEntries: Array<Record<string, unknown>> = [];
+  for (const file of moduleFiles) {
+    const blob = await githubRequest(token, `${repoBase}/git/blobs`, {
+      method: "POST",
+      body: { content: file.contentBase64, encoding: "base64" },
+    });
+    if (!blob?.sha) {
+      throw new Error(`建立 blob 失敗：${file.path}`);
+    }
+    treeEntries.push({
+      path: `src/modules/${input.moduleId}/${file.path}`,
+      mode: "100644",
+      type: "blob",
+      sha: blob.sha,
+    });
+  }
+
+  const lockBlob = await githubRequest(token, `${repoBase}/git/blobs`, {
+    method: "POST",
+    body: { content: Buffer.from(`${JSON.stringify(lock, null, 2)}\n`, "utf-8").toString("base64"), encoding: "base64" },
+  });
+  if (!lockBlob?.sha) {
+    throw new Error("建立 module.lock.json blob 失敗");
+  }
+  treeEntries.push({
+    path: "module.lock.json",
+    mode: "100644",
+    type: "blob",
+    sha: lockBlob.sha,
+  });
+
+  const tree = await githubRequest(token, `${repoBase}/git/trees`, {
+    method: "POST",
+    body: { base_tree: baseTreeSha, tree: treeEntries },
+  });
+  if (!tree?.sha) {
+    throw new Error("建立 tree 失敗");
+  }
+
+  const commit = await githubRequest(token, `${repoBase}/git/commits`, {
+    method: "POST",
+    body: {
+      message: `install(module): ${input.moduleId} v${input.manifestVersion}`,
+      tree: tree.sha,
+      parents: [baseSha],
+    },
+  });
+  if (!commit?.sha) {
+    throw new Error("建立 commit 失敗");
+  }
+
+  await githubRequest(token, `${repoBase}/git/refs/heads/${encodeURIComponent(baseBranch)}`, {
+    method: "PATCH",
+    body: { sha: commit.sha, force: false },
+  });
+
+  return {
+    alreadyInstalled: false,
+    branch: baseBranch,
+    commitSha: String(commit.sha),
+    commitUrl: `https://github.com/${repo}/commit/${String(commit.sha)}`,
+  };
+}

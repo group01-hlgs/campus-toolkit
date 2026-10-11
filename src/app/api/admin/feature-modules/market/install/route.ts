@@ -8,6 +8,7 @@ import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
+import { commitMarketplaceModuleInstall, resolveModuleMarketGithubConfig } from "@/lib/module-market-github";
 
 export const dynamic = "force-dynamic";
 
@@ -184,18 +185,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 部署環境檔案系統唯讀、版本受 git 控制：正式安裝走期 6 Git 管線，此路由僅供本機開發
-    if (process.env.NODE_ENV === "production") {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "部署環境無法直接安裝（檔案受 git 版本控制）——請於本機開發環境安裝後 commit＋push，或等待期 6 市集 Git 安裝管線",
-        },
-        { status: 400 }
-      );
-    }
-
+    const isProduction = process.env.NODE_ENV === "production";
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const moduleId = typeof body.id === "string" ? body.id.trim() : "";
     const sourcePath = typeof body.sourcePath === "string" ? body.sourcePath.trim() : "";
@@ -206,10 +196,35 @@ export async function POST(request: NextRequest) {
     if (!moduleId) {
       return NextResponse.json({ success: false, message: "缺少模組 id" }, { status: 400 });
     }
+    if (isProduction && sourcePath) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "正式環境僅接受市集下載安裝（downloadUrl），不接受 sourcePath",
+        },
+        { status: 400 }
+      );
+    }
+    if (isProduction && !resolveModuleMarketGithubConfig()) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "尚未設定 MODULE_MARKET_GITHUB_TOKEN（或 MODULE_MARKET_GITHUB_REPO / VERCEL_GIT_REPO_OWNER+SLUG）——無法在正式環境自動安裝",
+        },
+        { status: 503 }
+      );
+    }
+    if (isProduction && (!expectedSha256 || !/^[0-9a-f]{64}$/.test(expectedSha256))) {
+      return NextResponse.json(
+        { success: false, message: "正式環境安裝需提供 checksumSha256（64 碼小寫十六進位）" },
+        { status: 400 }
+      );
+    }
 
     let workingDir = "";
+    let downloadedSha256: string | null = null;
     if (sourcePath) {
-      // 本機開發便利通道：僅 dev（production 已在上方全擋）
       const normalized = path.resolve(sourcePath);
       if (!fs.existsSync(normalized) || !fs.statSync(normalized).isDirectory()) {
         return NextResponse.json(
@@ -226,6 +241,7 @@ export async function POST(request: NextRequest) {
       if (expectedSha256 && downloaded.sha256 !== expectedSha256) {
         throw new Error(`套件完整性校驗失敗（sha256 不符）——拒絕安裝【附錄 A #13】`);
       }
+      downloadedSha256 = downloaded.sha256;
       const extractedDir = extractArchive(downloaded.filePath, downloaded.extension);
       workingDir = findModuleManifestRoot(extractedDir);
     } else {
@@ -244,6 +260,9 @@ export async function POST(request: NextRequest) {
     }
     const manifestParsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8").replace(/^﻿/, "")) as {
       value?: unknown;
+      contractVersion?: unknown;
+      minHostVersion?: unknown;
+      author?: { version?: unknown };
     };
     if (typeof manifestParsed.value !== "string" || manifestParsed.value !== moduleId) {
       return NextResponse.json(
@@ -253,6 +272,63 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+    const manifestVersion =
+      manifestParsed?.author && typeof manifestParsed.author.version === "string"
+        ? manifestParsed.author.version
+        : "";
+    const contractVersion =
+      typeof manifestParsed.contractVersion === "number" && Number.isFinite(manifestParsed.contractVersion)
+        ? manifestParsed.contractVersion
+        : 1;
+    const minHostVersion =
+      typeof manifestParsed.minHostVersion === "string" && manifestParsed.minHostVersion.trim()
+        ? manifestParsed.minHostVersion.trim()
+        : "0";
+
+    if (isProduction) {
+      if (!downloadUrl || !downloadedSha256) {
+        return NextResponse.json(
+          { success: false, message: "正式環境安裝需提供可下載的 downloadUrl" },
+          { status: 400 }
+        );
+      }
+      if (!manifestVersion) {
+        return NextResponse.json(
+          { success: false, message: "module.json 缺少 author.version，無法建立正式安裝提交" },
+          { status: 400 }
+        );
+      }
+
+      const committed = await commitMarketplaceModuleInstall({
+        moduleId,
+        moduleDir: workingDir,
+        downloadUrl,
+        archiveSha256: downloadedSha256,
+        manifestVersion,
+        contractVersion,
+        minHostVersion,
+      });
+
+      await logActivity({
+        userId: session.uid,
+        role: "admin",
+        action: "feature_module_updated",
+        ip: getClientIp(request),
+        details: committed.alreadyInstalled
+          ? `市集安裝功能模組「${moduleId}」：已存在於遠端 lock（branch: ${committed.branch}）`
+          : `市集安裝功能模組「${moduleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`,
+      });
+
+      return NextResponse.json({
+        success: true,
+        alreadyInstalled: committed.alreadyInstalled,
+        message: committed.alreadyInstalled
+          ? `模組「${moduleId}」已安裝在目前分支，無需重複提交。`
+          : `模組「${moduleId}」已提交至 GitHub（branch: ${committed.branch}），請等待部署完成。`,
+        branch: committed.branch,
+        commitUrl: committed.commitUrl,
+      });
     }
 
     const installed = readLockModules();
