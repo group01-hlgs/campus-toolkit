@@ -206,6 +206,46 @@ export default function ThemeEditorPage() {
         </div>
 
         <div className="space-y-6">
+          {/* 我的自訂主題（管理清單，獨立於編輯表單之外） */}
+          {customThemes.length > 0 && (
+            <div className="border border-themed rounded-lg bg-card p-4 space-y-2">
+              <div className="text-sm font-semibold text-t1">
+                我的自訂主題（{customThemes.length}）
+              </div>
+              <div className="space-y-1">
+                {customThemes.map((record) => (
+                  <div
+                    key={record.id}
+                    className="flex items-center justify-between gap-2 border border-themed rounded px-3 py-2 text-sm"
+                  >
+                    <span className="text-t1 truncate">
+                      {record.name}
+                      {currentId === record.id && (
+                        <span className="ml-2 text-xs text-success">編輯中</span>
+                      )}
+                    </span>
+                    <span className="flex gap-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => loadCustom(record.id)}
+                        className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
+                      >
+                        載入編輯
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(record.id)}
+                        className="rounded px-3 py-1 text-xs border border-danger/60 text-danger cursor-pointer"
+                      >
+                        刪除
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 上方：即時預覽（桌面版黏在視野頂端，調色不離預覽） */}
           <div className="space-y-2 lg:sticky lg:top-4 z-10">
             <div className="text-sm font-semibold text-t1">即時預覽</div>
@@ -332,43 +372,6 @@ export default function ThemeEditorPage() {
                   </select>
                 </label>
               </div>
-
-              {customThemes.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-sm font-semibold text-t1">已儲存的自訂主題</div>
-                  <div className="space-y-1">
-                    {customThemes.map((record) => (
-                      <div
-                        key={record.id}
-                        className="flex items-center justify-between gap-2 border border-themed rounded px-3 py-2 text-sm"
-                      >
-                        <span className="text-t1 truncate">
-                          {record.name}
-                          {currentId === record.id && (
-                            <span className="ml-2 text-xs text-success">編輯中</span>
-                          )}
-                        </span>
-                        <span className="flex gap-2 flex-shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => loadCustom(record.id)}
-                            className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
-                          >
-                            載入編輯
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(record.id)}
-                            className="rounded px-3 py-1 text-xs border border-danger/60 text-danger cursor-pointer"
-                          >
-                            刪除
-                          </button>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {COLOR_GROUPS.map((group) => (
                 <div key={group.title} className="space-y-2">
