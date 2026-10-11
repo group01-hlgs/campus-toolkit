@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { defaultTheme } from "@/lib/themes";
+import { fetchSession } from "@/lib/session";
 import { removeInstalledTheme, syncInstalledThemesToAccount } from "@/lib/theme-store";
 
 export default function ThemeToggle() {
   const { currentTheme, setTheme, availableThemes, refreshAvailableThemes } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+
+  // 未登入時隱藏編輯／投稿等進階入口（僅保留基本切換）
+  useEffect(() => {
+    void fetchSession().then((session) => setLoggedIn(!!session));
+  }, []);
 
   function handleDeleteCustom(themeId: string, themeName: string) {
     if (!window.confirm(`確定刪除自訂主題「${themeName}」？`)) return;
@@ -160,9 +167,13 @@ export default function ThemeToggle() {
           }}
         >
           <div>共 {availableThemes.length} 款可用主題</div>
-          <a href="/theme-editor" className="underline" style={{ color: "var(--link)" }}>
-            編輯我的主題 →
-          </a>
+          {loggedIn ? (
+            <a href="/theme-editor" className="underline" style={{ color: "var(--link)" }}>
+              編輯我的主題 →
+            </a>
+          ) : (
+            <span style={{ color: "var(--t3)" }}>登入後可編輯與投稿主題</span>
+          )}
         </div>
         </div>
       </div>
