@@ -396,9 +396,9 @@ export interface CalendarListQuery {
 }
 
 /**
- * 各身分行程列表：查詢條件全下推（鐵律 2）——
- * `status == active` ＋ `audienceRoles array-contains role` ＋ `startAt >= 今日零時`；
- * 班級受眾於記憶體過濾（量級同公告，避免再疊一層 array-contains）。
+ * 各身分行程列表：僅下推 `startAt` 單欄位（**免複合索引**，與顯示區／管理端清單
+ * 同策略——舊版下推 status＋audienceRoles 需複合索引，開發專案缺索引時整頁 500）；
+ * status／受眾與班級於記憶體過濾（量級以 LIST_LIMIT 有界，鐵律 3）。
  * 15 秒 cachedRead，寫入後由 `invalidateCalendarCache()` 清前綴失效。
  */
 export async function listCalendarEvents(
@@ -411,9 +411,8 @@ export async function listCalendarEvents(
     const settings = await getCalendarSettings();
     const snap = await getAdminDb()
       .collection(CALENDAR_COLLECTION)
-      .where("status", "==", "active")
-      .where("audienceRoles", "array-contains", role)
       .where("startAt", ">=", from)
+      .orderBy("startAt")
       .limit(LIST_LIMIT)
       .get();
     const now = Date.now();

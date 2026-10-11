@@ -359,8 +359,9 @@ export interface InboxQuery {
 }
 
 /**
- * 角色收件匣：role 等值＋status published 查詢（過濾下推），
- * 班級／到期在記憶體過濾（校園公告量級可接受；避免複合索引）。
+ * 角色收件匣：僅下推 `publishAt` 單欄位排序（**免複合索引**，與行事曆同策略——
+ * 舊版 status＋audienceRoles 需複合索引，開發專案缺索引時整頁 500）；
+ * 狀態／受眾／班級／到期於記憶體過濾（量級以 INBOX_LIMIT 有界，鐵律 3）。
  */
 export async function listInboxAnnouncements(
   query: InboxQuery
@@ -371,8 +372,7 @@ export async function listInboxAnnouncements(
     const settings = await getAnnouncementSettings();
     const snap = await getAdminDb()
       .collection(ANNOUNCEMENTS_COLLECTION)
-      .where("status", "==", "published")
-      .where("audienceRoles", "array-contains", role)
+      .orderBy("publishAt", "desc")
       .limit(INBOX_LIMIT)
       .get();
     const now = Date.now();
@@ -427,12 +427,9 @@ export interface SurfaceQuery {
 /**
  * 顯示位置（系統首頁登入表單上方／四種身分功能首頁）的公告。
  *
- * 過濾下推（鐵律 2）：等值條件全寫在 Firestore 查詢上——
- * - 未登入：`isPublic == true`（閱讀權限「無」）；
- * - 一般身分：`audienceRoles array-contains role`（公開公告的 roles 含全身分，一併命中）；
- * - 管理員：`status == published`（管理員功能首頁可見全部公告）。
- * 班級／到期於記憶體過濾（同收件匣）；15 秒 cachedRead，寫入後由
- * `invalidateAnnouncementsCache()` 清前綴失效。
+ * 查詢策略：僅下推 `publishAt` 單欄位排序（**免複合索引**）；
+ * 公開判定／受眾（含管理員豁免）／班級／到期於記憶體過濾（量級有界，鐵律 3）；
+ * 15 秒 cachedRead，寫入後由 `invalidateAnnouncementsCache()` 清前綴失效。
  */
 export async function listSurfaceAnnouncements(
   query: SurfaceQuery,
@@ -443,15 +440,11 @@ export async function listSurfaceAnnouncements(
   const cacheKey = `${SURFACE_CACHE_PREFIX}${surface}:${role ?? "guest"}:${classCode || "*"}:${take}`;
   return cachedRead(cacheKey, INBOX_TTL_MS, async () => {
     const settings = await getAnnouncementSettings();
-    let request = getAdminDb()
+    const snap = await getAdminDb()
       .collection(ANNOUNCEMENTS_COLLECTION)
-      .where("status", "==", "published");
-    if (!role) {
-      request = request.where("isPublic", "==", true);
-    } else if (role !== "admin") {
-      request = request.where("audienceRoles", "array-contains", role);
-    }
-    const snap = await request.limit(SURFACE_FETCH_LIMIT).get();
+      .orderBy("publishAt", "desc")
+      .limit(SURFACE_FETCH_LIMIT)
+      .get();
     const now = Date.now();
     // 置頂原則關閉時：不論資料庫中 pinned 值，一律視為未置頂
     const enablePinned = settings.policies.enablePinned;
@@ -460,6 +453,12 @@ export async function listSurfaceAnnouncements(
       const record = readAnnouncementRecord(doc.id, doc.data());
       if (!record) continue;
       if (!isAnnouncementReadable(record, now)) continue;
+      // 受眾（記憶體）：未登入只看公開；一般身分看含其角色者；管理員看全部
+      if (!role) {
+        if (!record.isPublic) continue;
+      } else if (role !== "admin") {
+        if (!record.audience.roles.includes(role)) continue;
+      }
       if (audienceClassScoped(record.audience)) {
         if (!classCode || !record.audience.classCodes.includes(classCode)) continue;
       }
@@ -495,11 +494,8 @@ export interface ArchiveQuery {
 /**
  * 公告專頁（`/announcements`）：5 處顯示位置共用的「全部公告」清單。
  *
- * 過濾下推（鐵律 2）與顯示位置同一套——
- * - 未登入：`isPublic == true`（閱讀權限「無」）；
- * - 一般身分：`audienceRoles array-contains role`（公開公告的 roles 含全身分，一併命中）；
- * - 管理員：`status == published`（可見全部公告）。
- * 班級／到期於記憶體過濾（同收件匣／顯示位置）；單次 `limit(ARCHIVE_LIMIT)`
+ * 查詢策略：僅下推 `publishAt` 單欄位排序（**免複合索引**）；
+ * 公開判定／受眾（含管理員豁免）／班級／到期於記憶體過濾；單次 `limit(ARCHIVE_LIMIT)`
  * 為有界查詢（鐵律 3），前端以共用分頁元件切片，翻頁不增加任何 Firestore 讀取；
  * 15 秒 cachedRead，寫入後由 `invalidateAnnouncementsCache()` 清前綴失效。
  */
@@ -510,15 +506,11 @@ export async function listArchiveAnnouncements(
   const cacheKey = `${ARCHIVE_CACHE_PREFIX}${role ?? "guest"}:${classCode || "*"}`;
   return cachedRead(cacheKey, INBOX_TTL_MS, async () => {
     const settings = await getAnnouncementSettings();
-    let request = getAdminDb()
+    const snap = await getAdminDb()
       .collection(ANNOUNCEMENTS_COLLECTION)
-      .where("status", "==", "published");
-    if (!role) {
-      request = request.where("isPublic", "==", true);
-    } else if (role !== "admin") {
-      request = request.where("audienceRoles", "array-contains", role);
-    }
-    const snap = await request.limit(ARCHIVE_LIMIT).get();
+      .orderBy("publishAt", "desc")
+      .limit(ARCHIVE_LIMIT)
+      .get();
     const now = Date.now();
     // 置頂原則關閉時：不論資料庫中 pinned 值，一律視為未置頂
     const enablePinned = settings.policies.enablePinned;
@@ -527,6 +519,12 @@ export async function listArchiveAnnouncements(
       const record = readAnnouncementRecord(doc.id, doc.data());
       if (!record) continue;
       if (!isAnnouncementReadable(record, now)) continue;
+      // 受眾（記憶體）：未登入只看公開；一般身分看含其角色者；管理員看全部
+      if (!role) {
+        if (!record.isPublic) continue;
+      } else if (role !== "admin") {
+        if (!record.audience.roles.includes(role)) continue;
+      }
       const scoped = audienceClassScoped(record.audience);
       if (scoped) {
         if (!classCode) continue;
