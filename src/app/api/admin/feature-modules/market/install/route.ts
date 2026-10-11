@@ -9,6 +9,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { commitMarketplaceModuleInstall, resolveModuleMarketGithubConfig } from "@/lib/module-market-github";
+import { resolveModuleMarketIndexUrl } from "@/lib/module-market";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +33,8 @@ function readLockModules(): Set<string> {
   }
 }
 
-function resolveMarketHost(): string | null {
-  const candidate =
-    process.env.MODULE_MARKET_INDEX_URL?.trim() || process.env.MODULE_MARKET_URL?.trim() || "";
+async function resolveMarketHost(): Promise<string | null> {
+  const candidate = await resolveModuleMarketIndexUrl();
   if (!candidate) return null;
   try {
     return new URL(candidate).hostname;
@@ -48,7 +48,7 @@ function resolveMarketHost(): string | null {
  * - https 唯一（dev 可放行 localhost/127.0.0.1 的 http）
  * - 主機必須＝市集 index 的主機（防 SSRF：不可指到內網/元數據端點）
  */
-function assertSafeDownloadUrl(raw: string): URL {
+async function assertSafeDownloadUrl(raw: string): Promise<URL> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -61,9 +61,9 @@ function assertSafeDownloadUrl(raw: string): URL {
   if (!devLocalhostOk && url.protocol !== "https:") {
     throw new Error("downloadUrl 僅允許 https（本機開發可允 localhost http）");
   }
-  const marketHost = resolveMarketHost();
+  const marketHost = await resolveMarketHost();
   if (!marketHost) {
-    throw new Error("尚未設定 MODULE_MARKET_INDEX_URL——無法核對下載來源主機，拒絕安裝");
+    throw new Error("尚未設定模組市集來源 URL——無法核對下載來源主機，拒絕安裝");
   }
   if (url.hostname !== marketHost) {
     throw new Error(`downloadUrl 主機「${url.hostname}」與市集來源「${marketHost}」不一致，拒絕安裝`);
@@ -72,7 +72,7 @@ function assertSafeDownloadUrl(raw: string): URL {
 }
 
 async function downloadToTemp(downloadUrl: string): Promise<{ filePath: string; extension: string; sha256: string }> {
-  const url = assertSafeDownloadUrl(downloadUrl);
+  const url = await assertSafeDownloadUrl(downloadUrl);
   const lowerPath = url.pathname.toLowerCase();
   const suffix = lowerPath.endsWith(".zip") ? ".zip" : lowerPath.endsWith(".tar.gz") ? ".tar.gz" : "";
 
