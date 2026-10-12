@@ -431,49 +431,9 @@ export default function ModuleMarketPage() {
         </button>
       </div>
 
-      <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold text-t1">模組市集來源設定</h2>
-          <p className="text-xs text-t3">
-            可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。
-          </p>
-        </div>
-        <div className="flex flex-col md:flex-row gap-2">
-          <input
-            value={marketUrlInput}
-            onChange={(event) => setMarketUrlInput(event.target.value)}
-            placeholder="https://example.com/index.json"
-            className="flex-1 rounded border border-themed bg-card px-3 py-2 text-sm text-t1"
-          />
-          <button
-            type="button"
-            onClick={() => void handleSaveMarketUrl()}
-            disabled={savingMarketUrl}
-            className={`rounded px-3 py-2 text-xs ${
-              savingMarketUrl ? "border border-themed bg-muted text-t3 cursor-wait" : "btn-theme cursor-pointer"
-            }`}
-          >
-            {savingMarketUrl ? "儲存中..." : "儲存市集來源"}
-          </button>
-        </div>
-        {marketUrlMessage && (
-          <div
-            className={`rounded border px-3 py-2 text-xs ${
-              marketUrlKind === "success"
-                ? "border-success/60 bg-success/10 text-success"
-                : "border-danger/60 bg-danger/10 text-danger"
-            }`}
-          >
-            {marketUrlMessage}
-          </div>
-        )}
-      </div>
-
-      <div className="border border-themed rounded-lg bg-card p-4 space-y-4">
-        <h2 className="text-sm font-semibold text-t1">安裝方式</h2>
-
-        <div className="border border-themed rounded-lg bg-card p-4 space-y-2">
-          <h3 className="text-sm font-semibold text-t1">全自動一鍵安裝</h3>
+      <div className="space-y-4">
+        <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
+          <h2 className="text-sm font-semibold text-t1">全自動一鍵安裝</h2>
           <p className="text-xs text-t2">
             直接使用模組卡片的「安裝／更新」按鈕。正式環境需設定 `MODULE_MARKET_GITHUB_TOKEN` 與 repo 來源參數。
           </p>
@@ -488,10 +448,46 @@ export default function ModuleMarketPage() {
               {canAutoInstall ? "目前可用" : "尚未完成參數設定"}
             </span>
           </div>
+
+          <div className="pt-2 border-t border-themed space-y-2">
+            <h3 className="text-xs font-semibold text-t1">模組市集來源設定</h3>
+            <p className="text-xs text-t2">
+              可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。
+            </p>
+            <div className="flex flex-col md:flex-row gap-2">
+              <input
+                value={marketUrlInput}
+                onChange={(event) => setMarketUrlInput(event.target.value)}
+                placeholder="https://example.com/index.json"
+                className="flex-1 rounded border border-themed bg-card px-3 py-2 text-sm text-t1"
+              />
+              <button
+                type="button"
+                onClick={() => void handleSaveMarketUrl()}
+                disabled={savingMarketUrl}
+                className={`rounded px-3 py-2 text-xs ${
+                  savingMarketUrl ? "border border-themed bg-muted text-t3 cursor-wait" : "btn-theme cursor-pointer"
+                }`}
+              >
+                {savingMarketUrl ? "儲存中..." : "儲存市集來源"}
+              </button>
+            </div>
+            {marketUrlMessage && (
+              <div
+                className={`rounded border px-3 py-2 text-xs ${
+                  marketUrlKind === "success"
+                    ? "border-success/60 bg-success/10 text-success"
+                    : "border-danger/60 bg-danger/10 text-danger"
+                }`}
+              >
+                {marketUrlMessage}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-t1">半自動上傳安裝</h3>
+          <h2 className="text-sm font-semibold text-t1">半自動上傳安裝</h2>
           <p className="text-xs text-t2">
             上傳模組壓縮檔（.zip / .tar.gz）後由系統驗證並安裝。可選填模組代碼，不填則以 module.json 的 value 為準。
           </p>
@@ -520,12 +516,10 @@ export default function ModuleMarketPage() {
         </div>
 
         <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
-          <div>
-            <h3 className="text-sm font-semibold text-t1">手動安裝</h3>
-            <p className="text-xs text-t2">
-              不論一鍵安裝或上傳安裝是否可用，都可改走以下手動流程。更新同模組版本時，請先卸載再安裝新版。
-            </p>
-          </div>
+          <h2 className="text-sm font-semibold text-t1">手動安裝</h2>
+          <p className="text-xs text-t2">
+            不論一鍵安裝或上傳安裝是否可用，都可改走以下手動流程。更新同模組版本時，請先卸載再安裝新版。
+          </p>
           {alwaysVisibleGuide.title && <p className="text-xs font-medium text-t1">{alwaysVisibleGuide.title}</p>}
           {Array.isArray(alwaysVisibleGuide.steps) && alwaysVisibleGuide.steps.length > 0 && (
             <ol className="list-decimal pl-4 space-y-1 text-xs text-t2">
