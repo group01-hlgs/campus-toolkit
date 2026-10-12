@@ -2,18 +2,31 @@
 
 /**
  * `/api/settings` 的前端共用讀寫（模組層）：
- * - 同時間只發一發請求（in-flight 共用），30 秒內重複請求直接吃快取。
- *   伺服端 readSystemDoc 本就有 30 秒快取，這裡再省掉的是網路與渲染往返。
+ * - 快取依「目前 session 身分」分槽（未登入＝"anon"），30 秒內同身分重複請求
+ *   直接吃快取；身分一變（登入／登出／切換／選身分）key 自然不符 → 強制重抓，
+ *   避免舊身分的 visibleModules 在新身分頁殘留（入口卡鬼魂）或反向全數消失。
+ * - 同身分內併入 in-flight 去重，避免同畫面多處呼叫重複打網路。
  * - 任何回應自帶的 `cacheEpoch` 一律採用（伺服器真相），
  *   供 list-store 判斷手上的清單是否已過期。
  *
- * 變更設定後（admin/settings 的 PUT）呼叫 `invalidateSettings()` 捨棄快取，
- * 強制下次讀回最新值（回應的 cacheEpoch 也會一併採用）。
+ * 變更設定後（admin/settings 的 PUT）或身分切換（RoleSwitcher）呼叫
+ * `invalidateSettings()` 捨棄全部分槽，強制下次讀回最新值。
  */
 
 import { Settings } from "@/types/settings";
+import { getCachedSession } from "@/lib/session";
 
 const TTL_MS = 30_000;
+
+/**
+ * 快取分槽的 key＝目前 session 身分（未登入＝"anon"）。
+ * 回應中的 visibleModules 是伺服器依「當時身分」算的；身分一變
+ * （登入／登出／切換／選身分），key 自然不符 → 強制重抓，
+ * 避免舊身分的可見清單在新身分頁殘留（入口卡鬼魂）或反向全數消失。
+ */
+function roleKey(): string {
+  return getCachedSession()?.role ?? "anon";
+}
 
 export interface SettingsResponse {
   success?: boolean;
@@ -26,8 +39,8 @@ export interface SettingsResponse {
   cacheEpoch?: number;
 }
 
-let cache: { data: SettingsResponse; at: number } | null = null;
-let inFlight: Promise<SettingsResponse> | null = null;
+let cache = new Map<string, { data: SettingsResponse; at: number }>();
+let inFlight = new Map<string, Promise<SettingsResponse>>();
 let epoch: number | null = null;
 
 /** 採用伺服器宣告的目前 epoch（任何形式的回應都可呼叫） */
@@ -43,36 +56,42 @@ export function getCacheEpoch(): number | null {
   return epoch;
 }
 
-/** 讀取系統設定（30 秒快取＋同請求去重；force＝捨棄快取重新取得） */
+/** 讀取系統設定（依身分分槽的 30 秒快取＋同身分去重；force＝捨棄快取重新取得） */
 export async function fetchSettings(options?: { force?: boolean }): Promise<SettingsResponse> {
   const force = options?.force === true;
-  if (inFlight) return inFlight;
-  if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.data;
+  const key = roleKey();
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+  if (!force) {
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
+  }
 
-  inFlight = (async () => {
+  const promise = (async () => {
     try {
       const res = await fetch("/api/settings", { cache: "no-store" });
       const data = (res.ok ? await res.json().catch(() => null) : null) as
         | SettingsResponse
         | null;
       if (data && typeof data === "object") {
-        cache = { data, at: Date.now() };
+        cache.set(key, { data, at: Date.now() });
         adoptCacheEpoch(data.cacheEpoch);
         return data;
       }
       // 失敗但有舊快取：退回舊值（維持既有 fail-open 行為）
-      return cache?.data ?? {};
+      return cache.get(key)?.data ?? {};
     } catch {
-      return cache?.data ?? {};
+      return cache.get(key)?.data ?? {};
     } finally {
-      inFlight = null;
+      inFlight.delete(key);
     }
   })();
 
-  return inFlight;
+  inFlight.set(key, promise);
+  return promise;
 }
 
-/** 捨棄設定快取（設定被寫入後呼叫；新值由下次 fetchSettings 取得） */
+/** 捨棄全部身分的設定快取（設定被寫入或身分切換後呼叫；新值由下次 fetchSettings 取得） */
 export function invalidateSettings(): void {
-  cache = null;
+  cache.clear();
 }

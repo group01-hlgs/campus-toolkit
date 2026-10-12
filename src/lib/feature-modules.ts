@@ -1,5 +1,5 @@
 import "server-only";
-import { readSystemDoc, invalidateSettingsCache } from "@/lib/settings-server";
+import { readSystemDoc } from "@/lib/settings-server";
 import {
   FEATURE_MODULES_FIELD,
   FEATURE_MODULE_ROLES_FIELD,
@@ -10,14 +10,6 @@ import {
   visibleFeatureModuleValues,
 } from "@/types/feature-modules";
 import type { UserRole } from "@/types/users";
-
-/**
- * 功能模組設定寫入後呼叫，讓快取立即失效（新請求立即套用）。
- * 功能模組設定存於 `settings/system`，與全站設定共用同一份快取，故直接走統一失效。
- */
-export function invalidateFeatureModulesCache(): void {
-  invalidateSettingsCache();
-}
 
 /** 從共用的 settings/system 快取解析出啟用狀態與顯示開關 */
 async function loadFeatureModuleSettings(): Promise<{

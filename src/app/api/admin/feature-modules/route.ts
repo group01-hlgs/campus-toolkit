@@ -7,12 +7,15 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
+import {
+  bumpCacheEpoch,
+  SETTINGS_COLLECTION,
+  SETTINGS_DOC_ID,
+} from "@/lib/settings-server";
 import { commitMarketplaceModuleUninstall, resolveModuleMarketGithubConfig } from "@/lib/module-market-github";
 import {
   getFeatureModuleRoles,
   getFeatureModulesEnabled,
-  invalidateFeatureModulesCache,
 } from "@/lib/feature-modules";
 import {
   FEATURE_MODULES_FIELD,
@@ -111,7 +114,9 @@ export async function PATCH(request: NextRequest) {
         .collection(SETTINGS_COLLECTION)
         .doc(SETTINGS_DOC_ID)
         .set({ [FEATURE_MODULE_ROLES_FIELD]: next }, { merge: true });
-      invalidateFeatureModulesCache();
+      // 清本機設定快取＋遞增跨實例旗標（bumpCacheEpoch 內含失效）：
+      // 與系統設定 PUT 一致，讓其他實例的 visibleModules 在重讀旗標後立即採新值
+      await bumpCacheEpoch();
 
       await logActivity({
         userId: session.uid,
@@ -142,7 +147,7 @@ export async function PATCH(request: NextRequest) {
       .collection(SETTINGS_COLLECTION)
       .doc(SETTINGS_DOC_ID)
       .set({ [FEATURE_MODULES_FIELD]: next }, { merge: true });
-    invalidateFeatureModulesCache();
+    await bumpCacheEpoch();
 
     await logActivity({
       userId: session.uid,
@@ -227,7 +232,7 @@ export async function DELETE(request: NextRequest) {
       }
 
       const committed = await commitMarketplaceModuleUninstall({ moduleId: value });
-      invalidateFeatureModulesCache();
+      await bumpCacheEpoch();
       await logActivity({
         userId: session.uid,
         role: "admin",
@@ -276,7 +281,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    invalidateFeatureModulesCache();
+    await bumpCacheEpoch();
     await logActivity({
       userId: session.uid,
       role: "admin",

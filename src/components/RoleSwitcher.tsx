@@ -10,6 +10,7 @@ import {
   setCachedSession,
   UserSession,
 } from "@/lib/session";
+import { invalidateSettings } from "@/lib/settings-client";
 
 /**
  * 身分切換下拉選單：顯示在各身分功能首頁問候語下方。
@@ -78,6 +79,9 @@ export default function RoleSwitcher({ role }: { role: UserRole }) {
         return;
       }
       setCachedSession(user);
+      // 身分已變：捨棄設定快取（visibleModules 依身分計算），
+      // 新身分首頁必定重抓，舊身分的可見清單不得殘留（入口卡鬼魂）
+      invalidateSettings();
       router.push(ROLE_HOME[user.role] || "/");
     } catch {
       setError("系統錯誤，請稍後再試");
