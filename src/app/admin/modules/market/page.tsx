@@ -87,6 +87,7 @@ export default function ModuleMarketPage() {
   const [marketUrlKind, setMarketUrlKind] = useState<"success" | "error" | null>(null);
   const [uninstallTarget, setUninstallTarget] = useState<MarketModuleEntry | null>(null);
   const [backupConfirmed, setBackupConfirmed] = useState(false);
+  const alwaysVisibleGuide = manualInstallGuide ?? buildFallbackManualGuide("examRegistration");
 
   async function fetchMarket(signal?: AbortSignal): Promise<MarketResponse> {
     const response = await fetch("/api/admin/feature-modules/market", { cache: "no-store", signal });
@@ -401,6 +402,29 @@ export default function ModuleMarketPage() {
         )}
       </div>
 
+      <div className="border border-warning/60 rounded-lg bg-warning/10 p-4 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-warning">手動安裝指引（常駐）</h2>
+          <p className="text-xs text-warning/90">
+            不論一鍵安裝是否可用，都可改走以下手動流程。若模組代碼不是 examRegistration，請替換指令中的資料夾名稱。
+          </p>
+        </div>
+        {alwaysVisibleGuide.title && <p className="text-xs font-medium text-warning">{alwaysVisibleGuide.title}</p>}
+        {Array.isArray(alwaysVisibleGuide.steps) && alwaysVisibleGuide.steps.length > 0 && (
+          <ol className="list-decimal pl-4 space-y-1 text-xs text-warning">
+            {alwaysVisibleGuide.steps.map((step, index) => (
+              <li key={`${index}-${step}`}>{step}</li>
+            ))}
+          </ol>
+        )}
+        {alwaysVisibleGuide.command && (
+          <pre className="overflow-x-auto rounded border border-warning/40 bg-card px-2 py-1 text-xs text-t1">
+{alwaysVisibleGuide.command}
+          </pre>
+        )}
+        {alwaysVisibleGuide.note && <p className="text-xs text-warning/90">{alwaysVisibleGuide.note}</p>}
+      </div>
+
       {installMessage && (
         <div
           className={`border rounded-lg p-3 text-sm ${
@@ -421,24 +445,6 @@ export default function ModuleMarketPage() {
                   查看提交紀錄
                 </a>
               )}
-            </div>
-          )}
-          {installKind === "error" && manualInstallGuide && (
-            <div className="mt-3 rounded border border-warning/60 bg-warning/10 p-3 text-xs text-warning space-y-2">
-              {manualInstallGuide.title && <p className="font-medium">{manualInstallGuide.title}</p>}
-              {Array.isArray(manualInstallGuide.steps) && manualInstallGuide.steps.length > 0 && (
-                <ol className="list-decimal pl-4 space-y-1">
-                  {manualInstallGuide.steps.map((step, index) => (
-                    <li key={`${index}-${step}`}>{step}</li>
-                  ))}
-                </ol>
-              )}
-              {manualInstallGuide.command && (
-                <pre className="overflow-x-auto rounded border border-warning/40 bg-card px-2 py-1 text-xs text-t1">
-{manualInstallGuide.command}
-                </pre>
-              )}
-              {manualInstallGuide.note && <p>{manualInstallGuide.note}</p>}
             </div>
           )}
         </div>
