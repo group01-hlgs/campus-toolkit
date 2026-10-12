@@ -294,6 +294,84 @@ export async function cancelCalendarEvent(id: string): Promise<{ deleted: boolea
   return updateCalendarEvent(id, { sourceModule: "calendar", status: "cancelled" });
 }
 
+/**
+ * 無條件真實刪除單則行程及其所有個人提醒文件（管理端「刪除」鈕）。
+ * 不看「下架行程真實刪除」原則，一律硬刪除（不可恢復）。
+ */
+export async function deleteCalendarEventHard(id: string): Promise<void> {
+  await hardDeleteCalendarEvent(id);
+  invalidateCalendarCache();
+}
+
+/** 批次上限：單次請求最多處理的行程數（頁面勾選範圍） */
+const BATCH_IDS_MAX = 200;
+
+/**
+ * 批次取消（管理端勾選後批次作業）。
+ * 原則「下架行程真實刪除」開啟時改為連同個人提醒硬刪除。
+ * 回傳實際取消與真實刪除的筆數（查無者略過）。
+ */
+export async function batchCancelCalendarEvents(
+  ids: string[]
+): Promise<{ cancelled: number; deleted: number }> {
+  const unique = [...new Set(ids)].slice(0, BATCH_IDS_MAX);
+  if (unique.length === 0) return { cancelled: 0, deleted: 0 };
+  const settings = await getCalendarSettings();
+  if (settings.policies.hardDeleteCancelled) {
+    const deleted = await batchDeleteCalendarEventsHard(unique);
+    return { cancelled: 0, deleted };
+  }
+  const db = getAdminDb();
+  // getAll 分塊 200：先確認存在再批次更新（update 對不存在的文件會使整批失敗）
+  const existing: string[] = [];
+  for (let i = 0; i < unique.length; i += 200) {
+    const snaps = await db.getAll(
+      ...unique.slice(i, i + 200).map((id) => db.collection(CALENDAR_COLLECTION).doc(id))
+    );
+    snaps.forEach((snap) => {
+      if (snap.exists) existing.push(snap.id);
+    });
+  }
+  if (existing.length > 0) {
+    const now = Date.now();
+    const batch = db.batch();
+    existing.forEach((id) => {
+      batch.update(db.collection(CALENDAR_COLLECTION).doc(id), {
+        status: "cancelled",
+        updatedAt: now,
+      });
+    });
+    await batch.commit();
+    invalidateCalendarCache();
+  }
+  return { cancelled: existing.length, deleted: 0 };
+}
+
+/**
+ * 無條件批次真實刪除行程及其所有個人提醒文件（管理端批次「刪除」）。
+ * 不看「下架行程真實刪除」原則；刪除不存在的文件為無害空操作。
+ */
+export async function batchDeleteCalendarEventsHard(ids: string[]): Promise<number> {
+  const unique = [...new Set(ids)].slice(0, BATCH_IDS_MAX);
+  if (unique.length === 0) return 0;
+  const db = getAdminDb();
+  const reminderIds: string[] = [];
+  for (let i = 0; i < unique.length; i += IN_QUERY_CHUNK) {
+    const remSnap = await db
+      .collection(CALENDAR_REMINDERS_COLLECTION)
+      .where("eventId", "in", unique.slice(i, i + IN_QUERY_CHUNK))
+      .get();
+    remSnap.docs.forEach((doc) => reminderIds.push(doc.id));
+  }
+  const refs = [
+    ...unique.map((id) => db.collection(CALENDAR_COLLECTION).doc(id)),
+    ...reminderIds.map((rid) => db.collection(CALENDAR_REMINDERS_COLLECTION).doc(rid)),
+  ];
+  await deleteInBatches(db, refs);
+  invalidateCalendarCache();
+  return unique.length;
+}
+
 /** 真實刪除單則行程及其所有個人提醒文件（下架原則＝真實刪除時使用） */
 async function hardDeleteCalendarEvent(id: string): Promise<void> {
   const db = getAdminDb();

@@ -51,6 +51,7 @@ export type ActivityAction =
   | "calendar_created"
   | "calendar_updated"
   | "calendar_cancelled"
+  | "calendar_deleted"
   | "calendar_settings_updated"
   /** 選用模組 manifest（auditActions）自動併入【期 0 批次 2】；空表時為 never */
   | GeneratedActivityAction;
