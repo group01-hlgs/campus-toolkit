@@ -119,6 +119,25 @@ export default function AdminAnnouncementsPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "archived">("all");
   // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次）
   const [counts, setCounts] = useState<{ published: number; archived: number } | null>(null);
+  // 確認對話 modal：取代原生 confirm，樣式跟隨主題
+  const [confirmRequest, setConfirmRequest] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  function askConfirm(message: string, onConfirm: () => void) {
+    setConfirmRequest({ message, onConfirm });
+  }
+
+  // 確認 modal：Esc 取消
+  useEffect(() => {
+    if (!confirmRequest) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setConfirmRequest(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [confirmRequest]);
 
   useEffect(() => {
     if (!settingsReady || !saverOn) return;
@@ -257,7 +276,11 @@ export default function AdminAnnouncementsPage() {
     const confirmText = policies.hardDeleteExpired
       ? "確定要下架此公告？（已啟用「下架公告真實刪除」：將連同個人提醒一併刪除，無法恢復）"
       : "確定要封存此公告？";
-    if (!window.confirm(confirmText)) return;
+    askConfirm(confirmText, () => void runArchive(id));
+  }
+
+  async function runArchive(id: string) {
+    if (saving) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/announcements/${id}`, { method: "POST" });
@@ -273,15 +296,16 @@ export default function AdminAnnouncementsPage() {
   }
 
   /** 真實刪除（硬刪除）：連同個人提醒一併從資料庫刪除，不可恢復 */
-  async function remove(id: string, title: string) {
+  function remove(id: string, title: string) {
     if (saving) return;
-    if (
-      !window.confirm(
-        `確定要刪除「${title}」？\n將連同所有個人提醒一併從資料庫真實刪除，無法恢復。`
-      )
-    ) {
-      return;
-    }
+    askConfirm(
+      `確定要刪除「${title}」？\n將連同所有個人提醒一併從資料庫真實刪除，無法恢復。`,
+      () => void runRemove(id)
+    );
+  }
+
+  async function runRemove(id: string) {
+    if (saving) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/announcements/${id}`, { method: "DELETE" });
@@ -1005,6 +1029,47 @@ export default function AdminAnnouncementsPage() {
           </p>
         )}
       </section>
+
+      {/* 確認 modal：取代原生 confirm，樣式跟隨主題（封存／刪除共用） */}
+      {confirmRequest && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          onClick={() => setConfirmRequest(null)}
+        >
+          <div
+            className="bg-card rounded-2xl p-6 w-full max-w-md space-y-4 shadow-lg animate-fade-in"
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div>
+              <h3 className="text-lg font-bold text-t1">確認操作</h3>
+              <p className="text-sm text-t2 mt-2 whitespace-pre-line">{confirmRequest.message}</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmRequest(null)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const onConfirm = confirmRequest.onConfirm;
+                  setConfirmRequest(null);
+                  onConfirm();
+                }}
+                className="btn-danger rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                確認
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
