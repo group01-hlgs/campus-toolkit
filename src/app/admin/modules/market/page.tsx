@@ -32,6 +32,12 @@ interface InstallResponse {
   alreadyInstalled?: boolean;
   branch?: string;
   commitUrl?: string;
+  manualInstallGuide?: {
+    title?: string;
+    steps?: string[];
+    command?: string;
+    note?: string;
+  };
 }
 
 interface MarketConfigResponse {
@@ -58,6 +64,7 @@ export default function ModuleMarketPage() {
   const [installKind, setInstallKind] = useState<"success" | "error" | null>(null);
   const [installCommitUrl, setInstallCommitUrl] = useState<string | null>(null);
   const [installBranch, setInstallBranch] = useState<string | null>(null);
+  const [manualInstallGuide, setManualInstallGuide] = useState<InstallResponse["manualInstallGuide"] | null>(null);
   const [installedModules, setInstalledModules] = useState<Record<string, string>>({});
   const [canUninstall, setCanUninstall] = useState(false);
   const [marketUrlInput, setMarketUrlInput] = useState("");
@@ -137,6 +144,7 @@ export default function ModuleMarketPage() {
     setInstallMessage(null);
     setInstallCommitUrl(null);
     setInstallBranch(null);
+    setManualInstallGuide(null);
 
     try {
       const response = await fetch("/api/admin/feature-modules/market/install", {
@@ -151,13 +159,20 @@ export default function ModuleMarketPage() {
 
       const data: InstallResponse = await response.json();
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "安裝失敗");
+        setInstallKind("error");
+        setInstallMessage(data.message || "安裝失敗");
+        setInstallCommitUrl(null);
+        setInstallBranch(null);
+        setManualInstallGuide(data.manualInstallGuide ?? null);
+        setInstallingId(null);
+        return;
       }
 
       setInstallKind("success");
       setInstallMessage(data.message || "安裝成功");
       setInstallCommitUrl(data.commitUrl ?? null);
       setInstallBranch(data.branch ?? null);
+      setManualInstallGuide(null);
       setInstalledModules((prev) => ({
         ...prev,
         [module.id]: module.latestVersion || module.version,
@@ -170,6 +185,7 @@ export default function ModuleMarketPage() {
       );
       setInstallCommitUrl(null);
       setInstallBranch(null);
+      setManualInstallGuide(null);
       setInstallingId(null);
     }
   }
@@ -209,6 +225,7 @@ export default function ModuleMarketPage() {
       setInstallMessage(data.message || "卸載成功");
       setInstallCommitUrl(data.commitUrl ?? null);
       setInstallBranch(data.branch ?? null);
+      setManualInstallGuide(null);
       setInstalledModules((prev) => {
         const next = { ...prev };
         delete next[module.id];
@@ -218,6 +235,7 @@ export default function ModuleMarketPage() {
     } catch (uninstallError) {
       setInstallKind("error");
       setInstallMessage(uninstallError instanceof Error ? uninstallError.message : "卸載失敗");
+      setManualInstallGuide(null);
       setInstallingId(null);
     }
   }
@@ -389,6 +407,24 @@ export default function ModuleMarketPage() {
                   查看提交紀錄
                 </a>
               )}
+            </div>
+          )}
+          {installKind === "error" && manualInstallGuide && (
+            <div className="mt-3 rounded border border-warning/60 bg-warning/10 p-3 text-xs text-warning space-y-2">
+              {manualInstallGuide.title && <p className="font-medium">{manualInstallGuide.title}</p>}
+              {Array.isArray(manualInstallGuide.steps) && manualInstallGuide.steps.length > 0 && (
+                <ol className="list-decimal pl-4 space-y-1">
+                  {manualInstallGuide.steps.map((step, index) => (
+                    <li key={`${index}-${step}`}>{step}</li>
+                  ))}
+                </ol>
+              )}
+              {manualInstallGuide.command && (
+                <pre className="overflow-x-auto rounded border border-warning/40 bg-card px-2 py-1 text-xs text-t1">
+{manualInstallGuide.command}
+                </pre>
+              )}
+              {manualInstallGuide.note && <p>{manualInstallGuide.note}</p>}
             </div>
           )}
         </div>

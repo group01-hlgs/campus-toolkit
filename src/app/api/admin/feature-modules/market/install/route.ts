@@ -17,6 +17,20 @@ export const dynamic = "force-dynamic";
 /** 套件下載上限（bytes）：市集第一期上限 500KB＋緩衝＝1MB【附錄 A #11】 */
 const MAX_ARCHIVE_BYTES = 1024 * 1024;
 
+function buildManualInstallGuide(moduleId: string) {
+  return {
+    title: "可改用手動安裝流程",
+    steps: [
+      "在本機 clone 主程式 fork 與模組 repo。",
+      "進入主程式資料夾後執行 npm install。",
+      `執行 npm run module:install -- ../${moduleId}（以模組資料夾路徑為準）。`,
+      "完成後 commit + push，等待部署。",
+    ],
+    command: `npm run module:install -- ../${moduleId}`,
+    note: "手動安裝同樣會走掃描器與 lint 驗證鏈。",
+  };
+}
+
 function readLockModules(): Set<string> {
   const lockPath = path.join(process.cwd(), "module.lock.json");
   if (!fs.existsSync(lockPath)) return new Set();
@@ -219,6 +233,7 @@ export async function POST(request: NextRequest) {
           success: false,
           message:
             "尚未設定 MODULE_MARKET_GITHUB_TOKEN（或 MODULE_MARKET_GITHUB_REPO / VERCEL_GIT_REPO_OWNER+SLUG）——無法在正式環境自動安裝",
+          manualInstallGuide: buildManualInstallGuide(moduleId || "<module-folder>"),
         },
         { status: 503 }
       );
