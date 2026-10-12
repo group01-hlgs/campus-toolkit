@@ -432,14 +432,11 @@ export default function ModuleMarketPage() {
       </div>
 
       <div className="space-y-4">
-        <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-t1">全自動一鍵安裝</h2>
-          <p className="text-xs text-t2">
-            直接使用模組卡片的「安裝／更新」按鈕。正式環境需設定 `MODULE_MARKET_GITHUB_TOKEN` 與 repo 來源參數。
-          </p>
-          <div className="text-xs">
+        <details className="border border-themed rounded-lg bg-card p-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-t1">全自動一鍵安裝</h2>
             <span
-              className={`inline-block rounded border px-2 py-1 ${
+              className={`inline-block rounded border px-2 py-1 text-xs ${
                 canAutoInstall
                   ? "border-success/60 bg-success/10 text-success"
                   : "border-warning/60 bg-warning/10 text-warning"
@@ -447,7 +444,12 @@ export default function ModuleMarketPage() {
             >
               {canAutoInstall ? "目前可用" : "尚未完成參數設定"}
             </span>
-          </div>
+          </summary>
+
+          <div className="mt-3 space-y-3">
+            <p className="text-xs text-t2">
+              直接使用模組卡片的「安裝／更新」按鈕。正式環境需設定 `MODULE_MARKET_GITHUB_TOKEN` 與 repo 來源參數。
+            </p>
 
           <div className="pt-2 border-t border-themed space-y-2">
             <h3 className="text-xs font-semibold text-t1">模組市集來源設定</h3>
@@ -485,7 +487,7 @@ export default function ModuleMarketPage() {
             )}
           </div>
 
-          <div className="pt-2 border-t border-themed">
+            <div className="pt-2 border-t border-themed">
             {loading ? (
               <div className="border border-themed rounded-lg bg-card p-4 text-xs text-t3">
                 讀取模組市集中...
@@ -502,8 +504,8 @@ export default function ModuleMarketPage() {
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
                 {modules.map((module) => (
-                  <div key={module.id} className="border border-themed rounded-lg bg-card p-5 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
+                  <details key={module.id} className="border border-themed rounded-lg bg-card p-5">
+                    <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
                       <div>
                         <h2 className="text-lg font-bold text-t1">{module.name}</h2>
                         <p className="text-xs text-t3">{module.id}</p>
@@ -511,153 +513,164 @@ export default function ModuleMarketPage() {
                       <span className="text-xs border border-themed rounded px-2 py-1 text-t2">
                         v{module.version}
                       </span>
-                    </div>
+                    </summary>
 
-                    <p className="text-sm text-t2">{module.description || "沒有說明"}</p>
+                    <div className="mt-3 space-y-3">
+                      <p className="text-sm text-t2">{module.description || "沒有說明"}</p>
 
-                    <div className="flex flex-wrap gap-2 text-xs text-t3">
-                      {module.minHostVersion && (
-                        <span className="border border-themed rounded px-2 py-1">
-                          最低主程式版本：{module.minHostVersion}
-                        </span>
-                      )}
-                      {isInstalled(module) && (
-                        <span className="border border-success/60 rounded px-2 py-1 text-success">
-                          {hasUpdate(module) ? "已安裝（可更新）" : "已安裝"}
-                        </span>
-                      )}
-                      {module.category && (
-                        <span className="border border-themed rounded px-2 py-1">
-                          類別：{module.category}
-                        </span>
-                      )}
-                    </div>
-
-                    {module.tags && module.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {module.tags.map((tag) => (
-                          <span key={`${module.id}-${tag}`} className="text-xs text-t3 border border-themed rounded px-2 py-1">
-                            #{tag}
+                      <div className="flex flex-wrap gap-2 text-xs text-t3">
+                        {module.minHostVersion && (
+                          <span className="border border-themed rounded px-2 py-1">
+                            最低主程式版本：{module.minHostVersion}
                           </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-themed">
-                      <div className="text-xs text-t3">
-                        {module.latestVersion && module.latestVersion !== module.version
-                          ? `最新：${module.latestVersion}`
-                          : "已為最新版本"}
-                      </div>
-                      <div className="flex gap-2">
-                        {module.repoUrl && (
-                          <a
-                            href={module.repoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn-theme rounded px-3 py-1.5 text-xs"
-                          >
-                            查看 Repo
-                          </a>
                         )}
-                        <button
-                          type="button"
-                          disabled={installingId === module.id || (isInstalled(module) && !hasUpdate(module))}
-                          onClick={() => void handleInstall(module)}
-                          className={`rounded px-3 py-1.5 text-xs ${
-                            installingId === module.id || (isInstalled(module) && !hasUpdate(module))
-                              ? "border border-themed bg-muted text-t3 cursor-wait"
-                              : "btn-theme cursor-pointer"
-                          }`}
-                          title={
-                            installingId === module.id
+                        {isInstalled(module) && (
+                          <span className="border border-success/60 rounded px-2 py-1 text-success">
+                            {hasUpdate(module) ? "已安裝（可更新）" : "已安裝"}
+                          </span>
+                        )}
+                        {module.category && (
+                          <span className="border border-themed rounded px-2 py-1">
+                            類別：{module.category}
+                          </span>
+                        )}
+                      </div>
+
+                      {module.tags && module.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {module.tags.map((tag) => (
+                            <span key={`${module.id}-${tag}`} className="text-xs text-t3 border border-themed rounded px-2 py-1">
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-3 pt-2 border-t border-themed">
+                        <div className="text-xs text-t3">
+                          {module.latestVersion && module.latestVersion !== module.version
+                            ? `最新：${module.latestVersion}`
+                            : "已為最新版本"}
+                        </div>
+                        <div className="flex gap-2">
+                          {module.repoUrl && (
+                            <a
+                              href={module.repoUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn-theme rounded px-3 py-1.5 text-xs"
+                            >
+                              查看 Repo
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            disabled={installingId === module.id || (isInstalled(module) && !hasUpdate(module))}
+                            onClick={() => void handleInstall(module)}
+                            className={`rounded px-3 py-1.5 text-xs ${
+                              installingId === module.id || (isInstalled(module) && !hasUpdate(module))
+                                ? "border border-themed bg-muted text-t3 cursor-wait"
+                                : "btn-theme cursor-pointer"
+                            }`}
+                            title={
+                              installingId === module.id
+                                ? "處理中..."
+                                : isInstalled(module) && !hasUpdate(module)
+                                  ? "已安裝"
+                                  : "安裝模組"
+                            }
+                          >
+                            {installingId === module.id
                               ? "處理中..."
                               : isInstalled(module) && !hasUpdate(module)
                                 ? "已安裝"
-                                : "安裝模組"
-                          }
-                        >
-                          {installingId === module.id
-                            ? "處理中..."
-                            : isInstalled(module) && !hasUpdate(module)
-                              ? "已安裝"
-                              : hasUpdate(module)
-                                ? "更新"
-                                : "安裝"}
-                        </button>
-                        {canUninstall && isInstalled(module) && (
-                          <button
-                            type="button"
-                            disabled={installingId === module.id}
-                            onClick={() => openUninstallModal(module)}
-                            className={`rounded px-3 py-1.5 text-xs ${
-                              installingId === module.id
-                                ? "border border-themed bg-muted text-t3 cursor-wait"
-                                : "border border-danger/60 text-danger cursor-pointer"
-                            }`}
-                            title={installingId === module.id ? "處理中..." : "卸載模組"}
-                          >
-                            卸載
+                                : hasUpdate(module)
+                                  ? "更新"
+                                  : "安裝"}
                           </button>
-                        )}
+                          {canUninstall && isInstalled(module) && (
+                            <button
+                              type="button"
+                              disabled={installingId === module.id}
+                              onClick={() => openUninstallModal(module)}
+                              className={`rounded px-3 py-1.5 text-xs ${
+                                installingId === module.id
+                                  ? "border border-themed bg-muted text-t3 cursor-wait"
+                                  : "border border-danger/60 text-danger cursor-pointer"
+                              }`}
+                              title={installingId === module.id ? "處理中..." : "卸載模組"}
+                            >
+                              卸載
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </details>
                 ))}
               </div>
             )}
+            </div>
           </div>
-        </div>
+        </details>
 
-        <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-t1">半自動上傳安裝</h2>
-          <p className="text-xs text-t2">
-            上傳模組壓縮檔（.zip / .tar.gz）後由系統驗證並安裝。可選填模組代碼，不填則以 module.json 的 value 為準。
-          </p>
-          <input
-            value={uploadModuleId}
-            onChange={(event) => setUploadModuleId(event.target.value)}
-            placeholder="模組代碼（選填，例如 examRegistration）"
-            className="w-full rounded border border-themed bg-card px-3 py-2 text-xs text-t1"
-          />
-          <input
-            type="file"
-            accept=".zip,.tar.gz,application/zip,application/gzip"
-            onChange={(event) => setUploadArchive(event.target.files?.[0] ?? null)}
-            className="w-full text-xs text-t2 file:mr-3 file:rounded file:border file:border-themed file:bg-card file:px-2 file:py-1 file:text-xs file:text-t1"
-          />
-          <button
-            type="button"
-            disabled={uploadingArchive}
-            onClick={() => void handleUploadInstall()}
-            className={`rounded px-3 py-2 text-xs ${
-              uploadingArchive ? "border border-themed bg-muted text-t3 cursor-wait" : "btn-theme cursor-pointer"
-            }`}
-          >
-            {uploadingArchive ? "上傳安裝中..." : "上傳並安裝"}
-          </button>
-        </div>
+        <details className="border border-themed rounded-lg bg-card p-4">
+          <summary className="cursor-pointer list-none">
+            <h2 className="text-sm font-semibold text-t1">半自動上傳安裝</h2>
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-xs text-t2">
+              上傳模組壓縮檔（.zip / .tar.gz）後由系統驗證並安裝。可選填模組代碼，不填則以 module.json 的 value 為準。
+            </p>
+            <input
+              value={uploadModuleId}
+              onChange={(event) => setUploadModuleId(event.target.value)}
+              placeholder="模組代碼（選填，例如 examRegistration）"
+              className="w-full rounded border border-themed bg-card px-3 py-2 text-xs text-t1"
+            />
+            <input
+              type="file"
+              accept=".zip,.tar.gz,application/zip,application/gzip"
+              onChange={(event) => setUploadArchive(event.target.files?.[0] ?? null)}
+              className="w-full text-xs text-t2 file:mr-3 file:rounded file:border file:border-themed file:bg-card file:px-2 file:py-1 file:text-xs file:text-t1"
+            />
+            <button
+              type="button"
+              disabled={uploadingArchive}
+              onClick={() => void handleUploadInstall()}
+              className={`rounded px-3 py-2 text-xs ${
+                uploadingArchive ? "border border-themed bg-muted text-t3 cursor-wait" : "btn-theme cursor-pointer"
+              }`}
+            >
+              {uploadingArchive ? "上傳安裝中..." : "上傳並安裝"}
+            </button>
+          </div>
+        </details>
 
-        <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-t1">手動安裝</h2>
-          <p className="text-xs text-t2">
-            不論一鍵安裝或上傳安裝是否可用，都可改走以下手動流程。更新同模組版本時，請先卸載再安裝新版。
-          </p>
-          {alwaysVisibleGuide.title && <p className="text-xs font-medium text-t1">{alwaysVisibleGuide.title}</p>}
-          {Array.isArray(alwaysVisibleGuide.steps) && alwaysVisibleGuide.steps.length > 0 && (
-            <ol className="list-decimal pl-4 space-y-1 text-xs text-t2">
-              {alwaysVisibleGuide.steps.map((step, index) => (
-                <li key={`${index}-${step}`}>{step}</li>
-              ))}
-            </ol>
-          )}
-          {alwaysVisibleGuide.command && (
-            <pre className="overflow-x-auto rounded border border-themed bg-card px-2 py-1 text-xs text-t1">
+        <details className="border border-themed rounded-lg bg-card p-4">
+          <summary className="cursor-pointer list-none">
+            <h2 className="text-sm font-semibold text-t1">手動安裝</h2>
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-xs text-t2">
+              不論一鍵安裝或上傳安裝是否可用，都可改走以下手動流程。更新同模組版本時，請先卸載再安裝新版。
+            </p>
+            {alwaysVisibleGuide.title && <p className="text-xs font-medium text-t1">{alwaysVisibleGuide.title}</p>}
+            {Array.isArray(alwaysVisibleGuide.steps) && alwaysVisibleGuide.steps.length > 0 && (
+              <ol className="list-decimal pl-4 space-y-1 text-xs text-t2">
+                {alwaysVisibleGuide.steps.map((step, index) => (
+                  <li key={`${index}-${step}`}>{step}</li>
+                ))}
+              </ol>
+            )}
+            {alwaysVisibleGuide.command && (
+              <pre className="overflow-x-auto rounded border border-themed bg-card px-2 py-1 text-xs text-t1">
 {alwaysVisibleGuide.command}
-            </pre>
-          )}
-          {alwaysVisibleGuide.note && <p className="text-xs text-t2">{alwaysVisibleGuide.note}</p>}
-        </div>
+              </pre>
+            )}
+            {alwaysVisibleGuide.note && <p className="text-xs text-t2">{alwaysVisibleGuide.note}</p>}
+          </div>
+        </details>
       </div>
 
       {installMessage && (
