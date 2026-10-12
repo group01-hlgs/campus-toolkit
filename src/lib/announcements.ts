@@ -269,6 +269,75 @@ export async function deleteAnnouncementHard(id: string): Promise<void> {
   invalidateAnnouncementsCache();
 }
 
+/** 批次上限：單次請求最多處理的公告數（頁面勾選範圍） */
+const BATCH_IDS_MAX = 200;
+
+/**
+ * 批次封存（管理端勾選後批次作業）。
+ * 原則「下架公告真實刪除」開啟時改為連同個人提醒硬刪除。
+ * 回傳實際封存與真實刪除的筆數（查無者略過）。
+ */
+export async function batchArchiveAnnouncements(
+  ids: string[]
+): Promise<{ archived: number; deleted: number }> {
+  const unique = [...new Set(ids)].slice(0, BATCH_IDS_MAX);
+  if (unique.length === 0) return { archived: 0, deleted: 0 };
+  const settings = await getAnnouncementSettings();
+  if (settings.policies.hardDeleteExpired) {
+    const deleted = await batchDeleteAnnouncementsHard(unique);
+    return { archived: 0, deleted };
+  }
+  const db = getAdminDb();
+  // getAll 分塊 200：先確認存在再批次 update（update 對不存在的文件會使整批失敗）
+  const existing: string[] = [];
+  for (let i = 0; i < unique.length; i += 200) {
+    const snaps = await db.getAll(
+      ...unique.slice(i, i + 200).map((id) => db.collection(ANNOUNCEMENTS_COLLECTION).doc(id))
+    );
+    snaps.forEach((snap) => {
+      if (snap.exists) existing.push(snap.id);
+    });
+  }
+  if (existing.length > 0) {
+    const now = Date.now();
+    const batch = db.batch();
+    existing.forEach((id) => {
+      batch.update(db.collection(ANNOUNCEMENTS_COLLECTION).doc(id), {
+        status: "archived",
+        updatedAt: now,
+      });
+    });
+    await batch.commit();
+    invalidateAnnouncementsCache();
+  }
+  return { archived: existing.length, deleted: 0 };
+}
+
+/**
+ * 無條件批次真實刪除公告及其所有個人提醒文件（管理端批次「刪除」）。
+ * 不看「下架公告真實刪除」原則；刪除不存在的文件為無害空操作。
+ */
+export async function batchDeleteAnnouncementsHard(ids: string[]): Promise<number> {
+  const unique = [...new Set(ids)].slice(0, BATCH_IDS_MAX);
+  if (unique.length === 0) return 0;
+  const db = getAdminDb();
+  const reminderIds: string[] = [];
+  for (let i = 0; i < unique.length; i += IN_QUERY_CHUNK) {
+    const snap = await db
+      .collection(ANNOUNCEMENT_REMINDERS_COLLECTION)
+      .where("announcementId", "in", unique.slice(i, i + IN_QUERY_CHUNK))
+      .get();
+    snap.docs.forEach((doc) => reminderIds.push(doc.id));
+  }
+  const refs = [
+    ...unique.map((id) => db.collection(ANNOUNCEMENTS_COLLECTION).doc(id)),
+    ...reminderIds.map((rid) => db.collection(ANNOUNCEMENT_REMINDERS_COLLECTION).doc(rid)),
+  ];
+  await deleteInBatches(db, refs);
+  invalidateAnnouncementsCache();
+  return unique.length;
+}
+
 /** 真實刪除單則公告及其所有個人提醒文件（下架原則＝真實刪除時使用） */
 async function hardDeleteAnnouncement(id: string): Promise<void> {
   const db = getAdminDb();
