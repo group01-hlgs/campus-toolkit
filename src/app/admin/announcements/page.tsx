@@ -73,6 +73,14 @@ function parseDatetimeLocal(value: string): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** 清單標題最多顯示 25 字，超出以「...」替代（完整標題見編輯表單與提示） */
+const TITLE_DISPLAY_MAX = 25;
+function truncateTitle(title: string): string {
+  return title.length > TITLE_DISPLAY_MAX
+    ? `${title.slice(0, TITLE_DISPLAY_MAX)}...`
+    : title;
+}
+
 /**
  * 系統公告（僅超級／被指派「系統公告」的管理員）。
  * 版面順序：設定卡片（規則設定／公告顯示方式／顯示位置／公告分類，全部預設收合）
@@ -933,8 +941,7 @@ export default function AdminAnnouncementsPage() {
               <thead className="border-b border-themed">
                 <tr className="text-t2">
                   <th className="px-3 py-2 font-medium">標題</th>
-                  <th className="px-3 py-2 font-medium">分類</th>
-                  <th className="px-3 py-2 font-medium">閱讀權限</th>
+                  <th className="px-3 py-2 font-medium">分類／閱讀權限</th>
                   <th className="px-3 py-2 font-medium">狀態</th>
                   <th className="px-3 py-2 font-medium">發布／到期</th>
                   <th className="px-3 py-2 font-medium text-right">操作</th>
@@ -943,7 +950,7 @@ export default function AdminAnnouncementsPage() {
               <tbody>
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
+                    <td colSpan={5} className="px-3 py-6 text-center text-t3">
                       尚無符合條件的公告
                     </td>
                   </tr>
@@ -951,7 +958,7 @@ export default function AdminAnnouncementsPage() {
                   filteredItems.map((item) => (
                     <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
                       <td className="px-3 py-2">
-                        <span className="font-medium">{item.title}</span>
+                        <span className="font-medium">{truncateTitle(item.title)}</span>
                         {item.pinned && (
                           <span className="ml-1.5 text-primary inline-flex items-center align-middle">
                             <PinIcon size={14} />
@@ -962,14 +969,16 @@ export default function AdminAnnouncementsPage() {
                           <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-t2">{categoryName(item.categoryId)}</td>
                       <td className="px-3 py-2 text-t2">
-                        {announcementPermissionText(item.audience, item.isPublic)}
-                        {!item.isPublic &&
-                          (item.audience.classCodes[0] !== "*" &&
-                          item.audience.classCodes.length > 0
-                            ? `（${item.audience.classCodes.join("、")}）`
-                            : "（全校）")}
+                        <span className="block">{categoryName(item.categoryId)}</span>
+                        <span className="block text-xs text-t3">
+                          {announcementPermissionText(item.audience, item.isPublic)}
+                          {!item.isPublic &&
+                            (item.audience.classCodes[0] !== "*" &&
+                            item.audience.classCodes.length > 0
+                              ? `（${item.audience.classCodes.join("、")}）`
+                              : "（全校）")}
+                        </span>
                       </td>
                       <td className="px-3 py-2">
                         <span
@@ -989,31 +998,37 @@ export default function AdminAnnouncementsPage() {
                         )}
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => edit(item)}
-                          className="btn-theme rounded px-2.5 py-1 text-xs cursor-pointer mr-2"
-                        >
-                          編輯
-                        </button>
-                        {item.status === "published" && (
-                          <button
-                            type="button"
-                            onClick={() => archive(item.id)}
-                            disabled={saving}
-                            className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50 mr-2"
-                          >
-                            {policies.hardDeleteExpired ? "下架" : "封存"}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => remove(item.id, item.title)}
-                          disabled={saving}
-                          className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
-                        >
-                          刪除
-                        </button>
+                        <div className="inline-flex flex-col items-end gap-1">
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => edit(item)}
+                              className="btn-theme rounded px-2.5 py-1 text-xs cursor-pointer"
+                            >
+                              編輯
+                            </button>
+                            {item.status === "published" && (
+                              <button
+                                type="button"
+                                onClick={() => archive(item.id)}
+                                disabled={saving}
+                                className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                              >
+                                {policies.hardDeleteExpired ? "下架" : "封存"}
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => remove(item.id, item.title)}
+                              disabled={saving}
+                              className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                            >
+                              刪除
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))
