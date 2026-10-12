@@ -1,0 +1,14 @@
+{
+  "lockVersion": 1,
+  "modules": [
+    {
+      "value": "examRegistration",
+      "version": "0.1.1",
+      "contractVersion": 1,
+      "minHostVersion": "0.388",
+      "sha256": "00e0a2b9444ba289e52f0465cd72ddd0ce88f7dbc77a37566dd8cd4b41cadd34",
+      "source": "upload:examRegistration.zip",
+      "installedAt": "2026-10-12"
+    }
+  ]
+}
