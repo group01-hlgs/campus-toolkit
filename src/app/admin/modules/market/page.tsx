@@ -71,6 +71,26 @@ function buildFallbackManualGuide(moduleId: string): NonNullable<InstallResponse
   };
 }
 
+function CollapseChevron() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="text-t3 transition-transform duration-200 group-open:rotate-90"
+    >
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  );
+}
+
 export default function ModuleMarketPage() {
   const router = useRouter();
   const [modules, setModules] = useState<MarketModuleEntry[]>([]);
@@ -432,18 +452,21 @@ export default function ModuleMarketPage() {
       </div>
 
       <div className="space-y-4">
-        <details className="border border-themed rounded-lg bg-card p-4">
+        <details className="group border border-themed rounded-lg bg-card p-4">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-t1">全自動一鍵安裝</h2>
-            <span
-              className={`inline-block rounded border px-2 py-1 text-xs ${
-                canAutoInstall
-                  ? "border-success/60 bg-success/10 text-success"
-                  : "border-warning/60 bg-warning/10 text-warning"
-              }`}
-            >
-              {canAutoInstall ? "目前可用" : "尚未完成參數設定"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-block rounded border px-2 py-1 text-xs ${
+                  canAutoInstall
+                    ? "border-success/60 bg-success/10 text-success"
+                    : "border-warning/60 bg-warning/10 text-warning"
+                }`}
+              >
+                {canAutoInstall ? "目前可用" : "尚未完成參數設定"}
+              </span>
+              <CollapseChevron />
+            </div>
           </summary>
 
           <div className="mt-3 space-y-3">
@@ -504,15 +527,18 @@ export default function ModuleMarketPage() {
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
                 {modules.map((module) => (
-                  <details key={module.id} className="border border-themed rounded-lg bg-card p-5">
+                  <details key={module.id} className="group border border-themed rounded-lg bg-card p-5">
                     <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
                       <div>
                         <h2 className="text-lg font-bold text-t1">{module.name}</h2>
                         <p className="text-xs text-t3">{module.id}</p>
                       </div>
-                      <span className="text-xs border border-themed rounded px-2 py-1 text-t2">
-                        v{module.version}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs border border-themed rounded px-2 py-1 text-t2">
+                          v{module.version}
+                        </span>
+                        <CollapseChevron />
+                      </div>
                     </summary>
 
                     <div className="mt-3 space-y-3">
@@ -614,9 +640,10 @@ export default function ModuleMarketPage() {
           </div>
         </details>
 
-        <details className="border border-themed rounded-lg bg-card p-4">
-          <summary className="cursor-pointer list-none">
+        <details className="group border border-themed rounded-lg bg-card p-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-t1">半自動上傳安裝</h2>
+            <CollapseChevron />
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-xs text-t2">
@@ -647,9 +674,10 @@ export default function ModuleMarketPage() {
           </div>
         </details>
 
-        <details className="border border-themed rounded-lg bg-card p-4">
-          <summary className="cursor-pointer list-none">
+        <details className="group border border-themed rounded-lg bg-card p-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-t1">手動安裝</h2>
+            <CollapseChevron />
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-xs text-t2">
