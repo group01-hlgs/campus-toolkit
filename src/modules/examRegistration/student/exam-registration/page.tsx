@@ -13,12 +13,11 @@ import {
   EXAM_SERVICE_NOTE_MAX,
   EXAM_CATEGORY_LABELS,
   EXAM_FEE_CODE_LABELS,
-  EXAM_REVIEW_STATUS_LABELS,
   calcExamFee,
   formatExamDateRange,
   resolveLocationLabel,
 } from "../../types/exam-registration";
-import type { ExamFeeCode, ExamReviewStatus, StudentExamEvent } from "../../types/exam-registration";
+import type { ExamFeeCode, StudentExamEvent } from "../../types/exam-registration";
 
 interface ListResponse {
   success?: boolean;
@@ -32,6 +31,7 @@ interface MutationResponse {
 }
 
 type SortOrder = "deadline-desc" | "deadline-asc";
+const SUBJECT_SELECTED_VALUE = "__selected__";
 
 function formatDeadline(ms: number): string {
   if (!ms) return "—";
@@ -57,7 +57,6 @@ function formatDateTime(ms: number): string {
 
 /**
  * 升學考試與模擬考校內報名（學生端）。
- * 先到先得：勾選科目（額滿科目顯示 n/m 並鎖定）；審核錄取：志願序（上下鍵排序）＋審核結果顯示。
  * M3：必須報名（不報名+原因）、繳費身分＋費用試算、資料封存＋列印報名表。
  */
 export default function ExamRegistrationStudentPage() {
@@ -67,7 +66,7 @@ export default function ExamRegistrationStudentPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
-  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const [subjectOptionCodes, setSubjectOptionCodes] = useState<Record<string, Record<string, string>>>({});
   const [optOuts, setOptOuts] = useState<Record<string, boolean>>({});
   const [optOutReasons, setOptOutReasons] = useState<Record<string, string>>({});
   const [feeCodes, setFeeCodes] = useState<Record<string, ExamFeeCode>>({});
@@ -85,6 +84,16 @@ export default function ExamRegistrationStudentPage() {
     confirmLabel?: string;
     onConfirm: () => void;
   } | null>(null);
+
+  const selectedSubjectKeysByOptionCodes = useCallback((item: StudentExamEvent): string[] => {
+    const selectedMap = subjectOptionCodes[item.id] ?? {};
+    return item.subjects
+      .filter((subject) => {
+        const value = selectedMap[subject.key] ?? "";
+        return value !== "";
+      })
+      .map((subject) => subject.key);
+  }, [subjectOptionCodes]);
 
   useEffect(() => {
     if (!flash) return;
@@ -129,7 +138,24 @@ export default function ExamRegistrationStudentPage() {
         setCollapsedMap((prev) =>
           Object.fromEntries(list.map((item) => [item.id, prev[item.id] ?? true]))
         );
-        setPicks(Object.fromEntries(list.map((item) => [item.id, [...item.mySubjectKeys]])));
+        setSubjectOptionCodes(
+          Object.fromEntries(
+            list.map((item) => [
+              item.id,
+              Object.fromEntries(
+                item.subjects.map((subject) => {
+                  const selected = item.mySubjectKeys.includes(subject.key);
+                  if (!selected) return [subject.key, ""];
+                  const hasAdvancedOptions =
+                    subject.enableAdvancedOption === true && (subject.advancedOptions?.length ?? 0) > 0;
+                  if (!hasAdvancedOptions) return [subject.key, SUBJECT_SELECTED_VALUE];
+                  const code = item.mySubjectAdvancedOptionCodes?.[subject.key] ?? "";
+                  return [subject.key, code];
+                })
+              ) as Record<string, string>,
+            ])
+          )
+        );
         setOptOuts(Object.fromEntries(list.map((item) => [item.id, item.myOptOut])));
         setOptOutReasons(Object.fromEntries(list.map((item) => [item.id, item.myOptOutReason])));
         setFeeCodes(
@@ -166,33 +192,6 @@ export default function ExamRegistrationStudentPage() {
     void load();
   }, [load]);
 
-  function togglePick(eventId: string, key: string) {
-    setPicks((prev) => {
-      const current = prev[eventId] ?? [];
-      const next = current.includes(key)
-        ? current.filter((item) => item !== key)
-        : [...current, key];
-      return { ...prev, [eventId]: next };
-    });
-  }
-
-  function movePick(eventId: string, index: number, delta: number) {
-    setPicks((prev) => {
-      const current = [...(prev[eventId] ?? [])];
-      const target = index + delta;
-      if (target < 0 || target >= current.length) return prev;
-      [current[index], current[target]] = [current[target], current[index]];
-      return { ...prev, [eventId]: current };
-    });
-  }
-
-  function removePick(eventId: string, key: string) {
-    setPicks((prev) => ({
-      ...prev,
-      [eventId]: (prev[eventId] ?? []).filter((item) => item !== key),
-    }));
-  }
-
   async function save(item: StudentExamEvent) {
     if (savingId) return;
     const optOut = optOuts[item.id] === true;
@@ -206,7 +205,17 @@ export default function ExamRegistrationStudentPage() {
       setFlash({ type: "error", text: `特殊應考服務需求過長（最多 ${EXAM_SERVICE_NOTE_MAX} 字）` });
       return;
     }
-    const keys = picks[item.id] ?? [];
+    const keys = selectedSubjectKeysByOptionCodes(item);
+    const selectedMap = subjectOptionCodes[item.id] ?? {};
+    const subjectAdvancedOptionCodes: Record<string, string> = {};
+    for (const subject of item.subjects) {
+      const hasAdvancedOptions =
+        subject.enableAdvancedOption === true && (subject.advancedOptions?.length ?? 0) > 0;
+      if (!hasAdvancedOptions) continue;
+      const code = selectedMap[subject.key] ?? "";
+      if (!code || code === SUBJECT_SELECTED_VALUE) continue;
+      subjectAdvancedOptionCodes[subject.key] = code;
+    }
     if (!optOut && !keys.length) {
       setFlash({ type: "error", text: "請至少選擇一個科目" });
       return;
@@ -219,6 +228,7 @@ export default function ExamRegistrationStudentPage() {
         body: JSON.stringify({
           eventId: item.id,
           subjectKeys: optOut ? [] : keys,
+          subjectAdvancedOptionCodes: optOut ? {} : subjectAdvancedOptionCodes,
           optOut,
           optOutReason: reason,
           locationCode: item.locationOptions.length ? (locationCodes[item.id] ?? "") : undefined,
@@ -404,7 +414,8 @@ export default function ExamRegistrationStudentPage() {
                 <ExamEventCard
                   key={item.id}
                   item={item}
-                  selected={picks[item.id] ?? []}
+                  selected={selectedSubjectKeysByOptionCodes(item)}
+                  selectedOptionCodes={subjectOptionCodes[item.id] ?? {}}
                   optOut={optOuts[item.id] === true}
                   optOutReason={optOutReasons[item.id] ?? ""}
                   feeCode={feeCodes[item.id] ?? "1"}
@@ -416,9 +427,6 @@ export default function ExamRegistrationStudentPage() {
                   onToggleCollapsed={() =>
                     setCollapsedMap((prev) => ({ ...prev, [item.id]: !(prev[item.id] ?? true) }))
                   }
-                  onToggle={(key) => togglePick(item.id, key)}
-                  onMove={(index, delta) => movePick(item.id, index, delta)}
-                  onRemove={(key) => removePick(item.id, key)}
                   onOptOutChange={(value) => setOptOuts((prev) => ({ ...prev, [item.id]: value }))}
                   onOptOutReasonChange={(value) =>
                     setOptOutReasons((prev) => ({ ...prev, [item.id]: value }))
@@ -432,6 +440,15 @@ export default function ExamRegistrationStudentPage() {
                   }
                   onLocationCodeChange={(value) =>
                     setLocationCodes((prev) => ({ ...prev, [item.id]: value }))
+                  }
+                  onSubjectOptionCodeChange={(subjectKey, value) =>
+                    setSubjectOptionCodes((prev) => ({
+                      ...prev,
+                      [item.id]: {
+                        ...(prev[item.id] ?? {}),
+                        [subjectKey]: value,
+                      },
+                    }))
                   }
                   onSave={() => void save(item)}
                   onWithdraw={() => void withdraw(item)}
@@ -466,6 +483,7 @@ export default function ExamRegistrationStudentPage() {
 function ExamEventCard({
   item,
   selected,
+  selectedOptionCodes,
   optOut,
   optOutReason,
   feeCode,
@@ -475,15 +493,13 @@ function ExamEventCard({
   locationCode,
   saving,
   onToggleCollapsed,
-  onToggle,
-  onMove,
-  onRemove,
   onOptOutChange,
   onOptOutReasonChange,
   onFeeCodeChange,
   onNonAirConditionedRoomChange,
   onExamServiceNoteChange,
   onLocationCodeChange,
+  onSubjectOptionCodeChange,
   onSave,
   onWithdraw,
   onArchive,
@@ -491,6 +507,7 @@ function ExamEventCard({
 }: {
   item: StudentExamEvent;
   selected: string[];
+  selectedOptionCodes: Record<string, string>;
   optOut: boolean;
   optOutReason: string;
   feeCode: ExamFeeCode;
@@ -500,15 +517,13 @@ function ExamEventCard({
   locationCode: string;
   saving: boolean;
   onToggleCollapsed: () => void;
-  onToggle: (key: string) => void;
-  onMove: (index: number, delta: number) => void;
-  onRemove: (key: string) => void;
   onOptOutChange: (value: boolean) => void;
   onOptOutReasonChange: (value: string) => void;
   onFeeCodeChange: (value: ExamFeeCode) => void;
   onNonAirConditionedRoomChange: (value: boolean) => void;
   onExamServiceNoteChange: (value: string) => void;
   onLocationCodeChange: (value: string) => void;
+  onSubjectOptionCodeChange: (subjectKey: string, value: string) => void;
   onSave: () => void;
   onWithdraw: () => void;
   onArchive: () => void;
@@ -519,10 +534,17 @@ function ExamEventCard({
   const upcoming = item.status === "upcoming";
   const readOnly = closed || upcoming;
   const hasRegistration = item.registeredAt !== null;
-  const isReview = item.examMode === "review";
   const isRequired = item.registrationMode === "required";
   const archived = item.myArchived;
   const locked = archived;
+  const registrationModeText = isRequired ? "必須報名" : "自由報名";
+  const registrationStateText = archived
+    ? "封存資料"
+    : item.myOptOut
+      ? "不報名"
+      : hasRegistration
+        ? "完成報名"
+        : "未報名";
 
   /** 該科是否已額滿（本人已在名單內則不鎖——可維持或移出） */
   const isFull = useMemo(() => {
@@ -548,7 +570,15 @@ function ExamEventCard({
     <section className="border border-themed rounded-lg bg-card p-5 space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-base font-bold text-t1">{item.title}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-bold text-t1">{item.title}</h2>
+            <span className="text-[11px] px-2 py-0.5 rounded border border-themed text-t2">
+              {registrationModeText}
+            </span>
+            <span className="text-[11px] px-2 py-0.5 rounded border border-themed text-t2">
+              {registrationStateText}
+            </span>
+          </div>
           <p className="text-xs text-t3 mt-0.5">
             報名期間：
             {item.registrationOpenAt
@@ -576,19 +606,6 @@ function ExamEventCard({
             </span>
           )}
           {archived && <span className="text-xs shrink-0 text-t2">已封存（唯讀）</span>}
-          {isReview && item.reviewStatus && (
-            <span
-              className={`text-xs shrink-0 ${
-                item.reviewStatus === "admitted"
-                  ? "text-success"
-                  : item.reviewStatus === "rejected"
-                    ? "text-danger"
-                    : "text-t2"
-              }`}
-            >
-              審核結果：{EXAM_REVIEW_STATUS_LABELS[item.reviewStatus]}
-            </span>
-          )}
         </div>
       </div>
       {collapsed ? null : (
@@ -698,112 +715,78 @@ function ExamEventCard({
             </div>
           )}
 
-          {!isReview ? (
-            <div className={`flex flex-col sm:flex-row sm:items-start gap-2 ${optOut ? "opacity-40 pointer-events-none" : ""}`}>
-              <p className="text-sm text-t2 sm:w-20 shrink-0">選考科目</p>
-              <div className="flex-1 flex flex-wrap gap-x-5 gap-y-2">
-                {item.subjects.map((subject) => {
-                  const stat = item.subjectStats[subject.key];
-                  const capacity = stat?.capacity ?? 0;
-                  const count = stat?.count ?? 0;
-                  const full = isFull.has(subject.key);
-                  const mine = selected.includes(subject.key);
-                  const subjFee = feeCode === "1" ? subject.feeStandard ?? 0 : feeCode === "3" ? subject.feeReduced ?? 0 : 0;
-                  const lockedSubj = readOnly || saving || (full && !mine);
-                  return (
-                    <label
-                      key={subject.key}
-                      className={`inline-flex items-center gap-1.5 text-sm ${
-                        lockedSubj ? "text-t3 cursor-not-allowed" : "text-t1 cursor-pointer"
-                      }`}
-                      title={full && !mine ? "已額滿" : undefined}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={mine}
-                        disabled={lockedSubj}
-                        onChange={() => onToggle(subject.key)}
-                      />
-                      {subject.label}
+          <div className={`flex flex-col sm:flex-row sm:items-start gap-2 ${optOut ? "opacity-40 pointer-events-none" : ""}`}>
+            <p className="text-sm text-t2 sm:w-20 shrink-0">科目名稱</p>
+            <div className="flex-1 space-y-2">
+              {item.subjects.map((subject) => {
+                const stat = item.subjectStats[subject.key];
+                const capacity = stat?.capacity ?? 0;
+                const count = stat?.count ?? 0;
+                const full = isFull.has(subject.key);
+                const mine = selected.includes(subject.key);
+                const subjFee = feeCode === "1" ? subject.feeStandard ?? 0 : feeCode === "3" ? subject.feeReduced ?? 0 : 0;
+                const lockedSubj = readOnly || saving || (full && !mine);
+                const hasAdvancedOptions =
+                  subject.enableAdvancedOption === true && (subject.advancedOptions?.length ?? 0) > 0;
+                const selectedValue = selectedOptionCodes[subject.key] ?? "";
+                return (
+                  <div
+                    key={subject.key}
+                    className={`flex flex-col sm:flex-row sm:items-center gap-2 ${
+                      lockedSubj ? "text-t3" : "text-t1"
+                    }`}
+                  >
+                    <div className="text-sm sm:w-48">
+                      <span>{subject.label}</span>
                       {subjFee > 0 && <span className="text-xs text-t3">（{subjFee} 元）</span>}
                       {capacity > 0 && (
-                        <span className={`text-xs ${full && !mine ? "text-danger" : "text-t3"}`}>
+                        <span className={`text-xs ml-1 ${full && !mine ? "text-danger" : "text-t3"}`}>
                           （{count}/{capacity}
                           {full && !mine ? " 額滿" : ""}）
                         </span>
                       )}
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className={`flex flex-col sm:flex-row sm:items-start gap-2 ${optOut ? "opacity-40 pointer-events-none" : ""}`}>
-              <p className="text-sm text-t2 sm:w-20 shrink-0">選考科目</p>
-              <div className="flex-1">
-                <p className="text-xs text-t3 mb-2">志願序可上下調整</p>
-                {selected.length === 0 ? (
-                  <p className="text-xs text-t3">尚未選擇科目</p>
-                ) : (
-                  <ol className="space-y-1 mb-2">
-                    {selected.map((key, index) => {
-                      const subject = item.subjects.find((s) => s.key === key);
-                      return (
-                        <li
-                          key={key}
-                          className="flex items-center gap-2 text-sm border border-themed rounded px-2 py-1"
-                        >
-                          <span className="text-t3 w-5 text-center">{index + 1}</span>
-                          <span className="flex-1 text-t1">{subject?.label ?? key}</span>
-                          <button
-                            type="button"
-                            className="btn-soft rounded px-1.5 py-0.5 text-xs cursor-pointer disabled:opacity-40"
-                            disabled={readOnly || saving || index === 0}
-                            onClick={() => onMove(index, -1)}
-                            aria-label="上移"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-soft rounded px-1.5 py-0.5 text-xs cursor-pointer disabled:opacity-40"
-                            disabled={readOnly || saving || index === selected.length - 1}
-                            onClick={() => onMove(index, 1)}
-                            aria-label="下移"
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            className="text-xs text-t3 hover:text-danger cursor-pointer px-1"
-                            disabled={readOnly || saving}
-                            onClick={() => onRemove(key)}
-                          >
-                            移除
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                )}
-                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                  {item.subjects
-                    .filter((subject) => !selected.includes(subject.key))
-                    .map((subject) => (
-                      <button
-                        key={subject.key}
-                        type="button"
-                        disabled={readOnly || saving}
-                        onClick={() => onToggle(subject.key)}
-                        className="btn-soft rounded px-2 py-0.5 text-xs cursor-pointer disabled:opacity-50"
+                    </div>
+                    {hasAdvancedOptions ? (
+                      <select
+                        className="input-theme rounded px-3 py-2 text-sm w-full sm:w-72"
+                        value={selectedValue}
+                        disabled={lockedSubj}
+                        onChange={(e) => onSubjectOptionCodeChange(subject.key, e.target.value)}
+                        title={full && !mine ? "已額滿" : undefined}
                       >
-                        ＋ {subject.label}
-                      </button>
-                    ))}
-                </div>
-              </div>
+                        <option value="">不報考</option>
+                        {(subject.advancedOptions ?? []).map((option) => (
+                          <option key={option.code} value={option.code}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <label
+                        className={`inline-flex items-center gap-1.5 text-sm ${
+                          lockedSubj ? "text-t3 cursor-not-allowed" : "text-t1 cursor-pointer"
+                        }`}
+                        title={full && !mine ? "已額滿" : undefined}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={mine}
+                          disabled={lockedSubj}
+                          onChange={(e) =>
+                            onSubjectOptionCodeChange(
+                              subject.key,
+                              e.target.checked ? SUBJECT_SELECTED_VALUE : ""
+                            )
+                          }
+                        />
+                        報考
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          )}
+          </div>
 
           <div className={`flex flex-col sm:flex-row sm:items-start gap-2 ${optOut ? "opacity-40 pointer-events-none" : ""}`}>
             <p className="text-sm text-t2 sm:w-20 shrink-0">應考服務</p>
@@ -873,7 +856,7 @@ function ExamEventCard({
             disabled={saving}
             className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
           >
-            {saving ? "儲存中..." : optOut ? "送出不報名" : hasRegistration ? "更新志願/科目" : "送出登錄"}
+            {saving ? "儲存中..." : optOut ? "送出不報名" : hasRegistration ? "更新報名資料" : "送出登錄"}
           </button>
         )}
         {hasRegistration && !readOnly && !archived && (
@@ -909,9 +892,7 @@ function ExamEventCard({
           {item.myOptOut
             ? `已勾選不報名${item.myOptOutReason ? `（${item.myOptOutReason}）` : ""}`
             : hasRegistration
-              ? isReview
-                ? `已送出 ${item.mySubjectKeys.length} 個志願${item.reviewStatus ? `（${EXAM_REVIEW_STATUS_LABELS[item.reviewStatus]}）` : ""}`
-                : `已登錄 ${item.mySubjectKeys.length} 項科目${item.locationOptions.length > 0 && item.myLocationCode ? `・${resolveLocationLabel(item.locationOptions, item.myLocationCode)}` : ""}`
+              ? `完成報名（${item.mySubjectKeys.length} 項科目）${item.locationOptions.length > 0 && item.myLocationCode ? `・${resolveLocationLabel(item.locationOptions, item.myLocationCode)}` : ""}`
               : closed
                 ? "本場次已截止"
                 : upcoming
@@ -929,7 +910,11 @@ function ExamEventCard({
 function RegistrationPrintSheet({ item }: { item: StudentExamEvent }) {
   const subjectLabels = item.subjects
     .filter((subject) => item.mySubjectKeys.includes(subject.key))
-    .map((subject) => subject.label);
+    .map((subject) => {
+      const code = item.mySubjectAdvancedOptionCodes[subject.key] ?? "";
+      const optionLabel = (subject.advancedOptions ?? []).find((option) => option.code === code)?.label ?? "";
+      return optionLabel ? `${subject.label}（${optionLabel}）` : subject.label;
+    });
   const locationLabel =
     resolveLocationLabel(item.locationOptions, item.myLocationCode) || item.location;
   return (

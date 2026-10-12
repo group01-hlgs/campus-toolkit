@@ -13,9 +13,7 @@ import {
   listAdminExamEvents,
   unarchiveExamRegistration,
   updateExamEvent,
-  updateExamRegistrationReview,
 } from "../../../lib/exam-registration";
-import { isExamReviewStatus } from "../../../types/exam-registration";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -43,7 +41,9 @@ export async function GET(request: NextRequest) {
     const eventId = request.nextUrl.searchParams.get("eventId");
     if (eventId) {
       if (request.nextUrl.searchParams.get("format") === "csv") {
-        const csv = await buildExamRegistrationCsvForEvent(eventId);
+        const classCodeRaw = request.nextUrl.searchParams.get("classCode");
+        const classCode = classCodeRaw ? classCodeRaw.trim() : "";
+        const csv = await buildExamRegistrationCsvForEvent(eventId, classCode || undefined);
         if (!csv) {
           return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });
         }
@@ -161,22 +161,10 @@ export async function PATCH(request: NextRequest) {
         { headers: noStore }
       );
     }
-    // 審核分支：`{ id, registrationId, reviewStatus }`（僅 examMode=review 場次）
     if (registrationId) {
-      const reviewStatus = body && isExamReviewStatus(body.reviewStatus) ? body.reviewStatus : null;
-      if (!reviewStatus) {
-        return NextResponse.json({ success: false, message: "審核結果無效" }, { status: 400, headers: noStore });
-      }
-      const { registration } = await updateExamRegistrationReview({
-        eventId: id,
-        registrationId,
-        reviewStatus,
-        actor,
-        ip: getClientIp(request),
-      });
       return NextResponse.json(
-        { success: true, message: "審核結果已更新", registration },
-        { headers: noStore }
+        { success: false, message: "此操作已停用" },
+        { status: 400, headers: noStore }
       );
     }
     const { events, epoch } = await updateExamEvent(id, body, actor, getClientIp(request));

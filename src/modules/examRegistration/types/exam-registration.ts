@@ -8,8 +8,8 @@
 
 export type ExamEventType = "draft" | "open" | "closed" | "archived";
 export type ExamCategory = "mock" | "entrance" | "other";
-/** 錄取方式：先到先得（即時額滿鎖）／審核錄取（志願序＋承辦審核） */
-export type ExamMode = "first-come" | "review";
+/** 報名方式（單一制）：一般報名 */
+export type ExamMode = "review";
 /** 報名義務：必須報名（要嘛報、要嘛勾不報名+原因）／自由報名（不需動作即可） */
 export type ExamRegistrationMode = "required" | "optional";
 /** 繳費身分：1 一般生／2 低收入戶（免繳）／3 中低收入戶（減免） */
@@ -31,8 +31,7 @@ export const EXAM_CATEGORY_LABELS: Record<ExamCategory, string> = {
 };
 
 export const EXAM_MODE_LABELS: Record<ExamMode, string> = {
-  "first-come": "先到先得",
-  review: "審核錄取",
+  review: "一般報名",
 };
 
 export const EXAM_REGISTRATION_MODE_LABELS: Record<ExamRegistrationMode, string> = {
@@ -60,6 +59,10 @@ export const EXAM_EVENT_LIMITS = {
   locationCode: 20,
   /** 地點選項名稱長度上限 */
   locationLabel: 40,
+  /** 進階選項代碼長度上限（唯一） */
+  advancedOptionCode: 20,
+  /** 進階選項名稱長度上限 */
+  advancedOptionLabel: 40,
   note: 500,
   subjectLabel: 40,
   subjectsMin: 1,
@@ -74,6 +77,10 @@ export const EXAM_EVENT_LIMITS = {
 export interface ExamSubject {
   key: string;
   label: string;
+  /** 啟用進階選項（學生端可再選子項） */
+  enableAdvancedOption?: boolean;
+  /** 該科可選進階選項（啟用時至少一項） */
+  advancedOptions?: ExamAdvancedOption[];
   /** 每科名額上限（考場座位）；省略或 0＝不限 */
   capacity?: number;
   /** 一般生應繳（元）；省略或 0＝免收 */
@@ -99,6 +106,12 @@ export interface ExamLocationOption {
   isDefault?: boolean;
 }
 
+/** 科目進階選項（代碼＋顯示名稱） */
+export interface ExamAdvancedOption {
+  code: string;
+  label: string;
+}
+
 export interface ExamEvent {
   id: string;
   title: string;
@@ -120,7 +133,7 @@ export interface ExamEvent {
   target: ExamEventTarget;
   /** 基本費用（元）：standard＝一般生／reduced＝中低收入戶（低收入戶免繳＝0） */
   basicFee: { standard: number; reduced: number };
-  /** 錄取方式（缺省 first-come，M1 資料向後相容） */
+  /** 報名方式（單一一般報名；保留欄位供資料相容） */
   examMode: ExamMode;
   /** 報名義務：required＝要嘛報名要嘛勾不報名；optional＝自由（缺省） */
   registrationMode: ExamRegistrationMode;
@@ -142,6 +155,8 @@ export interface ExamRegistration {
   /** 座號（名冊有才帶） */
   seatNo: string;
   subjectKeys: string[];
+  /** 已選科目的進階選項代碼（key=subject.key, value=advancedOption.code） */
+  subjectAdvancedOptionCodes: Record<string, string>;
   /** 不報名（required 場次的明確拒絕；true 時 subjectKeys 恆空、optOutReason 必填） */
   optOut: boolean;
   /** 不報名原因（optOut=true 時必填） */
@@ -159,7 +174,7 @@ export interface ExamRegistration {
   /** 資料封存：學生確認後凍結（唯讀）；承辦可解除 */
   archived: boolean;
   archivedAt: number | null;
-  /** 審核結果（first-come 場次恒為 pending） */
+  /** 保留欄位（歷史資料相容） */
   reviewStatus: ExamReviewStatus;
   createdAt: number;
   updatedAt: number;
@@ -175,8 +190,10 @@ export interface SubjectStat {
 export interface StudentExamEvent extends Omit<ExamEvent, "status"> {
   status: "upcoming" | "open" | "closed";
   mySubjectKeys: string[];
+  /** 本人各科進階選項代碼（僅已選科目且有進階選項的科目） */
+  mySubjectAdvancedOptionCodes: Record<string, string>;
   registeredAt: number | null;
-  /** 本人登錄的審核結果（未登錄為 null） */
+  /** 本人登錄的保留審核欄位（未登錄為 null） */
   reviewStatus: ExamReviewStatus | null;
   /** 本人是否勾選不報名 */
   myOptOut: boolean;
@@ -199,6 +216,8 @@ export interface StudentExamEvent extends Omit<ExamEvent, "status"> {
 }
 
 export interface ExamRosterSummary {
+  /** 應報名人數（符合場次目標對象的學生總數） */
+  applicableCount: number;
   total: number;
   /** 已報名（有登錄且 optOut=false） */
   registeredCount: number;
@@ -252,7 +271,7 @@ export function isExamCategory(value: unknown): value is ExamCategory {
 }
 
 export function isExamMode(value: unknown): value is ExamMode {
-  return value === "first-come" || value === "review";
+  return value === "review";
 }
 
 export function isExamRegistrationMode(value: unknown): value is ExamRegistrationMode {
@@ -396,6 +415,8 @@ export function parseExamSubjects(raw: unknown): ParseResult<ExamSubject[]> {
   for (const item of raw) {
     let label = "";
     let key = "";
+    let enableAdvancedOption = false;
+    let advancedOptions: ExamAdvancedOption[] = [];
     let parsedCapacity = 0;
     let feeStandard = 0;
     let feeReduced = 0;
@@ -405,6 +426,21 @@ export function parseExamSubjects(raw: unknown): ParseResult<ExamSubject[]> {
       const record = item as Record<string, unknown>;
       label = typeof record.label === "string" ? record.label.trim() : "";
       key = typeof record.key === "string" ? record.key.trim() : "";
+      const parsedAdvancedOptions = parseExamAdvancedOptions(record.advancedOptions);
+      if (!parsedAdvancedOptions.ok) {
+        return {
+          ok: false,
+          message: `科目「${label || "（未命名）"}」的進階選項${parsedAdvancedOptions.message}`,
+        };
+      }
+      advancedOptions = parsedAdvancedOptions.value;
+      enableAdvancedOption = record.enableAdvancedOption === true || advancedOptions.length > 0;
+      if (enableAdvancedOption && !advancedOptions.length) {
+        return {
+          ok: false,
+          message: `科目「${label || "（未命名）"}」啟用進階選項時，請至少新增一個進階選項`,
+        };
+      }
       if (record.capacity !== undefined && record.capacity !== null && record.capacity !== "") {
         const capacity = typeof record.capacity === "number" ? record.capacity : Number(record.capacity);
         if (!Number.isInteger(capacity) || capacity < 0 || capacity > EXAM_EVENT_LIMITS.subjectCapacityMax) {
@@ -433,10 +469,43 @@ export function parseExamSubjects(raw: unknown): ParseResult<ExamSubject[]> {
     if (!key || seenKeys.has(key)) key = makeSubjectKey(seenKeys);
     seenKeys.add(key);
     const entry: ExamSubject = { key, label };
+    if (enableAdvancedOption) entry.enableAdvancedOption = true;
+    if (enableAdvancedOption && advancedOptions.length) entry.advancedOptions = advancedOptions;
     if (parsedCapacity > 0) entry.capacity = parsedCapacity;
     if (feeStandard > 0) entry.feeStandard = feeStandard;
     if (feeReduced > 0) entry.feeReduced = feeReduced;
     list.push(entry);
+  }
+  return { ok: true, value: list };
+}
+
+export function parseExamAdvancedOptions(raw: unknown): ParseResult<ExamAdvancedOption[]> {
+  if (raw === undefined || raw === null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, message: "進階選項格式無效" };
+  const seenCodes = new Set<string>();
+  const list: ExamAdvancedOption[] = [];
+  for (const item of raw) {
+    const record = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
+    const code = textOrEmpty(record.code);
+    const label = textOrEmpty(record.label);
+    if (!code && !label) continue;
+    if (!code) return { ok: false, message: "進階選項代碼不可為空" };
+    if (!label) return { ok: false, message: `進階選項「${code}」缺少名稱` };
+    if (code.length > EXAM_EVENT_LIMITS.advancedOptionCode) {
+      return {
+        ok: false,
+        message: `進階選項代碼過長（最多 ${EXAM_EVENT_LIMITS.advancedOptionCode} 字）：${code}`,
+      };
+    }
+    if (label.length > EXAM_EVENT_LIMITS.advancedOptionLabel) {
+      return {
+        ok: false,
+        message: `進階選項名稱過長（最多 ${EXAM_EVENT_LIMITS.advancedOptionLabel} 字）：${label}`,
+      };
+    }
+    if (seenCodes.has(code)) return { ok: false, message: `進階選項代碼重複：${code}` };
+    seenCodes.add(code);
+    list.push({ code, label });
   }
   return { ok: true, value: list };
 }
@@ -569,7 +638,7 @@ export function parseExamEventDraft(raw: unknown): ParseResult<ExamEventDraft> {
   const status = isExamEventType(record.status) ? record.status : null;
   if (!status) errors.push("場次狀態無效");
 
-  const examMode: ExamMode = isExamMode(record.examMode) ? record.examMode : "first-come";
+  const examMode: ExamMode = "review";
   const registrationMode: ExamRegistrationMode = isExamRegistrationMode(record.registrationMode)
     ? record.registrationMode
     : "optional";

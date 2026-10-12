@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST：登錄／修改／不報名（`{ eventId, subjectKeys, optOut?, optOutReason?, locationCode?, nonAirConditionedRoom?, examServiceNote?, feeCode? }`） */
+/** POST：登錄／修改／不報名（`{ eventId, subjectKeys, subjectAdvancedOptionCodes?, optOut?, optOutReason?, locationCode?, nonAirConditionedRoom?, examServiceNote?, feeCode? }`） */
 export async function POST(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -108,6 +108,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "缺少場次 id" }, { status: 400, headers: noStore });
     }
     const subjectKeys = body && Array.isArray(body.subjectKeys) ? body.subjectKeys : [];
+    const subjectAdvancedOptionCodes =
+      body && body.subjectAdvancedOptionCodes && typeof body.subjectAdvancedOptionCodes === "object"
+        ? (body.subjectAdvancedOptionCodes as Record<string, unknown>)
+        : undefined;
     const optOut = body?.optOut === true;
     const optOutReason = body && typeof body.optOutReason === "string" ? body.optOutReason : "";
     const locationCode = body && typeof body.locationCode === "string" ? body.locationCode : undefined;
@@ -119,6 +123,7 @@ export async function POST(request: NextRequest) {
       eventId,
       student,
       subjectKeys,
+      subjectAdvancedOptionCodes,
       optOut,
       optOutReason,
       locationCode,

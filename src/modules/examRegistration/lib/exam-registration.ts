@@ -2,6 +2,8 @@ import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 import { cachedListRead, invalidateAdminListCache } from "@/lib/list-cache";
+import { getCurrentPeriod } from "@/lib/settings-server";
+import { isActiveEntry, loadPeriodEntries } from "@/lib/roster";
 import { logActivity } from "@/lib/audit";
 import { publishFromModule } from "@/lib/announcements";
 import { publishScheduleFromModule } from "@/lib/calendar";
@@ -20,7 +22,6 @@ import {
   isExamCategory,
   isExamEventType,
   isExamFeeCode,
-  isExamMode,
   isExamOpen,
   isExamRegistrationMode,
   isExamReviewStatus,
@@ -34,11 +35,11 @@ import {
   OPT_OUT_REASON_MAX,
 } from "../types/exam-registration";
 import type {
+  ExamAdvancedOption,
   ExamEvent,
   ExamEventDraft,
   ExamEventRoster,
   ExamRegistration,
-  ExamReviewStatus,
   ExamRosterSummary,
   StudentExamEvent,
 } from "../types/exam-registration";
@@ -93,6 +94,7 @@ export function registrationDocId(eventId: string, studentUid: string): string {
 }
 
 export function readExamEvent(id: string, raw: Record<string, unknown>): ExamEvent {
+  const legacyAdvancedOptions = readAdvancedOptions(raw.advancedOptions);
   return {
     id,
     title: typeof raw.title === "string" ? raw.title : "",
@@ -114,6 +116,14 @@ export function readExamEvent(id: string, raw: Record<string, unknown>): ExamEve
           const key = typeof record.key === "string" ? record.key : "";
           const label = typeof record.label === "string" ? record.label : "";
           if (!key || !label) return [];
+          const subjectAdvancedOptions = readAdvancedOptions(record.advancedOptions);
+          const enableAdvancedOption = record.enableAdvancedOption === true || subjectAdvancedOptions.length > 0;
+          const advancedOptions =
+            subjectAdvancedOptions.length > 0
+              ? subjectAdvancedOptions
+              : enableAdvancedOption
+                ? legacyAdvancedOptions
+                : [];
           const capacity =
             typeof record.capacity === "number" && Number.isFinite(record.capacity) && record.capacity > 0
               ? Math.floor(record.capacity)
@@ -121,6 +131,8 @@ export function readExamEvent(id: string, raw: Record<string, unknown>): ExamEve
           const feeStandard = readFee(record.feeStandard);
           const feeReduced = readFee(record.feeReduced);
           const entry: ExamEvent["subjects"][number] = { key, label };
+          if (enableAdvancedOption) entry.enableAdvancedOption = true;
+          if (enableAdvancedOption && advancedOptions.length) entry.advancedOptions = advancedOptions;
           if (capacity > 0) entry.capacity = capacity;
           if (feeStandard > 0) entry.feeStandard = feeStandard;
           if (feeReduced > 0) entry.feeReduced = feeReduced;
@@ -129,7 +141,7 @@ export function readExamEvent(id: string, raw: Record<string, unknown>): ExamEve
       : [],
     target: readTarget(raw.target),
     basicFee: readBasicFee(raw),
-    examMode: isExamMode(raw.examMode) ? raw.examMode : "first-come",
+    examMode: "review",
     registrationMode: isExamRegistrationMode(raw.registrationMode) ? raw.registrationMode : "optional",
     status: isExamEventType(raw.status) ? raw.status : "draft",
     createdBy: readActor(raw.createdBy),
@@ -158,6 +170,20 @@ function readLocationOptions(raw: unknown): ExamEvent["locationOptions"] {
   return list;
 }
 
+function readAdvancedOptions(raw: unknown): ExamAdvancedOption[] {
+  if (!Array.isArray(raw)) return [];
+  const list: ExamAdvancedOption[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const code = typeof record.code === "string" ? record.code.trim() : "";
+    const label = typeof record.label === "string" ? record.label.trim() : "";
+    if (!code || !label) continue;
+    list.push({ code, label });
+  }
+  return list;
+}
+
 function readBasicFee(raw: Record<string, unknown>): { standard: number; reduced: number } {
   const record = (raw.basicFee && typeof raw.basicFee === "object" ? raw.basicFee : null) as
     | Record<string, unknown>
@@ -181,6 +207,7 @@ export function readExamRegistration(
     studentId: typeof raw.studentId === "string" ? raw.studentId : "",
     seatNo: typeof raw.seatNo === "string" ? raw.seatNo : "",
     subjectKeys: parseSubjectKeys(raw.subjectKeys),
+    subjectAdvancedOptionCodes: readSubjectAdvancedOptionCodes(raw.subjectAdvancedOptionCodes),
     optOut: raw.optOut === true,
     optOutReason: typeof raw.optOutReason === "string" ? raw.optOutReason : "",
     locationCode: typeof raw.locationCode === "string" ? raw.locationCode : "",
@@ -196,6 +223,19 @@ export function readExamRegistration(
     createdAt: typeof raw.createdAt === "number" ? raw.createdAt : 0,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
   };
+}
+
+function readSubjectAdvancedOptionCodes(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  const record = raw as Record<string, unknown>;
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (typeof value !== "string") continue;
+    const code = value.trim();
+    if (!key || !code) continue;
+    result[key] = code;
+  }
+  return result;
 }
 
 function readTarget(raw: unknown): { grades: string[]; classes: string[] } {
@@ -315,6 +355,7 @@ export async function listStudentExamEvents(student: StudentIdentity): Promise<S
             ? ("upcoming" as const)
             : ("closed" as const),
       mySubjectKeys: registration ? pickValidSubjectKeys(registration.subjectKeys, event.subjects) : [],
+      mySubjectAdvancedOptionCodes: registration?.subjectAdvancedOptionCodes ?? {},
       registeredAt: registration ? registration.updatedAt : null,
       reviewStatus: registration ? registration.reviewStatus : null,
       myOptOut: registration?.optOut ?? false,
@@ -347,6 +388,8 @@ export async function upsertExamRegistration(input: {
   eventId: string;
   student: StudentIdentity;
   subjectKeys: string[];
+  /** 各科進階選項代碼（key=subject.key） */
+  subjectAdvancedOptionCodes?: Record<string, unknown>;
   optOut?: boolean;
   optOutReason?: string;
   /** 所選地點代碼（場次有選項時驗證；空值取預設項） */
@@ -404,6 +447,36 @@ export async function upsertExamRegistration(input: {
   }
 
   const subjectKeys = optOut ? [] : pickValidSubjectKeys(parseSubjectKeys(input.subjectKeys), event.subjects);
+  const requestedAdvancedCodes =
+    input.subjectAdvancedOptionCodes && typeof input.subjectAdvancedOptionCodes === "object"
+      ? (input.subjectAdvancedOptionCodes as Record<string, unknown>)
+      : {};
+  const selectedKeySet = new Set(subjectKeys);
+  const subjectAdvancedOptionCodes: Record<string, string> = {};
+  if (!optOut) {
+    for (const subject of event.subjects) {
+      if (!selectedKeySet.has(subject.key)) continue;
+      const options = subject.advancedOptions ?? [];
+      const needAdvanced = subject.enableAdvancedOption === true && options.length > 0;
+      if (!needAdvanced) continue;
+      const codeRaw = requestedAdvancedCodes[subject.key];
+      const code = typeof codeRaw === "string" ? codeRaw.trim() : "";
+      if (!code) {
+        throw new ExamRegistrationError(400, `科目「${subject.label}」尚未選擇進階選項`);
+      }
+      if (!options.some((option) => option.code === code)) {
+        throw new ExamRegistrationError(400, `科目「${subject.label}」的進階選項無效，請重新選擇`);
+      }
+      subjectAdvancedOptionCodes[subject.key] = code;
+    }
+    for (const [subjectKey, codeRaw] of Object.entries(requestedAdvancedCodes)) {
+      const code = typeof codeRaw === "string" ? codeRaw.trim() : "";
+      if (!code) continue;
+      if (!selectedKeySet.has(subjectKey)) {
+        throw new ExamRegistrationError(400, "進階選項資料與已選科目不符，請重新整理後再試");
+      }
+    }
+  }
   const feeAmount = optOut ? 0 : calcExamFee(event, subjectKeys, feeCode);
 
   const db = getAdminDb();
@@ -421,7 +494,6 @@ export async function upsertExamRegistration(input: {
   /** 先到先得且有科設名額上限 → transaction 內讀全场次統計（排除 optOut），額滿即拒 */
   const needsCapacityCheck =
     !optOut &&
-    event.examMode === "first-come" &&
     event.subjects.some((subject) => subjectCapacity(subject) > 0);
 
   const result = await db.runTransaction(async (tx) => {
@@ -457,6 +529,7 @@ export async function upsertExamRegistration(input: {
     const record = {
       ...base,
       subjectKeys,
+      subjectAdvancedOptionCodes: optOut ? {} : subjectAdvancedOptionCodes,
       optOut,
       optOutReason: optOut ? optOutReason : "",
       locationCode,
@@ -608,50 +681,6 @@ function assertEventAcceptingRegistration(event: ExamEvent): void {
   throw new ExamRegistrationError(409, "報名已截止");
 }
 
-/**
- * 承辦審核單筆登錄（僅 examMode=review 場次）：pending→admitted/waitlist/rejected。
- * 審核不鎖定場次狀態（closed 後仍可放榜）；archived 後不可改。
- */
-export async function updateExamRegistrationReview(input: {
-  eventId: string;
-  registrationId: string;
-  reviewStatus: ExamReviewStatus;
-  actor: Actor;
-  ip?: string;
-}): Promise<{ registration: ExamRegistration }> {
-  const event = await getExamEvent(input.eventId);
-  if (!event) throw new ExamRegistrationError(404, "找不到報名場次");
-  if (event.examMode !== "review") {
-    throw new ExamRegistrationError(400, "非審核錄取場次，無需審核");
-  }
-  if (event.status === "archived") throw new ExamRegistrationError(409, "場次已封存");
-  if (!isExamReviewStatus(input.reviewStatus)) throw new ExamRegistrationError(400, "審核結果無效");
-
-  const ref = getAdminDb()
-    .collection(EXAM_REGISTRATIONS_COLLECTION)
-    .doc(registrationDocId(event.id, input.registrationId));
-  const registration = await getAdminDb().runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists) throw new ExamRegistrationError(404, "查無此登錄資料");
-    const previous = readExamRegistration(snap.id, snap.data() ?? {});
-    if (previous.optOut) throw new ExamRegistrationError(400, "該生已勾選不報名，無需審核");
-    if (previous.archived) throw new ExamRegistrationError(409, "資料已封存，無法審核——請先解除封存");
-    const now = Date.now();
-    tx.update(ref, { reviewStatus: input.reviewStatus, updatedAt: now });
-    return { ...previous, reviewStatus: input.reviewStatus, updatedAt: now };
-  });
-
-  await invalidateExamRegistrationCaches();
-  await logActivity({
-    userId: input.actor.uid,
-    role: input.actor.role,
-    action: "exam_registration_reviewed",
-    ip: input.ip,
-    details: `審核報名（${event.title}，${registration.studentName} → ${input.reviewStatus}）`,
-  });
-  return { registration };
-}
-
 // —— 管理端 ——
 
 export async function listAdminExamEvents(): Promise<{ events: ExamEvent[]; epoch: number }> {
@@ -790,11 +819,14 @@ export async function getExamEventRoster(eventId: string): Promise<ExamEventRost
   const event = await getExamEvent(eventId);
   if (!event) return null;
   const { data, epoch } = await cachedListRead(`${ADMIN_ROSTER_KEY_PREFIX}${eventId}`, async () => {
-    const snap = await getAdminDb()
-      .collection(EXAM_REGISTRATIONS_COLLECTION)
-      .where("eventId", "==", eventId)
-      .limit(ROSTER_LIMIT)
-      .get();
+    const [snap, applicableCount] = await Promise.all([
+      getAdminDb()
+        .collection(EXAM_REGISTRATIONS_COLLECTION)
+        .where("eventId", "==", eventId)
+        .limit(ROSTER_LIMIT)
+        .get(),
+      countApplicableStudents(event),
+    ]);
     const rows = snap.docs.map((doc) => readExamRegistration(doc.id, doc.data()));
     rows.sort(
       (a, b) =>
@@ -802,12 +834,29 @@ export async function getExamEventRoster(eventId: string): Promise<ExamEventRost
         a.seatNo.localeCompare(b.seatNo) ||
         a.studentName.localeCompare(b.studentName, "zh-Hant")
     );
-    return { registrations: rows, summary: summarizeRoster(rows, event) };
+    return { registrations: rows, summary: summarizeRoster(rows, event, applicableCount) };
   });
   return { eventId, event, ...data, epoch };
 }
 
-function summarizeRoster(rows: ExamRegistration[], event: ExamEvent): ExamRosterSummary {
+async function countApplicableStudents(event: ExamEvent): Promise<number> {
+  const period = await getCurrentPeriod();
+  const entries = await loadPeriodEntries(period, "student");
+  let count = 0;
+  for (const entry of entries.values()) {
+    if (!isActiveEntry(entry)) continue;
+    const grade = typeof entry.grade === "string" ? entry.grade : "";
+    const classCode = typeof entry.classCode === "string" ? entry.classCode : "";
+    if (isTargetMatch(event.target, { grade, classCode })) count += 1;
+  }
+  return count;
+}
+
+function summarizeRoster(
+  rows: ExamRegistration[],
+  event: ExamEvent,
+  applicableCount: number
+): ExamRosterSummary {
   const bySubject: ExamRosterSummary["bySubject"] = {};
   for (const subject of event.subjects) {
     bySubject[subject.key] = {
@@ -837,22 +886,28 @@ function summarizeRoster(rows: ExamRegistration[], event: ExamEvent): ExamRoster
   for (const entry of Object.values(bySubject)) {
     entry.full = entry.capacity > 0 && entry.count >= entry.capacity;
   }
-  return { total: rows.length, registeredCount, optOutCount, archivedCount, bySubject, byClass };
+  return { applicableCount, total: rows.length, registeredCount, optOutCount, archivedCount, bySubject, byClass };
 }
 
 /** 造冊 CSV：讀取名單後組 CSV（含 BOM）；內容直接回給管理端下載 */
 export async function buildExamRegistrationCsvForEvent(
-  eventId: string
+  eventId: string,
+  classCode?: string
 ): Promise<{ filename: string; content: string } | null> {
   const roster = await getExamEventRoster(eventId);
   if (!roster) return null;
+  const normalizedClassCode = classCode?.trim() ?? "";
+  const rows = normalizedClassCode
+    ? roster.registrations.filter((row) => row.studentClass === normalizedClassCode)
+    : roster.registrations;
   const content = buildExamRegistrationCsv(
-    roster.registrations,
+    rows,
     roster.event.subjects,
     roster.event.locationOptions
   );
   const safeTitle = roster.event.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
-  return { filename: `造冊_${safeTitle || eventId}.csv`, content };
+  const classSuffix = normalizedClassCode ? `_${normalizedClassCode}` : "";
+  return { filename: `造冊_${safeTitle || eventId}${classSuffix}.csv`, content };
 }
 
 /**
@@ -938,11 +993,16 @@ function buildEventDescription(event: ExamEvent): string {
     : event.location
       ? `考試地點：${event.location}`
       : "";
+  const advancedOptionText = event.subjects
+    .filter((subject) => subject.enableAdvancedOption && (subject.advancedOptions?.length ?? 0) > 0)
+    .map((subject) => `${subject.label}（${(subject.advancedOptions ?? []).map((option) => option.label).join("、")}）`)
+    .join("；");
   const lines = [
     windowText,
     `考試日期：${formatExamDateRange(event)}`,
     locationText,
     `科目：${event.subjects.map((subject) => subject.label).join("、")}`,
+    advancedOptionText ? `進階選項：${advancedOptionText}` : "",
     `對象：${describeTarget(event)}`,
     feeText,
     event.note ? `說明：${event.note}` : "",

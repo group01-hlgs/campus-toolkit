@@ -9,17 +9,15 @@ import {
   EXAM_CATEGORY_LABELS,
   EXAM_EVENT_LIMITS,
   EXAM_EVENT_STATUS_LABELS,
-  EXAM_FEE_CODE_LABELS,
-  EXAM_MODE_LABELS,
   EXAM_REGISTRATION_MODE_LABELS,
-  EXAM_REVIEW_STATUS_LABELS,
   effectiveExamStatus,
   formatExamDateRange,
   makeSubjectKey,
+  parseExamAdvancedOptions,
   parseExamLocationOptions,
-  resolveLocationLabel,
 } from "../../types/exam-registration";
 import type {
+  ExamAdvancedOption,
   ExamCategory,
   ExamEvent,
   ExamEventRoster,
@@ -27,7 +25,6 @@ import type {
   ExamLocationOption,
   ExamMode,
   ExamRegistrationMode,
-  ExamReviewStatus,
 } from "../../types/exam-registration";
 
 interface AdminListResponse {
@@ -42,6 +39,11 @@ interface AdminListResponse {
 interface FormSubject {
   key: string;
   label: string;
+  enableAdvancedOption: boolean;
+  advancedOptionsText: string;
+  advancedOptionCodeText: string;
+  advancedOptionLabelText: string;
+  advancedOptions: ExamAdvancedOption[];
   capacityText: string;
   feeStandardText: string;
   feeReducedText: string;
@@ -106,9 +108,20 @@ function emptyForm(): FormState {
     grades: [],
     classes: [],
     subjects: [
-      { key: makeSubjectKey(new Set()), label: "", capacityText: "", feeStandardText: "", feeReducedText: "" },
+      {
+        key: makeSubjectKey(new Set()),
+        label: "",
+        enableAdvancedOption: false,
+        advancedOptionsText: "",
+        advancedOptionCodeText: "",
+        advancedOptionLabelText: "",
+        advancedOptions: [],
+        capacityText: "",
+        feeStandardText: "",
+        feeReducedText: "",
+      },
     ],
-    examMode: "first-come",
+    examMode: "review",
     registrationMode: "optional",
     status: "draft",
   };
@@ -187,6 +200,23 @@ function parseLocationBatchText(value: string): { ok: true; value: ExamLocationO
     const label = labelParts.join(",").trim();
     if (!code || !label) {
       return { ok: false, message: `第 ${index + 1} 行格式需為「代碼,考區名稱」` };
+    }
+    list.push({ code, label });
+  }
+  return { ok: true, value: list };
+}
+
+function parseAdvancedOptionBatchText(value: string): { ok: true; value: ExamAdvancedOption[] } | { ok: false; message: string } {
+  const lines = value.split(/\r?\n/);
+  const list: ExamAdvancedOption[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (!line) continue;
+    const [rawCode = "", ...labelParts] = line.split(",");
+    const code = rawCode.trim();
+    const label = labelParts.join(",").trim();
+    if (!code || !label) {
+      return { ok: false, message: `第 ${index + 1} 行格式需為「代碼,進階選項」` };
     }
     list.push({ code, label });
   }
@@ -404,29 +434,115 @@ export default function AdminExamRegistrationPage() {
     setFlash({ type: "success", text: `已將「${selected.label}」設為預設考區` });
   }
 
+  function addAdvancedOption(subjectIndex: number) {
+    const subject = form.subjects[subjectIndex];
+    if (!subject) return;
+    const code = subject.advancedOptionCodeText.trim();
+    const label = subject.advancedOptionLabelText.trim();
+    if (!code || !label) {
+      setFlash({ type: "error", text: "請輸入進階選項代碼與名稱" });
+      return;
+    }
+    const parsed = parseExamAdvancedOptions([...subject.advancedOptions, { code, label }]);
+    if (!parsed.ok) {
+      setFlash({ type: "error", text: parsed.message });
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((item, index) =>
+        index === subjectIndex
+          ? {
+              ...item,
+              advancedOptions: parsed.value,
+              advancedOptionCodeText: "",
+              advancedOptionLabelText: "",
+            }
+          : item
+      ),
+    }));
+  }
+
+  function applyAdvancedOptionBatch(subjectIndex: number) {
+    const subject = form.subjects[subjectIndex];
+    if (!subject) return;
+    const batch = parseAdvancedOptionBatchText(subject.advancedOptionsText);
+    if (!batch.ok) {
+      setFlash({ type: "error", text: batch.message });
+      return;
+    }
+    if (!batch.value.length) {
+      setFlash({ type: "error", text: "請先輸入批次內容" });
+      return;
+    }
+    const parsed = parseExamAdvancedOptions([...subject.advancedOptions, ...batch.value]);
+    if (!parsed.ok) {
+      setFlash({ type: "error", text: parsed.message });
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((item, index) =>
+        index === subjectIndex
+          ? {
+              ...item,
+              advancedOptions: parsed.value,
+              advancedOptionsText: "",
+            }
+          : item
+      ),
+    }));
+  }
+
+  function removeAdvancedOption(subjectIndex: number, optionIndex: number) {
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((item, index) =>
+        index === subjectIndex
+          ? { ...item, advancedOptions: item.advancedOptions.filter((_, i) => i !== optionIndex) }
+          : item
+      ),
+    }));
+  }
+
   async function submitForm(event: React.FormEvent) {
     event.preventDefault();
     if (saving) return;
-    const subjects = form.subjects
-      .map((subject) => {
-        const capacity = Number(subject.capacityText);
-        const feeStandard = Number(subject.feeStandardText);
-        const feeReduced = Number(subject.feeReducedText);
-        return {
-          key: subject.key,
-          label: subject.label.trim(),
-          ...(subject.capacityText.trim() !== "" && Number.isInteger(capacity) && capacity > 0
-            ? { capacity }
-            : {}),
-          ...(subject.feeStandardText.trim() !== "" && Number.isInteger(feeStandard) && feeStandard > 0
-            ? { feeStandard }
-            : {}),
-          ...(subject.feeReducedText.trim() !== "" && Number.isInteger(feeReduced) && feeReduced > 0
-            ? { feeReduced }
-            : {}),
-        };
-      })
-      .filter((subject) => subject.label);
+    const subjects: ExamEvent["subjects"] = [];
+    for (const subject of form.subjects) {
+      const label = subject.label.trim();
+      if (!label) continue;
+      const capacity = Number(subject.capacityText);
+      const feeStandard = Number(subject.feeStandardText);
+      const feeReduced = Number(subject.feeReducedText);
+      const entry: ExamEvent["subjects"][number] = {
+        key: subject.key,
+        label,
+      };
+      const parsedAdvancedOptions = parseExamAdvancedOptions(subject.advancedOptions);
+      if (!parsedAdvancedOptions.ok) {
+        setFlash({ type: "error", text: `科目「${label}」的進階選項${parsedAdvancedOptions.message}` });
+        return;
+      }
+      if (subject.enableAdvancedOption) {
+        if (!parsedAdvancedOptions.value.length) {
+          setFlash({ type: "error", text: `科目「${label}」啟用進階選項時，請至少新增一個進階選項` });
+          return;
+        }
+        entry.enableAdvancedOption = true;
+        entry.advancedOptions = parsedAdvancedOptions.value;
+      }
+      if (subject.capacityText.trim() !== "" && Number.isInteger(capacity) && capacity > 0) {
+        entry.capacity = capacity;
+      }
+      if (subject.feeStandardText.trim() !== "" && Number.isInteger(feeStandard) && feeStandard > 0) {
+        entry.feeStandard = feeStandard;
+      }
+      if (subject.feeReducedText.trim() !== "" && Number.isInteger(feeReduced) && feeReduced > 0) {
+        entry.feeReduced = feeReduced;
+      }
+      subjects.push(entry);
+    }
     for (const subject of subjects) {
       if (subject.capacity !== undefined && subject.capacity > EXAM_EVENT_LIMITS.subjectCapacityMax) {
         setFlash({
@@ -515,7 +631,7 @@ export default function AdminExamRegistrationPage() {
         subjects,
         target: { grades: form.grades, classes: form.classes },
         basicFee: { standard: basicFeeStandard, reduced: basicFeeReduced },
-        examMode: form.examMode,
+        examMode: "review",
         registrationMode: form.registrationMode,
         status: form.status,
       };
@@ -632,11 +748,16 @@ export default function AdminExamRegistrationPage() {
       subjects: item.subjects.map((subject) => ({
         key: subject.key,
         label: subject.label,
+        enableAdvancedOption: subject.enableAdvancedOption === true,
+        advancedOptionsText: "",
+        advancedOptionCodeText: "",
+        advancedOptionLabelText: "",
+        advancedOptions: subject.advancedOptions ?? [],
         capacityText: subject.capacity ? String(subject.capacity) : "",
         feeStandardText: subject.feeStandard ? String(subject.feeStandard) : "",
         feeReducedText: subject.feeReduced ? String(subject.feeReduced) : "",
       })),
-      examMode: item.examMode,
+      examMode: "review",
       registrationMode: item.registrationMode,
       status: item.status,
     });
@@ -694,48 +815,6 @@ export default function AdminExamRegistrationPage() {
       ...prev,
       subjects: prev.subjects.map((item, i) => (i === index ? { ...item, [field]: sanitized } : item)),
     }));
-  }
-
-  /** 審核單筆（僅 examMode=review）；完成後重拉名單 */
-  async function reviewRegistration(studentUid: string, reviewStatus: ExamReviewStatus) {
-    if (!roster || saving) return;
-    setSaving(true);
-    try {
-      const res = await fetch("/api/admin/exam-registration", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: roster.eventId, registrationId: studentUid, reviewStatus }),
-      });
-      const data: (AdminListResponse & { message?: string }) | null = await res.json().catch(() => null);
-      if (!res.ok || !data?.success) throw new Error(data?.message || "審核失敗");
-      setFlash({ type: "success", text: data.message || "審核結果已更新" });
-      await loadRoster(roster.eventId);
-    } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "審核失敗" });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  /** 解除封存（學生可重新修改）；完成後重拉名單 */
-  async function unarchiveRegistration(studentUid: string) {
-    if (!roster || saving) return;
-    setSaving(true);
-    try {
-      const res = await fetch("/api/admin/exam-registration", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: roster.eventId, registrationId: studentUid, unarchive: true }),
-      });
-      const data: (AdminListResponse & { message?: string }) | null = await res.json().catch(() => null);
-      if (!res.ok || !data?.success) throw new Error(data?.message || "解除封存失敗");
-      setFlash({ type: "success", text: data.message || "已解除封存" });
-      await loadRoster(roster.eventId);
-    } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "解除封存失敗" });
-    } finally {
-      setSaving(false);
-    }
   }
 
   const searchKeyword = keyword.trim().toLowerCase();
@@ -1204,52 +1283,177 @@ export default function AdminExamRegistrationPage() {
                   <div className="flex items-center gap-2 text-xs font-medium text-t2">
                     <span className="w-5 shrink-0" />
                     <span className="w-[150px] shrink-0">科目名稱</span>
+                    <span className="w-[72px] shrink-0 text-center">進階選項</span>
                     <span className="w-[75px] shrink-0">一般生</span>
                     <span className="w-[75px] shrink-0">中低收入戶</span>
                     <span className="w-10 shrink-0" />
                   </div>
                   {form.subjects.map((subject, index) => (
-                    <div key={subject.key} className="flex items-center gap-2">
-                      <span className="text-xs text-t3 w-5 shrink-0 text-center">{index + 1}</span>
-                      <input
-                        className="h-8 w-[150px] min-w-0 input-theme rounded px-2 py-1"
-                        value={subject.label}
-                        onChange={(e) => subjectEditor(index, e.target.value)}
-                        maxLength={EXAM_EVENT_LIMITS.subjectLabel}
-                        placeholder="例：國文"
-                        aria-label={`第 ${index + 1} 科科目名稱`}
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        max={EXAM_EVENT_LIMITS.fee}
-                        className="h-8 input-theme rounded px-2 py-1 w-[75px] text-xs"
-                        value={subject.feeStandardText || "0"}
-                        onChange={(e) => subjectFeeEditor(index, "feeStandardText", e.target.value)}
-                        aria-label={`第 ${index + 1} 科一般生費用`}
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        max={EXAM_EVENT_LIMITS.fee}
-                        className="h-8 input-theme rounded px-2 py-1 w-[75px] text-xs"
-                        value={subject.feeReducedText || "0"}
-                        onChange={(e) => subjectFeeEditor(index, "feeReducedText", e.target.value)}
-                        aria-label={`第 ${index + 1} 科中低收入戶費用`}
-                      />
-                      <button
-                        type="button"
-                        className="text-xs text-t3 hover:text-danger cursor-pointer px-1 w-10 shrink-0"
-                        disabled={form.subjects.length <= 1}
-                        onClick={() =>
-                          setForm((prev) => ({
-                            ...prev,
-                            subjects: prev.subjects.filter((_, i) => i !== index),
-                          }))
-                        }
-                      >
-                        刪除
-                      </button>
+                    <div key={subject.key} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-t3 w-5 shrink-0 text-center">{index + 1}</span>
+                        <input
+                          className="h-8 w-[150px] min-w-0 input-theme rounded px-2 py-1"
+                          value={subject.label}
+                          onChange={(e) => subjectEditor(index, e.target.value)}
+                          maxLength={EXAM_EVENT_LIMITS.subjectLabel}
+                          placeholder="例：國文"
+                          aria-label={`第 ${index + 1} 科科目名稱`}
+                        />
+                        <label className="w-[72px] shrink-0 inline-flex justify-center">
+                          <input
+                            type="checkbox"
+                            checked={subject.enableAdvancedOption}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                subjects: prev.subjects.map((item, i) =>
+                                  i === index ? { ...item, enableAdvancedOption: e.target.checked } : item
+                                ),
+                              }))
+                            }
+                            aria-label={`第 ${index + 1} 科啟用進階選項`}
+                          />
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={EXAM_EVENT_LIMITS.fee}
+                          className="h-8 input-theme rounded px-2 py-1 w-[75px] text-xs"
+                          value={subject.feeStandardText || "0"}
+                          onChange={(e) => subjectFeeEditor(index, "feeStandardText", e.target.value)}
+                          aria-label={`第 ${index + 1} 科一般生費用`}
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={EXAM_EVENT_LIMITS.fee}
+                          className="h-8 input-theme rounded px-2 py-1 w-[75px] text-xs"
+                          value={subject.feeReducedText || "0"}
+                          onChange={(e) => subjectFeeEditor(index, "feeReducedText", e.target.value)}
+                          aria-label={`第 ${index + 1} 科中低收入戶費用`}
+                        />
+                        <button
+                          type="button"
+                          className="text-xs text-t3 hover:text-danger cursor-pointer px-1 w-10 shrink-0"
+                          disabled={form.subjects.length <= 1}
+                          onClick={() =>
+                            setForm((prev) => ({
+                              ...prev,
+                              subjects: prev.subjects.filter((_, i) => i !== index),
+                            }))
+                          }
+                        >
+                          刪除
+                        </button>
+                      </div>
+                      {subject.enableAdvancedOption && (
+                        <div className="ml-7 rounded border border-themed p-2 space-y-2">
+                          <div className="text-xs font-medium text-t2">第 {index + 1} 科進階選項</div>
+                          <div className="flex flex-col lg:flex-row gap-2">
+                            <input
+                              className="h-8 input-theme rounded px-2 py-1 lg:w-40 text-xs"
+                              value={subject.advancedOptionCodeText}
+                              onChange={(e) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  subjects: prev.subjects.map((item, i) =>
+                                    i === index ? { ...item, advancedOptionCodeText: e.target.value } : item
+                                  ),
+                                }))
+                              }
+                              placeholder="代碼（例：0101）"
+                              maxLength={EXAM_EVENT_LIMITS.advancedOptionCode}
+                            />
+                            <input
+                              className="h-8 input-theme rounded px-2 py-1 flex-1 text-xs"
+                              value={subject.advancedOptionLabelText}
+                              onChange={(e) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  subjects: prev.subjects.map((item, i) =>
+                                    i === index ? { ...item, advancedOptionLabelText: e.target.value } : item
+                                  ),
+                                }))
+                              }
+                              placeholder="進階選項（例：鋼琴）"
+                              maxLength={EXAM_EVENT_LIMITS.advancedOptionLabel}
+                            />
+                            <button
+                              type="button"
+                              className="btn-theme h-8 px-3 py-1 rounded text-xs shrink-0"
+                              onClick={() => addAdvancedOption(index)}
+                            >
+                              + 新增進階選項
+                            </button>
+                          </div>
+                          {subject.advancedOptions.length > 0 ? (
+                            <div className="space-y-1">
+                              {subject.advancedOptions.map((option, optionIndex) => (
+                                <div key={option.code} className="flex items-center gap-2 text-xs">
+                                  <span className="text-t3 w-5 text-right">{optionIndex + 1}</span>
+                                  <input
+                                    className="h-8 input-theme rounded px-2 py-1 w-24"
+                                    value={option.code}
+                                    readOnly
+                                    aria-label={`第 ${index + 1} 科進階選項代碼 ${option.code}`}
+                                  />
+                                  <input
+                                    className="h-8 input-theme rounded px-2 py-1 flex-1"
+                                    value={option.label}
+                                    readOnly
+                                    aria-label={`第 ${index + 1} 科進階選項名稱 ${option.label}`}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="text-danger/80 hover:text-danger shrink-0"
+                                    onClick={() => removeAdvancedOption(index, optionIndex)}
+                                    aria-label={`刪除第 ${index + 1} 科進階選項 ${option.label}`}
+                                    title="刪除"
+                                  >
+                                    <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4" aria-hidden="true">
+                                      <path
+                                        d="M7 3.5H13L14 5H17V7H3V5H6L7 3.5ZM5 8H15L14.2 16.2C14.15 16.75 13.69 17.17 13.14 17.17H6.86C6.31 17.17 5.85 16.75 5.8 16.2L5 8ZM8 10V15H9.5V10H8ZM10.5 10V15H12V10H10.5Z"
+                                        fill="currentColor"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-t3">尚未新增進階選項</p>
+                          )}
+                          <div className="space-y-1">
+                            <div className="text-xs font-medium text-t2">批次新增</div>
+                            <textarea
+                              className="w-full input-theme rounded px-2 py-1 min-h-20 text-xs"
+                              value={subject.advancedOptionsText}
+                              onChange={(e) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  subjects: prev.subjects.map((item, i) =>
+                                    i === index ? { ...item, advancedOptionsText: e.target.value } : item
+                                  ),
+                                }))
+                              }
+                              placeholder={"0101,鋼琴\n0301,聲樂"}
+                            />
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                className="btn-theme h-8 px-3 py-1 rounded text-xs"
+                                onClick={() => applyAdvancedOptionBatch(index)}
+                              >
+                                套用為單筆新增
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-t3">
+                            第 {index + 1} 科：單筆新增與批次新增會合併，不可重複；每行一筆格式「代碼,進階選項」
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ))}
                   <div className="flex items-center gap-3">
@@ -1265,6 +1469,11 @@ export default function AdminExamRegistrationPage() {
                             {
                               key: makeSubjectKey(new Set(prev.subjects.map((s) => s.key))),
                               label: "",
+                              enableAdvancedOption: false,
+                              advancedOptionsText: "",
+                              advancedOptionCodeText: "",
+                              advancedOptionLabelText: "",
+                              advancedOptions: [],
                               capacityText: "",
                               feeStandardText: "",
                               feeReducedText: "",
@@ -1485,10 +1694,10 @@ export default function AdminExamRegistrationPage() {
                                 onClick={() => void loadRoster(item.id)}
                                 disabled={loadingRoster}
                                 className="btn-soft rounded px-2.5 py-1 text-[10px] cursor-pointer disabled:opacity-50"
-                                aria-label={`${item.title} 報名名單`}
-                                title="報名名單"
+                                aria-label={`${item.title} 報名統計`}
+                                title="報名統計"
                               >
-                                {roster?.eventId === item.id ? "名單 ✓" : "名單"}
+                                {roster?.eventId === item.id ? "統計 ✓" : "統計"}
                               </button>
                               {nextStatus ? (
                                 <button
@@ -1514,6 +1723,15 @@ export default function AdminExamRegistrationPage() {
                               >
                                 刪除
                               </button>
+                              <a
+                                href={`/admin/exam-registration/roster?eventId=${encodeURIComponent(item.id)}`}
+                                className="btn-soft rounded px-2.5 py-1 text-[10px] cursor-pointer text-center"
+                                aria-label={`查看 ${item.title} 名單`}
+                                title="查看名單"
+                              >
+                                查看名單
+                              </a>
+                              <span />
                             </div>
                           </div>
                         </td>
@@ -1603,20 +1821,17 @@ export default function AdminExamRegistrationPage() {
             <div>
               <h3 className="text-lg font-bold text-t1">名單｜{roster.event.title}</h3>
               <p className="text-xs text-t3">
-                共 {roster.summary.total} 人（已報名 {roster.summary.registeredCount}／不報名{" "}
-                {roster.summary.optOutCount}／已封存 {roster.summary.archivedCount}）；
+                應報名 {roster.summary.applicableCount} 人／完成報名 {roster.summary.registeredCount} 人；
                 {formatExamDateRange(roster.event)}・
-                {EXAM_MODE_LABELS[roster.event.examMode]}・
                 {EXAM_REGISTRATION_MODE_LABELS[roster.event.registrationMode]}
               </p>
             </div>
             <div className="flex items-center gap-2">
               <a
-                href={`/api/admin/exam-registration?eventId=${encodeURIComponent(roster.eventId)}&format=csv`}
+                href={`/admin/exam-registration/roster?eventId=${encodeURIComponent(roster.eventId)}`}
                 className="btn-soft rounded px-3 py-1 text-xs cursor-pointer"
-                download
               >
-                匯出 CSV
+                查看名單
               </a>
               <button
                 type="button"
@@ -1628,166 +1843,26 @@ export default function AdminExamRegistrationPage() {
             </div>
           </div>
 
-          {/* 各科人數長條圖（純 CSS；有設名額時顯示 n/m 與額滿） */}
-          <div className="space-y-1.5">
-            {roster.event.subjects.map((subject) => {
-              const entry = roster.summary.bySubject[subject.key];
-              const count = entry?.count ?? 0;
-              const capacity = entry?.capacity ?? 0;
-              const full = entry?.full ?? false;
-              const ratio = capacity > 0 ? Math.min(100, (count / capacity) * 100) : 0;
-              return (
-                <div key={subject.key} className="flex items-center gap-2 text-xs">
-                  <span className="w-20 shrink-0 text-t2 truncate" title={subject.label}>
-                    {subject.label}
-                  </span>
-                  <div className="flex-1 h-3 rounded bg-themed overflow-hidden">
-                    <div
-                      className="h-full rounded"
-                      style={{
-                        width: capacity > 0 ? `${ratio}%` : count > 0 ? "100%" : "0%",
-                        background: full ? "var(--danger)" : "var(--success)",
-                        opacity: capacity > 0 ? 1 : 0.45,
-                      }}
-                    />
-                  </div>
-                  <span className={`w-16 shrink-0 text-right ${full ? "text-danger" : "text-t2"}`}>
-                    {capacity > 0 ? `${count}/${capacity}${full ? " 額滿" : ""}` : `${count} 人`}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
+          {/* 各科統計數字（表格格線） */}
           <div className="overflow-x-auto border border-themed rounded">
             <table className="w-full text-sm text-left">
-              <thead className="border-b border-themed">
+              <thead className="border-b border-themed bg-themed">
                 <tr className="text-t2">
-                  <th className="px-3 py-2 font-medium">班級</th>
-                  <th className="px-3 py-2 font-medium">座號</th>
-                  <th className="px-3 py-2 font-medium">姓名</th>
-                  <th className="px-3 py-2 font-medium">報名情形</th>
-                  <th className="px-3 py-2 font-medium">選考科目</th>
-                  {roster.event.locationOptions?.length ? (
-                    <th className="px-3 py-2 font-medium">試場</th>
-                  ) : null}
-                  <th className="px-3 py-2 font-medium">繳費</th>
-                  {roster.event.examMode === "review" && (
-                    <th className="px-3 py-2 font-medium">審核</th>
-                  )}
-                  <th className="px-3 py-2 font-medium">更新時間</th>
-                  <th className="px-3 py-2 font-medium text-right">操作</th>
+                  <th className="px-3 py-2 font-medium border-r border-themed">選考科目</th>
+                  <th className="px-3 py-2 font-medium text-right">已報名</th>
                 </tr>
               </thead>
               <tbody>
-                {roster.registrations.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={(roster.event.examMode === "review" ? 9 : 8) + (roster.event.locationOptions?.length ? 1 : 0)}
-                      className="px-3 py-6 text-center text-t3"
-                    >
-                      尚無學生登錄
-                    </td>
-                  </tr>
-                ) : (
-                  roster.registrations.map((row) => {
-                    const labels = row.optOut
-                      ? []
-                      : roster.event.subjects
-                          .filter((subject) => row.subjectKeys.includes(subject.key))
-                          .map((subject) => subject.label);
-                    return (
-                      <tr key={row.id} className="border-b border-themed last:border-0 text-t1">
-                        <td className="px-3 py-2 whitespace-nowrap">{row.studentClass || "—"}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-t2">{row.seatNo || "—"}</td>
-                        <td className="px-3 py-2">
-                          {row.studentName}
-                          {row.archived && (
-                            <span className="ml-1.5 text-xs text-t3">（已封存）</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          {row.optOut ? (
-                            <span
-                              className="text-xs text-t2"
-                              title={row.optOutReason}
-                            >
-                              不報名
-                              {row.optOutReason ? `：${row.optOutReason.slice(0, 12)}${row.optOutReason.length > 12 ? "…" : ""}` : ""}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-success">完成報名</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-t2">
-                          {row.optOut ? "—" : labels.join("、") || "—"}
-                        </td>
-                        {roster.event.locationOptions?.length ? (
-                          <td className="px-3 py-2 text-t2 whitespace-nowrap">
-                            {row.optOut || !row.locationCode
-                              ? "—"
-                              : resolveLocationLabel(roster.event.locationOptions, row.locationCode)}
-                          </td>
-                        ) : null}
-                        <td className="px-3 py-2 text-t2 whitespace-nowrap">
-                          {row.optOut
-                            ? "—"
-                            : `${EXAM_FEE_CODE_LABELS[row.feeCode] ?? row.feeCode} ${row.feeAmount} 元`}
-                        </td>
-                        {roster.event.examMode === "review" && (
-                          <td className="px-3 py-2">
-                            {row.optOut ? (
-                              <span className="text-xs text-t3">—</span>
-                            ) : (
-                              <select
-                                className="input-theme rounded px-1.5 py-1 text-xs"
-                                value={row.reviewStatus}
-                                disabled={saving || row.archived}
-                                onChange={(e) =>
-                                  void reviewRegistration(
-                                    row.studentUid,
-                                    e.target.value as ExamReviewStatus
-                                  )
-                                }
-                                aria-label={`${row.studentName} 審核結果`}
-                              >
-                                {(Object.keys(EXAM_REVIEW_STATUS_LABELS) as ExamReviewStatus[]).map(
-                                  (key) => (
-                                    <option key={key} value={key}>
-                                      {EXAM_REVIEW_STATUS_LABELS[key]}
-                                    </option>
-                                  )
-                                )}
-                              </select>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-3 py-2 text-t3 whitespace-nowrap">
-                          {new Date(row.updatedAt).toLocaleString("zh-TW", {
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap">
-                          {row.archived ? (
-                            <button
-                              type="button"
-                              onClick={() => void unarchiveRegistration(row.studentUid)}
-                              disabled={saving}
-                              className="btn-soft rounded px-2 py-1 text-xs cursor-pointer disabled:opacity-50"
-                            >
-                              解除封存
-                            </button>
-                          ) : (
-                            <span className="text-xs text-t3">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
+                {roster.event.subjects.map((subject) => {
+                  const entry = roster.summary.bySubject[subject.key];
+                  const count = entry?.count ?? 0;
+                  return (
+                    <tr key={subject.key} className="border-b border-themed last:border-b-0">
+                      <td className="px-3 py-2 text-t2 border-r border-themed">{subject.label}</td>
+                      <td className="px-3 py-2 text-t1 text-right">{count} 人</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
