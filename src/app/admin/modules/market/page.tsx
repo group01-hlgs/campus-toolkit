@@ -54,6 +54,20 @@ interface ToggleInstallResponse {
   alreadyUninstalled?: boolean;
 }
 
+function buildFallbackManualGuide(moduleId: string): NonNullable<InstallResponse["manualInstallGuide"]> {
+  return {
+    title: "可改用手動安裝流程",
+    steps: [
+      "在本機 clone 主程式 fork 與模組 repo。",
+      "進入主程式資料夾後執行 npm install。",
+      `執行 npm run module:install -- ../${moduleId}（以模組資料夾路徑為準）。`,
+      "完成後 commit + push，等待部署。",
+    ],
+    command: `npm run module:install -- ../${moduleId}`,
+    note: "手動安裝同樣會走掃描器與 lint 驗證鏈。",
+  };
+}
+
 export default function ModuleMarketPage() {
   const router = useRouter();
   const [modules, setModules] = useState<MarketModuleEntry[]>([]);
@@ -163,7 +177,7 @@ export default function ModuleMarketPage() {
         setInstallMessage(data.message || "安裝失敗");
         setInstallCommitUrl(null);
         setInstallBranch(null);
-        setManualInstallGuide(data.manualInstallGuide ?? null);
+        setManualInstallGuide(data.manualInstallGuide ?? buildFallbackManualGuide(module.id));
         setInstallingId(null);
         return;
       }
@@ -185,7 +199,7 @@ export default function ModuleMarketPage() {
       );
       setInstallCommitUrl(null);
       setInstallBranch(null);
-      setManualInstallGuide(null);
+      setManualInstallGuide(buildFallbackManualGuide(module.id));
       setInstallingId(null);
     }
   }
