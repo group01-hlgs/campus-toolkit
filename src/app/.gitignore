@@ -1,7 +1,1 @@
 # P2 模組薄轉接檔（scripts/build-module-registry.mjs 產生）——列入 commit 即破壞「生成物不入 commit」約定
-/admin/exam-registration/layout.tsx
-/admin/exam-registration/page.tsx
-/admin/exam-registration/roster/page.tsx
-/api/admin/exam-registration/route.ts
-/api/exam-registration/route.ts
-/student/exam-registration/page.tsx
