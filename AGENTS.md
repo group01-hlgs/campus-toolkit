@@ -27,6 +27,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
    prop 顯示（如「目前發布中 N 筆」），不得只放一個無資訊的按鈕。
    參考實作：`src/app/admin/announcements/page.tsx`（`/api/admin/announcements/count`）、
    `src/app/admin/calendar/page.tsx`、`src/app/admin/roster/page.tsx`。
+3. **清單分頁規則**：
+   - **無班級前提**的清單／列表（如公告、行事曆、場次）：提供常用分頁功能
+     （每頁筆數下拉＋頁碼導覽）。
+   - **有班級前提**的清單／列表（如名冊、帳號）：預設以「班級」為分頁單位
+     （依班級代碼分組切頁），使用者仍可切換為其他分頁方式。
 
 ## 修改完成後的流程
 
