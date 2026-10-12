@@ -8,9 +8,9 @@
   "contractVersion": 1,
   "minHostVersion": "0.388",
   "author": {
-    "author": "",
+    "author": "張家誠",
     "authorUrl": "",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "releasedAt": ""
   },
   "provides": { "student": true, "parent": false, "staff": true, "admin": true },
