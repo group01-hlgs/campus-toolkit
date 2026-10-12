@@ -73,8 +73,8 @@ function parseDatetimeLocal(value: string): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** 清單標題最多顯示 25 字，超出以「...」替代（完整標題見編輯表單與提示） */
-const TITLE_DISPLAY_MAX = 25;
+/** 清單標題最多顯示 50 字，超出以「...」替代（完整標題見編輯表單與提示） */
+const TITLE_DISPLAY_MAX = 50;
 function truncateTitle(title: string): string {
   return title.length > TITLE_DISPLAY_MAX
     ? `${title.slice(0, TITLE_DISPLAY_MAX)}...`
