@@ -484,6 +484,129 @@ export default function ModuleMarketPage() {
               </div>
             )}
           </div>
+
+          <div className="pt-2 border-t border-themed">
+            {loading ? (
+              <div className="border border-themed rounded-lg bg-card p-4 text-xs text-t3">
+                讀取模組市集中...
+              </div>
+            ) : error ? (
+              <div className="border border-danger/60 rounded-lg bg-card p-4 text-xs text-t2">
+                <p className="font-medium text-danger">市集讀取失敗</p>
+                <p className="mt-1">{error}</p>
+              </div>
+            ) : modules.length === 0 ? (
+              <div className="border border-themed rounded-lg bg-card p-4 text-xs text-t3">
+                目前沒有可用的模組，請稍後再試。
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {modules.map((module) => (
+                  <div key={module.id} className="border border-themed rounded-lg bg-card p-5 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-bold text-t1">{module.name}</h2>
+                        <p className="text-xs text-t3">{module.id}</p>
+                      </div>
+                      <span className="text-xs border border-themed rounded px-2 py-1 text-t2">
+                        v{module.version}
+                      </span>
+                    </div>
+
+                    <p className="text-sm text-t2">{module.description || "沒有說明"}</p>
+
+                    <div className="flex flex-wrap gap-2 text-xs text-t3">
+                      {module.minHostVersion && (
+                        <span className="border border-themed rounded px-2 py-1">
+                          最低主程式版本：{module.minHostVersion}
+                        </span>
+                      )}
+                      {isInstalled(module) && (
+                        <span className="border border-success/60 rounded px-2 py-1 text-success">
+                          {hasUpdate(module) ? "已安裝（可更新）" : "已安裝"}
+                        </span>
+                      )}
+                      {module.category && (
+                        <span className="border border-themed rounded px-2 py-1">
+                          類別：{module.category}
+                        </span>
+                      )}
+                    </div>
+
+                    {module.tags && module.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {module.tags.map((tag) => (
+                          <span key={`${module.id}-${tag}`} className="text-xs text-t3 border border-themed rounded px-2 py-1">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-themed">
+                      <div className="text-xs text-t3">
+                        {module.latestVersion && module.latestVersion !== module.version
+                          ? `最新：${module.latestVersion}`
+                          : "已為最新版本"}
+                      </div>
+                      <div className="flex gap-2">
+                        {module.repoUrl && (
+                          <a
+                            href={module.repoUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-theme rounded px-3 py-1.5 text-xs"
+                          >
+                            查看 Repo
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          disabled={installingId === module.id || (isInstalled(module) && !hasUpdate(module))}
+                          onClick={() => void handleInstall(module)}
+                          className={`rounded px-3 py-1.5 text-xs ${
+                            installingId === module.id || (isInstalled(module) && !hasUpdate(module))
+                              ? "border border-themed bg-muted text-t3 cursor-wait"
+                              : "btn-theme cursor-pointer"
+                          }`}
+                          title={
+                            installingId === module.id
+                              ? "處理中..."
+                              : isInstalled(module) && !hasUpdate(module)
+                                ? "已安裝"
+                                : "安裝模組"
+                          }
+                        >
+                          {installingId === module.id
+                            ? "處理中..."
+                            : isInstalled(module) && !hasUpdate(module)
+                              ? "已安裝"
+                              : hasUpdate(module)
+                                ? "更新"
+                                : "安裝"}
+                        </button>
+                        {canUninstall && isInstalled(module) && (
+                          <button
+                            type="button"
+                            disabled={installingId === module.id}
+                            onClick={() => openUninstallModal(module)}
+                            className={`rounded px-3 py-1.5 text-xs ${
+                              installingId === module.id
+                                ? "border border-themed bg-muted text-t3 cursor-wait"
+                                : "border border-danger/60 text-danger cursor-pointer"
+                            }`}
+                            title={installingId === module.id ? "處理中..." : "卸載模組"}
+                          >
+                            卸載
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
@@ -562,126 +685,6 @@ export default function ModuleMarketPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="border border-themed rounded-lg bg-card p-6 text-sm text-t3">
-          讀取模組市集中...
-        </div>
-      ) : error ? (
-        <div className="border border-danger/60 rounded-lg bg-card p-6 text-sm text-t2">
-          <p className="font-medium text-danger">市集讀取失敗</p>
-          <p className="mt-1">{error}</p>
-        </div>
-      ) : modules.length === 0 ? (
-        <div className="border border-themed rounded-lg bg-card p-6 text-sm text-t3">
-          目前沒有可用的模組，請稍後再試。
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {modules.map((module) => (
-            <div key={module.id} className="border border-themed rounded-lg bg-card p-5 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-bold text-t1">{module.name}</h2>
-                  <p className="text-xs text-t3">{module.id}</p>
-                </div>
-                <span className="text-xs border border-themed rounded px-2 py-1 text-t2">
-                  v{module.version}
-                </span>
-              </div>
-
-              <p className="text-sm text-t2">{module.description || "沒有說明"}</p>
-
-              <div className="flex flex-wrap gap-2 text-xs text-t3">
-                {module.minHostVersion && (
-                  <span className="border border-themed rounded px-2 py-1">
-                    最低主程式版本：{module.minHostVersion}
-                  </span>
-                )}
-                {isInstalled(module) && (
-                  <span className="border border-success/60 rounded px-2 py-1 text-success">
-                    {hasUpdate(module) ? "已安裝（可更新）" : "已安裝"}
-                  </span>
-                )}
-                {module.category && (
-                  <span className="border border-themed rounded px-2 py-1">
-                    類別：{module.category}
-                  </span>
-                )}
-              </div>
-
-              {module.tags && module.tags.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {module.tags.map((tag) => (
-                    <span key={`${module.id}-${tag}`} className="text-xs text-t3 border border-themed rounded px-2 py-1">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-3 pt-2 border-t border-themed">
-                <div className="text-xs text-t3">
-                  {module.latestVersion && module.latestVersion !== module.version
-                    ? `最新：${module.latestVersion}`
-                    : "已為最新版本"}
-                </div>
-                <div className="flex gap-2">
-                  {module.repoUrl && (
-                    <a
-                      href={module.repoUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn-theme rounded px-3 py-1.5 text-xs"
-                    >
-                      查看 Repo
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    disabled={installingId === module.id || (isInstalled(module) && !hasUpdate(module))}
-                    onClick={() => void handleInstall(module)}
-                    className={`rounded px-3 py-1.5 text-xs ${
-                      installingId === module.id || (isInstalled(module) && !hasUpdate(module))
-                        ? "border border-themed bg-muted text-t3 cursor-wait"
-                        : "btn-theme cursor-pointer"
-                    }`}
-                    title={
-                      installingId === module.id
-                        ? "處理中..."
-                        : isInstalled(module) && !hasUpdate(module)
-                          ? "已安裝"
-                          : "安裝模組"
-                    }
-                  >
-                    {installingId === module.id
-                      ? "處理中..."
-                      : isInstalled(module) && !hasUpdate(module)
-                        ? "已安裝"
-                        : hasUpdate(module)
-                          ? "更新"
-                          : "安裝"}
-                  </button>
-                  {canUninstall && isInstalled(module) && (
-                    <button
-                      type="button"
-                      disabled={installingId === module.id}
-                      onClick={() => openUninstallModal(module)}
-                      className={`rounded px-3 py-1.5 text-xs ${
-                        installingId === module.id
-                          ? "border border-themed bg-muted text-t3 cursor-wait"
-                          : "border border-danger/60 text-danger cursor-pointer"
-                      }`}
-                      title={installingId === module.id ? "處理中..." : "卸載模組"}
-                    >
-                      卸載
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
