@@ -24,12 +24,15 @@ interface MarketResponse {
   marketUrl?: string;
   installedModules?: Record<string, string>;
   canUninstall?: boolean;
+  canAutoInstall?: boolean;
 }
 
 interface InstallResponse {
   success: boolean;
   message?: string;
   alreadyInstalled?: boolean;
+  moduleId?: string;
+  installedVersion?: string;
   branch?: string;
   commitUrl?: string;
   manualInstallGuide?: {
@@ -80,14 +83,18 @@ export default function ModuleMarketPage() {
   const [installBranch, setInstallBranch] = useState<string | null>(null);
   const [manualInstallGuide, setManualInstallGuide] = useState<InstallResponse["manualInstallGuide"] | null>(null);
   const [installedModules, setInstalledModules] = useState<Record<string, string>>({});
+  const [canAutoInstall, setCanAutoInstall] = useState(false);
   const [canUninstall, setCanUninstall] = useState(false);
+  const [uploadArchive, setUploadArchive] = useState<File | null>(null);
+  const [uploadModuleId, setUploadModuleId] = useState("");
+  const [uploadingArchive, setUploadingArchive] = useState(false);
   const [marketUrlInput, setMarketUrlInput] = useState("");
   const [savingMarketUrl, setSavingMarketUrl] = useState(false);
   const [marketUrlMessage, setMarketUrlMessage] = useState<string | null>(null);
   const [marketUrlKind, setMarketUrlKind] = useState<"success" | "error" | null>(null);
   const [uninstallTarget, setUninstallTarget] = useState<MarketModuleEntry | null>(null);
   const [backupConfirmed, setBackupConfirmed] = useState(false);
-  const alwaysVisibleGuide = manualInstallGuide ?? buildFallbackManualGuide("examRegistration");
+  const alwaysVisibleGuide = manualInstallGuide ?? buildFallbackManualGuide(uploadModuleId || "examRegistration");
 
   async function fetchMarket(signal?: AbortSignal): Promise<MarketResponse> {
     const response = await fetch("/api/admin/feature-modules/market", { cache: "no-store", signal });
@@ -110,6 +117,7 @@ export default function ModuleMarketPage() {
           setModules(data.modules ?? []);
           setMarketUrlInput(data.marketUrl ?? "");
           setInstalledModules(data.installedModules ?? {});
+          setCanAutoInstall(Boolean(data.canAutoInstall ?? data.canUninstall));
           setCanUninstall(Boolean(data.canUninstall));
           setError(null);
         }
@@ -145,6 +153,14 @@ export default function ModuleMarketPage() {
     if (!installed) return false;
     const latest = module.latestVersion || module.version;
     return installed !== latest;
+  }
+
+  function applyInstallResult(moduleId: string, version?: string) {
+    if (!moduleId) return;
+    setInstalledModules((prev) => ({
+      ...prev,
+      [moduleId]: version || prev[moduleId] || "",
+    }));
   }
 
   async function handleInstall(module: MarketModuleEntry) {
@@ -188,10 +204,7 @@ export default function ModuleMarketPage() {
       setInstallCommitUrl(data.commitUrl ?? null);
       setInstallBranch(data.branch ?? null);
       setManualInstallGuide(null);
-      setInstalledModules((prev) => ({
-        ...prev,
-        [module.id]: module.latestVersion || module.version,
-      }));
+      applyInstallResult(data.moduleId || module.id, data.installedVersion || module.latestVersion || module.version);
       setInstallingId(null);
     } catch (installError) {
       setInstallKind("error");
@@ -202,6 +215,59 @@ export default function ModuleMarketPage() {
       setInstallBranch(null);
       setManualInstallGuide(buildFallbackManualGuide(module.id));
       setInstallingId(null);
+    }
+  }
+
+  async function handleUploadInstall() {
+    if (!uploadArchive) {
+      setInstallKind("error");
+      setInstallMessage("請先選擇模組壓縮檔（.zip 或 .tar.gz）");
+      setManualInstallGuide(buildFallbackManualGuide(uploadModuleId || "examRegistration"));
+      return;
+    }
+
+    setUploadingArchive(true);
+    setInstallKind(null);
+    setInstallMessage(null);
+    setInstallCommitUrl(null);
+    setInstallBranch(null);
+    setManualInstallGuide(null);
+
+    try {
+      const payload = new FormData();
+      payload.append("archive", uploadArchive);
+      if (uploadModuleId.trim()) payload.append("id", uploadModuleId.trim());
+
+      const response = await fetch("/api/admin/feature-modules/market/install", {
+        method: "POST",
+        body: payload,
+      });
+      const data: InstallResponse = await response.json();
+      if (!response.ok || !data.success) {
+        setInstallKind("error");
+        setInstallMessage(data.message || "上傳安裝失敗");
+        setInstallCommitUrl(null);
+        setInstallBranch(null);
+        setManualInstallGuide(data.manualInstallGuide ?? buildFallbackManualGuide(uploadModuleId || "examRegistration"));
+        setUploadingArchive(false);
+        return;
+      }
+
+      setInstallKind("success");
+      setInstallMessage(data.message || "上傳安裝成功");
+      setInstallCommitUrl(data.commitUrl ?? null);
+      setInstallBranch(data.branch ?? null);
+      setManualInstallGuide(null);
+      applyInstallResult(data.moduleId || uploadModuleId, data.installedVersion);
+      setUploadArchive(null);
+      setUploadingArchive(false);
+    } catch (uploadError) {
+      setInstallKind("error");
+      setInstallMessage(uploadError instanceof Error ? uploadError.message : "上傳安裝失敗");
+      setInstallCommitUrl(null);
+      setInstallBranch(null);
+      setManualInstallGuide(buildFallbackManualGuide(uploadModuleId || "examRegistration"));
+      setUploadingArchive(false);
     }
   }
 
@@ -278,6 +344,7 @@ export default function ModuleMarketPage() {
       setModules(refreshedData.modules ?? []);
       setMarketUrlInput(refreshedData.marketUrl ?? "");
       setInstalledModules(refreshedData.installedModules ?? {});
+      setCanAutoInstall(Boolean(refreshedData.canAutoInstall ?? refreshedData.canUninstall));
       setCanUninstall(Boolean(refreshedData.canUninstall));
     } catch (saveError) {
       setMarketUrlKind("error");
@@ -402,27 +469,76 @@ export default function ModuleMarketPage() {
         )}
       </div>
 
-      <div className="border border-warning/60 rounded-lg bg-warning/10 p-4 space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold text-warning">手動安裝指引（常駐）</h2>
-          <p className="text-xs text-warning/90">
-            不論一鍵安裝是否可用，都可改走以下手動流程。若模組代碼不是 examRegistration，請替換指令中的資料夾名稱。
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="border border-themed rounded-lg bg-card p-4 space-y-2">
+          <h2 className="text-sm font-semibold text-t1">全自動一鍵安裝</h2>
+          <p className="text-xs text-t3">
+            直接使用模組卡片的「安裝／更新」按鈕。正式環境需設定 `MODULE_MARKET_GITHUB_TOKEN` 與 repo 來源參數。
           </p>
+          <div className="text-xs">
+            <span
+              className={`inline-block rounded border px-2 py-1 ${
+                canAutoInstall
+                  ? "border-success/60 bg-success/10 text-success"
+                  : "border-warning/60 bg-warning/10 text-warning"
+              }`}
+            >
+              {canAutoInstall ? "目前可用" : "尚未完成參數設定"}
+            </span>
+          </div>
         </div>
-        {alwaysVisibleGuide.title && <p className="text-xs font-medium text-warning">{alwaysVisibleGuide.title}</p>}
-        {Array.isArray(alwaysVisibleGuide.steps) && alwaysVisibleGuide.steps.length > 0 && (
-          <ol className="list-decimal pl-4 space-y-1 text-xs text-warning">
-            {alwaysVisibleGuide.steps.map((step, index) => (
-              <li key={`${index}-${step}`}>{step}</li>
-            ))}
-          </ol>
-        )}
-        {alwaysVisibleGuide.command && (
-          <pre className="overflow-x-auto rounded border border-warning/40 bg-card px-2 py-1 text-xs text-t1">
+
+        <div className="border border-info/60 rounded-lg bg-info/10 p-4 space-y-3">
+          <h2 className="text-sm font-semibold text-info">半自動上傳安裝</h2>
+          <p className="text-xs text-info/90">
+            上傳模組壓縮檔（.zip / .tar.gz）後由系統驗證並安裝。可選填模組代碼，不填則以 module.json 的 value 為準。
+          </p>
+          <input
+            value={uploadModuleId}
+            onChange={(event) => setUploadModuleId(event.target.value)}
+            placeholder="模組代碼（選填，例如 examRegistration）"
+            className="w-full rounded border border-info/40 bg-card px-3 py-2 text-xs text-t1"
+          />
+          <input
+            type="file"
+            accept=".zip,.tar.gz,application/zip,application/gzip"
+            onChange={(event) => setUploadArchive(event.target.files?.[0] ?? null)}
+            className="w-full text-xs text-t2 file:mr-3 file:rounded file:border file:border-info/50 file:bg-card file:px-2 file:py-1 file:text-xs file:text-t1"
+          />
+          <button
+            type="button"
+            disabled={uploadingArchive}
+            onClick={() => void handleUploadInstall()}
+            className={`rounded px-3 py-2 text-xs ${
+              uploadingArchive ? "border border-themed bg-muted text-t3 cursor-wait" : "btn-theme cursor-pointer"
+            }`}
+          >
+            {uploadingArchive ? "上傳安裝中..." : "上傳並安裝"}
+          </button>
+        </div>
+
+        <div className="border border-warning/60 rounded-lg bg-warning/10 p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-warning">手動安裝</h2>
+            <p className="text-xs text-warning/90">
+              不論一鍵安裝或上傳安裝是否可用，都可改走以下手動流程。更新同模組版本時，請先卸載再安裝新版。
+            </p>
+          </div>
+          {alwaysVisibleGuide.title && <p className="text-xs font-medium text-warning">{alwaysVisibleGuide.title}</p>}
+          {Array.isArray(alwaysVisibleGuide.steps) && alwaysVisibleGuide.steps.length > 0 && (
+            <ol className="list-decimal pl-4 space-y-1 text-xs text-warning">
+              {alwaysVisibleGuide.steps.map((step, index) => (
+                <li key={`${index}-${step}`}>{step}</li>
+              ))}
+            </ol>
+          )}
+          {alwaysVisibleGuide.command && (
+            <pre className="overflow-x-auto rounded border border-warning/40 bg-card px-2 py-1 text-xs text-t1">
 {alwaysVisibleGuide.command}
-          </pre>
-        )}
-        {alwaysVisibleGuide.note && <p className="text-xs text-warning/90">{alwaysVisibleGuide.note}</p>}
+            </pre>
+          )}
+          {alwaysVisibleGuide.note && <p className="text-xs text-warning/90">{alwaysVisibleGuide.note}</p>}
+        </div>
       </div>
 
       {installMessage && (
