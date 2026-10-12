@@ -45,6 +45,7 @@ export type ActivityAction =
   | "announcements_created"
   | "announcements_updated"
   | "announcements_archived"
+  | "announcements_deleted"
   | "announcements_staff_posted"
   | "announcements_settings_updated"
   | "calendar_created"

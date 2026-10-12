@@ -6,6 +6,7 @@ import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
   archiveAnnouncement,
+  deleteAnnouncementHard,
   getAnnouncement,
   getAnnouncementSettings,
   listAdminAnnouncements,
@@ -186,6 +187,56 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   } catch (error) {
     console.error("Archive announcement error:", error);
+    return NextResponse.json(
+      { success: false, message: serverErrorMessage(error, "系統錯誤") },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE：真實刪除公告（快捷）。
+ * 無條件硬刪除——連同該公告的所有個人提醒文件一併從資料庫刪除，不可恢復
+ * （不受「下架公告真實刪除」原則影響；該原則只管封存／到期時是否自動刪除）。
+ */
+export async function DELETE(request: NextRequest, { params }: Params) {
+  try {
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
+
+    const limited = enforceRateLimit(
+      request,
+      "announcements-admin",
+      RATE.ANNOUNCEMENTS_ADMIN_MUTATE.limit,
+      RATE.ANNOUNCEMENTS_ADMIN_MUTATE.windowMs
+    );
+    if (limited) return limited;
+
+    const { session, denial } = await requireAdminModule("announcements");
+    if (denial) return toAuthResponse(denial);
+
+    const { id } = await params;
+    const existing = await getAnnouncement(id);
+    if (!existing) {
+      return NextResponse.json({ success: false, message: "查無此公告" }, { status: 404 });
+    }
+
+    await deleteAnnouncementHard(id);
+    await logActivity({
+      userId: session.uid,
+      role: "admin",
+      action: "announcements_deleted",
+      ip: getClientIp(request),
+      details: `真實刪除公告 id=${id}（${existing.title}）`,
+    });
+    const announcements = await listAdminAnnouncements({ includeArchived: true });
+    const settings = await getAnnouncementSettings();
+    return NextResponse.json(
+      { success: true, message: "公告已真實刪除", announcements, settings },
+      { headers: noStore }
+    );
+  } catch (error) {
+    console.error("Delete announcement error:", error);
     return NextResponse.json(
       { success: false, message: serverErrorMessage(error, "系統錯誤") },
       { status: 500 }

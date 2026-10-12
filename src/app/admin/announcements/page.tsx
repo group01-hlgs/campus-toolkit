@@ -272,6 +272,30 @@ export default function AdminAnnouncementsPage() {
     }
   }
 
+  /** 真實刪除（硬刪除）：連同個人提醒一併從資料庫刪除，不可恢復 */
+  async function remove(id: string, title: string) {
+    if (saving) return;
+    if (
+      !window.confirm(
+        `確定要刪除「${title}」？\n將連同所有個人提醒一併從資料庫真實刪除，無法恢復。`
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/announcements/${id}`, { method: "DELETE" });
+      const data: AdminListResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.message || "刪除失敗");
+      applyListFromResponse(data);
+      setFlash({ type: "success", text: data.message || "已真實刪除" });
+    } catch (error) {
+      setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function edit(item: AnnouncementRecord) {
     setForm({
       id: item.id,
@@ -953,11 +977,19 @@ export default function AdminAnnouncementsPage() {
                             type="button"
                             onClick={() => archive(item.id)}
                             disabled={saving}
-                            className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                            className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50 mr-2"
                           >
                             {policies.hardDeleteExpired ? "下架" : "封存"}
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => remove(item.id, item.title)}
+                          disabled={saving}
+                          className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                        >
+                          刪除
+                        </button>
                       </td>
                     </tr>
                   ))

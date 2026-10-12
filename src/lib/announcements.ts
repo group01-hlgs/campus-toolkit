@@ -260,6 +260,15 @@ export async function archiveAnnouncement(id: string): Promise<{ deleted: boolea
   return updateAnnouncement(id, { status: "archived" });
 }
 
+/**
+ * 無條件真實刪除單則公告及其所有個人提醒文件（管理端「刪除」鈕）。
+ * 不看「下架公告真實刪除」原則，一律硬刪除（不可恢復）。
+ */
+export async function deleteAnnouncementHard(id: string): Promise<void> {
+  await hardDeleteAnnouncement(id);
+  invalidateAnnouncementsCache();
+}
+
 /** 真實刪除單則公告及其所有個人提醒文件（下架原則＝真實刪除時使用） */
 async function hardDeleteAnnouncement(id: string): Promise<void> {
   const db = getAdminDb();
