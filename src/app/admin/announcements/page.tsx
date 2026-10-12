@@ -132,9 +132,29 @@ export default function AdminAnnouncementsPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  // 批次勾選：目前選取的公告 id（清單重載或批次完成後清空）
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   function askConfirm(message: string, onConfirm: () => void) {
     setConfirmRequest({ message, onConfirm });
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** 表頭全選：僅切換「目前篩選結果」的選取狀態 */
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const allIds = filteredItems.map((item) => item.id);
+      const allSelected = allIds.length > 0 && allIds.every((id) => prev.has(id));
+      return allSelected ? new Set() : new Set(allIds);
+    });
   }
 
   // 確認 modal：Esc 取消
@@ -323,6 +343,47 @@ export default function AdminAnnouncementsPage() {
       setFlash({ type: "success", text: data.message || "已真實刪除" });
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** 批次封存：勾選多筆一併下架（原則開啟時連帶硬刪除） */
+  function batchArchive() {
+    if (saving || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    const confirmText = policies.hardDeleteExpired
+      ? `確定要批次下架選取的 ${count} 則公告？（已啟用「下架公告真實刪除」：將連同個人提醒一併刪除，無法恢復）`
+      : `確定要批次封存選取的 ${count} 則公告？`;
+    askConfirm(confirmText, () => void runBatch("archive"));
+  }
+
+  /** 批次刪除：勾選多筆一併真實刪除（不可恢復） */
+  function batchRemove() {
+    if (saving || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    askConfirm(
+      `確定要批次刪除選取的 ${count} 則公告？\n將連同所有個人提醒一併從資料庫真實刪除，無法恢復。`,
+      () => void runBatch("delete")
+    );
+  }
+
+  async function runBatch(action: "archive" | "delete") {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/announcements/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ids: [...selectedIds] }),
+      });
+      const data: AdminListResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.message || "批次作業失敗");
+      applyListFromResponse(data);
+      setSelectedIds(new Set());
+      setFlash({ type: "success", text: data.message || "批次作業完成" });
+    } catch (error) {
+      setFlash({ type: "error", text: error instanceof Error ? error.message : "批次作業失敗" });
     } finally {
       setSaving(false);
     }
@@ -923,6 +984,36 @@ export default function AdminAnnouncementsPage() {
             )}
           </div>
         </div>
+        {/* 批次操作列：有勾選時出現 */}
+        {!gating && listLoaded && selectedIds.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-3 px-1">
+            <span className="text-sm text-t2">已選取 {selectedIds.size} 則</span>
+            <button
+              type="button"
+              onClick={batchArchive}
+              disabled={saving}
+              className="btn-theme rounded-lg px-3 py-1.5 text-sm cursor-pointer disabled:opacity-50"
+            >
+              {policies.hardDeleteExpired ? "批次下架" : "批次封存"}
+            </button>
+            <button
+              type="button"
+              onClick={batchRemove}
+              disabled={saving}
+              className="btn-danger rounded-lg px-3 py-1.5 text-sm cursor-pointer disabled:opacity-50"
+            >
+              批次刪除
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              disabled={saving}
+              className="btn-theme rounded-lg px-3 py-1.5 text-sm cursor-pointer disabled:opacity-50"
+            >
+              取消選取
+            </button>
+          </div>
+        )}
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
           {gating ? (
             <RevealListCard
@@ -940,6 +1031,18 @@ export default function AdminAnnouncementsPage() {
             <table className="w-full text-sm text-left">
               <thead className="border-b border-themed">
                 <tr className="text-t2">
+                  <th className="px-3 py-2 font-medium w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="全選目前清單"
+                      checked={
+                        filteredItems.length > 0 &&
+                        filteredItems.every((item) => selectedIds.has(item.id))
+                      }
+                      onChange={toggleSelectAll}
+                      className="cursor-pointer"
+                    />
+                  </th>
                   <th className="px-3 py-2 font-medium">標題</th>
                   <th className="px-3 py-2 font-medium">分類／閱讀權限</th>
                   <th className="px-3 py-2 font-medium">狀態</th>
@@ -950,13 +1053,22 @@ export default function AdminAnnouncementsPage() {
               <tbody>
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-t3">
+                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
                       尚無符合條件的公告
                     </td>
                   </tr>
                 ) : (
                   filteredItems.map((item) => (
                     <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
+                      <td className="px-3 py-2 align-top">
+                        <input
+                          type="checkbox"
+                          aria-label={`選取「${item.title}」`}
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelect(item.id)}
+                          className="cursor-pointer mt-1"
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <span className="font-medium">{truncateTitle(item.title)}</span>
                         {item.pinned && (
