@@ -160,13 +160,13 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
         <RoleSwitcher role={role} />
       </div>
 
-      {/* 系統公告：切換身分下拉選單下方、第一個登出按鈕上方 */}
-      {announcementsVisible && (
-        <AnnouncementSurface surface={role} className="content-width mb-3" />
-      )}
+      {/* 系統公告：切換身分下拉選單下方、第一個登出按鈕上方。
+          顯示與否由公告管理的「顯示位置」設定（5 處 surfaces）自行決定，
+          不套功能模組顯示開關——顯示開關只藏下方入口卡（有提供功能但目前不開放） */}
+      <AnnouncementSurface surface={role} className="content-width mb-3" />
 
-      {/* 行程（單一行、尚未結束的第 1 則） */}
-      {calendarVisible && <CalendarSurface surface={role} className="content-width mb-3" />}
+      {/* 行程（單一行、尚未結束的第 1 則）：同上，由行事曆管理的「顯示位置」設定自管 */}
+      <CalendarSurface surface={role} className="content-width mb-3" />
 
       <div className="content-width flex justify-end items-center gap-2 mb-4">
         {announcementsVisible && (
