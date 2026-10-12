@@ -34,6 +34,26 @@ function readLockModules(): Set<string> {
   }
 }
 
+function runModuleCli(
+  command: "install" | "uninstall",
+  target: string,
+  timeout = 300_000
+): { ok: boolean; output: string; tail: string } {
+  const result = spawnSync(
+    process.execPath,
+    [path.join(process.cwd(), "scripts", "module-cli.mjs"), command, target],
+    {
+      cwd: process.cwd(),
+      encoding: "utf-8",
+      timeout,
+    }
+  );
+
+  const output = `${result.stderr || ""}${result.stdout || ""}`.trim();
+  const tail = output.split("\n").slice(-3).join("；");
+  return { ok: result.status === 0, output, tail };
+}
+
 async function resolveMarketHost(): Promise<string | null> {
   const candidate = await resolveModuleMarketIndexUrl();
   if (!candidate) return null;
@@ -304,46 +324,77 @@ export async function POST(request: NextRequest) {
         action: "feature_module_updated",
         ip: getClientIp(request),
         details: committed.alreadyInstalled
-          ? `市集安裝功能模組「${moduleId}」：已存在於遠端 lock（branch: ${committed.branch}）`
-          : `市集安裝功能模組「${moduleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`,
+          ? `市集安裝功能模組「${moduleId}」：版本與來源未變更（branch: ${committed.branch}）`
+          : committed.updated
+            ? `市集更新功能模組「${moduleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`
+            : `市集安裝功能模組「${moduleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`,
       });
 
       return NextResponse.json({
         success: true,
         alreadyInstalled: committed.alreadyInstalled,
         message: committed.alreadyInstalled
-          ? `模組「${moduleId}」已安裝在目前分支，無需重複提交。`
-          : `模組「${moduleId}」已提交至 GitHub（branch: ${committed.branch}），請等待部署完成。`,
+          ? `模組「${moduleId}」目前版本已是最新，無需重複提交。`
+          : committed.updated
+            ? `模組「${moduleId}」更新提交已建立（branch: ${committed.branch}），請等待部署完成。`
+            : `模組「${moduleId}」安裝提交已建立（branch: ${committed.branch}），請等待部署完成。`,
         branch: committed.branch,
         commitUrl: committed.commitUrl,
       });
     }
 
     const installed = readLockModules();
-    if (installed.has(moduleId)) {
-      return NextResponse.json({
-        success: true,
-        message: `模組「${moduleId}」已安裝，請使用更新功能或直接檢查模組列表。`,
-        alreadyInstalled: true,
-      });
+    const updating = installed.has(moduleId);
+    let backupDir = "";
+    let backupModuleDir = "";
+
+    if (updating) {
+      const installedDir = path.join(process.cwd(), "src", "modules", moduleId);
+      if (!fs.existsSync(installedDir) || !fs.statSync(installedDir).isDirectory()) {
+        return NextResponse.json(
+          { success: false, message: `更新前檢查失敗：找不到既有模組目錄 src/modules/${moduleId}` },
+          { status: 500 }
+        );
+      }
+
+      backupDir = fs.mkdtempSync(path.join(os.tmpdir(), `campus-market-backup-${moduleId}-`));
+      backupModuleDir = path.join(backupDir, moduleId);
+      fs.cpSync(installedDir, backupModuleDir, { recursive: true });
+
+      const uninstallResult = runModuleCli("uninstall", moduleId);
+      if (!uninstallResult.ok) {
+        fs.rmSync(backupDir, { recursive: true, force: true });
+        return NextResponse.json(
+          { success: false, message: `更新前卸載失敗：${uninstallResult.tail || "未知錯誤"}` },
+          { status: 400 }
+        );
+      }
     }
 
-    const result = spawnSync(
-      process.execPath,
-      [path.join(process.cwd(), "scripts", "module-cli.mjs"), "install", workingDir],
-      {
-        cwd: process.cwd(),
-        encoding: "utf-8",
-        timeout: 300_000,
+    const installResult = runModuleCli("install", workingDir);
+    if (!installResult.ok) {
+      if (updating && backupDir) {
+        const restoreResult = runModuleCli("install", backupModuleDir);
+        fs.rmSync(backupDir, { recursive: true, force: true });
+        return NextResponse.json(
+          {
+            success: false,
+            message: restoreResult.ok
+              ? `模組更新失敗，已自動回復舊版：${installResult.tail || "未知錯誤"}`
+              : `模組更新失敗，且舊版回復失敗：${installResult.tail || "未知錯誤"}；回復錯誤：${
+                  restoreResult.tail || "未知錯誤"
+                }`,
+          },
+          { status: 400 }
+        );
       }
-    );
-
-    if (result.status !== 0) {
-      const tail = `${result.stderr || ""}${result.stdout || ""}`.trim().split("\n").slice(-3).join("；");
       return NextResponse.json(
-        { success: false, message: `模組安裝失敗：${tail || "未知錯誤"}` },
+        { success: false, message: `模組安裝失敗：${installResult.tail || "未知錯誤"}` },
         { status: 400 }
       );
+    }
+    if (backupDir) {
+      fs.rmSync(backupDir, { recursive: true, force: true });
     }
 
     await logActivity({
@@ -351,12 +402,12 @@ export async function POST(request: NextRequest) {
       role: "admin",
       action: "feature_module_updated",
       ip: getClientIp(request),
-      details: `市集安裝功能模組「${moduleId}」（本機開發）`,
+      details: `市集${updating ? "更新" : "安裝"}功能模組「${moduleId}」（本機開發）`,
     });
 
     return NextResponse.json({
       success: true,
-      message: `模組「${moduleId}」已安裝完成（含掃描器與 lint 驗證鏈）`,
+      message: `模組「${moduleId}」已${updating ? "更新" : "安裝"}完成（含掃描器與 lint 驗證鏈）`,
     });
   } catch (error) {
     console.error("Market install error:", error);
