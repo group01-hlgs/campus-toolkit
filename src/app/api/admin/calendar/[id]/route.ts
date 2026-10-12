@@ -6,6 +6,7 @@ import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
   cancelCalendarEvent,
+  deleteCalendarEventHard,
   getCalendarEvent,
   getCalendarSettings,
   listAdminCalendarEvents,
@@ -192,6 +193,59 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   } catch (error) {
     console.error("Cancel calendar event error:", error);
+    return NextResponse.json(
+      { success: false, message: serverErrorMessage(error, "系統錯誤") },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE：真實刪除行程（快捷）。
+ * 無條件硬刪除——連同該行程的所有個人提醒文件一併從資料庫刪除，不可恢復
+ * （不受「下架行程真實刪除」原則影響；該原則只管取消時是否自動刪除）。
+ */
+export async function DELETE(request: NextRequest, { params }: Params) {
+  try {
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
+
+    const limited = enforceRateLimit(
+      request,
+      "calendar-admin",
+      RATE.CALENDAR_ADMIN_MUTATE.limit,
+      RATE.CALENDAR_ADMIN_MUTATE.windowMs
+    );
+    if (limited) return limited;
+
+    const { session, denial } = await requireAdminModule("calendar");
+    if (denial) return toAuthResponse(denial);
+
+    const { id } = await params;
+    const existing = await getCalendarEvent(id);
+    if (!existing) {
+      return NextResponse.json({ success: false, message: "查無此行程" }, { status: 404 });
+    }
+
+    await deleteCalendarEventHard(id);
+    await logActivity({
+      userId: session.uid,
+      role: "admin",
+      action: "calendar_deleted",
+      ip: getClientIp(request),
+      details: `真實刪除行程 id=${id}（${existing.title}）`,
+    });
+
+    const [events, settings] = await Promise.all([
+      listAdminCalendarEvents(),
+      getCalendarSettings(),
+    ]);
+    return NextResponse.json(
+      { success: true, message: "行程已真實刪除", events, settings },
+      { headers: noStore }
+    );
+  } catch (error) {
+    console.error("Delete calendar event error:", error);
     return NextResponse.json(
       { success: false, message: serverErrorMessage(error, "系統錯誤") },
       { status: 500 }

@@ -153,6 +153,45 @@ export default function AdminCalendarPage() {
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | CalendarEventStatus>("all");
   const [month, setMonth] = useState<string | null>(null);
+  // 確認對話 modal：取代原生 confirm，樣式跟隨主題
+  const [confirmRequest, setConfirmRequest] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+  // 批次勾選：目前選取的行程 id（批次完成後清空）
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  function askConfirm(message: string, onConfirm: () => void) {
+    setConfirmRequest({ message, onConfirm });
+  }
+
+  // 確認 modal：Esc 取消
+  useEffect(() => {
+    if (!confirmRequest) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setConfirmRequest(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [confirmRequest]);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** 表頭全選：僅切換「目前篩選結果」的選取狀態 */
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const allIds = filteredItems.map((item) => item.id);
+      const allSelected = allIds.length > 0 && allIds.every((id) => prev.has(id));
+      return allSelected ? new Set() : new Set(allIds);
+    });
+  }
 
   useEffect(() => {
     if (!flash) return;
@@ -290,7 +329,11 @@ export default function AdminCalendarPage() {
           ? "確定要下架此行程？（已啟用「下架行程真實刪除」：將連同個人提醒一併刪除，無法恢復）"
           : "確定要取消此行程？（文件會保留，但不再顯示給任何身分）"
         : "確定要恢復此行程？";
-    if (!window.confirm(confirmText)) return;
+    askConfirm(confirmText, () => void runSetStatus(id, status));
+  }
+
+  async function runSetStatus(id: string, status: CalendarEventStatus) {
+    if (saving) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/calendar/${id}`, {
@@ -304,6 +347,72 @@ export default function AdminCalendarPage() {
       setFlash({ type: "success", text: data.message || "已更新" });
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** 真實刪除（硬刪除）：連同個人提醒一併從資料庫刪除，不可恢復 */
+  function remove(id: string, title: string) {
+    if (saving) return;
+    askConfirm(
+      `確定要刪除「${title}」？\n將連同所有個人提醒一併從資料庫真實刪除，無法恢復。`,
+      () => void runRemove(id)
+    );
+  }
+
+  async function runRemove(id: string) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/calendar/${id}`, { method: "DELETE" });
+      const data: AdminListResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.message || "刪除失敗");
+      applyListFromResponse(data);
+      setFlash({ type: "success", text: data.message || "已真實刪除" });
+    } catch (error) {
+      setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** 批次取消：勾選多筆一併下架（原則開啟時連帶硬刪除） */
+  function batchCancel() {
+    if (saving || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    const confirmText = policies.hardDeleteCancelled
+      ? `確定要批次下架選取的 ${count} 筆行程？（已啟用「下架行程真實刪除」：將連同個人提醒一併刪除，無法恢復）`
+      : `確定要批次取消選取的 ${count} 筆行程？（文件會保留，但不再顯示給任何身分）`;
+    askConfirm(confirmText, () => void runBatch("cancel"));
+  }
+
+  /** 批次刪除：勾選多筆一併真實刪除（不可恢復） */
+  function batchRemove() {
+    if (saving || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    askConfirm(
+      `確定要批次刪除選取的 ${count} 筆行程？\n將連同所有個人提醒一併從資料庫真實刪除，無法恢復。`,
+      () => void runBatch("delete")
+    );
+  }
+
+  async function runBatch(action: "cancel" | "delete") {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/calendar/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ids: [...selectedIds] }),
+      });
+      const data: AdminListResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.message || "批次作業失敗");
+      applyListFromResponse(data);
+      setSelectedIds(new Set());
+      setFlash({ type: "success", text: data.message || "批次作業完成" });
+    } catch (error) {
+      setFlash({ type: "error", text: error instanceof Error ? error.message : "批次作業失敗" });
     } finally {
       setSaving(false);
     }
@@ -993,6 +1102,36 @@ export default function AdminCalendarPage() {
             )}
           </div>
         </div>
+        {/* 批次操作列：有勾選時出現 */}
+        {!gating && listLoaded && selectedIds.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-3 px-1">
+            <span className="text-sm text-t2">已選取 {selectedIds.size} 筆</span>
+            <button
+              type="button"
+              onClick={batchCancel}
+              disabled={saving}
+              className="btn-theme rounded-lg px-3 py-1.5 text-sm cursor-pointer disabled:opacity-50"
+            >
+              {policies.hardDeleteCancelled ? "批次下架" : "批次取消"}
+            </button>
+            <button
+              type="button"
+              onClick={batchRemove}
+              disabled={saving}
+              className="btn-danger rounded-lg px-3 py-1.5 text-sm cursor-pointer disabled:opacity-50"
+            >
+              批次刪除
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              disabled={saving}
+              className="btn-theme rounded-lg px-3 py-1.5 text-sm cursor-pointer disabled:opacity-50"
+            >
+              取消選取
+            </button>
+          </div>
+        )}
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
     {gating ? (
       <RevealListCard
@@ -1010,6 +1149,18 @@ export default function AdminCalendarPage() {
             <table className="w-full text-sm text-left">
               <thead className="border-b border-themed">
                 <tr className="text-t2">
+                  <th className="px-3 py-2 font-medium w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="全選目前清單"
+                      checked={
+                        filteredItems.length > 0 &&
+                        filteredItems.every((item) => selectedIds.has(item.id))
+                      }
+                      onChange={toggleSelectAll}
+                      className="cursor-pointer"
+                    />
+                  </th>
                   <th className="px-3 py-2 font-medium">標題</th>
                   <th className="px-3 py-2 font-medium">時間</th>
                   <th className="px-3 py-2 font-medium">地點</th>
@@ -1023,13 +1174,22 @@ export default function AdminCalendarPage() {
               <tbody>
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-6 text-center text-t3">
+                    <td colSpan={9} className="px-3 py-6 text-center text-t3">
                       尚無符合條件的行程
                     </td>
                   </tr>
                 ) : (
                   filteredItems.map((item) => (
                     <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
+                      <td className="px-3 py-2 align-top">
+                        <input
+                          type="checkbox"
+                          aria-label={`選取「${item.title}」`}
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelect(item.id)}
+                          className="cursor-pointer mt-1"
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <span className="font-medium">{item.title}</span>
                         {item.important && (
@@ -1065,32 +1225,46 @@ export default function AdminCalendarPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => edit(item)}
-                          className="btn-theme rounded px-2.5 py-1 text-xs cursor-pointer mr-2"
-                        >
-                          編輯
-                        </button>
-                        {item.status === "active" ? (
-                          <button
-                            type="button"
-                            onClick={() => setStatus(item.id, "cancelled")}
-                            disabled={saving}
-                            className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
-                          >
-                            {policies.hardDeleteCancelled ? "下架" : "取消"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setStatus(item.id, "active")}
-                            disabled={saving}
-                            className="btn-soft rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
-                          >
-                            恢復
-                          </button>
-                        )}
+                        <div className="inline-flex flex-col items-end gap-1">
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => edit(item)}
+                              className="btn-theme rounded px-2.5 py-1 text-xs cursor-pointer"
+                            >
+                              編輯
+                            </button>
+                            {item.status === "active" ? (
+                              <button
+                                type="button"
+                                onClick={() => setStatus(item.id, "cancelled")}
+                                disabled={saving}
+                                className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                              >
+                                {policies.hardDeleteCancelled ? "下架" : "取消"}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setStatus(item.id, "active")}
+                                disabled={saving}
+                                className="btn-soft rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                              >
+                                恢復
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => remove(item.id, item.title)}
+                              disabled={saving}
+                              className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                            >
+                              刪除
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1106,6 +1280,47 @@ export default function AdminCalendarPage() {
           </p>
         )}
       </section>
+
+      {/* 確認 modal：取代原生 confirm，樣式跟隨主題（取消／恢復／刪除／批次共用） */}
+      {confirmRequest && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+          onClick={() => setConfirmRequest(null)}
+        >
+          <div
+            className="bg-card rounded-2xl p-6 w-full max-w-md space-y-4 shadow-lg animate-fade-in"
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div>
+              <h3 className="text-lg font-bold text-t1">確認操作</h3>
+              <p className="text-sm text-t2 mt-2 whitespace-pre-line">{confirmRequest.message}</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmRequest(null)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const onConfirm = confirmRequest.onConfirm;
+                  setConfirmRequest(null);
+                  onConfirm();
+                }}
+                className="btn-danger rounded-lg px-4 py-2 text-sm cursor-pointer"
+              >
+                確認
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
