@@ -1,0 +1,14 @@
+{
+  "lockVersion": 1,
+  "modules": [
+    {
+      "value": "examRegistration",
+      "version": "0.1.3",
+      "contractVersion": 1,
+      "minHostVersion": "0.391",
+      "sha256": "2c93966472758d127c6ca4d93254146b742c677b5dcc60b6da0e4dee473a2f26",
+      "source": "copy:D:\\workspace\\examRegistration",
+      "installedAt": "2026-10-12"
+    }
+  ]
+}
