@@ -105,6 +105,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const canAutoInstall =
+      process.env.NODE_ENV === "development" ||
+      (process.env.NODE_ENV === "production" && !!resolveModuleMarketGithubConfig());
+
     return NextResponse.json({
       success: true,
       marketUrl,
@@ -112,9 +116,8 @@ export async function GET(request: NextRequest) {
       marketplaceVersion: index.marketplaceVersion,
       modules: index.modules,
       installedModules: readInstalledModules(),
-      canUninstall:
-        process.env.NODE_ENV === "development" ||
-        (process.env.NODE_ENV === "production" && !!resolveModuleMarketGithubConfig()),
+      canUninstall: canAutoInstall,
+      canAutoInstall,
     });
   } catch (error) {
     console.error("Market modules fetch error:", error);

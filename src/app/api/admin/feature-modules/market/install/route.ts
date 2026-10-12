@@ -31,6 +31,13 @@ function buildManualInstallGuide(moduleId: string) {
   };
 }
 
+function resolveArchiveExtension(fileName: string): ".zip" | ".tar.gz" | null {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".zip")) return ".zip";
+  if (lower.endsWith(".tar.gz")) return ".tar.gz";
+  return null;
+}
+
 function readLockModules(): Set<string> {
   const lockPath = path.join(process.cwd(), "module.lock.json");
   if (!fs.existsSync(lockPath)) return new Set();
@@ -208,14 +215,36 @@ export async function POST(request: NextRequest) {
     }
 
     const isProduction = process.env.NODE_ENV === "production";
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const moduleId = typeof body.id === "string" ? body.id.trim() : "";
-    const sourcePath = typeof body.sourcePath === "string" ? body.sourcePath.trim() : "";
-    const downloadUrl = typeof body.downloadUrl === "string" ? body.downloadUrl.trim() : "";
-    const expectedSha256 =
-      typeof body.checksumSha256 === "string" ? body.checksumSha256.trim().toLowerCase() : "";
+    const contentType = request.headers.get("content-type") ?? "";
 
-    if (!moduleId) {
+    let moduleId = "";
+    let sourcePath = "";
+    let downloadUrl = "";
+    let expectedSha256 = "";
+    let uploadArchive: File | null = null;
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await request.formData();
+      const idEntry = form.get("id");
+      const sourceEntry = form.get("sourcePath");
+      const downloadEntry = form.get("downloadUrl");
+      const checksumEntry = form.get("checksumSha256");
+      const archiveEntry = form.get("archive");
+
+      moduleId = typeof idEntry === "string" ? idEntry.trim() : "";
+      sourcePath = typeof sourceEntry === "string" ? sourceEntry.trim() : "";
+      downloadUrl = typeof downloadEntry === "string" ? downloadEntry.trim() : "";
+      expectedSha256 = typeof checksumEntry === "string" ? checksumEntry.trim().toLowerCase() : "";
+      uploadArchive = archiveEntry instanceof File ? archiveEntry : null;
+    } else {
+      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+      moduleId = typeof body.id === "string" ? body.id.trim() : "";
+      sourcePath = typeof body.sourcePath === "string" ? body.sourcePath.trim() : "";
+      downloadUrl = typeof body.downloadUrl === "string" ? body.downloadUrl.trim() : "";
+      expectedSha256 = typeof body.checksumSha256 === "string" ? body.checksumSha256.trim().toLowerCase() : "";
+    }
+
+    if (!moduleId && !uploadArchive) {
       return NextResponse.json({ success: false, message: "缺少模組 id" }, { status: 400 });
     }
     if (isProduction && sourcePath) {
@@ -238,7 +267,7 @@ export async function POST(request: NextRequest) {
         { status: 503 }
       );
     }
-    if (isProduction && (!expectedSha256 || !/^[0-9a-f]{64}$/.test(expectedSha256))) {
+    if (isProduction && downloadUrl && (!expectedSha256 || !/^[0-9a-f]{64}$/.test(expectedSha256))) {
       return NextResponse.json(
         { success: false, message: "正式環境安裝需提供 checksumSha256（64 碼小寫十六進位）" },
         { status: 400 }
@@ -247,6 +276,7 @@ export async function POST(request: NextRequest) {
 
     let workingDir = "";
     let downloadedSha256: string | null = null;
+    let sourceRef = "";
     if (sourcePath) {
       const normalized = path.resolve(sourcePath);
       if (!fs.existsSync(normalized) || !fs.statSync(normalized).isDirectory()) {
@@ -256,6 +286,38 @@ export async function POST(request: NextRequest) {
         );
       }
       workingDir = normalized;
+      sourceRef = `local:${normalized}`;
+    } else if (uploadArchive) {
+      const archiveName = uploadArchive.name || "module.zip";
+      const extension = resolveArchiveExtension(archiveName);
+      if (!extension) {
+        return NextResponse.json(
+          { success: false, message: "上傳檔案格式僅支援 .zip 或 .tar.gz" },
+          { status: 400 }
+        );
+      }
+      if (uploadArchive.size > MAX_ARCHIVE_BYTES) {
+        return NextResponse.json(
+          { success: false, message: "上傳套件過大（超過 1MB 上限）" },
+          { status: 400 }
+        );
+      }
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "campus-market-upload-"));
+      const archivePath = path.join(tempDir, `uploaded${extension}`);
+      const buffer = Buffer.from(await uploadArchive.arrayBuffer());
+      fs.writeFileSync(archivePath, buffer);
+      downloadedSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+
+      if (expectedSha256 && !/^[0-9a-f]{64}$/.test(expectedSha256)) {
+        throw new Error("checksumSha256 需為 64 碼小寫十六進位");
+      }
+      if (expectedSha256 && downloadedSha256 !== expectedSha256) {
+        throw new Error(`套件完整性校驗失敗（sha256 不符）——拒絕安裝【附錄 A #13】`);
+      }
+
+      const extractedDir = extractArchive(archivePath, extension);
+      workingDir = findModuleManifestRoot(extractedDir);
+      sourceRef = `upload:${archiveName}`;
     } else if (downloadUrl) {
       const downloaded = await downloadToTemp(downloadUrl);
       if (expectedSha256 && !/^[0-9a-f]{64}$/.test(expectedSha256)) {
@@ -267,9 +329,10 @@ export async function POST(request: NextRequest) {
       downloadedSha256 = downloaded.sha256;
       const extractedDir = extractArchive(downloaded.filePath, downloaded.extension);
       workingDir = findModuleManifestRoot(extractedDir);
+      sourceRef = `market:${downloadUrl}`;
     } else {
       return NextResponse.json(
-        { success: false, message: "請提供 sourcePath 或 downloadUrl" },
+        { success: false, message: "請提供 sourcePath、downloadUrl 或 archive（上傳檔）" },
         { status: 400 }
       );
     }
@@ -287,15 +350,23 @@ export async function POST(request: NextRequest) {
       minHostVersion?: unknown;
       author?: { version?: unknown };
     };
-    if (typeof manifestParsed.value !== "string" || manifestParsed.value !== moduleId) {
+    const manifestValue = typeof manifestParsed.value === "string" ? manifestParsed.value.trim() : "";
+    if (!manifestValue) {
+      return NextResponse.json(
+        { success: false, message: "module.json 缺少 value，無法辨識模組代碼" },
+        { status: 400 }
+      );
+    }
+    if (moduleId && manifestValue !== moduleId) {
       return NextResponse.json(
         {
           success: false,
-          message: `模組 id 與 manifest.value 不一致（id＝${moduleId}、value＝${String(manifestParsed.value)}）——拒絕安裝`,
+          message: `模組 id 與 manifest.value 不一致（id＝${moduleId}、value＝${manifestValue}）——拒絕安裝`,
         },
         { status: 400 }
       );
     }
+    const effectiveModuleId = moduleId || manifestValue;
     const manifestVersion =
       manifestParsed?.author && typeof manifestParsed.author.version === "string"
         ? manifestParsed.author.version
@@ -310,9 +381,9 @@ export async function POST(request: NextRequest) {
         : "0";
 
     if (isProduction) {
-      if (!downloadUrl || !downloadedSha256) {
+      if (!sourceRef || !downloadedSha256) {
         return NextResponse.json(
-          { success: false, message: "正式環境安裝需提供可下載的 downloadUrl" },
+          { success: false, message: "正式環境安裝需提供可驗證來源（downloadUrl 或上傳檔）" },
           { status: 400 }
         );
       }
@@ -324,9 +395,9 @@ export async function POST(request: NextRequest) {
       }
 
       const committed = await commitMarketplaceModuleInstall({
-        moduleId,
+        moduleId: effectiveModuleId,
         moduleDir: workingDir,
-        downloadUrl,
+        sourceRef,
         archiveSha256: downloadedSha256,
         manifestVersion,
         contractVersion,
@@ -339,44 +410,46 @@ export async function POST(request: NextRequest) {
         action: "feature_module_updated",
         ip: getClientIp(request),
         details: committed.alreadyInstalled
-          ? `市集安裝功能模組「${moduleId}」：版本與來源未變更（branch: ${committed.branch}）`
+          ? `市集安裝功能模組「${effectiveModuleId}」：版本與來源未變更（branch: ${committed.branch}）`
           : committed.updated
-            ? `市集更新功能模組「${moduleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`
-            : `市集安裝功能模組「${moduleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`,
+            ? `市集更新功能模組「${effectiveModuleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`
+            : `市集安裝功能模組「${effectiveModuleId}」：提交至 ${committed.branch}（${committed.commitSha ?? "n/a"}）`,
       });
 
       return NextResponse.json({
         success: true,
+        moduleId: effectiveModuleId,
+        installedVersion: manifestVersion || undefined,
         alreadyInstalled: committed.alreadyInstalled,
         message: committed.alreadyInstalled
-          ? `模組「${moduleId}」目前版本已是最新，無需重複提交。`
+          ? `模組「${effectiveModuleId}」目前版本已是最新，無需重複提交。`
           : committed.updated
-            ? `模組「${moduleId}」更新提交已建立（branch: ${committed.branch}），請等待部署完成。`
-            : `模組「${moduleId}」安裝提交已建立（branch: ${committed.branch}），請等待部署完成。`,
+            ? `模組「${effectiveModuleId}」更新提交已建立（branch: ${committed.branch}），請等待部署完成。`
+            : `模組「${effectiveModuleId}」安裝提交已建立（branch: ${committed.branch}），請等待部署完成。`,
         branch: committed.branch,
         commitUrl: committed.commitUrl,
       });
     }
 
     const installed = readLockModules();
-    const updating = installed.has(moduleId);
+    const updating = installed.has(effectiveModuleId);
     let backupDir = "";
     let backupModuleDir = "";
 
     if (updating) {
-      const installedDir = path.join(process.cwd(), "src", "modules", moduleId);
+      const installedDir = path.join(process.cwd(), "src", "modules", effectiveModuleId);
       if (!fs.existsSync(installedDir) || !fs.statSync(installedDir).isDirectory()) {
         return NextResponse.json(
-          { success: false, message: `更新前檢查失敗：找不到既有模組目錄 src/modules/${moduleId}` },
+          { success: false, message: `更新前檢查失敗：找不到既有模組目錄 src/modules/${effectiveModuleId}` },
           { status: 500 }
         );
       }
 
-      backupDir = fs.mkdtempSync(path.join(os.tmpdir(), `campus-market-backup-${moduleId}-`));
-      backupModuleDir = path.join(backupDir, moduleId);
+      backupDir = fs.mkdtempSync(path.join(os.tmpdir(), `campus-market-backup-${effectiveModuleId}-`));
+      backupModuleDir = path.join(backupDir, effectiveModuleId);
       fs.cpSync(installedDir, backupModuleDir, { recursive: true });
 
-      const uninstallResult = runModuleCli("uninstall", moduleId);
+      const uninstallResult = runModuleCli("uninstall", effectiveModuleId);
       if (!uninstallResult.ok) {
         fs.rmSync(backupDir, { recursive: true, force: true });
         return NextResponse.json(
@@ -417,12 +490,14 @@ export async function POST(request: NextRequest) {
       role: "admin",
       action: "feature_module_updated",
       ip: getClientIp(request),
-      details: `市集${updating ? "更新" : "安裝"}功能模組「${moduleId}」（本機開發）`,
+      details: `市集${updating ? "更新" : "安裝"}功能模組「${effectiveModuleId}」（本機開發）`,
     });
 
     return NextResponse.json({
       success: true,
-      message: `模組「${moduleId}」已${updating ? "更新" : "安裝"}完成（含掃描器與 lint 驗證鏈）`,
+      moduleId: effectiveModuleId,
+      installedVersion: manifestVersion || undefined,
+      message: `模組「${effectiveModuleId}」已${updating ? "更新" : "安裝"}完成（含掃描器與 lint 驗證鏈）`,
     });
   } catch (error) {
     console.error("Market install error:", error);

@@ -27,7 +27,7 @@ export interface ModuleMarketGithubConfig {
 export interface CommitMarketplaceInstallInput {
   moduleId: string;
   moduleDir: string;
-  downloadUrl: string;
+  sourceRef: string;
   archiveSha256: string;
   manifestVersion: string;
   contractVersion: number;
@@ -174,7 +174,7 @@ export async function commitMarketplaceModuleInstall(
 
   const lockRecord = await readRemoteLockFile(token, repoBase, baseBranch);
   const lock = lockRecord?.lock ?? { lockVersion: 1, modules: [] };
-  const sourceTag = `market:${input.downloadUrl}`;
+  const sourceTag = input.sourceRef;
   const existingIndex = lock.modules.findIndex((item) => item.value === input.moduleId);
   const existing = existingIndex >= 0 ? lock.modules[existingIndex] : null;
   const nextEntry: ModuleLockEntry = {
