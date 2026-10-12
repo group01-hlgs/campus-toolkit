@@ -38,6 +38,14 @@ export interface CommitMarketplaceUninstallInput {
   moduleId: string;
 }
 
+interface CommitMarketplaceInstallResult {
+  alreadyInstalled: boolean;
+  updated: boolean;
+  branch: string;
+  commitUrl?: string;
+  commitSha?: string;
+}
+
 export function resolveModuleMarketGithubConfig(): ModuleMarketGithubConfig | null {
   const token = process.env.MODULE_MARKET_GITHUB_TOKEN?.trim();
   if (!token) return null;
@@ -134,7 +142,7 @@ async function readRemoteLockFile(
 
 export async function commitMarketplaceModuleInstall(
   input: CommitMarketplaceInstallInput
-): Promise<{ alreadyInstalled: boolean; branch: string; commitUrl?: string; commitSha?: string }> {
+): Promise<CommitMarketplaceInstallResult> {
   const config = resolveModuleMarketGithubConfig();
   if (!config) {
     throw new Error(
@@ -166,26 +174,71 @@ export async function commitMarketplaceModuleInstall(
 
   const lockRecord = await readRemoteLockFile(token, repoBase, baseBranch);
   const lock = lockRecord?.lock ?? { lockVersion: 1, modules: [] };
-  if (lock.modules.some((item) => item.value === input.moduleId)) {
-    return { alreadyInstalled: true, branch: baseBranch };
-  }
-
-  lock.modules.push({
+  const sourceTag = `market:${input.downloadUrl}`;
+  const existingIndex = lock.modules.findIndex((item) => item.value === input.moduleId);
+  const existing = existingIndex >= 0 ? lock.modules[existingIndex] : null;
+  const nextEntry: ModuleLockEntry = {
     value: input.moduleId,
     version: input.manifestVersion,
     contractVersion: input.contractVersion,
     minHostVersion: input.minHostVersion,
     sha256: input.archiveSha256,
-    source: `market:${input.downloadUrl}`,
+    source: sourceTag,
     installedAt: new Date().toISOString().slice(0, 10),
-  });
+  };
+
+  if (
+    existing &&
+    existing.version === nextEntry.version &&
+    existing.contractVersion === nextEntry.contractVersion &&
+    existing.minHostVersion === nextEntry.minHostVersion &&
+    existing.sha256 === nextEntry.sha256 &&
+    existing.source === nextEntry.source
+  ) {
+    return { alreadyInstalled: true, updated: false, branch: baseBranch };
+  }
+
+  if (existingIndex >= 0) {
+    lock.modules[existingIndex] = nextEntry;
+  } else {
+    lock.modules.push(nextEntry);
+  }
 
   const moduleFiles = readModuleFiles(input.moduleDir);
   if (moduleFiles.length === 0) {
     throw new Error("模組來源資料夾沒有可提交檔案");
   }
 
+  const treePayload = await githubRequest(
+    token,
+    `${repoBase}/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`
+  );
+  const treeItems = Array.isArray(treePayload?.tree)
+    ? (treePayload.tree as Array<{ path?: unknown; type?: unknown }>)
+    : [];
+
+  const targetPrefix = `src/modules/${input.moduleId}/`;
+  const existingModuleFiles = treeItems
+    .filter((item) => item && item.type === "blob" && typeof item.path === "string")
+    .map((item) => String(item.path))
+    .filter((pathValue) => pathValue.startsWith(targetPrefix));
+
+  const incomingModulePaths = new Set(
+    moduleFiles.map((file) => `src/modules/${input.moduleId}/${file.path}`)
+  );
+
   const treeEntries: Array<Record<string, unknown>> = [];
+  for (const stalePath of existingModuleFiles) {
+    if (!incomingModulePaths.has(stalePath)) {
+      treeEntries.push({
+        path: stalePath,
+        mode: "100644",
+        type: "blob",
+        sha: null,
+      });
+    }
+  }
+
   for (const file of moduleFiles) {
     const blob = await githubRequest(token, `${repoBase}/git/blobs`, {
       method: "POST",
@@ -227,7 +280,7 @@ export async function commitMarketplaceModuleInstall(
   const commit = await githubRequest(token, `${repoBase}/git/commits`, {
     method: "POST",
     body: {
-      message: `install(module): ${input.moduleId} v${input.manifestVersion}`,
+      message: `${existing ? "update" : "install"}(module): ${input.moduleId} v${input.manifestVersion}`,
       tree: tree.sha,
       parents: [baseSha],
     },
@@ -243,6 +296,7 @@ export async function commitMarketplaceModuleInstall(
 
   return {
     alreadyInstalled: false,
+    updated: !!existing,
     branch: baseBranch,
     commitSha: String(commit.sha),
     commitUrl: `https://github.com/${repo}/commit/${String(commit.sha)}`,
