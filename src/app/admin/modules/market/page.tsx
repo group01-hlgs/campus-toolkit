@@ -469,10 +469,12 @@ export default function ModuleMarketPage() {
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="border border-themed rounded-lg bg-card p-4 space-y-4">
+        <h2 className="text-sm font-semibold text-t1">安裝方式</h2>
+
         <div className="border border-themed rounded-lg bg-card p-4 space-y-2">
-          <h2 className="text-sm font-semibold text-t1">全自動一鍵安裝</h2>
-          <p className="text-xs text-t3">
+          <h3 className="text-sm font-semibold text-t1">全自動一鍵安裝</h3>
+          <p className="text-xs text-t2">
             直接使用模組卡片的「安裝／更新」按鈕。正式環境需設定 `MODULE_MARKET_GITHUB_TOKEN` 與 repo 來源參數。
           </p>
           <div className="text-xs">
@@ -488,22 +490,22 @@ export default function ModuleMarketPage() {
           </div>
         </div>
 
-        <div className="border border-info/60 rounded-lg bg-info/10 p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-info">半自動上傳安裝</h2>
-          <p className="text-xs text-info/90">
+        <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-t1">半自動上傳安裝</h3>
+          <p className="text-xs text-t2">
             上傳模組壓縮檔（.zip / .tar.gz）後由系統驗證並安裝。可選填模組代碼，不填則以 module.json 的 value 為準。
           </p>
           <input
             value={uploadModuleId}
             onChange={(event) => setUploadModuleId(event.target.value)}
             placeholder="模組代碼（選填，例如 examRegistration）"
-            className="w-full rounded border border-info/40 bg-card px-3 py-2 text-xs text-t1"
+            className="w-full rounded border border-themed bg-card px-3 py-2 text-xs text-t1"
           />
           <input
             type="file"
             accept=".zip,.tar.gz,application/zip,application/gzip"
             onChange={(event) => setUploadArchive(event.target.files?.[0] ?? null)}
-            className="w-full text-xs text-t2 file:mr-3 file:rounded file:border file:border-info/50 file:bg-card file:px-2 file:py-1 file:text-xs file:text-t1"
+            className="w-full text-xs text-t2 file:mr-3 file:rounded file:border file:border-themed file:bg-card file:px-2 file:py-1 file:text-xs file:text-t1"
           />
           <button
             type="button"
@@ -517,27 +519,27 @@ export default function ModuleMarketPage() {
           </button>
         </div>
 
-        <div className="border border-warning/60 rounded-lg bg-warning/10 p-4 space-y-3">
+        <div className="border border-themed rounded-lg bg-card p-4 space-y-3">
           <div>
-            <h2 className="text-sm font-semibold text-warning">手動安裝</h2>
-            <p className="text-xs text-warning/90">
+            <h3 className="text-sm font-semibold text-t1">手動安裝</h3>
+            <p className="text-xs text-t2">
               不論一鍵安裝或上傳安裝是否可用，都可改走以下手動流程。更新同模組版本時，請先卸載再安裝新版。
             </p>
           </div>
-          {alwaysVisibleGuide.title && <p className="text-xs font-medium text-warning">{alwaysVisibleGuide.title}</p>}
+          {alwaysVisibleGuide.title && <p className="text-xs font-medium text-t1">{alwaysVisibleGuide.title}</p>}
           {Array.isArray(alwaysVisibleGuide.steps) && alwaysVisibleGuide.steps.length > 0 && (
-            <ol className="list-decimal pl-4 space-y-1 text-xs text-warning">
+            <ol className="list-decimal pl-4 space-y-1 text-xs text-t2">
               {alwaysVisibleGuide.steps.map((step, index) => (
                 <li key={`${index}-${step}`}>{step}</li>
               ))}
             </ol>
           )}
           {alwaysVisibleGuide.command && (
-            <pre className="overflow-x-auto rounded border border-warning/40 bg-card px-2 py-1 text-xs text-t1">
+            <pre className="overflow-x-auto rounded border border-themed bg-card px-2 py-1 text-xs text-t1">
 {alwaysVisibleGuide.command}
             </pre>
           )}
-          {alwaysVisibleGuide.note && <p className="text-xs text-warning/90">{alwaysVisibleGuide.note}</p>}
+          {alwaysVisibleGuide.note && <p className="text-xs text-t2">{alwaysVisibleGuide.note}</p>}
         </div>
       </div>
 
