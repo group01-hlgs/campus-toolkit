@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+const DEFAULT_MARKET_INDEX_URL =
+  "https://takan003.github.io/campus-toolkit-marketplace/index.json";
+const MARKETPLACE_REPOSITORY_URL = "https://github.com/takan003/campus-toolkit-marketplace";
+
 interface MarketModuleEntry {
   id: string;
   name: string;
@@ -375,6 +379,17 @@ export default function ModuleMarketPage() {
     }
   }
 
+  async function copyDefaultMarketUrl() {
+    try {
+      await navigator.clipboard.writeText(DEFAULT_MARKET_INDEX_URL);
+      setMarketUrlKind("success");
+      setMarketUrlMessage("GitHub Pages 市集來源 URL 已複製");
+    } catch {
+      setMarketUrlKind("error");
+      setMarketUrlMessage("無法存取剪貼簿，請手動複製上方網址");
+    }
+  }
+
   return (
     <div className="w-full max-w-5xl space-y-6">
       {uninstallTarget && (
@@ -477,8 +492,28 @@ export default function ModuleMarketPage() {
           <div className="pt-2 border-t border-themed space-y-2">
             <h3 className="text-xs font-semibold text-t1">模組市集來源設定</h3>
             <p className="text-xs text-t2">
-              可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。
+              可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。GitHub Pages 預設來源：
             </p>
+            <div className="flex flex-col md:flex-row md:items-center gap-2 text-xs">
+              <code className="text-t1 break-all">{DEFAULT_MARKET_INDEX_URL}</code>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => void copyDefaultMarketUrl()}
+                  className="border border-themed rounded px-2.5 py-1.5 text-t2 hover:text-t1 cursor-pointer"
+                >
+                  複製 URL
+                </button>
+                <a
+                  href={MARKETPLACE_REPOSITORY_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline underline-offset-2 hover:opacity-80"
+                >
+                  GitHub Repo ↗
+                </a>
+              </div>
+            </div>
             <div className="flex flex-col md:flex-row gap-2">
               <input
                 value={marketUrlInput}
