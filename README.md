@@ -102,10 +102,13 @@ https://vercel.com/%2Fnew%2Fcontinue%3FloginReturn%3D...
 2. **建立 Firestore 資料庫**：左側 Build → Firestore database → **Create database** → 選位置（建議離使用者近的，**建好就不能改**）→ 選 **不開放瀏覽器存取**的模式（Production mode，新版介面叫 Restrictive）→ 建立。
    ⚠️ **新專案不會自動有資料庫** —— 漏這步的話，服務帳號私鑰照樣下載得到、部署也照樣成功，但任何資料讀寫都會失敗。
    資料結構**不用另外建立**：Firestore 是結構自由的，程式用到哪個集合，第一次寫入時會自動長出來（`users`、四張身分名冊、`settings` 等），首筆由 `/setup` 建首位管理員時寫入。完整清單見下方「Firebase 專案設定 → Firestore 資料結構」。
-3. 啟用 **Google 登入**（Authentication → Sign-in method → Google）。
-4. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
-5. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。
-6. 把 Firestore 安全規則設成本 repo 的 `firestore.rules`（預設不給瀏覽器直接讀寫，比較安全）。
+3. **建立 Storage bucket**（存學生證件照）：左側 Build → Storage → **Get started** → 選位置（建議離使用者近的，**建好就不能改**）→ 建立。
+   ⚠️ **新專案同樣不會自動有 bucket** —— 漏這步的話，Firestore 一切正常、部署也照樣成功，但學生上傳證件照會回 `The specified bucket does not exist`。
+   新專案的 bucket 名稱為 `你的專案ID.firebasestorage.app`（較早建立的專案可能是 `你的專案ID.appspot.com`），請原樣填進 `.env.local` 的 `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`。
+4. 啟用 **Google 登入**（Authentication → Sign-in method → Google）。
+5. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
+6. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。此服務帳號須能讀寫上面的 bucket：Firebase 預設服務帳號已具專案編輯者權限（涵蓋 Storage Object Admin），通常不需另外設；若自行新建服務帳號，請額外授予 **Storage Object Admin**。
+7. 把 Firestore 安全規則設成本 repo 的 `firestore.rules`（預設不給瀏覽器直接讀寫，比較安全）。
    ⚠️ 本 repo 的 `.firebaserc` 還綁著原作者的專案 ID，執行 `firebase deploy` 前請先改成你的專案，或直接在 Console 貼上規則（見下方「Firebase 專案設定」第 5 點）。
 
 ### 第 4 步：填環境變數（把第 3 步拿到的東西貼進去）
@@ -156,9 +159,9 @@ npm run dev
        ▼                                ▼
   Firebase 建專案                 填 .env.local
   （Google 登入、私鑰、            （設定 + session 金鑰）
-   Firestore 規則）                       │
-       │                                ▼
-       └──────────────► npm run dev → /setup 建管理員
+   Firestore 規則、                       │
+   Storage bucket）                      ▼
+        │                                └──────────────► npm run dev → /setup 建管理員
                                          │
                                          ▼
                               （可選）種子測試帳號
