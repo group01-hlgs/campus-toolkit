@@ -195,7 +195,6 @@ export const STUDENT_PERSONAL_INFO_FIELD_DEFS: StudentPersonalInfoFieldDefinitio
     label: "聯絡電話",
     type: "tel",
     maxLength: 30,
-    wide: true,
     placeholder: "手機或市話",
   },
   { key: "emergencyContactName", label: "緊急聯絡人（姓名）", type: "text", maxLength: 40 },

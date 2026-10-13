@@ -492,6 +492,9 @@ export default function StudentPersonalInfoForm({
                                     <span>同戶籍地</span>
                                   </label>
                                 )}
+                                {field.key === "contactPhone" && (
+                                  <div aria-hidden="true" className="hidden sm:block" />
+                                )}
                               </Fragment>
                             );
                           })}
