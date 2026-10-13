@@ -161,5 +161,5 @@ export function studentPersonalInfoAvailabilityMessage(
   const end = settings.endDate.replace("T", " ");
   if (now < settings.startDate) return `填寫期間將於 ${start} 開放。`;
   if (now > settings.endDate) return `填寫期限已於 ${end} 結束。`;
-  return `開放填寫至 ${end}（含該分鐘）。`;
+  return `開放填寫至 ${end}。`;
 }

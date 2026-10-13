@@ -244,7 +244,7 @@ export default function PersonalInfoRulesPanel() {
                   />
                 </label>
                 <label className="space-y-1 text-xs text-t2">
-                  <span className="block">結束日期時間（含該分鐘）</span>
+                  <span className="block">結束日期時間</span>
                   <input
                     type="datetime-local"
                     value={settings.endDate}
