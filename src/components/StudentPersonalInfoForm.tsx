@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
   EMPTY_STUDENT_PERSONAL_IDENTITY,
@@ -76,6 +76,7 @@ export default function StudentPersonalInfoForm({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingIdentity, setSavingIdentity] = useState(false);
+  const [sameAsHousehold, setSameAsHousehold] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
@@ -99,6 +100,7 @@ export default function StudentPersonalInfoForm({
       setExpandedPeriods([]);
       setIdentity(data.identity ?? { ...EMPTY_STUDENT_PERSONAL_IDENTITY });
       setFields(currentEntry?.fields ?? { ...EMPTY_STUDENT_PERSONAL_INFO_TERM });
+      setSameAsHousehold(Boolean(currentEntry) && isMailingSameAsHousehold(currentEntry!.fields));
       setPhotos({
         admission: currentEntry?.photos.admission ? { updatedAt: currentEntry.photos.admission.updatedAt } : null,
         graduation: currentEntry?.photos.graduation ? { updatedAt: currentEntry.photos.graduation.updatedAt } : null,
@@ -206,6 +208,35 @@ export default function StudentPersonalInfoForm({
       });
     } finally {
       setUploadingPhoto(null);
+    }
+  }
+
+  function onTermFieldChange(key: keyof StudentPersonalInfoTermFields, value: string) {
+    setFields((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "householdPostalCode" || key === "mailingPostalCode") {
+        const district = postalCodeOptions.find((option) => option.code === value.trim())?.district ?? "";
+        if (district) {
+          const addressKey = key === "householdPostalCode" ? "householdAddress" : "mailingAddress";
+          next[addressKey] = district + stripLeadingDistrict(current[addressKey], postalCodeOptions);
+        }
+      }
+      if (sameAsHousehold && (key === "householdPostalCode" || key === "householdAddress")) {
+        next.mailingPostalCode = next.householdPostalCode;
+        next.mailingAddress = next.householdAddress;
+      }
+      return next;
+    });
+  }
+
+  function toggleSameAsHousehold(checked: boolean) {
+    setSameAsHousehold(checked);
+    if (checked) {
+      setFields((current) => ({
+        ...current,
+        mailingPostalCode: current.householdPostalCode,
+        mailingAddress: current.householdAddress,
+      }));
     }
   }
 
@@ -418,43 +449,51 @@ export default function StudentPersonalInfoForm({
                       </p>
                       {canEdit ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          {STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.map((field) => (
-                            <label
-                              key={field.key}
-                              className={`block space-y-1 text-sm text-t2 ${field.type === "textarea" ? "sm:col-span-2" : ""}`}
-                            >
-                              <span>{field.label}</span>
-                              {field.type === "select" ? (
-                                <select
-                                  value={fields[field.key]}
-                                  onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                                  className="w-full input-theme rounded px-3 py-2 text-sm"
+                          {STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.map((field) => {
+                            const mailingLocked = sameAsHousehold && (field.key === "mailingPostalCode" || field.key === "mailingAddress");
+                            return (
+                              <Fragment key={field.key}>
+                                <label
+                                  className={`block space-y-1 text-sm text-t2 ${ADDRESS_FIELD_KEYS.has(field.key) ? "sm:col-span-2" : ""}`}
                                 >
-                                <option value="">請選擇</option>
-                                {field.options?.map((option) => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                                </select>
-                              ) : field.type === "textarea" ? (
-                                <textarea
-                                  value={fields[field.key]}
-                                  onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                                  maxLength={field.maxLength}
-                                  rows={2}
-                                  className="w-full input-theme rounded px-3 py-2 text-sm"
-                                />
-                              ) : (
-                                <input
-                                  type={field.type}
-                                  value={fields[field.key]}
-                                  onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                                  maxLength={field.maxLength}
-                                  list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
-                                  className="w-full input-theme rounded px-3 py-2 text-sm"
-                                />
-                              )}
-                            </label>
-                          ))}
+                                  <span>{field.label}</span>
+                                  {field.type === "select" ? (
+                                    <select
+                                      value={fields[field.key]}
+                                      onChange={(event) => onTermFieldChange(field.key, event.target.value)}
+                                      className="w-full input-theme rounded px-3 py-2 text-sm"
+                                    >
+                                      <option value="">請選擇</option>
+                                      {field.options?.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type={field.type}
+                                      value={fields[field.key]}
+                                      onChange={(event) => onTermFieldChange(field.key, event.target.value)}
+                                      maxLength={field.maxLength}
+                                      disabled={mailingLocked}
+                                      list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
+                                      className="w-full input-theme rounded px-3 py-2 text-sm disabled:opacity-60"
+                                    />
+                                  )}
+                                </label>
+                                {field.key === "mailingPostalCode" && (
+                                  <label className="flex items-center gap-2 text-sm text-t2">
+                                    <input
+                                      type="checkbox"
+                                      checked={sameAsHousehold}
+                                      onChange={(event) => toggleSameAsHousehold(event.target.checked)}
+                                      className="h-4 w-4 cursor-pointer"
+                                    />
+                                    <span>同戶籍地</span>
+                                  </label>
+                                )}
+                              </Fragment>
+                            );
+                          })}
                           <datalist id="student-postal-code-options">
                             {postalCodeOptions.map((option, index) => (
                               <option
@@ -507,6 +546,26 @@ const PERIOD_HINT_DONE = "已完成";
 function isTermFieldsComplete(source: StudentPersonalInfoTermFields): boolean {
   return STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.every((field) => source[field.key].trim() !== "");
 }
+
+/** 通訊地址與戶籍完全相同時，「同戶籍地」預設勾選 */
+function isMailingSameAsHousehold(source: StudentPersonalInfoTermFields): boolean {
+  return (
+    source.householdPostalCode.trim() !== "" &&
+    source.mailingPostalCode.trim() === source.householdPostalCode.trim() &&
+    source.mailingAddress.trim() === source.householdAddress.trim()
+  );
+}
+
+/** 地址最前面若已是某個鄉鎮市區，先移除，避免重複選擇郵區時不斷疊加 */
+function stripLeadingDistrict(address: string, options: PostalCodeOption[]): string {
+  const district = options
+    .map((option) => option.district)
+    .filter((item) => item !== "" && address.startsWith(item))
+    .sort((a, b) => b.length - a.length)[0];
+  return district ? address.slice(district.length) : address;
+}
+
+const ADDRESS_FIELD_KEYS: ReadonlySet<string> = new Set(["householdAddress", "mailingAddress"]);
 
 function PeriodHintBadge({ tone, children }: { tone: "open" | "incomplete" | "done"; children: ReactNode }) {
   const toneClass = tone === "open" ? "text-success" : tone === "incomplete" ? "text-danger" : "text-t3";
