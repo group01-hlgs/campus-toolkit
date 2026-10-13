@@ -158,9 +158,12 @@ export interface StudentPersonalInfoFieldDefinition<
 > {
   key: K;
   label: string;
-  type: "text" | "date" | "tel" | "select" | "textarea";
+  type: "text" | "date" | "tel" | "select";
   maxLength: number;
   options?: readonly StudentPersonalIdTypeOption[];
+  /** 表單中佔滿整列 */
+  wide?: boolean;
+  placeholder?: string;
   /** 選單存值為代碼時，唯讀檢視用來顯示名稱 */
   display?: (value: string) => string;
 }
@@ -184,12 +187,25 @@ export const STUDENT_PERSONAL_INFO_FIELD_DEFS: StudentPersonalInfoFieldDefinitio
   },
   { key: "nationalId", label: "身分證統一編號", type: "text", maxLength: 10 },
   { key: "householdPostalCode", label: "戶籍郵區", type: "text", maxLength: 6 },
-  { key: "householdAddress", label: "戶籍地址", type: "text", maxLength: 200 },
+  { key: "householdAddress", label: "戶籍地址", type: "text", maxLength: 200, wide: true },
   { key: "mailingPostalCode", label: "通訊郵區", type: "text", maxLength: 6 },
-  { key: "mailingAddress", label: "通訊地址", type: "text", maxLength: 200 },
-  { key: "contactPhone", label: "聯絡電話", type: "tel", maxLength: 30 },
+  { key: "mailingAddress", label: "通訊地址", type: "text", maxLength: 200, wide: true },
+  {
+    key: "contactPhone",
+    label: "聯絡電話",
+    type: "tel",
+    maxLength: 30,
+    wide: true,
+    placeholder: "手機或市話",
+  },
   { key: "emergencyContactName", label: "緊急聯絡人（姓名）", type: "text", maxLength: 40 },
-  { key: "emergencyContactPhone", label: "緊急聯絡人電話", type: "tel", maxLength: 30 },
+  {
+    key: "emergencyContactPhone",
+    label: "緊急聯絡人電話",
+    type: "tel",
+    maxLength: 30,
+    placeholder: "手機或市話",
+  },
 ];
 
 export const STUDENT_PERSONAL_IDENTITY_KEYS = [

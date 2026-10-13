@@ -454,7 +454,7 @@ export default function StudentPersonalInfoForm({
                             return (
                               <Fragment key={field.key}>
                                 <label
-                                  className={`block space-y-1 text-sm text-t2 ${ADDRESS_FIELD_KEYS.has(field.key) ? "sm:col-span-2" : ""}`}
+                                  className={`block space-y-1 text-sm text-t2 ${field.wide ? "sm:col-span-2" : ""}`}
                                 >
                                   <span>{field.label}</span>
                                   {field.type === "select" ? (
@@ -474,6 +474,7 @@ export default function StudentPersonalInfoForm({
                                       value={fields[field.key]}
                                       onChange={(event) => onTermFieldChange(field.key, event.target.value)}
                                       maxLength={field.maxLength}
+                                      placeholder={field.placeholder}
                                       disabled={mailingLocked}
                                       list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
                                       className="w-full input-theme rounded px-3 py-2 text-sm disabled:opacity-60"
@@ -564,8 +565,6 @@ function stripLeadingDistrict(address: string, options: PostalCodeOption[]): str
     .sort((a, b) => b.length - a.length)[0];
   return district ? address.slice(district.length) : address;
 }
-
-const ADDRESS_FIELD_KEYS: ReadonlySet<string> = new Set(["householdAddress", "mailingAddress"]);
 
 function PeriodHintBadge({ tone, children }: { tone: "open" | "incomplete" | "done"; children: ReactNode }) {
   const toneClass = tone === "open" ? "text-success" : tone === "incomplete" ? "text-danger" : "text-t3";
