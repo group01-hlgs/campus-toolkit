@@ -7,11 +7,13 @@ import {
   STUDENT_PERSONAL_INFO_FIELD_DEFS,
   type StudentPersonalInfoFields,
 } from "@/types/personal-info";
+import type { PostalCodeOption } from "@/types/postal-codes";
 
 interface StudentPersonalInfoResponse {
   success?: boolean;
   message?: string;
   fields?: StudentPersonalInfoFields;
+  postalCodeOptions?: PostalCodeOption[];
   canEdit?: boolean;
   period?: { academicYear: number; semester: number };
 }
@@ -24,6 +26,7 @@ export default function StudentPersonalInfoForm({
   semester: number;
 }) {
   const [fields, setFields] = useState<StudentPersonalInfoFields>({ ...EMPTY_STUDENT_PERSONAL_INFO });
+  const [postalCodeOptions, setPostalCodeOptions] = useState<PostalCodeOption[]>([]);
   const [canEdit, setCanEdit] = useState(false);
   const [activePeriod, setActivePeriod] = useState({ academicYear, semester });
   const [availabilityMessage, setAvailabilityMessage] = useState("");
@@ -42,6 +45,7 @@ export default function StudentPersonalInfoForm({
         throw new Error(data.message || "讀取本學期個人資料失敗");
       }
       setFields(data.fields);
+      setPostalCodeOptions(data.postalCodeOptions ?? []);
       setCanEdit(data.canEdit === true);
       setAvailabilityMessage(data.message || "");
       if (data.period) setActivePeriod(data.period);
@@ -142,11 +146,21 @@ export default function StudentPersonalInfoForm({
                         value={fields[field.key]}
                         onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
                         maxLength={field.maxLength}
+                        list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
                         className="w-full input-theme rounded px-3 py-2 text-sm"
                       />
                     )}
                   </label>
                 ))}
+                <datalist id="student-postal-code-options">
+                  {postalCodeOptions.map((option, index) => (
+                    <option
+                      key={`${index}-${option.code}-${option.district}`}
+                      value={option.code}
+                      label={option.district}
+                    />
+                  ))}
+                </datalist>
                 <div className="sm:col-span-2 flex justify-end">
                   <button
                     type="button"

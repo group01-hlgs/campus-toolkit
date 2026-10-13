@@ -5,6 +5,7 @@ import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
+import { getPostalCodeOptions } from "@/lib/postal-codes";
 import {
   getStudentPersonalInfo,
   getStudentPersonalInfoSettings,
@@ -63,9 +64,10 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const period = await getCurrentPeriod();
-    const [settings, fields] = await Promise.all([
+    const [settings, fields, postalCodeOptions] = await Promise.all([
       getStudentPersonalInfoSettings(period),
       getStudentPersonalInfo(session.uid, period),
+      getPostalCodeOptions(),
     ]);
     const rosterEntry = (session as VerifiedSession).__entry;
     const currentDateTime = taipeiDateTimeString();
@@ -86,6 +88,7 @@ export async function GET(request: NextRequest) {
         period,
         settings,
         fields,
+        postalCodeOptions,
         canEdit,
         targetEligible,
         currentDateTime,
