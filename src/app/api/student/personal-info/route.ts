@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { requireRole, toAuthResponse } from "@/lib/dal";
+import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
+import { getPostalCodeOptions } from "@/lib/postal-codes";
 import {
   getStudentPersonalInfo,
   getStudentPersonalInfoSettings,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/personal-info";
 import {
   isIsoDate,
+  isStudentPersonalInfoTargetEligible,
   STUDENT_PERSONAL_INFO_FIELD_DEFS,
   type StudentPersonalInfoFields,
 } from "@/types/personal-info";
@@ -62,21 +64,35 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const period = await getCurrentPeriod();
-    const [settings, fields] = await Promise.all([
+    const [settings, fields, postalCodeOptions] = await Promise.all([
       getStudentPersonalInfoSettings(period),
       getStudentPersonalInfo(session.uid, period),
+      getPostalCodeOptions(),
     ]);
+    const rosterEntry = (session as VerifiedSession).__entry;
     const currentDateTime = taipeiDateTimeString();
-    const canEdit = isStudentPersonalInfoOpen(settings, currentDateTime);
+    const targetEligible = isStudentPersonalInfoTargetEligible(
+      settings.target,
+      rosterEntry?.grade,
+      rosterEntry?.classCode
+    );
+    const canEdit = isStudentPersonalInfoOpen(settings, currentDateTime) && targetEligible;
+    const availabilityMessage = !isStudentPersonalInfoOpen(settings, currentDateTime)
+      ? studentPersonalInfoAvailabilityMessage(settings, currentDateTime)
+      : !targetEligible
+        ? "本次開放填寫對象不包含你的年級或班級。"
+        : studentPersonalInfoAvailabilityMessage(settings, currentDateTime);
     return NextResponse.json(
       {
         success: true,
         period,
         settings,
         fields,
+        postalCodeOptions,
         canEdit,
+        targetEligible,
         currentDateTime,
-        message: studentPersonalInfoAvailabilityMessage(settings, currentDateTime),
+        message: availabilityMessage,
       },
       { headers: noStore }
     );
@@ -129,6 +145,13 @@ export async function PUT(request: NextRequest) {
           success: false,
           message: studentPersonalInfoAvailabilityMessage(settings),
         },
+        { status: 403, headers: noStore }
+      );
+    }
+    const rosterEntry = (session as VerifiedSession).__entry;
+    if (!isStudentPersonalInfoTargetEligible(settings.target, rosterEntry?.grade, rosterEntry?.classCode)) {
+      return NextResponse.json(
+        { success: false, message: "本次開放填寫對象不包含你的年級或班級" },
         { status: 403, headers: noStore }
       );
     }

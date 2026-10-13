@@ -49,6 +49,13 @@ const ICON_PATHS: Record<string, ReactNode> = {
       d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z"
     />
   ),
+  // 雜項設定（調整控制）
+  miscSettings: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm6.75 5.25a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm4.5 5.25a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+    </>
+  ),
   // 班級管理（群體人像）
   classes: (
     <path

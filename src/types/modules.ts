@@ -105,6 +105,16 @@ const HAND_MODULES = [
     ],
   },
   {
+    value: "miscSettings",
+    label: "雜項設定",
+    category: "校務資料",
+    description: "維護其他全校共用設定，例如郵遞區號選項。",
+    scope: "superOnly",
+    status: "built",
+    href: "/admin/misc-settings",
+    children: [{ label: "郵遞區號設定", href: "/admin/misc-settings/postal-codes" }],
+  },
+  {
     value: "classes",
     label: "班級管理",
     category: "校務資料",

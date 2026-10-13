@@ -5,8 +5,16 @@ import { requireRole, toAuthResponse } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getStudentPersonalInfoSettings, saveStudentPersonalInfoSettings } from "@/lib/personal-info";
-import { normalizePersonalInfoDateTime } from "@/types/personal-info";
+import {
+  getStudentPersonalInfoSettings,
+  getStudentPersonalInfoTargetOptions,
+  saveStudentPersonalInfoSettings,
+} from "@/lib/personal-info";
+import {
+  normalizePersonalInfoDateTime,
+  type StudentPersonalInfoTarget,
+  type StudentPersonalInfoTargetMode,
+} from "@/types/personal-info";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -25,8 +33,11 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const period = await getCurrentPeriod();
-    const settings = await getStudentPersonalInfoSettings(period);
-    return NextResponse.json({ success: true, settings, period }, { headers: noStore });
+    const [settings, targetOptions] = await Promise.all([
+      getStudentPersonalInfoSettings(period),
+      getStudentPersonalInfoTargetOptions(),
+    ]);
+    return NextResponse.json({ success: true, settings, period, targetOptions }, { headers: noStore });
   } catch (error) {
     console.error("Get student personal info settings error:", error);
     return NextResponse.json(
@@ -84,15 +95,83 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const targetInput = raw.target && typeof raw.target === "object"
+      ? (raw.target as Record<string, unknown>)
+      : {};
+    if (!raw.target || typeof raw.target !== "object" || Array.isArray(raw.target)) {
+      return NextResponse.json(
+        { success: false, message: "缺少有效的開放對象設定，請重新載入管理規則" },
+        { status: 400, headers: noStore }
+      );
+    }
+    const targetModeValue = targetInput.mode ?? "all";
+    if (targetModeValue !== "all" && targetModeValue !== "grades" && targetModeValue !== "classes") {
+      return NextResponse.json(
+        { success: false, message: "開放對象設定無效" },
+        { status: 400, headers: noStore }
+      );
+    }
+    const targetMode: StudentPersonalInfoTargetMode = targetModeValue;
+    const readSelection = (value: unknown, limit: number): string[] | null => {
+      if (!Array.isArray(value)) return null;
+      const items = value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (items.length !== value.length || items.length > limit || new Set(items).size !== items.length) {
+        return null;
+      }
+      return items;
+    };
+
+    let target: StudentPersonalInfoTarget = { mode: "all", grades: [], classes: [] };
+    if (targetMode !== "all") {
+      const targetOptions = await getStudentPersonalInfoTargetOptions();
+      if (targetMode === "grades") {
+        const grades = readSelection(targetInput.grades, 24);
+        const availableGrades = new Set(targetOptions.grades.map((item) => item.value));
+        if (
+          !grades ||
+          (raw.enabled && grades.length === 0) ||
+          grades.some((grade) => !availableGrades.has(grade))
+        ) {
+          return NextResponse.json(
+            { success: false, message: "請選擇有效的年級" },
+            { status: 400, headers: noStore }
+          );
+        }
+        target = { mode: "grades", grades, classes: [] };
+      } else {
+        const classes = readSelection(
+          targetInput.classes,
+          targetOptions.grades.reduce((count, grade) => count + grade.classes.length, 0)
+        );
+        const availableClasses = new Set(
+          targetOptions.grades.flatMap((grade) => grade.classes.map((classRow) => classRow.value))
+        );
+        if (
+          !classes ||
+          (raw.enabled && classes.length === 0) ||
+          classes.some((code) => !availableClasses.has(code))
+        ) {
+          return NextResponse.json(
+            { success: false, message: "請選擇有效的班級" },
+            { status: 400, headers: noStore }
+          );
+        }
+        target = { mode: "classes", grades: [], classes };
+      }
+    }
+
     const period = await getCurrentPeriod();
-    const settings = { enabled: raw.enabled, startDate, endDate };
+    const settings = { enabled: raw.enabled, startDate, endDate, target };
     await saveStudentPersonalInfoSettings(period, settings);
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "personal_info_settings_updated",
       ip: getClientIp(request),
-      details: `更新 ${period.academicYear} 學年度第 ${period.semester} 學期個人資料填寫規則（${settings.enabled ? "開放" : "關閉"}，${startDate || "未設定"} 至 ${endDate || "未設定"}）`,
+      details: `更新 ${period.academicYear} 學年度第 ${period.semester} 學期個人資料填寫規則（${settings.enabled ? "開放" : "關閉"}，對象=${target.mode}，${startDate || "未設定"} 至 ${endDate || "未設定"}）`,
     });
 
     return NextResponse.json(
