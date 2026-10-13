@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import RolePageShell from "@/components/RolePageShell";
+import PersonalInfoRulesPanel from "@/components/PersonalInfoRulesPanel";
+import StudentPersonalInfoForm from "@/components/StudentPersonalInfoForm";
 import { ROSTER_FIELDS } from "@/types/roster";
 import { isUserRole, ROLE_HOME, type UserRole } from "@/types/users";
 
@@ -102,27 +104,36 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
             </button>
           </div>
         ) : profile ? (
-          <section className="border border-themed rounded-lg bg-card p-5 sm:p-7">
-            <div className="mb-5 border-b border-themed pb-4">
-              <p className="text-xs text-t3">{profile.roleLabel}</p>
-              <h3 className="text-xl font-bold text-t1 mt-1">{profile.name || "—"}</h3>
-              <p className="text-sm text-t2 mt-1">
-                {profile.academicYear && profile.semester
-                  ? `${profile.academicYear} 學年度第 ${profile.semester} 學期`
-                  : "目前學期"}
-              </p>
-            </div>
+          <>
+            {role === "admin" && <PersonalInfoRulesPanel />}
+            <section className="border border-themed rounded-lg bg-card p-5 sm:p-7">
+              <div className="mb-5 border-b border-themed pb-4">
+                <p className="text-xs text-t3">{profile.roleLabel}</p>
+                <h3 className="text-xl font-bold text-t1 mt-1">{profile.name || "—"}</h3>
+                <p className="text-sm text-t2 mt-1">
+                  {profile.academicYear && profile.semester
+                    ? `${profile.academicYear} 學年度第 ${profile.semester} 學期`
+                    : "目前學期"}
+                </p>
+              </div>
 
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-              <InfoRow label="帳號" value={profile.account} />
-              <InfoRow label="電子郵件地址" value={profile.email} />
-              {ROSTER_FIELDS[role]
-                .filter(({ key }) => key !== "name" && key !== "email" && key !== "account" && key !== "modules")
-                .map(({ key, label }) => (
-                  <InfoRow key={key} label={label} value={profile.fields[key]} />
-                ))}
-            </dl>
-          </section>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+                <InfoRow label="帳號" value={profile.account} />
+                <InfoRow label="電子郵件地址" value={profile.email} />
+                {ROSTER_FIELDS[role]
+                  .filter(({ key }) => key !== "name" && key !== "email" && key !== "account" && key !== "modules")
+                  .map(({ key, label }) => (
+                    <InfoRow key={key} label={label} value={profile.fields[key]} />
+                  ))}
+              </dl>
+            </section>
+            {role === "student" && (
+              <StudentPersonalInfoForm
+                academicYear={profile.academicYear}
+                semester={profile.semester}
+              />
+            )}
+          </>
         ) : null}
       </main>
     </RolePageShell>
