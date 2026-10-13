@@ -197,6 +197,21 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
       admin: true,
     },
   },
+  {
+    value: "personalInfo",
+    label: "個人基本資料",
+    kind: "builtin",
+    status: "live",
+    description: "檢視本人當期的基本資料；以學生學籍資料為主，並提供家長、教職員與管理員各自的身分資料。",
+    href: "/admin/personal-info",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: {
+      student: true,
+      parent: true,
+      staff: true,
+      admin: true,
+    },
+  },
   // manifest 產生列（scripts/build-module-registry.mjs；後者勝，可覆寫手刻列）
   ...GENERATED_FEATURE_MODULES,
 ];

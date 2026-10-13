@@ -45,6 +45,14 @@ const personalCard: ModuleCard = {
   href: "/admin/admins",
 };
 
+/** 個人基本資料不需管理權限；四種身分都可使用，仍依模組顯示開關過濾 */
+const personalInfoCard: ModuleCard = {
+  id: "personalInfo",
+  icon: <ModuleIcon value="personalInfo" />,
+  label: "個人基本資料",
+  href: "/admin/personal-info",
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
@@ -119,7 +127,13 @@ export default function AdminPage() {
   // 個人卡片（帳號、身分與安全管理）不需指派權限；超級一律顯示，
   // 其他人在 visibleModules 明確關閉時才隱藏
   const personalVisible = isSuper || visibleModules === null || visibleModules.includes("account");
-  const visibleModulesCards = personalVisible ? [...gatedModules, personalCard] : gatedModules;
+  const personalInfoVisible =
+    isSuper || visibleModules === null || visibleModules.includes("personalInfo");
+  const visibleModulesCards = [
+    ...gatedModules,
+    ...(personalVisible ? [personalCard] : []),
+    ...(personalInfoVisible ? [personalInfoCard] : []),
+  ];
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">

@@ -102,6 +102,8 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const announcementsVisible =
     visibleModules === null || visibleModules.includes("announcements");
   const calendarVisible = visibleModules === null || visibleModules.includes("calendar");
+  const personalInfoVisible =
+    visibleModules === null || visibleModules.includes("personalInfo");
   const entryCards = [
     { ...settingsModule, id: "settings", href: settingsHref },
     ...(accountVisible ? [{ ...accountModule, id: "account", href: accountHref }] : []),
@@ -122,6 +124,16 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
             label: "行事曆",
             id: "calendar",
             href: calendarHref,
+          },
+        ]
+      : []),
+    ...(personalInfoVisible
+      ? [
+          {
+            icon: <ModuleIcon value="personalInfo" />,
+            label: "個人基本資料",
+            id: "personalInfo",
+            href: `${ROLE_HOME[role]}/personal-info`,
           },
         ]
       : []),
