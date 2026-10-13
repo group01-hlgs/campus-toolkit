@@ -121,7 +121,7 @@ function DescriptionRow({
 
 /**
  * 四種身分欄：同時顯示「提供功能」圖示＋「顯示與否」勾選。
- * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」＋ checkbox。
+ * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」與「顯示」勾選上下排列。
  */
 function RoleCells({
   item,
@@ -146,8 +146,8 @@ function RoleCells({
           );
         }
         return (
-          <td key={role} className="px-3 py-2">
-            <span className="inline-flex items-center justify-center gap-1.5">
+          <td key={role} className="px-3 py-2 text-center align-middle">
+            <span className="inline-flex flex-col items-center justify-center gap-1">
               <span
                 className="inline-flex items-center gap-0.5 text-xs text-success whitespace-nowrap"
                 title="提供功能（由模組作者決定，唯讀）"
@@ -167,19 +167,22 @@ function RoleCells({
                 </svg>
                 提供
               </span>
-              <input
-                type="checkbox"
-                checked={switches?.[role] === true}
-                disabled={disabled}
-                onChange={(event) => onToggle(item, role, event.target.checked)}
-                aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
-                title={
-                  disabled
-                    ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
-                    : "顯示與否（關閉＝暫時不顯示、禁止進入）"
-                }
-                className="accent-current cursor-pointer disabled:opacity-50"
-              />
+              <label className="inline-flex items-center justify-center gap-1 text-xs text-t3">
+                <span>顯示</span>
+                <input
+                  type="checkbox"
+                  checked={switches?.[role] === true}
+                  disabled={disabled}
+                  onChange={(event) => onToggle(item, role, event.target.checked)}
+                  aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
+                  title={
+                    disabled
+                      ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
+                      : "顯示與否（關閉＝暫時不顯示、禁止進入）"
+                  }
+                  className="accent-current cursor-pointer disabled:opacity-50"
+                />
+              </label>
             </span>
           </td>
         );
@@ -294,7 +297,7 @@ function OptionalRow({
           <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
-          <span className="flex items-center gap-2">
+          <span className="flex flex-col items-center gap-1">
             <span className={`text-sm font-medium ${stateClass}`}>{stateText}</span>
             <button
               type="button"
@@ -310,6 +313,9 @@ function OptionalRow({
               {saving ? "處理中..." : enabled ? "停用" : "啟用"}
             </button>
           </span>
+        </td>
+        <td className="px-3 py-2 text-center text-xs text-t2 whitespace-nowrap">
+          {item.author.version || "—"}
         </td>
         <RoleCells item={item} switches={switches} disabled={!isSuper || saving} onToggle={onToggleRole} />
         <td className="px-3 py-2 whitespace-nowrap text-right">
@@ -342,7 +348,7 @@ function OptionalRow({
           )}
         </td>
       </tr>
-      <DescriptionRow item={item} open={open} colSpan={8} />
+      <DescriptionRow item={item} open={open} colSpan={9} />
     </>
   );
 }
@@ -702,7 +708,7 @@ export default function ModulesPage() {
           <p className="text-xs text-t3">
             已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用；
             「狀態」為模組作者宣告的進度資訊，不影響開關。
-            四種身分欄：綠勾「提供」＋顯示與否勾選（提供功能＝否者顯示「未提供」）。
+            四種身分欄上下排列：綠勾「提供」與「顯示」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
             操作欄「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
@@ -715,6 +721,7 @@ export default function ModulesPage() {
                 <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">總開關</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">版本</th>
                 {ALL_ROLES.map((role) => (
                   <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
                     {ROLE_LABELS[role]}
@@ -726,13 +733,13 @@ export default function ModulesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={9} className="px-3 py-6 text-center text-t3">
                     {loadingText}
                   </td>
                 </tr>
               ) : optionals.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={9} className="px-3 py-6 text-center text-t3">
                     沒有選用功能模組
                   </td>
                 </tr>
