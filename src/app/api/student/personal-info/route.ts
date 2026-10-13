@@ -11,6 +11,7 @@ import {
   isStudentPersonalInfoOpen,
   saveStudentPersonalInfo,
   studentPersonalInfoAvailabilityMessage,
+  taipeiDateTimeString,
   taipeiDateString,
 } from "@/lib/personal-info";
 import {
@@ -65,8 +66,8 @@ export async function GET(request: NextRequest) {
       getStudentPersonalInfoSettings(period),
       getStudentPersonalInfo(session.uid, period),
     ]);
-    const today = taipeiDateString();
-    const canEdit = isStudentPersonalInfoOpen(settings, today);
+    const currentDateTime = taipeiDateTimeString();
+    const canEdit = isStudentPersonalInfoOpen(settings, currentDateTime);
     return NextResponse.json(
       {
         success: true,
@@ -74,8 +75,8 @@ export async function GET(request: NextRequest) {
         settings,
         fields,
         canEdit,
-        today,
-        message: studentPersonalInfoAvailabilityMessage(settings, today),
+        currentDateTime,
+        message: studentPersonalInfoAvailabilityMessage(settings, currentDateTime),
       },
       { headers: noStore }
     );

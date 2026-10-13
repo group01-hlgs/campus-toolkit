@@ -84,26 +84,43 @@ export function taipeiDateString(now = new Date()): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
+export function taipeiDateTimeString(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
+
 export function isStudentPersonalInfoOpen(
   settings: StudentPersonalInfoSettings,
-  today = taipeiDateString()
+  now = taipeiDateTimeString()
 ): boolean {
   return (
     settings.enabled &&
     Boolean(settings.startDate) &&
     Boolean(settings.endDate) &&
-    today >= settings.startDate &&
-    today <= settings.endDate
+    now >= settings.startDate &&
+    now <= settings.endDate
   );
 }
 
 export function studentPersonalInfoAvailabilityMessage(
   settings: StudentPersonalInfoSettings,
-  today = taipeiDateString()
+  now = taipeiDateTimeString()
 ): string {
   if (!settings.enabled) return "本學期個人資料填寫尚未開放。";
   if (!settings.startDate || !settings.endDate) return "管理員尚未設定完整的填寫起訖日期。";
-  if (today < settings.startDate) return `填寫期間將於 ${settings.startDate} 開放。`;
-  if (today > settings.endDate) return `填寫期限已於 ${settings.endDate} 結束。`;
-  return `開放填寫至 ${settings.endDate}（含當日）。`;
+  const start = settings.startDate.replace("T", " ");
+  const end = settings.endDate.replace("T", " ");
+  if (now < settings.startDate) return `填寫期間將於 ${start} 開放。`;
+  if (now > settings.endDate) return `填寫期限已於 ${end} 結束。`;
+  return `開放填寫至 ${end}（含該分鐘）。`;
 }

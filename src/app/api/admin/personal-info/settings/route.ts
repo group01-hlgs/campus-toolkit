@@ -6,7 +6,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getStudentPersonalInfoSettings, saveStudentPersonalInfoSettings } from "@/lib/personal-info";
-import { isIsoDate } from "@/types/personal-info";
+import { normalizePersonalInfoDateTime } from "@/types/personal-info";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -61,23 +61,25 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const startDate = typeof raw.startDate === "string" ? raw.startDate.trim() : "";
-    const endDate = typeof raw.endDate === "string" ? raw.endDate.trim() : "";
-    if ((startDate && !isIsoDate(startDate)) || (endDate && !isIsoDate(endDate))) {
+    const rawStartDate = typeof raw.startDate === "string" ? raw.startDate.trim() : "";
+    const rawEndDate = typeof raw.endDate === "string" ? raw.endDate.trim() : "";
+    const startDate = normalizePersonalInfoDateTime(rawStartDate, "start");
+    const endDate = normalizePersonalInfoDateTime(rawEndDate, "end");
+    if ((rawStartDate && !startDate) || (rawEndDate && !endDate)) {
       return NextResponse.json(
-        { success: false, message: "起訖日期格式無效" },
+        { success: false, message: "起訖日期時間格式無效" },
         { status: 400, headers: noStore }
       );
     }
     if (raw.enabled && (!startDate || !endDate)) {
       return NextResponse.json(
-        { success: false, message: "開放填寫前，請先設定起始日期與結束日期" },
+        { success: false, message: "開放填寫前，請先設定起始日期時間與結束日期時間" },
         { status: 400, headers: noStore }
       );
     }
     if (startDate && endDate && endDate < startDate) {
       return NextResponse.json(
-        { success: false, message: "結束日期不可早於起始日期" },
+        { success: false, message: "結束日期時間不可早於起始日期時間" },
         { status: 400, headers: noStore }
       );
     }

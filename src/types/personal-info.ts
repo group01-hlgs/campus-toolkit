@@ -74,8 +74,8 @@ export function readStudentPersonalInfoSettings(raw: unknown): StudentPersonalIn
   const data = raw as Record<string, unknown>;
   const rawStartDate = typeof data.startDate === "string" ? data.startDate : "";
   const rawEndDate = typeof data.endDate === "string" ? data.endDate : "";
-  const startDate = isIsoDate(rawStartDate) ? rawStartDate : "";
-  const endDate = isIsoDate(rawEndDate) ? rawEndDate : "";
+  const startDate = normalizePersonalInfoDateTime(rawStartDate, "start");
+  const endDate = normalizePersonalInfoDateTime(rawEndDate, "end");
   return {
     enabled:
       data.enabled === true &&
@@ -104,4 +104,22 @@ export function isIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+export function isIsoDateTime(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
+  if (!isIsoDate(value.slice(0, 10))) return false;
+  const hour = Number(value.slice(11, 13));
+  const minute = Number(value.slice(14, 16));
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
+/** 舊設定只有日期：起始日轉為 00:00，結束日轉為 23:59，避免縮短原開放期間。 */
+export function normalizePersonalInfoDateTime(
+  value: string,
+  edge: "start" | "end"
+): string {
+  if (isIsoDateTime(value)) return value;
+  if (isIsoDate(value)) return `${value}T${edge === "start" ? "00:00" : "23:59"}`;
+  return "";
 }

@@ -51,11 +51,11 @@ export default function PersonalInfoRulesPanel() {
   async function saveSettings() {
     if (saving) return;
     if (settings.enabled && (!settings.startDate || !settings.endDate)) {
-      setFeedback({ kind: "error", message: "開放填寫前，請先設定起始日期與結束日期。" });
+      setFeedback({ kind: "error", message: "開放填寫前，請先設定起始日期時間與結束日期時間。" });
       return;
     }
     if (settings.startDate && settings.endDate && settings.endDate < settings.startDate) {
-      setFeedback({ kind: "error", message: "結束日期不可早於起始日期。" });
+      setFeedback({ kind: "error", message: "結束日期時間不可早於起始日期時間。" });
       return;
     }
 
@@ -126,25 +126,25 @@ export default function PersonalInfoRulesPanel() {
             </label>
 
             <div>
-              <p className="text-xs text-t2 mb-2">開放填寫的起訖日期（配合上方開放設定）</p>
+              <p className="text-xs text-t2 mb-2">開放填寫的起訖日期與時間（台北時間，配合上方開放設定）</p>
               <fieldset
                 disabled={saving}
                 aria-label="開放填寫的起訖日期"
                 className="grid gap-3 sm:grid-cols-2"
               >
                 <label className="space-y-1 text-xs text-t2">
-                  <span className="block">起始日期</span>
+                  <span className="block">起始日期時間</span>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={settings.startDate}
                     onChange={(event) => setSettings({ ...settings, startDate: event.target.value })}
                     className="w-full input-theme rounded px-3 py-2 text-sm"
                   />
                 </label>
                 <label className="space-y-1 text-xs text-t2">
-                  <span className="block">結束日期（含當日）</span>
+                  <span className="block">結束日期時間（含該分鐘）</span>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={settings.endDate}
                     onChange={(event) => setSettings({ ...settings, endDate: event.target.value })}
                     className="w-full input-theme rounded px-3 py-2 text-sm"
