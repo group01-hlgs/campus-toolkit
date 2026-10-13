@@ -227,6 +227,32 @@ export default function PersonalInfoRulesPanel() {
               )}
             </div>
 
+            <fieldset className="space-y-2 rounded border border-themed p-3">
+              <legend className="px-1 text-xs text-t2">證件照規則</legend>
+              <label className="flex items-start gap-2 text-sm text-t1">
+                <input
+                  type="checkbox"
+                  checked={settings.allowAdmissionPhotoReplacement}
+                  onChange={(event) =>
+                    setSettings({ ...settings, allowAdmissionPhotoReplacement: event.target.checked })
+                  }
+                  className="mt-0.5 accent-current"
+                />
+                <span>開放更換入學時證件照</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-t1">
+                <input
+                  type="checkbox"
+                  checked={settings.allowGraduationPhotoUpload}
+                  onChange={(event) =>
+                    setSettings({ ...settings, allowGraduationPhotoUpload: event.target.checked })
+                  }
+                  className="mt-0.5 accent-current"
+                />
+                <span>開放上傳或更換畢業證件照</span>
+              </label>
+            </fieldset>
+
             <div>
               <p className="text-xs text-t2 mb-2">開放填寫的起訖日期與時間（台北時間，配合上方開放設定）</p>
               <fieldset
