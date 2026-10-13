@@ -1,8 +1,24 @@
-import type { SchoolPeriod } from "@/types/settings";
+import {
+  isStudentPersonalPhotoStorage,
+  type SchoolPeriod,
+  type StudentPersonalPhotoStorage,
+} from "@/types/settings";
 
 export const PERSONAL_INFO_COLLECTION = "studentPersonalInfo";
 export const STUDENT_PERSONAL_IDENTITY_COLLECTION = "studentPersonalIdentity";
-export const STUDENT_PERSONAL_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+/** 證件照獨立文件（Firestore 後端）：照片本體存這裡，避免主文件變肥 */
+export const STUDENT_PERSONAL_PHOTO_COLLECTION = "studentPersonalPhoto";
+/**
+ * 可接受的「原始檔」上限：學生可能直接選照相館原檔（2 MB 以上很常見），
+ * 瀏覽器會先縮圖再送出，這裡只是擋掉明顯不合理的巨檔。
+ */
+export const STUDENT_PERSONAL_PHOTO_SOURCE_MAX_BYTES = 20 * 1024 * 1024;
+/** 縮圖後的實存上限：Firestore 單一文件上限為 1 MiB，預留空間取 900 KB */
+export const STUDENT_PERSONAL_PHOTO_STORED_MAX_BYTES = 900 * 1024;
+/** Firebase Storage 後端的實存上限 */
+export const STUDENT_PERSONAL_PHOTO_STORAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** Firestore 後端的指標前綴，其後接原本的 object path */
+export const STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX = "firestore:";
 
 export type StudentPersonalPhotoKind = "admission" | "graduation";
 
@@ -11,14 +27,17 @@ export function isStudentPersonalPhotoKind(value: unknown): value is StudentPers
 }
 
 export interface StudentPersonalPhotoMetadata {
+  /** 不透明指標：Firebase Storage 物件路徑，或 `firestore:` 開頭的 Firestore 指標 */
   objectPath: string;
+  /** 這張照片實際存在哪個後端；舊資料沒這欄位，一律視為 Firebase Storage */
+  backend: StudentPersonalPhotoStorage;
   contentType: "image/jpeg";
   updatedAt: number;
 }
 
 export interface StudentPersonalInfoRecord {
   fields: StudentPersonalInfoFields;
-  /** 照片本體存於私人 Firebase Storage bucket，僅保存伺服端 object path 與 metadata */
+  /** 照片本體存於 Firestore 或 Firebase Storage，此處僅保存伺服端指標與 metadata */
   photos: Record<StudentPersonalPhotoKind, StudentPersonalPhotoMetadata | null>;
 }
 
@@ -382,7 +401,28 @@ export function readStudentPersonalPhotoMetadata(raw: unknown): StudentPersonalP
   ) {
     return null;
   }
-  return { objectPath, contentType, updatedAt };
+  return {
+    objectPath,
+    // 舊資料沒有 backend 欄位：那時只有 Firebase Storage 一種存法
+    backend: isStudentPersonalPhotoStorage(data.backend) ? data.backend : "firebase-storage",
+    contentType,
+    updatedAt,
+  };
+}
+
+/** 判斷指標是否屬於指定前綴（Firestore 後端的指標會多一層 `firestore:` 前綴）。 */
+export function personalPhotoPointerMatches(objectPath: string, prefix: string): boolean {
+  return (
+    objectPath.startsWith(prefix) ||
+    objectPath.startsWith(`${STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX}${prefix}`)
+  );
+}
+
+/** 取出指標的 storage 物件路徑；Firestore 後端會剝掉 `firestore:` 前綴。 */
+export function personalPhotoStorageObjectPath(objectPath: string): string {
+  return objectPath.startsWith(STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX)
+    ? objectPath.slice(STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX.length)
+    : objectPath;
 }
 
 export function readStudentPersonalInfoRecord(raw: unknown): StudentPersonalInfoRecord {

@@ -102,9 +102,12 @@ https://vercel.com/%2Fnew%2Fcontinue%3FloginReturn%3D...
 2. **建立 Firestore 資料庫**：左側 Build → Firestore database → **Create database** → 選位置（建議離使用者近的，**建好就不能改**）→ 選 **不開放瀏覽器存取**的模式（Production mode，新版介面叫 Restrictive）→ 建立。
    ⚠️ **新專案不會自動有資料庫** —— 漏這步的話，服務帳號私鑰照樣下載得到、部署也照樣成功，但任何資料讀寫都會失敗。
    資料結構**不用另外建立**：Firestore 是結構自由的，程式用到哪個集合，第一次寫入時會自動長出來（`users`、四張身分名冊、`settings` 等），首筆由 `/setup` 建首位管理員時寫入。完整清單見下方「Firebase 專案設定 → Firestore 資料結構」。
-3. **建立 Storage bucket**（存學生證件照）：左側 Build → Storage → **Get started** → 選位置（建議離使用者近的，**建好就不能改**）→ 建立。
-   ⚠️ **新專案同樣不會自動有 bucket** —— 漏這步的話，Firestore 一切正常、部署也照樣成功，但學生上傳證件照會回 `The specified bucket does not exist`。
-   新專案的 bucket 名稱為 `你的專案ID.firebasestorage.app`（較早建立的專案可能是 `你的專案ID.appspot.com`），請原樣填進 `.env.local` 的 `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`。
+3. **（選做）建立 Firebase Storage bucket**：證件照**預設存 Firestore，不建立 bucket 也照樣能運作**。
+   若想改用 Firebase Storage，左側 Build → Storage → **Get started** → 選位置 → 建立。
+   ⚠️ **2026/02/03 起 Cloud Storage for Firebase 一律要求綁定 Blaze（隨用隨付）方案**，Spark（免費）方案無法建立或存取 bucket。Blaze 在免費額度內帳單仍為 $0，但必須綁定信用卡。
+   ⚠️ **免費額度只存在於美國三區** `us-central1`／`us-east1`／`us-west1`（5 GB 儲存、100 GB 流量／月）。選亞洲等其他區域＝沒有任何免費額度，**建好就不能改**。
+   新專案的 bucket 名稱為 `你的專案ID.firebasestorage.app`，填進 `.env.local` 的 `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`；
+   然後到 **系統設定 → 免費仔福地 → 學生證件照儲存位置** 改選「Firebase Storage」。
 4. 啟用 **Google 登入**（Authentication → Sign-in method → Google）。
 5. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
 6. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。此服務帳號須能讀寫上面的 bucket：Firebase 預設服務帳號已具專案編輯者權限（涵蓋 Storage Object Admin），通常不需另外設；若自行新建服務帳號，請額外授予 **Storage Object Admin**。
@@ -235,12 +238,14 @@ npm run dev
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | Web API Key |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | 例如 `your-project.firebaseapp.com` |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | 專案 ID |
-| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | 例如 `your-project.appspot.com`；個人證件照存於此 Firebase Storage bucket，各 fork 請設定自己的 bucket |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | 選填 | **僅在「學生證件照儲存位置」選 Firebase Storage 時需要**，例如 `your-project.firebasestorage.app`；各 fork 請設定自己的 bucket。預設存 Firestore，留空即可 |
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Sender ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Web App ID |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | （選填）Google 登入的 Web client ID；設定後已授權者登入不跳彈窗，且須把網站網域加到該 OAuth 用戶端的「已授權的 JavaScript 來源」 |
 
-個人證件照透過 Firebase Admin SDK 寫入上述 bucket；`FIREBASE_SERVICE_ACCOUNT_KEY` 對應的服務帳號需有該 bucket 的物件讀寫與刪除權限（例如 `Storage Object Admin`）。照片不設公開存取，各 fork 請使用自己的 Firebase 專案與 bucket。
+個人證件照**預設存在 Firestore**（免費 Spark 方案即可用，單張上限 900 KB；上傳前瀏覽器會自動縮圖並移除 EXIF）。
+改用 Firebase Storage 時，照片透過 Firebase Admin SDK 寫入上述 bucket，`FIREBASE_SERVICE_ACCOUNT_KEY` 對應的服務帳號需有該 bucket 的物件讀寫與刪除權限（例如 `Storage Object Admin`）；Firebase 預設服務帳號已具專案編輯者權限，通常不需另外設。
+照片不設公開存取，各 fork 請使用自己的 Firebase 專案與 bucket。
 
 ### 伺服端機密（切勿提交到 Git、切勿加上 `NEXT_PUBLIC_` 前綴）
 

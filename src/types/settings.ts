@@ -19,7 +19,33 @@ export interface Settings {
   sponsorAdEnabled: boolean;
   /** 省流開關：啟用後「使用者帳號管理」「身分名冊管理」「班級總覽」改為按鈕手動顯示列表 */
   dataSaverEnabled: boolean;
+  /**
+   * 學生證件照的儲存後端。
+   * `firestore`＝存在 Firestore，免費（Spark）方案即可用；
+   * `firebase-storage`＝存在 Firebase Storage bucket，需專案綁定 Blaze 並建立 bucket。
+   * 僅影響「新上傳」的照片；已存在的照片仍依其自身記錄的後端讀取。
+   */
+  studentPersonalPhotoStorage: StudentPersonalPhotoStorage;
 }
+
+export type StudentPersonalPhotoStorage = "firestore" | "firebase-storage";
+
+export const STUDENT_PERSONAL_PHOTO_STORAGE_OPTIONS: readonly {
+  value: StudentPersonalPhotoStorage;
+  label: string;
+}[] = [
+  { value: "firestore", label: "Firestore（免方案可用，檔案上限 900 KB）" },
+  { value: "firebase-storage", label: "Firebase Storage（需綁定 Blaze，檔案上限 5 MB）" },
+];
+
+export function isStudentPersonalPhotoStorage(
+  value: unknown
+): value is StudentPersonalPhotoStorage {
+  return value === "firestore" || value === "firebase-storage";
+}
+
+/** 讀不到設定時的預設值：免費方案也能運作 */
+export const DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE: StudentPersonalPhotoStorage = "firestore";
 
 /** 系統（程式）名稱未自命名時的預設值，信件抬頭與頁首共用 */
 export const DEFAULT_SYSTEM_NAME = "數位校園工具箱";
@@ -68,4 +94,5 @@ export const defaultSettings: Settings = {
   copyrightNotice: true,
   sponsorAdEnabled: false,
   dataSaverEnabled: false,
+  studentPersonalPhotoStorage: DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE,
 };

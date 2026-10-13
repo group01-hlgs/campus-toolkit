@@ -5,7 +5,8 @@ import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
   EMPTY_STUDENT_PERSONAL_IDENTITY,
   EMPTY_STUDENT_PERSONAL_INFO_TERM,
-  STUDENT_PERSONAL_PHOTO_MAX_BYTES,
+  STUDENT_PERSONAL_PHOTO_SOURCE_MAX_BYTES,
+  STUDENT_PERSONAL_PHOTO_STORED_MAX_BYTES,
   STUDENT_PERSONAL_GENDER_OPTIONS,
   STUDENT_PERSONAL_IDENTITY_FIELD_DEFS,
   STUDENT_PERSONAL_ID_TYPE_OPTIONS,
@@ -16,6 +17,7 @@ import {
   type StudentPersonalInfoTermFields,
 } from "@/types/personal-info";
 import type { PostalCodeOption } from "@/types/postal-codes";
+import { prepareStudentPhotoFile } from "@/lib/photo-downscale";
 
 interface StudentPersonalInfoResponse {
   success?: boolean;
@@ -174,16 +176,18 @@ export default function StudentPersonalInfoForm({
 
   async function uploadPhoto(kind: StudentPersonalPhotoKind, file: File) {
     if (!photoPermissions[kind] || uploadingPhoto) return;
-    if (file.size <= 0 || file.size > STUDENT_PERSONAL_PHOTO_MAX_BYTES) {
-      setFeedback({ kind: "error", message: "照片不可為空，且檔案大小不可超過 5 MB。" });
+    if (file.size <= 0 || file.size > STUDENT_PERSONAL_PHOTO_SOURCE_MAX_BYTES) {
+      setFeedback({ kind: "error", message: "照片不可為空，且原始檔不可超過 20 MB。" });
       return;
     }
 
     setUploadingPhoto(kind);
     try {
+      // 學生常直接選照相館原檔：先在瀏覽器縮圖，避免超過 Firestore 的實存上限
+      const prepared = await prepareStudentPhotoFile(file, STUDENT_PERSONAL_PHOTO_STORED_MAX_BYTES);
       const form = new FormData();
       form.set("kind", kind);
-      form.set("file", file);
+      form.set("file", prepared);
       const response = await fetch("/api/student/personal-info/photo", {
         method: "POST",
         body: form,
@@ -326,7 +330,7 @@ export default function StudentPersonalInfoForm({
           </summary>
           <div className="px-5 sm:px-7 pb-5">
             <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
-              須為高彩彩色 JPG、至少 450 × 600 pixels，檔案不超過 5 MB。
+              須為高彩彩色 JPG、至少 450 × 600 pixels。系統會自動縮圖並移除拍攝資訊，原始檔不超過 20 MB、縮圖後不超過 900 KB。
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <StudentPhotoTile

@@ -10,7 +10,12 @@ import {
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { Settings, defaultSettings } from "@/types/settings";
+import {
+  Settings,
+  defaultSettings,
+  DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE,
+  isStudentPersonalPhotoStorage,
+} from "@/types/settings";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateSettingsCache, readSystemDoc, getCacheEpoch, bumpCacheEpoch, CACHE_EPOCH_FIELD } from "@/lib/settings-server";
 import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
@@ -155,6 +160,9 @@ export async function PUT(request: NextRequest) {
 
     const settings = pickSettings(body);
     if (settings.sessionTimeout < 1) settings.sessionTimeout = 1;
+    if (!isStudentPersonalPhotoStorage(settings.studentPersonalPhotoStorage)) {
+      settings.studentPersonalPhotoStorage = DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE;
+    }
 
     // 不使用 merge：整份覆寫，讓已廢棄欄位（例如 oauthClientId）
     // 在下次儲存設定時自動從 Firestore settings/system 清除。
