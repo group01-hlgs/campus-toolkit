@@ -63,8 +63,10 @@
 - 權限單位：`mode:"new"`、`category:"校務資料"`；管理頁/API 走 `requireAdminModule("examRegistration")`
 - 限流：`EXAM_REGISTRATION_LIST`（120/分鐘）、`EXAM_REGISTRATION_MUTATE`（20/分鐘）、`EXAM_REGISTRATION_ADMIN`（60/分鐘）
 - 稽核：`exam_registration_event_created`／`event_updated`／`recorded`／`withdrawn`／`archived`／`unarchived`
-- **回寫主程式（掛勾）**：`hooks: ["announcements", "calendar"]`——場次開放時經
-  `publishFromModule()` 發系統公告、經 `publishScheduleFromModule()` 把考試日寫進行事曆（upsert）。
+- **回寫主程式（掛勾）**：`hooks: ["announcements", "calendar"]`——每場次可分別啟用公告與行事曆同步；
+  管理規則可設定公告分類／自訂內容，以及行事曆發佈單位／地點／類型。場次開放時經
+  `publishFromModule()` 發系統公告（轉為開放時發送，維持開放編輯不重發）、經 `publishScheduleFromModule()` 把考試日寫進行事曆（upsert）。
+  公告內容留空時自動帶入場次資訊；舊場次未保存同步設定時沿用既有自動發佈行為。
   **禁止**直接寫 announcements／collections 平行集合；公告的跨模組撤回介面尚未提供（主程式 P5 候選），
   M1 先只發佈、不撤回。
 
@@ -139,6 +141,7 @@
 ### 資料封存（archived）— 已實作
 
 - 登錄文件 `archived: boolean`（缺省 false）＋`archivedAt: number`。
+- 承辦建立場次時可在「管理規則」勾選啟用學生自行封存（新場次預設關閉；舊場次未保存設定時延續原有開放行為）。
 - 學生自我封存 `PATCH /api/exam-registration { eventId }`（冪等；稽核 `exam_registration_archived`）。
 - 封存後 upsert／withdraw 一律 409「資料已封存，無法修改/取消——請聯繫承辦解除封存」。
 - 承辦解除 `PATCH /api/admin/exam-registration { id, registrationId, unarchive: true }`（稽核 `exam_registration_unarchived`）。
@@ -232,6 +235,7 @@
 ### 學生頁版型對齊（帳號、身分與安全管理）— 已實作
 
 - 學生端報名頁改為與「帳號、身分與安全管理」一致的版型骨架：系統標題區、頁首/頁尾返回與登出按鈕、底部廣告區（`sponsorAdEnabled`）與版權區（`copyrightNotice`）。
+- 學生端場次卡片的「必須報名」徽章改用 danger 套色（`text-danger` / `border-danger`），與一般「自由報名」視覺明確區隔。
 - 報名卡片移除冗長說明；「考試地點／繳費身分／選考科目」改為左右兩欄（左標題、右操作內容）版型。
 - 「考試日期」「報名期間」在起訖皆有值時改為上下兩行；新增「應考服務」欄位（非冷氣試場勾選＋特殊需求文字）。
 

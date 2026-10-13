@@ -96,6 +96,21 @@ export interface ExamEventTarget {
   classes: string[];
 }
 
+export interface ExamAnnouncementSync {
+  enabled: boolean;
+  categoryId: string;
+  /** 空字串＝依場次資訊自動產生 */
+  body: string;
+}
+
+export interface ExamCalendarSync {
+  enabled: boolean;
+  categoryId: string;
+  publishUnit: string;
+  /** 空字串＝沿用場次設定的考試地點 */
+  location: string;
+}
+
 /** 考試地點選項（僅升學考試場次；對齊 GAS 管道「試場」欄：代碼＋名稱＋可設預設） */
 export interface ExamLocationOption {
   /** 選項代碼（唯一，登錄存此碼） */
@@ -137,6 +152,12 @@ export interface ExamEvent {
   examMode: ExamMode;
   /** 報名義務：required＝要嘛報名要嘛勾不報名；optional＝自由（缺省） */
   registrationMode: ExamRegistrationMode;
+  /** 是否允許學生自行封存報名資料；舊場次缺欄位時維持既有功能 */
+  studentArchiveEnabled: boolean;
+  /** 場次開放時同步發送系統公告；舊場次預設沿用既有自動發佈行為 */
+  announcementSync: ExamAnnouncementSync;
+  /** 場次開放時同步發布至行事曆；舊場次預設沿用既有自動發佈行為 */
+  calendarSync: ExamCalendarSync;
   status: ExamEventType;
   createdBy: { uid: string; name: string };
   createdAt: number;
@@ -187,7 +208,7 @@ export interface SubjectStat {
 }
 
 /** 學生端場次視圖：status 已依報名期間收斂（upcoming 未開放／open 開放中／closed 已截止） */
-export interface StudentExamEvent extends Omit<ExamEvent, "status"> {
+export interface StudentExamEvent extends Omit<ExamEvent, "status" | "announcementSync" | "calendarSync"> {
   status: "upcoming" | "open" | "closed";
   mySubjectKeys: string[];
   /** 本人各科進階選項代碼（僅已選科目且有進階選項的科目） */
@@ -257,6 +278,10 @@ export interface ExamEventDraft {
   basicFee: { standard: number; reduced: number };
   examMode: ExamMode;
   registrationMode: ExamRegistrationMode;
+  /** 是否允許學生自行封存報名資料 */
+  studentArchiveEnabled: boolean;
+  announcementSync: ExamAnnouncementSync;
+  calendarSync: ExamCalendarSync;
   status: ExamEventType;
 }
 
@@ -642,6 +667,34 @@ export function parseExamEventDraft(raw: unknown): ParseResult<ExamEventDraft> {
   const registrationMode: ExamRegistrationMode = isExamRegistrationMode(record.registrationMode)
     ? record.registrationMode
     : "optional";
+  const studentArchiveEnabled = record.studentArchiveEnabled === true;
+  const announcementSyncRaw =
+    record.announcementSync && typeof record.announcementSync === "object"
+      ? (record.announcementSync as Record<string, unknown>)
+      : {};
+  const announcementSync: ExamAnnouncementSync = {
+    enabled: typeof announcementSyncRaw.enabled === "boolean" ? announcementSyncRaw.enabled : true,
+    categoryId: textOrEmpty(announcementSyncRaw.categoryId) || "other",
+    body: typeof announcementSyncRaw.body === "string" ? announcementSyncRaw.body.trim() : "",
+  };
+  if (announcementSync.categoryId.length > 64) errors.push("公告分類代碼過長（最多 64 字）");
+  if (announcementSync.body.length > 2000) errors.push("公告內容過長（最多 2000 字）");
+
+  const calendarSyncRaw =
+    record.calendarSync && typeof record.calendarSync === "object"
+      ? (record.calendarSync as Record<string, unknown>)
+      : {};
+  const calendarSync: ExamCalendarSync = {
+    enabled: typeof calendarSyncRaw.enabled === "boolean" ? calendarSyncRaw.enabled : true,
+    categoryId: textOrEmpty(calendarSyncRaw.categoryId) || "other",
+    publishUnit: textOrEmpty(calendarSyncRaw.publishUnit),
+    location: textOrEmpty(calendarSyncRaw.location),
+  };
+  if (calendarSync.categoryId.length > 64) errors.push("行事曆類型代碼過長（最多 64 字）");
+  if (calendarSync.publishUnit.length > 64) errors.push("行事曆發佈單位過長（最多 64 字）");
+  if (calendarSync.location.length > EXAM_EVENT_LIMITS.location) {
+    errors.push(`行事曆地點過長（最多 ${EXAM_EVENT_LIMITS.location} 字）`);
+  }
 
   const subjects = parseExamSubjects(record.subjects);
   if (!subjects.ok) errors.push(subjects.message);
@@ -670,6 +723,9 @@ export function parseExamEventDraft(raw: unknown): ParseResult<ExamEventDraft> {
       },
       examMode,
       registrationMode,
+      studentArchiveEnabled,
+      announcementSync,
+      calendarSync,
       status: status as ExamEventType,
     },
   };
@@ -692,6 +748,9 @@ export function examEventToDraft(event: ExamEvent): ExamEventDraft {
     basicFee: { ...event.basicFee },
     examMode: event.examMode,
     registrationMode: event.registrationMode,
+    studentArchiveEnabled: event.studentArchiveEnabled,
+    announcementSync: { ...event.announcementSync },
+    calendarSync: { ...event.calendarSync },
     status: event.status,
   };
 }

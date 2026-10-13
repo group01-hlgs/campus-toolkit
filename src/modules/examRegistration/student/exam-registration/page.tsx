@@ -572,7 +572,11 @@ function ExamEventCard({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-bold text-t1">{item.title}</h2>
-            <span className="text-[11px] px-2 py-0.5 rounded border border-themed text-t2">
+            <span
+              className={`text-[11px] px-2 py-0.5 rounded border ${
+                isRequired ? "border-danger text-danger" : "border-themed text-t2"
+              }`}
+            >
               {registrationModeText}
             </span>
             <span className="text-[11px] px-2 py-0.5 rounded border border-themed text-t2">
@@ -869,14 +873,14 @@ function ExamEventCard({
             取消報名
           </button>
         )}
-        {hasRegistration && !archived && (
+        {hasRegistration && item.studentArchiveEnabled && !archived && (
           <button
             type="button"
             onClick={onArchive}
             disabled={saving}
             className="btn-soft rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
           >
-            資料封存
+            自行封存資料
           </button>
         )}
         {hasRegistration && (

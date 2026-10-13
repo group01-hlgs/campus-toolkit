@@ -35,7 +35,9 @@ import {
   OPT_OUT_REASON_MAX,
 } from "../types/exam-registration";
 import type {
+  ExamAnnouncementSync,
   ExamAdvancedOption,
+  ExamCalendarSync,
   ExamEvent,
   ExamEventDraft,
   ExamEventRoster,
@@ -143,10 +145,34 @@ export function readExamEvent(id: string, raw: Record<string, unknown>): ExamEve
     basicFee: readBasicFee(raw),
     examMode: "review",
     registrationMode: isExamRegistrationMode(raw.registrationMode) ? raw.registrationMode : "optional",
+    // 舊場次未保存此設定，沿用原本允許學生封存的行為。
+    studentArchiveEnabled:
+      typeof raw.studentArchiveEnabled === "boolean" ? raw.studentArchiveEnabled : true,
+    announcementSync: readAnnouncementSync(raw.announcementSync),
+    calendarSync: readCalendarSync(raw.calendarSync),
     status: isExamEventType(raw.status) ? raw.status : "draft",
     createdBy: readActor(raw.createdBy),
     createdAt: typeof raw.createdAt === "number" ? raw.createdAt : 0,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
+  };
+}
+
+function readAnnouncementSync(raw: unknown): ExamAnnouncementSync {
+  const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    enabled: typeof record.enabled === "boolean" ? record.enabled : true,
+    categoryId: typeof record.categoryId === "string" && record.categoryId.trim() ? record.categoryId.trim() : "other",
+    body: typeof record.body === "string" ? record.body.trim() : "",
+  };
+}
+
+function readCalendarSync(raw: unknown): ExamCalendarSync {
+  const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    enabled: typeof record.enabled === "boolean" ? record.enabled : true,
+    categoryId: typeof record.categoryId === "string" && record.categoryId.trim() ? record.categoryId.trim() : "other",
+    publishUnit: typeof record.publishUnit === "string" ? record.publishUnit.trim() : "",
+    location: typeof record.location === "string" ? record.location.trim() : "",
   };
 }
 
@@ -346,8 +372,11 @@ export async function listStudentExamEvents(student: StudentIdentity): Promise<S
         capacity: subjectCapacity(subject),
       };
     }
+    const { announcementSync: _announcementSync, calendarSync: _calendarSync, ...studentEvent } = event;
+    void _announcementSync;
+    void _calendarSync;
     return {
-      ...event,
+      ...studentEvent,
       status:
         effective === "open"
           ? ("open" as const)
@@ -612,6 +641,9 @@ export async function archiveExamRegistration(input: {
   const event = await getExamEvent(input.eventId);
   if (!event) throw new ExamRegistrationError(404, "找不到報名場次");
   if (event.status === "archived") throw new ExamRegistrationError(409, "場次已封存");
+  if (!event.studentArchiveEnabled) {
+    throw new ExamRegistrationError(403, "本場次未開放學生自行封存資料");
+  }
 
   const ref = getAdminDb()
     .collection(EXAM_REGISTRATIONS_COLLECTION)
@@ -912,7 +944,7 @@ export async function buildExamRegistrationCsvForEvent(
 
 /**
  * 掛勾：場次開放時寫入行事曆（upsert，來源鍵＝場次 id，重複儲存只更新不重複）；
- * 公告沒有 upsert，只在「轉為開放」時發一次，避免重複儲存洗版。
+ * 公告沒有 upsert，只在狀態轉為「開放」時發送，避免維持開放時重複儲存洗版。
  * M1 只發佈、不撤回（跨模組撤回介面尚未提供）；掛勾失敗不影響儲存結果。
  */
 export async function syncExamEventHooks(
@@ -926,24 +958,26 @@ export async function syncExamEventHooks(
     : schoolWideAudience(["student"]);
   const description = buildEventDescription(event);
 
-  if (publishAnnouncement) {
+  if (publishAnnouncement && event.announcementSync.enabled) {
     try {
       await publishFromModule({
         sourceModule: "examRegistration",
         sourceRef: event.id,
         title: `【報名開放】${event.title}`,
-        body: description,
+        body: event.announcementSync.body || description,
         authorUid: actor.uid,
         authorName: actor.name,
         authorRole: actor.role,
         audience,
         isPublic: false,
+        categoryId: event.announcementSync.categoryId,
       });
     } catch (error) {
       console.error("Exam registration announcement hook error:", error);
     }
   }
 
+  if (!event.calendarSync.enabled) return;
   try {
     await publishScheduleFromModule({
       sourceModule: "examRegistration",
@@ -951,11 +985,13 @@ export async function syncExamEventHooks(
       title: event.title,
       description,
       // 地點：有選項取預設項名稱，否則沿用舊版文字（宿主全天事件僅支援單日，多日以起日入曆、描述帶區間）
-      location:
+      location: event.calendarSync.location ||
         resolveLocationLabel(
           event.locationOptions,
           event.locationOptions.find((option) => option.isDefault)?.code ?? event.locationOptions[0]?.code ?? ""
         ) || event.location || undefined,
+      publishUnit: event.calendarSync.publishUnit || undefined,
+      categoryId: event.calendarSync.categoryId,
       allDay: true,
       allDayDate: event.examDate,
       audience,

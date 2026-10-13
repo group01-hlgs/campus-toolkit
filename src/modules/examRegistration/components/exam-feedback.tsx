@@ -7,7 +7,7 @@
  * 全部使用主程式主題類別（bg-card/text-t1/btn-soft/btn-danger/btn-theme/--success/--danger），深淺主題皆相容。
  */
 
-export type Flash = { type: "success" | "error"; text: string } | null;
+export type Flash = { type: "success" | "error"; text: string; durationMs?: number } | null;
 
 const OVERLAY_STYLE = { background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" } as const;
 

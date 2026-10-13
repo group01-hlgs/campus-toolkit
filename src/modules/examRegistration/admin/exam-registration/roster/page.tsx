@@ -123,7 +123,7 @@ export default function ExamRegistrationRosterPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="w-full max-w-4xl mb-8 space-y-4">
       <section className="border border-themed rounded-lg bg-card px-5 py-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>

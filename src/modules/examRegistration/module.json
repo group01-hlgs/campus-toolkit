@@ -10,8 +10,8 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "",
-    "version": "0.1.3",
-    "releasedAt": "2026-10-12"
+    "version": "0.1.5",
+    "releasedAt": "2026-10-13"
   },
   "provides": { "student": true, "parent": false, "staff": true, "admin": true },
   "routes": [

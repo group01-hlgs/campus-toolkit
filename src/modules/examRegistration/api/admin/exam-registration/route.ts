@@ -3,6 +3,8 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/audit";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { getAnnouncementSettings } from "@/lib/announcements";
+import { getCalendarSettings } from "@/lib/calendar";
 import {
   ExamRegistrationError,
   buildExamRegistrationCsvForEvent,
@@ -37,6 +39,34 @@ export async function GET(request: NextRequest) {
 
     const { denial } = await requireAdminModule("examRegistration");
     if (denial) return toAuthResponse(denial);
+
+    if (request.nextUrl.searchParams.get("hookOptions") === "1") {
+      const scope = request.nextUrl.searchParams.get("scope");
+      const [announcementSettings, calendarSettings] = await Promise.all([
+        scope === "calendar" ? Promise.resolve(null) : getAnnouncementSettings(),
+        scope === "announcement" ? Promise.resolve(null) : getCalendarSettings(),
+      ]);
+      return NextResponse.json(
+        {
+          success: true,
+          ...(announcementSettings
+            ? {
+                announcementCategories: announcementSettings.categories
+                  .filter((category) => category.enabled)
+                  .map(({ id, name }) => ({ id, name })),
+              }
+            : {}),
+          ...(calendarSettings
+            ? {
+                calendarCategories: calendarSettings.categories
+                  .filter((category) => category.enabled)
+                  .map(({ id, name }) => ({ id, name })),
+              }
+            : {}),
+        },
+        { headers: noStore }
+      );
+    }
 
     const eventId = request.nextUrl.searchParams.get("eventId");
     if (eventId) {

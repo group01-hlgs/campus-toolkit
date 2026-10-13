@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RevealListCard from "@/components/RevealListCard";
 import { useDataSaver } from "@/lib/data-saver";
 import { ConfirmModal, FlashModal } from "../../components/exam-feedback";
@@ -18,6 +18,8 @@ import {
 } from "../../types/exam-registration";
 import type {
   ExamAdvancedOption,
+  ExamAnnouncementSync,
+  ExamCalendarSync,
   ExamCategory,
   ExamEvent,
   ExamEventRoster,
@@ -76,6 +78,9 @@ interface FormState {
   subjects: FormSubject[];
   examMode: ExamMode;
   registrationMode: ExamRegistrationMode;
+  studentArchiveEnabled: boolean;
+  announcementSync: ExamAnnouncementSync;
+  calendarSync: ExamCalendarSync;
   status: ExamEventType;
 }
 
@@ -87,6 +92,18 @@ interface ClassOption {
 interface ClassesResponse {
   success?: boolean;
   setting?: { grades?: { code: string; name: string; classes?: ClassOption[] }[] };
+}
+
+interface HookCategoryOption {
+  id: string;
+  name: string;
+}
+
+interface HookOptionsResponse {
+  success?: boolean;
+  message?: string;
+  announcementCategories?: HookCategoryOption[];
+  calendarCategories?: HookCategoryOption[];
 }
 
 function emptyForm(): FormState {
@@ -123,6 +140,9 @@ function emptyForm(): FormState {
     ],
     examMode: "review",
     registrationMode: "optional",
+    studentArchiveEnabled: false,
+    announcementSync: { enabled: true, categoryId: "other", body: "" },
+    calendarSync: { enabled: true, categoryId: "other", publishUnit: "", location: "" },
     status: "draft",
   };
 }
@@ -272,7 +292,16 @@ export default function AdminExamRegistrationPage() {
   const [flash, setFlash] = useState<Flash>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [studentArchiveHelpOpen, setStudentArchiveHelpOpen] = useState(false);
+  const [announcementSyncExpanded, setAnnouncementSyncExpanded] = useState(false);
+  const [calendarSyncExpanded, setCalendarSyncExpanded] = useState(false);
+  const [announcementSyncHelpOpen, setAnnouncementSyncHelpOpen] = useState(false);
+  const [calendarSyncHelpOpen, setCalendarSyncHelpOpen] = useState(false);
   const [classOptions, setClassOptions] = useState<Record<string, ClassOption[]> | null>(null);
+  const [hookOptions, setHookOptions] = useState<HookOptionsResponse | null>(null);
+  const [loadingHookOptions, setLoadingHookOptions] = useState(false);
+  const [hookOptionsError, setHookOptionsError] = useState("");
+  const hookOptionsRequestRef = useRef(false);
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ExamEventType>("all");
   // 清單分頁（純前端切片，不增加任何 Firestore 讀取；同帳號／名冊清單）
@@ -290,7 +319,7 @@ export default function AdminExamRegistrationPage() {
 
   useEffect(() => {
     if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 3000);
+    const timer = setTimeout(() => setFlash(null), flash.durationMs ?? 3000);
     return () => clearTimeout(timer);
   }, [flash]);
 
@@ -315,6 +344,71 @@ export default function AdminExamRegistrationPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const shouldLoadAnnouncementCategories =
+      formOpen && announcementSyncExpanded && form.announcementSync.enabled && !hookOptions?.announcementCategories;
+    const shouldLoadCalendarCategories =
+      formOpen && calendarSyncExpanded && form.calendarSync.enabled && !hookOptions?.calendarCategories;
+    if ((!shouldLoadAnnouncementCategories && !shouldLoadCalendarCategories) || hookOptionsRequestRef.current) return;
+
+    const scope =
+      shouldLoadAnnouncementCategories && shouldLoadCalendarCategories
+        ? "both"
+        : shouldLoadAnnouncementCategories
+          ? "announcement"
+          : "calendar";
+    hookOptionsRequestRef.current = true;
+    setLoadingHookOptions(true);
+    setHookOptionsError("");
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/exam-registration?hookOptions=1&scope=${scope}`, { cache: "no-store" });
+        const data: HookOptionsResponse | null = await res.json().catch(() => null);
+        if (!res.ok || !data?.success) throw new Error(data?.message || "讀取公告／行事曆選項失敗");
+        const options: HookOptionsResponse = {
+          ...(hookOptions ?? {}),
+          ...data,
+        };
+        setHookOptions(options);
+        setForm((previous) => ({
+          ...previous,
+          announcementSync: options.announcementCategories
+            ? {
+                ...previous.announcementSync,
+                categoryId: options.announcementCategories.some(
+                  (category) => category.id === previous.announcementSync.categoryId
+                )
+                  ? previous.announcementSync.categoryId
+                  : options.announcementCategories[0]?.id ?? "other",
+              }
+            : previous.announcementSync,
+          calendarSync: options.calendarCategories
+            ? {
+                ...previous.calendarSync,
+                categoryId: options.calendarCategories.some(
+                  (category) => category.id === previous.calendarSync.categoryId
+                )
+                  ? previous.calendarSync.categoryId
+                  : options.calendarCategories[0]?.id ?? "other",
+              }
+            : previous.calendarSync,
+        }));
+      } catch (error) {
+        setHookOptionsError(error instanceof Error ? error.message : "讀取公告／行事曆選項失敗");
+      } finally {
+        setLoadingHookOptions(false);
+        hookOptionsRequestRef.current = false;
+      }
+    })();
+  }, [
+    formOpen,
+    form.announcementSync.enabled,
+    form.calendarSync.enabled,
+    announcementSyncExpanded,
+    calendarSyncExpanded,
+    hookOptions,
+  ]);
 
   const loadList = useCallback(async () => {
     setLoadingList(true);
@@ -633,6 +727,9 @@ export default function AdminExamRegistrationPage() {
         basicFee: { standard: basicFeeStandard, reduced: basicFeeReduced },
         examMode: "review",
         registrationMode: form.registrationMode,
+        studentArchiveEnabled: form.studentArchiveEnabled,
+        announcementSync: form.announcementSync,
+        calendarSync: form.calendarSync,
         status: form.status,
       };
       const res = await fetch("/api/admin/exam-registration", {
@@ -659,7 +756,7 @@ export default function AdminExamRegistrationPage() {
     const label = EXAM_EVENT_STATUS_LABELS[status];
     const confirmText =
       status === "open"
-        ? `確定要「${label}」？\n開放時會同步發佈系統公告並寫入學生行事曆。`
+        ? `確定要「${label}」？\n開放時會依管理規則設定同步發佈系統公告與行事曆。`
         : status === "archived"
           ? "確定要封存？\n封存後不可再變更狀態。"
           : `確定要將場次改為「${label}」？`;
@@ -691,7 +788,7 @@ export default function AdminExamRegistrationPage() {
     }
   }
 
-  /** 硬刪除場次（僅無登錄可刪；伺服端 409 會擋有登錄的場次） */
+  /** 硬刪除場次與該場次所有學生登錄資料（需先確認不可復原） */
   function deleteEvent(item: ExamEvent) {
     if (saving) return;
     setConfirm({
@@ -717,7 +814,7 @@ export default function AdminExamRegistrationPage() {
       setRoster((prev) => (prev && prev.eventId === item.id ? null : prev));
       setForm((prev) => (prev.id === item.id ? emptyForm() : prev));
       if (form.id === item.id) setFormOpen(false);
-      setFlash({ type: "success", text: data.message || "已刪除" });
+      setFlash({ type: "success", text: data.message || "已刪除", durationMs: 2000 });
     } catch (error) {
       setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
@@ -727,6 +824,10 @@ export default function AdminExamRegistrationPage() {
 
   function edit(item: ExamEvent) {
     const isEntrance = item.examType === "entrance";
+    setAnnouncementSyncExpanded(false);
+    setCalendarSyncExpanded(false);
+    setAnnouncementSyncHelpOpen(false);
+    setCalendarSyncHelpOpen(false);
     setForm({
       id: item.id,
       title: item.title,
@@ -759,6 +860,9 @@ export default function AdminExamRegistrationPage() {
       })),
       examMode: "review",
       registrationMode: item.registrationMode,
+      studentArchiveEnabled: item.studentArchiveEnabled,
+      announcementSync: { ...item.announcementSync },
+      calendarSync: { ...item.calendarSync },
       status: item.status,
     });
     setFormOpen(true);
@@ -769,6 +873,10 @@ export default function AdminExamRegistrationPage() {
   function cancelEdit() {
     setForm(emptyForm());
     setFormOpen(false);
+    setAnnouncementSyncExpanded(false);
+    setCalendarSyncExpanded(false);
+    setAnnouncementSyncHelpOpen(false);
+    setCalendarSyncHelpOpen(false);
   }
 
   async function loadRoster(eventId: string) {
@@ -844,6 +952,12 @@ export default function AdminExamRegistrationPage() {
     `${item.target.grades.join("、") || "—"} 年級${
       item.target.classes.length ? `（${item.target.classes.join("、")}）` : "（全年級）"
     }`;
+  const announcementCategories = hookOptions?.announcementCategories?.length
+    ? hookOptions.announcementCategories
+    : [{ id: "other", name: "其他" }];
+  const calendarCategories = hookOptions?.calendarCategories?.length
+    ? hookOptions.calendarCategories
+    : [{ id: "other", name: "其他" }];
 
   return (
     <div className="w-full max-w-4xl mb-8 space-y-6">
@@ -866,7 +980,17 @@ export default function AdminExamRegistrationPage() {
       <section className="border border-themed rounded-lg bg-card">
         <button
           type="button"
-          onClick={() => (formOpen ? cancelEdit() : setFormOpen(true))}
+          onClick={() => {
+            if (formOpen) {
+              cancelEdit();
+              return;
+            }
+            setAnnouncementSyncExpanded(false);
+            setCalendarSyncExpanded(false);
+            setAnnouncementSyncHelpOpen(false);
+            setCalendarSyncHelpOpen(false);
+            setFormOpen(true);
+          }}
           aria-expanded={formOpen}
           className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
         >
@@ -878,6 +1002,250 @@ export default function AdminExamRegistrationPage() {
         {formOpen && (
           <div className="px-5 pt-2.5 pb-5">
             <form onSubmit={submitForm} className="space-y-3">
+              <section className="rounded-lg border border-themed bg-card p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-t1">管理規則</h4>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-full text-t3 hover:text-t1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+                    aria-label="管理規則說明"
+                    aria-expanded={studentArchiveHelpOpen}
+                    aria-controls="student-archive-help"
+                    onClick={() => setStudentArchiveHelpOpen((open) => !open)}
+                  >
+                    <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5" aria-hidden="true">
+                      <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.5" />
+                      <path
+                        d="M7.9 7.45a2.15 2.15 0 1 1 3.56 1.62c-.86.73-1.46 1.12-1.46 2.43M10 14.35v.1"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <p id="student-archive-help" className="text-xs text-t3" hidden={!studentArchiveHelpOpen}>
+                  啟用後，學生完成報名即可自行封存資料；封存後不能修改或取消，若需更動，須由承辦師長在名單中解除封存。
+                </p>
+                <label className="inline-flex items-center gap-2 text-sm text-t1">
+                  <input
+                    type="checkbox"
+                    checked={form.studentArchiveEnabled}
+                    onChange={(e) => setForm({ ...form, studentArchiveEnabled: e.target.checked })}
+                  />
+                  啟用學生報名後資料封存
+                </label>
+
+                <div className="border-t border-themed pt-3 space-y-3">
+                  <p className="text-xs text-t3">
+                    同步設定會隨場次儲存，場次轉為開放時依勾選發布；維持開放編輯不會重發公告，關閉同步不會撤回已發布項目。
+                  </p>
+                  <div className="rounded-md border border-themed p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-2 text-sm font-medium text-t1">
+                          <input
+                            type="checkbox"
+                            checked={form.announcementSync.enabled}
+                            onChange={(e) =>
+                              setForm((previous) => ({
+                                ...previous,
+                                announcementSync: { ...previous.announcementSync, enabled: e.target.checked },
+                              }))
+                            }
+                          />
+                          同步發送系統公告
+                        </label>
+                        <button
+                          type="button"
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-t3 hover:text-t1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+                          aria-label="同步發送系統公告說明"
+                          aria-expanded={announcementSyncHelpOpen}
+                          aria-controls="exam-announcement-sync-help"
+                          onClick={() => setAnnouncementSyncHelpOpen((open) => !open)}
+                        >
+                          ?
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs text-t2 hover:text-t1"
+                        aria-expanded={announcementSyncExpanded}
+                        aria-controls="exam-announcement-sync-settings"
+                        onClick={() => setAnnouncementSyncExpanded((open) => !open)}
+                      >
+                        {announcementSyncExpanded ? "收合設定 ▲" : "展開設定 ▼"}
+                      </button>
+                    </div>
+                    <p
+                      id="exam-announcement-sync-help"
+                      className="text-xs text-t3"
+                      hidden={!announcementSyncHelpOpen}
+                    >
+                      場次轉為開放時，依所選分類發送公告。可自訂公告內容；留空時會自動帶入場次資訊。
+                    </p>
+                    <div
+                      id="exam-announcement-sync-settings"
+                      className="ml-6 space-y-2 rounded-md border border-themed p-3"
+                      hidden={!announcementSyncExpanded}
+                    >
+                      {!form.announcementSync.enabled ? (
+                        <p className="text-xs text-t3">勾選「同步發送系統公告」後即可設定分類與內容。</p>
+                      ) : (
+                        <>
+                            <label className="block space-y-1 text-sm text-t2" htmlFor="exam-announcement-category">
+                              <span>公告分類</span>
+                              <select
+                                id="exam-announcement-category"
+                                className="input-theme w-full rounded px-3 py-2"
+                                value={form.announcementSync.categoryId}
+                                onChange={(e) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    announcementSync: { ...previous.announcementSync, categoryId: e.target.value },
+                                  }))
+                                }
+                              >
+                                {announcementCategories.map((category) => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="block space-y-1 text-sm text-t2" htmlFor="exam-announcement-body">
+                              <span>公告內容（留空時自動帶入場次資訊）</span>
+                              <textarea
+                                id="exam-announcement-body"
+                                className="input-theme w-full rounded px-3 py-2"
+                                rows={4}
+                                maxLength={2000}
+                                value={form.announcementSync.body}
+                                onChange={(e) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    announcementSync: { ...previous.announcementSync, body: e.target.value },
+                                  }))
+                                }
+                                placeholder="留空時自動包含報名期間、考試日期、科目與適用對象"
+                              />
+                            </label>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-themed p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-2 text-sm font-medium text-t1">
+                          <input
+                            type="checkbox"
+                            checked={form.calendarSync.enabled}
+                            onChange={(e) =>
+                              setForm((previous) => ({
+                                ...previous,
+                                calendarSync: { ...previous.calendarSync, enabled: e.target.checked },
+                              }))
+                            }
+                          />
+                          同步發布至行事曆
+                        </label>
+                        <button
+                          type="button"
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-t3 hover:text-t1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+                          aria-label="同步發布至行事曆說明"
+                          aria-expanded={calendarSyncHelpOpen}
+                          aria-controls="exam-calendar-sync-help"
+                          onClick={() => setCalendarSyncHelpOpen((open) => !open)}
+                        >
+                          ?
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs text-t2 hover:text-t1"
+                        aria-expanded={calendarSyncExpanded}
+                        aria-controls="exam-calendar-sync-settings"
+                        onClick={() => setCalendarSyncExpanded((open) => !open)}
+                      >
+                        {calendarSyncExpanded ? "收合設定 ▲" : "展開設定 ▼"}
+                      </button>
+                    </div>
+                    <p id="exam-calendar-sync-help" className="text-xs text-t3" hidden={!calendarSyncHelpOpen}>
+                      場次轉為開放時建立或更新行事曆項目。可自訂發佈單位、地點和類型；地點留空時沿用場次地點。
+                    </p>
+                    <div
+                      id="exam-calendar-sync-settings"
+                      className="ml-6 space-y-2 rounded-md border border-themed p-3"
+                      hidden={!calendarSyncExpanded}
+                    >
+                      {!form.calendarSync.enabled ? (
+                        <p className="text-xs text-t3">勾選「同步發布至行事曆」後即可設定發佈資訊。</p>
+                      ) : (
+                        <>
+                            <label className="block space-y-1 text-sm text-t2" htmlFor="exam-calendar-unit">
+                              <span>發佈單位</span>
+                              <input
+                                id="exam-calendar-unit"
+                                className="input-theme w-full rounded px-3 py-2"
+                                maxLength={64}
+                                value={form.calendarSync.publishUnit}
+                                onChange={(e) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    calendarSync: { ...previous.calendarSync, publishUnit: e.target.value },
+                                  }))
+                                }
+                                placeholder="例如：教務處（可留空）"
+                              />
+                            </label>
+                            <label className="block space-y-1 text-sm text-t2" htmlFor="exam-calendar-location">
+                              <span>行事曆地點</span>
+                              <input
+                                id="exam-calendar-location"
+                                className="input-theme w-full rounded px-3 py-2"
+                                maxLength={EXAM_EVENT_LIMITS.location}
+                                value={form.calendarSync.location}
+                                onChange={(e) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    calendarSync: { ...previous.calendarSync, location: e.target.value },
+                                  }))
+                                }
+                                placeholder="留空時沿用場次的考試地點"
+                              />
+                            </label>
+                            <label className="block space-y-1 text-sm text-t2" htmlFor="exam-calendar-category">
+                              <span>行事曆類型</span>
+                              <select
+                                id="exam-calendar-category"
+                                className="input-theme w-full rounded px-3 py-2"
+                                value={form.calendarSync.categoryId}
+                                onChange={(e) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    calendarSync: { ...previous.calendarSync, categoryId: e.target.value },
+                                  }))
+                                }
+                              >
+                                {calendarCategories.map((category) => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {loadingHookOptions && <p className="ml-6 text-xs text-t3">載入公告分類與行事曆類型…</p>}
+                  {hookOptionsError && <p className="ml-6 text-xs text-danger">{hookOptionsError}</p>}
+                </div>
+              </section>
+
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <label className="text-t2 sm:w-40 shrink-0" htmlFor="exam-title">
                   場次名稱
@@ -988,22 +1356,24 @@ export default function AdminExamRegistrationPage() {
                   <div className="flex-1 space-y-2">
                     <div className="space-y-2">
                       <div className="text-xs font-medium text-t2">單筆新增</div>
-                      <div className="flex flex-col lg:flex-row gap-2">
-                        <input
-                          id="exam-location-option-code"
-                          className="input-theme rounded px-3 py-2 lg:w-40"
-                          value={form.locationOptionCodeText}
-                          onChange={(e) => setForm({ ...form, locationOptionCodeText: e.target.value })}
-                          placeholder="代碼（例：100）"
-                          maxLength={EXAM_EVENT_LIMITS.locationCode}
-                        />
-                        <input
-                          className="input-theme rounded px-3 py-2 flex-1"
-                          value={form.locationOptionLabelText}
-                          onChange={(e) => setForm({ ...form, locationOptionLabelText: e.target.value })}
-                          placeholder="考區名稱（例：台北）"
-                          maxLength={EXAM_EVENT_LIMITS.locationLabel}
-                        />
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+                          <input
+                            id="exam-location-option-code"
+                            className="input-theme rounded px-3 py-2"
+                            value={form.locationOptionCodeText}
+                            onChange={(e) => setForm({ ...form, locationOptionCodeText: e.target.value })}
+                            placeholder="代碼（例：100）"
+                            maxLength={EXAM_EVENT_LIMITS.locationCode}
+                          />
+                          <input
+                            className="input-theme rounded px-3 py-2 min-w-0"
+                            value={form.locationOptionLabelText}
+                            onChange={(e) => setForm({ ...form, locationOptionLabelText: e.target.value })}
+                            placeholder="考區名稱（例：台北）"
+                            maxLength={EXAM_EVENT_LIMITS.locationLabel}
+                          />
+                        </div>
                         <button
                           type="button"
                           className="btn-theme px-3 py-2 rounded text-sm shrink-0"
@@ -1350,35 +1720,37 @@ export default function AdminExamRegistrationPage() {
                       {subject.enableAdvancedOption && (
                         <div className="ml-7 rounded border border-themed p-2 space-y-2">
                           <div className="text-xs font-medium text-t2">第 {index + 1} 科進階選項</div>
-                          <div className="flex flex-col lg:flex-row gap-2">
-                            <input
-                              className="h-8 input-theme rounded px-2 py-1 lg:w-40 text-xs"
-                              value={subject.advancedOptionCodeText}
-                              onChange={(e) =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  subjects: prev.subjects.map((item, i) =>
-                                    i === index ? { ...item, advancedOptionCodeText: e.target.value } : item
-                                  ),
-                                }))
-                              }
-                              placeholder="代碼（例：0101）"
-                              maxLength={EXAM_EVENT_LIMITS.advancedOptionCode}
-                            />
-                            <input
-                              className="h-8 input-theme rounded px-2 py-1 flex-1 text-xs"
-                              value={subject.advancedOptionLabelText}
-                              onChange={(e) =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  subjects: prev.subjects.map((item, i) =>
-                                    i === index ? { ...item, advancedOptionLabelText: e.target.value } : item
-                                  ),
-                                }))
-                              }
-                              placeholder="進階選項（例：鋼琴）"
-                              maxLength={EXAM_EVENT_LIMITS.advancedOptionLabel}
-                            />
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+                              <input
+                                className="h-8 input-theme rounded px-2 py-1 text-xs"
+                                value={subject.advancedOptionCodeText}
+                                onChange={(e) =>
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    subjects: prev.subjects.map((item, i) =>
+                                      i === index ? { ...item, advancedOptionCodeText: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                                placeholder="代碼（例：0101）"
+                                maxLength={EXAM_EVENT_LIMITS.advancedOptionCode}
+                              />
+                              <input
+                                className="h-8 input-theme rounded px-2 py-1 min-w-0 text-xs"
+                                value={subject.advancedOptionLabelText}
+                                onChange={(e) =>
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    subjects: prev.subjects.map((item, i) =>
+                                      i === index ? { ...item, advancedOptionLabelText: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                                placeholder="進階選項（例：鋼琴）"
+                                maxLength={EXAM_EVENT_LIMITS.advancedOptionLabel}
+                              />
+                            </div>
                             <button
                               type="button"
                               className="btn-theme h-8 px-3 py-1 rounded text-xs shrink-0"
@@ -1629,7 +2001,17 @@ export default function AdminExamRegistrationPage() {
                     return (
                       <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
                         <td className="px-3 py-2">
-                          <span className="font-medium">{item.title}</span>
+                          <div className="space-y-1">
+                            <div className="font-medium">{item.title}</div>
+                            <div className="text-xs text-t3">
+                              報名方式：{EXAM_REGISTRATION_MODE_LABELS[item.registrationMode]}
+                            </div>
+                            <div className="text-xs text-t3">
+                              {roster?.eventId === item.id
+                                ? `適用人數 ${roster.summary.applicableCount} 人／完成報名 ${roster.summary.registeredCount} 人`
+                                : "人數按「統計」載入"}
+                            </div>
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-t2 whitespace-nowrap">
                           <div className="space-y-1">
