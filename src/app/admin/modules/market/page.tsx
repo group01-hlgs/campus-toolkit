@@ -167,6 +167,12 @@ export default function ModuleMarketPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!installMessage) return;
+    const timer = window.setTimeout(() => setInstallMessage(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [installMessage]);
+
   function installedVersion(module: MarketModuleEntry): string | null {
     return installedModules[module.id] ?? null;
   }
@@ -405,17 +411,7 @@ export default function ModuleMarketPage() {
               : "border-danger/60 bg-card text-danger"
           }`}
         >
-          <div className="flex items-start justify-between gap-3">
-            <p className="min-w-0 flex-1 break-words">{installMessage}</p>
-            <button
-              type="button"
-              onClick={() => setInstallMessage(null)}
-              aria-label="關閉安裝結果提示"
-              className="shrink-0 rounded px-1 text-t3 hover:text-t1 cursor-pointer"
-            >
-              ×
-            </button>
-          </div>
+          <p className="break-words">{installMessage}</p>
           {(installCommitUrl || installBranch) && (
             <div className="mt-2 text-xs">
               {installBranch && <p>分支：{installBranch}</p>}
