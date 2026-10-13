@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const DEFAULT_MARKET_INDEX_URL =
+  "https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/index.json";
+const LEGACY_PAGES_MARKET_INDEX_URL =
   "https://takan003.github.io/campus-toolkit-marketplace/index.json";
 const MARKETPLACE_REPOSITORY_URL = "https://github.com/takan003/campus-toolkit-marketplace";
 
@@ -118,6 +120,7 @@ export default function ModuleMarketPage() {
   const [marketUrlKind, setMarketUrlKind] = useState<"success" | "error" | null>(null);
   const [uninstallTarget, setUninstallTarget] = useState<MarketModuleEntry | null>(null);
   const [backupConfirmed, setBackupConfirmed] = useState(false);
+  const hasLegacyPagesMarketUrl = marketUrlInput.trim() === LEGACY_PAGES_MARKET_INDEX_URL;
   const alwaysVisibleGuide = manualInstallGuide ?? buildFallbackManualGuide(uploadModuleId || "examRegistration");
 
   async function fetchMarket(signal?: AbortSignal): Promise<MarketResponse> {
@@ -383,7 +386,7 @@ export default function ModuleMarketPage() {
     try {
       await navigator.clipboard.writeText(DEFAULT_MARKET_INDEX_URL);
       setMarketUrlKind("success");
-      setMarketUrlMessage("GitHub Pages 市集來源 URL 已複製");
+      setMarketUrlMessage("Raw GitHub 市集來源 URL 已複製");
     } catch {
       setMarketUrlKind("error");
       setMarketUrlMessage("無法存取剪貼簿，請手動複製上方網址");
@@ -530,7 +533,7 @@ export default function ModuleMarketPage() {
           <div className="pt-2 border-t border-themed space-y-2">
             <h3 className="text-xs font-semibold text-t1">模組市集來源設定</h3>
             <p className="text-xs text-t2">
-              可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。GitHub Pages 預設來源：
+              可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。建議使用與模組下載網址同網域的 Raw GitHub 來源：
             </p>
             <div className="flex flex-col md:flex-row md:items-center gap-2 text-xs">
               <code className="text-t1 break-all">{DEFAULT_MARKET_INDEX_URL}</code>
@@ -552,6 +555,20 @@ export default function ModuleMarketPage() {
                 </a>
               </div>
             </div>
+            {hasLegacyPagesMarketUrl && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-warning">
+                <p>
+                  目前設定的 Pages 網址與模組下載網址網域不同，安裝會被安全檢查拒絕。請改用 Raw GitHub URL 並儲存。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMarketUrlInput(DEFAULT_MARKET_INDEX_URL)}
+                  className="shrink-0 rounded border border-warning/60 px-2.5 py-1.5 font-medium hover:bg-warning/10 cursor-pointer"
+                >
+                  改用 Raw URL
+                </button>
+              </div>
+            )}
             <div className="flex flex-col md:flex-row gap-2">
               <input
                 value={marketUrlInput}
