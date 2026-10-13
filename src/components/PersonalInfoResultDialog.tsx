@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 export default function PersonalInfoResultDialog({
   message,
   kind,
@@ -9,34 +11,34 @@ export default function PersonalInfoResultDialog({
   kind: "success" | "error";
   onClose: () => void;
 }) {
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => onCloseRef.current(), 2000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
   if (!message) return null;
 
   const title = kind === "success" ? "已完成" : "發生錯誤";
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
-      <div
-        role={kind === "error" ? "alertdialog" : "dialog"}
-        aria-modal="true"
-        aria-labelledby="personal-info-result-title"
-        className="w-full max-w-md rounded-xl border border-themed bg-card p-5 shadow-xl"
-      >
-        <h2
-          id="personal-info-result-title"
-          className={`text-lg font-bold ${kind === "success" ? "text-success" : "text-danger"}`}
-        >
-          {title}
-        </h2>
-        <p className="mt-3 text-sm text-t2 whitespace-pre-wrap break-words">{message}</p>
-        <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-          >
-            確定
-          </button>
-        </div>
-      </div>
+    <div
+      role={kind === "error" ? "alert" : "status"}
+      aria-live={kind === "error" ? "assertive" : "polite"}
+      aria-atomic="true"
+      className={`fixed bottom-4 left-1/2 z-50 w-[min(92vw,44rem)] -translate-x-1/2 rounded-lg border p-3 text-sm shadow-lg ${
+        kind === "success"
+          ? "border-success/60 bg-card text-success"
+          : "border-danger/60 bg-card text-danger"
+      }`}
+    >
+      <p className="font-semibold">{title}</p>
+      <p className="mt-1 text-t2 whitespace-pre-wrap break-words">{message}</p>
     </div>
   );
 }
