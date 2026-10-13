@@ -112,7 +112,12 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
             </button>
           </div>
         ) : profile ? (
-          <>
+          role === "student" ? (
+            <StudentPersonalInfoForm
+              academicYear={profile.academicYear}
+              semester={profile.semester}
+            />
+          ) : (
             <section className="border border-themed rounded-lg bg-card p-5 sm:p-7">
               <div className="mb-5 border-b border-themed pb-4">
                 <p className="text-xs text-t3">{profile.roleLabel}</p>
@@ -134,13 +139,7 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
                   ))}
               </dl>
             </section>
-            {role === "student" && (
-              <StudentPersonalInfoForm
-                academicYear={profile.academicYear}
-                semester={profile.semester}
-              />
-            )}
-          </>
+          )
         ) : null}
       </main>
     </RolePageShell>
