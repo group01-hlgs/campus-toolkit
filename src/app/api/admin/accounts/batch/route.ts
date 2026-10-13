@@ -8,6 +8,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
 import { invalidateAdminListCache } from "@/lib/list-cache";
+import { deleteStudentPersonalPhotoObjects, personalPhotoObjectPathsForRecord } from "@/lib/personal-info";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
 import { SchoolPeriod } from "@/types/settings";
 import { PERSONAL_INFO_COLLECTION } from "@/types/personal-info";
@@ -718,6 +719,7 @@ async function executePlan(
   if (deleteUids.length > 0) {
     const targets = new Set(deleteUids);
     const refs = deleteUids.map((uid) => users.doc(uid));
+    const personalPhotoPaths: string[] = [];
     // 名冊條目：none＝完全保留（只刪帳號）；current＝僅本學期；all＝所有學期
     // 範圍下推成 Firestore 查詢：uid in＋（current 時）學期等值條件，
     // 只讀命中的列，不再把四張名冊整表抓回來過濾（鐵律 3：查詢回傳幾筆＝幾次讀取）
@@ -761,7 +763,19 @@ async function executePlan(
             : personalInfoCollection.where("uid", "in", chunk);
         const snapshot = await query.get();
         for (const doc of snapshot.docs) {
-          if (targets.has(String(doc.data().uid ?? ""))) refs.push(doc.ref);
+          const record = doc.data();
+          const uid = String(record.uid ?? "");
+          if (!targets.has(uid)) continue;
+          refs.push(doc.ref);
+          if (typeof record.academicYear === "number" && typeof record.semester === "number") {
+            personalPhotoPaths.push(
+              ...personalPhotoObjectPathsForRecord(
+                uid,
+                { academicYear: record.academicYear, semester: record.semester },
+                record
+              )
+            );
+          }
         }
       }
     }
@@ -770,6 +784,7 @@ async function executePlan(
       for (const ref of refs.slice(i, i + DELETE_CHUNK)) batch.delete(ref);
       await batch.commit();
     }
+    await deleteStudentPersonalPhotoObjects(personalPhotoPaths);
   }
 
   return { created, updated, deleted: deleteUids.length, rostered, linked, skipped };

@@ -1,6 +1,25 @@
 import type { SchoolPeriod } from "@/types/settings";
 
 export const PERSONAL_INFO_COLLECTION = "studentPersonalInfo";
+export const STUDENT_PERSONAL_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
+export type StudentPersonalPhotoKind = "admission" | "graduation";
+
+export function isStudentPersonalPhotoKind(value: unknown): value is StudentPersonalPhotoKind {
+  return value === "admission" || value === "graduation";
+}
+
+export interface StudentPersonalPhotoMetadata {
+  objectPath: string;
+  contentType: "image/jpeg";
+  updatedAt: number;
+}
+
+export interface StudentPersonalInfoRecord {
+  fields: StudentPersonalInfoFields;
+  /** 照片本體存於私人 Firebase Storage bucket，僅保存伺服端 object path 與 metadata */
+  photos: Record<StudentPersonalPhotoKind, StudentPersonalPhotoMetadata | null>;
+}
 
 export interface StudentPersonalInfoFields {
   gender: string;
@@ -47,6 +66,11 @@ export const EMPTY_STUDENT_PERSONAL_INFO: StudentPersonalInfoFields = {
   emergencyContactName: "",
   emergencyContactPhone: "",
   contactPhone: "",
+};
+
+export const EMPTY_STUDENT_PERSONAL_INFO_PHOTOS: StudentPersonalInfoRecord["photos"] = {
+  admission: null,
+  graduation: null,
 };
 
 export interface StudentPersonalInfoSettings {
@@ -164,6 +188,37 @@ export function readStudentPersonalInfoFields(raw: unknown): StudentPersonalInfo
     result[key] = typeof fields[key] === "string" ? fields[key].slice(0, maxLength) : "";
   }
   return result;
+}
+
+export function readStudentPersonalPhotoMetadata(raw: unknown): StudentPersonalPhotoMetadata | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  const objectPath = typeof data.objectPath === "string" ? data.objectPath : "";
+  const contentType = data.contentType;
+  const updatedAt = data.updatedAt;
+  if (
+    !objectPath ||
+    contentType !== "image/jpeg" ||
+    typeof updatedAt !== "number" ||
+    !Number.isFinite(updatedAt)
+  ) {
+    return null;
+  }
+  return { objectPath, contentType, updatedAt };
+}
+
+export function readStudentPersonalInfoRecord(raw: unknown): StudentPersonalInfoRecord {
+  const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const photos = data.photos && typeof data.photos === "object"
+    ? (data.photos as Record<string, unknown>)
+    : {};
+  return {
+    fields: readStudentPersonalInfoFields(raw),
+    photos: {
+      admission: readStudentPersonalPhotoMetadata(photos.admission),
+      graduation: readStudentPersonalPhotoMetadata(photos.graduation),
+    },
+  };
 }
 
 export function isIsoDate(value: string): boolean {

@@ -1,5 +1,5 @@
 import "server-only";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb, getAdminStorageBucket } from "@/lib/firebase-admin";
 import { cachedSettingDoc, invalidateReadCache } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { CLASSES_DOC_ID, readSchoolClasses, type SchoolClassesContext } from "@/types/school-classes";
@@ -7,13 +7,17 @@ import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
   EMPTY_STUDENT_PERSONAL_INFO,
+  EMPTY_STUDENT_PERSONAL_INFO_PHOTOS,
   PERSONAL_INFO_COLLECTION,
   personalInfoSettingsDocId,
-  readStudentPersonalInfoFields,
+  readStudentPersonalInfoRecord,
   readStudentPersonalInfoSettings,
   studentPersonalInfoDocId,
   type StudentPersonalInfoFields,
   type StudentPersonalInfoSettings,
+  type StudentPersonalInfoRecord,
+  type StudentPersonalPhotoKind,
+  type StudentPersonalPhotoMetadata,
   type StudentPersonalInfoTargetOptions,
 } from "@/types/personal-info";
 import type { SchoolPeriod } from "@/types/settings";
@@ -86,12 +90,14 @@ export async function getStudentPersonalInfoTargetOptions(): Promise<StudentPers
 export async function getStudentPersonalInfo(
   uid: string,
   period: SchoolPeriod
-): Promise<StudentPersonalInfoFields> {
+): Promise<StudentPersonalInfoRecord> {
   const snap = await getAdminDb()
     .collection(PERSONAL_INFO_COLLECTION)
     .doc(studentPersonalInfoDocId(uid, period))
     .get();
-  return snap.exists ? readStudentPersonalInfoFields(snap.data()) : { ...EMPTY_STUDENT_PERSONAL_INFO };
+  return snap.exists
+    ? readStudentPersonalInfoRecord(snap.data())
+    : { fields: { ...EMPTY_STUDENT_PERSONAL_INFO }, photos: { ...EMPTY_STUDENT_PERSONAL_INFO_PHOTOS } };
 }
 
 export async function saveStudentPersonalInfo(
@@ -108,7 +114,98 @@ export async function saveStudentPersonalInfo(
       semester: period.semester,
       fields,
       updatedAt: Date.now(),
+    }, { merge: true });
+}
+
+export function studentPersonalInfoPhotoObjectPathPrefix(
+  uid: string,
+  period: SchoolPeriod,
+  kind: StudentPersonalPhotoKind
+): string {
+  return `student-personal-info/${uid}/${period.academicYear}_${period.semester}/${kind}/`;
+}
+
+export async function saveStudentPersonalPhoto(
+  uid: string,
+  period: SchoolPeriod,
+  kind: StudentPersonalPhotoKind,
+  bytes: Buffer,
+  contentType: StudentPersonalPhotoMetadata["contentType"]
+): Promise<StudentPersonalPhotoMetadata> {
+  const current = await getStudentPersonalInfo(uid, period);
+  const extension = contentType === "image/jpeg" ? "jpg" : contentType === "image/png" ? "png" : "webp";
+  const objectPath = `${studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind)}${Date.now()}-${crypto.randomUUID()}.${extension}`;
+  const metadata: StudentPersonalPhotoMetadata = { objectPath, contentType, updatedAt: Date.now() };
+  const bucket = getAdminStorageBucket();
+  await bucket.file(objectPath).save(bytes, {
+    resumable: false,
+    metadata: { contentType, cacheControl: "private, no-store" },
+  });
+
+  try {
+    await getAdminDb()
+      .collection(PERSONAL_INFO_COLLECTION)
+      .doc(studentPersonalInfoDocId(uid, period))
+      .set({
+        uid,
+        academicYear: period.academicYear,
+        semester: period.semester,
+        photos: { [kind]: metadata },
+        updatedAt: metadata.updatedAt,
+      }, { merge: true });
+  } catch (error) {
+    await bucket.file(objectPath).delete({ ignoreNotFound: true }).catch(() => undefined);
+    throw error;
+  }
+
+  const oldPath = current.photos[kind]?.objectPath;
+  if (
+    oldPath &&
+    oldPath !== objectPath &&
+    oldPath.startsWith(studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind))
+  ) {
+    await bucket.file(oldPath).delete({ ignoreNotFound: true }).catch(() => {
+      console.error("Unable to remove replaced personal photo from storage");
     });
+  }
+  return metadata;
+}
+
+export function personalPhotoObjectPathsForRecord(
+  uid: string,
+  period: SchoolPeriod,
+  raw: unknown
+): string[] {
+  const record = readStudentPersonalInfoRecord(raw);
+  const paths: string[] = [];
+  for (const kind of Object.keys(record.photos) as StudentPersonalPhotoKind[]) {
+    const objectPath = record.photos[kind]?.objectPath;
+    if (objectPath?.startsWith(studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind))) {
+      paths.push(objectPath);
+    }
+  }
+  return paths;
+}
+
+export async function deleteStudentPersonalPhotoObjects(objectPaths: string[]): Promise<void> {
+  const safePaths = [...new Set(objectPaths)].filter((objectPath) =>
+    objectPath.startsWith("student-personal-info/") && !objectPath.includes("..")
+  );
+  if (safePaths.length === 0) return;
+  try {
+    const bucket = getAdminStorageBucket();
+    for (let offset = 0; offset < safePaths.length; offset += 100) {
+      await Promise.all(
+        safePaths.slice(offset, offset + 100).map((objectPath) =>
+          bucket.file(objectPath).delete({ ignoreNotFound: true }).catch(() => {
+            console.error("Unable to remove personal photo from storage");
+          })
+        )
+      );
+    }
+  } catch {
+    console.error("Unable to clean up personal photos from storage");
+  }
 }
 
 export function taipeiDateString(now = new Date()): string {

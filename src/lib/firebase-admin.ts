@@ -2,6 +2,7 @@ import "server-only";
 import { initializeApp, getApps, cert, App, ServiceAccount } from "firebase-admin/app";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 import { getAuth, Auth } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
 
 let adminApp: App | null = null;
 let adminDb: Firestore | null = null;
@@ -84,6 +85,15 @@ export function getAdminAuth(): Auth {
   if (adminAuth) return adminAuth;
   adminAuth = getAuth(ensureAdminApp());
   return adminAuth;
+}
+
+/** Firebase Storage 私有 bucket：每個主程式 fork 使用自己的 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET。 */
+export function getAdminStorageBucket() {
+  const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim();
+  if (!bucketName) {
+    throw new Error("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET 未設定，無法存取證件照儲存空間");
+  }
+  return getStorage(ensureAdminApp()).bucket(bucketName);
 }
 
 export { FieldValue } from "firebase-admin/firestore";

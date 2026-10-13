@@ -232,10 +232,12 @@ npm run dev
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | Web API Key |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | 例如 `your-project.firebaseapp.com` |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | 專案 ID |
-| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | 例如 `your-project.appspot.com` |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | 例如 `your-project.appspot.com`；個人證件照存於此 Firebase Storage bucket，各 fork 請設定自己的 bucket |
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Sender ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Web App ID |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | （選填）Google 登入的 Web client ID；設定後已授權者登入不跳彈窗，且須把網站網域加到該 OAuth 用戶端的「已授權的 JavaScript 來源」 |
+
+個人證件照透過 Firebase Admin SDK 寫入上述 bucket；`FIREBASE_SERVICE_ACCOUNT_KEY` 對應的服務帳號需有該 bucket 的物件讀寫與刪除權限（例如 `Storage Object Admin`）。照片不設公開存取，各 fork 請使用自己的 Firebase 專案與 bucket。
 
 ### 伺服端機密（切勿提交到 Git、切勿加上 `NEXT_PUBLIC_` 前綴）
 
