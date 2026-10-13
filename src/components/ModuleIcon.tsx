@@ -105,6 +105,19 @@ const ICON_PATHS: Record<string, ReactNode> = {
       d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
     />
   ),
+  // 個人基本資料（證件卡片）
+  personalInfo: (
+    <>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4.5 4.5h15A2.25 2.25 0 0121.75 6.75v10.5A2.25 2.25 0 0119.5 19.5h-15a2.25 2.25 0 01-2.25-2.25V6.75A2.25 2.25 0 014.5 4.5z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.875 14.25a1.875 1.875 0 013.75 0" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 8.25h6.375m-6.375 3.75h6.375m-6.375 3.75h4.125" />
+    </>
+  ),
   // 未知代碼的兜底圖示（方格）
   fallback: (
     <path

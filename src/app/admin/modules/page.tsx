@@ -27,7 +27,60 @@ interface FeatureModulesResponse {
 
 interface MarketInstalledResponse {
   success?: boolean;
+  modules?: Array<{ id: string; version: string; latestVersion?: string }>;
   installedModules?: Record<string, string>;
+}
+
+function parseComparableVersion(value: string): { parts: number[]; prerelease: string[] } | null {
+  const match = value
+    .trim()
+    .replace(/^v/i, "")
+    .match(/^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+  if (!match) return null;
+  return {
+    parts: match[1].split(".").map(Number),
+    prerelease: match[2] ? match[2].split(".") : [],
+  };
+}
+
+/** 回傳市集版本相對目前版本的順序；非標準版本字串不做自動判斷。 */
+function compareModuleVersions(current: string, latest: string): number | null {
+  const currentVersion = parseComparableVersion(current);
+  const latestVersion = parseComparableVersion(latest);
+  if (!currentVersion || !latestVersion) return null;
+
+  const length = Math.max(currentVersion.parts.length, latestVersion.parts.length);
+  for (let index = 0; index < length; index += 1) {
+    const currentPart = currentVersion.parts[index] ?? 0;
+    const latestPart = latestVersion.parts[index] ?? 0;
+    if (latestPart !== currentPart) return latestPart > currentPart ? 1 : -1;
+  }
+
+  const currentPre = currentVersion.prerelease;
+  const latestPre = latestVersion.prerelease;
+  if (currentPre.length === 0 || latestPre.length === 0) {
+    if (currentPre.length === latestPre.length) return 0;
+    return currentPre.length === 0 ? -1 : 1;
+  }
+
+  const preLength = Math.max(currentPre.length, latestPre.length);
+  for (let index = 0; index < preLength; index += 1) {
+    const currentPart = currentPre[index];
+    const latestPart = latestPre[index];
+    if (currentPart === undefined || latestPart === undefined) {
+      return latestPart === undefined ? -1 : 1;
+    }
+    if (currentPart === latestPart) continue;
+
+    const currentNumeric = /^\d+$/.test(currentPart);
+    const latestNumeric = /^\d+$/.test(latestPart);
+    if (currentNumeric && latestNumeric) {
+      return Number(latestPart) > Number(currentPart) ? 1 : -1;
+    }
+    if (currentNumeric !== latestNumeric) return latestNumeric ? -1 : 1;
+    return latestPart.localeCompare(currentPart) > 0 ? 1 : -1;
+  }
+  return 0;
 }
 
 /** 小標籤（已上線／開發中／規劃中） */
@@ -121,7 +174,7 @@ function DescriptionRow({
 
 /**
  * 四種身分欄：同時顯示「提供功能」圖示＋「顯示與否」勾選。
- * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」＋ checkbox。
+ * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」與「顯示」勾選上下排列。
  */
 function RoleCells({
   item,
@@ -146,8 +199,8 @@ function RoleCells({
           );
         }
         return (
-          <td key={role} className="px-3 py-2">
-            <span className="inline-flex items-center justify-center gap-1.5">
+          <td key={role} className="px-3 py-2 text-center align-middle">
+            <span className="inline-flex flex-col items-center justify-center gap-1">
               <span
                 className="inline-flex items-center gap-0.5 text-xs text-success whitespace-nowrap"
                 title="提供功能（由模組作者決定，唯讀）"
@@ -167,19 +220,22 @@ function RoleCells({
                 </svg>
                 提供
               </span>
-              <input
-                type="checkbox"
-                checked={switches?.[role] === true}
-                disabled={disabled}
-                onChange={(event) => onToggle(item, role, event.target.checked)}
-                aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
-                title={
-                  disabled
-                    ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
-                    : "顯示與否（關閉＝暫時不顯示、禁止進入）"
-                }
-                className="accent-current cursor-pointer disabled:opacity-50"
-              />
+              <label className="inline-flex items-center justify-center gap-1 text-xs text-t3">
+                <span>顯示</span>
+                <input
+                  type="checkbox"
+                  checked={switches?.[role] === true}
+                  disabled={disabled}
+                  onChange={(event) => onToggle(item, role, event.target.checked)}
+                  aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
+                  title={
+                    disabled
+                      ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
+                      : "顯示與否（關閉＝暫時不顯示、禁止進入）"
+                  }
+                  className="accent-current cursor-pointer disabled:opacity-50"
+                />
+              </label>
             </span>
           </td>
         );
@@ -257,6 +313,7 @@ function OptionalRow({
   onToggleMaster,
   onToggleRole,
   onUninstall,
+  marketLatestVersion,
 }: {
   item: FeatureModuleMeta;
   open: boolean;
@@ -270,9 +327,11 @@ function OptionalRow({
   onToggleMaster: (item: FeatureModuleMeta, next: boolean) => void;
   onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
   onUninstall: (item: FeatureModuleMeta) => void;
+  marketLatestVersion?: string;
 }) {
   const stateText = enabled ? "已啟用" : "未啟用";
-  const stateClass = enabled ? "text-success" : "text-t2";
+  const hasNewerVersion =
+    !!marketLatestVersion && compareModuleVersions(item.author.version, marketLatestVersion) === 1;
   const disabledReason = !isSuper ? "僅超級管理員可操作" : saving ? "處理中..." : undefined;
   const uninstallDisabledReason = !canUninstall
     ? "目前環境尚未完成卸載管線設定"
@@ -290,25 +349,43 @@ function OptionalRow({
             />
           </span>
         </td>
+        <td className="px-3 py-2 text-center text-xs whitespace-nowrap">
+          <span className="text-t2">v{item.author.version || "—"}</span>
+          {hasNewerVersion && (
+            <span className="block mt-1 text-warning" role="status">
+              有新版：v{marketLatestVersion}
+            </span>
+          )}
+        </td>
         <td className="px-3 py-2 whitespace-nowrap">
           <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
-          <span className="flex items-center gap-2">
-            <span className={`text-sm font-medium ${stateClass}`}>{stateText}</span>
-            <button
-              type="button"
-              onClick={() => onToggleMaster(item, !enabled)}
-              disabled={!isSuper || saving}
-              title={disabledReason}
-              className={
-                enabled
-                  ? "btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-                  : "btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-              }
-            >
-              {saving ? "處理中..." : enabled ? "停用" : "啟用"}
-            </button>
+          <span className="flex flex-col items-center gap-1">
+            <span className="flex items-center justify-center gap-2">
+              <span className={`text-xs font-medium ${enabled ? "text-t3" : "text-t2"}`}>
+                關
+              </span>
+              <button
+                type="button"
+                onClick={() => onToggleMaster(item, !enabled)}
+                disabled={!isSuper || saving}
+                role="switch"
+                aria-checked={enabled}
+                aria-label={`「${item.label}」總開關：${stateText}`}
+                title={disabledReason}
+                className={`inline-flex h-6 w-11 items-center rounded-full border border-themed transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${enabled ? "bg-primary" : "bg-surface"}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`}
+                />
+              </button>
+              <span className={`text-xs font-medium ${enabled ? "text-success" : "text-t3"}`}>
+                開
+              </span>
+            </span>
+            {saving && <span className="text-xs text-t3">處理中...</span>}
           </span>
         </td>
         <RoleCells item={item} switches={switches} disabled={!isSuper || saving} onToggle={onToggleRole} />
@@ -342,7 +419,7 @@ function OptionalRow({
           )}
         </td>
       </tr>
-      <DescriptionRow item={item} open={open} colSpan={8} />
+      <DescriptionRow item={item} open={open} colSpan={9} />
     </>
   );
 }
@@ -369,6 +446,7 @@ export default function ModulesPage() {
   const [pendingUninstalls, setPendingUninstalls] = useState<
     Record<string, { branch?: string; commitUrl?: string }>
   >({});
+  const [marketLatestVersions, setMarketLatestVersions] = useState<Record<string, string>>({});
   const pollTimersRef = useRef<Record<string, number>>({});
 
   // 儲存訊息：固定於畫面下方中央，約 3 秒後自動淡出（列表過長也看得到）
@@ -407,6 +485,21 @@ export default function ModulesPage() {
     fetchSession().then((session) => {
       if (!cancelled) setIsSuper(session?.adminAttribute === "超級");
     });
+
+    fetch("/api/admin/feature-modules/market", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: MarketInstalledResponse | null) => {
+        if (cancelled || !data?.success || !Array.isArray(data.modules)) return;
+        const versions: Record<string, string> = {};
+        for (const module of data.modules) {
+          const latest = module.latestVersion || module.version;
+          if (module.id && latest) versions[module.id] = latest;
+        }
+        setMarketLatestVersions(versions);
+      })
+      .catch(() => {
+        // 市集來源未設定或暫時無法連線時，仍顯示本機模組版本，不中斷模組管理。
+      });
 
     return () => {
       cancelled = true;
@@ -702,7 +795,7 @@ export default function ModulesPage() {
           <p className="text-xs text-t3">
             已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用；
             「狀態」為模組作者宣告的進度資訊，不影響開關。
-            四種身分欄：綠勾「提供」＋顯示與否勾選（提供功能＝否者顯示「未提供」）。
+            四種身分欄上下排列：綠勾「提供」與「顯示」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
             操作欄「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
@@ -713,6 +806,7 @@ export default function ModulesPage() {
             <thead className="border-b border-themed">
               <tr className="text-t2">
                 <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">版本</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">總開關</th>
                 {ALL_ROLES.map((role) => (
@@ -726,13 +820,13 @@ export default function ModulesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={9} className="px-3 py-6 text-center text-t3">
                     {loadingText}
                   </td>
                 </tr>
               ) : optionals.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={9} className="px-3 py-6 text-center text-t3">
                     沒有選用功能模組
                   </td>
                 </tr>
@@ -756,6 +850,7 @@ export default function ModulesPage() {
                     onToggleMaster={toggleMaster}
                     onToggleRole={toggleRole}
                     onUninstall={uninstallModule}
+                    marketLatestVersion={marketLatestVersions[item.value]}
                   />
                 ))
               )}

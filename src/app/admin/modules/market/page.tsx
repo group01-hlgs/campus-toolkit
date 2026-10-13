@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+const DEFAULT_MARKET_INDEX_URL =
+  "https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/index.json";
+const LEGACY_PAGES_MARKET_INDEX_URL =
+  "https://takan003.github.io/campus-toolkit-marketplace/index.json";
+const MARKETPLACE_REPOSITORY_URL = "https://github.com/takan003/campus-toolkit-marketplace";
+
 interface MarketModuleEntry {
   id: string;
   name: string;
@@ -114,6 +120,7 @@ export default function ModuleMarketPage() {
   const [marketUrlKind, setMarketUrlKind] = useState<"success" | "error" | null>(null);
   const [uninstallTarget, setUninstallTarget] = useState<MarketModuleEntry | null>(null);
   const [backupConfirmed, setBackupConfirmed] = useState(false);
+  const hasLegacyPagesMarketUrl = marketUrlInput.trim() === LEGACY_PAGES_MARKET_INDEX_URL;
   const alwaysVisibleGuide = manualInstallGuide ?? buildFallbackManualGuide(uploadModuleId || "examRegistration");
 
   async function fetchMarket(signal?: AbortSignal): Promise<MarketResponse> {
@@ -159,6 +166,12 @@ export default function ModuleMarketPage() {
       controller.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (!installMessage) return;
+    const timer = window.setTimeout(() => setInstallMessage(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [installMessage]);
 
   function installedVersion(module: MarketModuleEntry): string | null {
     return installedModules[module.id] ?? null;
@@ -375,8 +388,47 @@ export default function ModuleMarketPage() {
     }
   }
 
+  async function copyDefaultMarketUrl() {
+    try {
+      await navigator.clipboard.writeText(DEFAULT_MARKET_INDEX_URL);
+      setMarketUrlKind("success");
+      setMarketUrlMessage("Raw GitHub 市集來源 URL 已複製");
+    } catch {
+      setMarketUrlKind("error");
+      setMarketUrlMessage("無法存取剪貼簿，請手動複製上方網址");
+    }
+  }
+
   return (
     <div className="w-full max-w-5xl space-y-6">
+      {installMessage && (
+        <div
+          role={installKind === "error" ? "alert" : "status"}
+          aria-live={installKind === "error" ? "assertive" : "polite"}
+          className={`fixed bottom-4 left-1/2 z-40 w-[min(92vw,64rem)] -translate-x-1/2 rounded-lg border p-3 text-sm shadow-lg ${
+            installKind === "success"
+              ? "border-success/60 bg-card text-success"
+              : "border-danger/60 bg-card text-danger"
+          }`}
+        >
+          <p className="break-words">{installMessage}</p>
+          {(installCommitUrl || installBranch) && (
+            <div className="mt-2 text-xs">
+              {installBranch && <p>分支：{installBranch}</p>}
+              {installCommitUrl && (
+                <a
+                  href={installCommitUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  查看提交紀錄
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {uninstallTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <button
@@ -477,8 +529,42 @@ export default function ModuleMarketPage() {
           <div className="pt-2 border-t border-themed space-y-2">
             <h3 className="text-xs font-semibold text-t1">模組市集來源設定</h3>
             <p className="text-xs text-t2">
-              可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。
+              可在此設定 index.json URL；留空代表回退環境變數（MODULE_MARKET_INDEX_URL）。建議使用與模組下載網址同網域的 Raw GitHub 來源：
             </p>
+            <div className="flex flex-col md:flex-row md:items-center gap-2 text-xs">
+              <code className="text-t1 break-all">{DEFAULT_MARKET_INDEX_URL}</code>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => void copyDefaultMarketUrl()}
+                  className="border border-themed rounded px-2.5 py-1.5 text-t2 hover:text-t1 cursor-pointer"
+                >
+                  複製 URL
+                </button>
+                <a
+                  href={MARKETPLACE_REPOSITORY_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline underline-offset-2 hover:opacity-80"
+                >
+                  GitHub Repo ↗
+                </a>
+              </div>
+            </div>
+            {hasLegacyPagesMarketUrl && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-warning">
+                <p>
+                  目前設定的 Pages 網址與模組下載網址網域不同，安裝會被安全檢查拒絕。請改用 Raw GitHub URL 並儲存。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMarketUrlInput(DEFAULT_MARKET_INDEX_URL)}
+                  className="shrink-0 rounded border border-warning/60 px-2.5 py-1.5 font-medium hover:bg-warning/10 cursor-pointer"
+                >
+                  改用 Raw URL
+                </button>
+              </div>
+            )}
             <div className="flex flex-col md:flex-row gap-2">
               <input
                 value={marketUrlInput}
@@ -700,31 +786,6 @@ export default function ModuleMarketPage() {
           </div>
         </details>
       </div>
-
-      {installMessage && (
-        <div
-          className={`border rounded-lg p-3 text-sm ${
-            installKind === "success" ? "border-success/60 bg-success/10 text-success" : "border-danger/60 bg-danger/10 text-danger"
-          }`}
-        >
-          <p>{installMessage}</p>
-          {(installCommitUrl || installBranch) && (
-            <div className="mt-2 text-xs">
-              {installBranch && <p>分支：{installBranch}</p>}
-              {installCommitUrl && (
-                <a
-                  href={installCommitUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline"
-                >
-                  查看提交紀錄
-                </a>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
     </div>
   );
