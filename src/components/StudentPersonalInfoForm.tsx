@@ -242,7 +242,9 @@ export default function StudentPersonalInfoForm({
         <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
           <header className="mb-4 border-b border-themed pb-3">
             <h3 className="text-lg font-bold text-t1">個人證件照</h3>
-            <p className="text-xs text-t3 mt-1">限 JPG、PNG 或 WebP，單張不可超過 5 MB。</p>
+            <p className="text-xs text-t3 mt-1">
+              須為高彩彩色 JPG、至少 450 × 600 pixels、解析度 300 dpi 以上，檔案不超過 5 MB。
+            </p>
           </header>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <StudentPhotoTile
@@ -326,7 +328,7 @@ function StudentPhotoTile({
           <input
             id={inputId}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,.jpg,.jpeg"
             disabled={uploading}
             onChange={(event) => {
               const file = event.target.files?.[0];

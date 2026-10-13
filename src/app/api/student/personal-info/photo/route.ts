@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { getAdminStorageBucket } from "@/lib/firebase-admin";
+import { inspectJpegPhoto } from "@/lib/jpeg-photo";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getCurrentPeriod } from "@/lib/settings-server";
@@ -24,31 +25,6 @@ const privateNoStore = {
   "Cache-Control": "private, no-store",
   "X-Content-Type-Options": "nosniff",
 };
-
-function detectImageContentType(bytes: Buffer): "image/jpeg" | "image/png" | "image/webp" | null {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes.subarray(1, 4).toString("ascii") === "PNG" &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-  if (
-    bytes.length >= 12 &&
-    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-    bytes.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
 
 /** 照片只透過登入後的同源 API 提供，不建立公開 Storage URL。 */
 export async function GET(request: NextRequest) {
@@ -157,15 +133,37 @@ export async function POST(request: NextRequest) {
     }
 
     const contents = Buffer.from(await file.arrayBuffer());
-    const contentType = detectImageContentType(contents);
-    if (!contentType) {
+    const properties = inspectJpegPhoto(contents);
+    if (!properties) {
       return NextResponse.json(
-        { success: false, message: "照片格式僅接受 JPEG、PNG 或 WebP 圖片" },
+        { success: false, message: "請上傳有效的 JPG 檔案" },
+        { status: 400, headers: privateNoStore }
+      );
+    }
+    if (properties.precision < 8 || properties.components < 3) {
+      return NextResponse.json(
+        { success: false, message: "請上傳高彩彩色照片，不接受灰階照片" },
+        { status: 400, headers: privateNoStore }
+      );
+    }
+    const [width, height] =
+      properties.orientation >= 5 && properties.orientation <= 8
+        ? [properties.height, properties.width]
+        : [properties.width, properties.height];
+    if (width < 450 || height < 600) {
+      return NextResponse.json(
+        { success: false, message: "照片尺寸需至少 450 × 600 pixels" },
+        { status: 400, headers: privateNoStore }
+      );
+    }
+    if (properties.dpiX === null || properties.dpiY === null || properties.dpiX < 300 || properties.dpiY < 300) {
+      return NextResponse.json(
+        { success: false, message: "照片解析度需達 300 dpi 以上，且檔案須包含解析度資訊" },
         { status: 400, headers: privateNoStore }
       );
     }
 
-    const photo = await saveStudentPersonalPhoto(session.uid, period, kind, contents, contentType);
+    const photo = await saveStudentPersonalPhoto(session.uid, period, kind, contents, "image/jpeg");
     await logActivity({
       userId: session.uid,
       role: "student",

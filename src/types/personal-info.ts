@@ -11,7 +11,7 @@ export function isStudentPersonalPhotoKind(value: unknown): value is StudentPers
 
 export interface StudentPersonalPhotoMetadata {
   objectPath: string;
-  contentType: "image/jpeg" | "image/png" | "image/webp";
+  contentType: "image/jpeg";
   updatedAt: number;
 }
 
@@ -198,7 +198,7 @@ export function readStudentPersonalPhotoMetadata(raw: unknown): StudentPersonalP
   const updatedAt = data.updatedAt;
   if (
     !objectPath ||
-    (contentType !== "image/jpeg" && contentType !== "image/png" && contentType !== "image/webp") ||
+    contentType !== "image/jpeg" ||
     typeof updatedAt !== "number" ||
     !Number.isFinite(updatedAt)
   ) {
