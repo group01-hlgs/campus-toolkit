@@ -54,6 +54,8 @@ export interface StudentPersonalInfoSettings {
   startDate: string;
   endDate: string;
   target: StudentPersonalInfoTarget;
+  allowAdmissionPhotoReplacement: boolean;
+  allowGraduationPhotoUpload: boolean;
 }
 
 export type StudentPersonalInfoTargetMode = "all" | "grades" | "classes";
@@ -85,6 +87,8 @@ export const DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS: StudentPersonalInfoSettings
   startDate: "",
   endDate: "",
   target: { ...DEFAULT_STUDENT_PERSONAL_INFO_TARGET },
+  allowAdmissionPhotoReplacement: false,
+  allowGraduationPhotoUpload: false,
 };
 
 export function personalInfoSettingsDocId(period: SchoolPeriod): string {
@@ -132,6 +136,8 @@ export function readStudentPersonalInfoSettings(raw: unknown): StudentPersonalIn
     startDate,
     endDate,
     target,
+    allowAdmissionPhotoReplacement: data.allowAdmissionPhotoReplacement === true,
+    allowGraduationPhotoUpload: data.allowGraduationPhotoUpload === true,
   };
 }
 

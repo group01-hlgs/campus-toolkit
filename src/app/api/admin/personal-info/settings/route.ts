@@ -164,14 +164,21 @@ export async function PUT(request: NextRequest) {
     }
 
     const period = await getCurrentPeriod();
-    const settings = { enabled: raw.enabled, startDate, endDate, target };
+    const settings = {
+      enabled: raw.enabled,
+      startDate,
+      endDate,
+      target,
+      allowAdmissionPhotoReplacement: raw.allowAdmissionPhotoReplacement === true,
+      allowGraduationPhotoUpload: raw.allowGraduationPhotoUpload === true,
+    };
     await saveStudentPersonalInfoSettings(period, settings);
     await logActivity({
       userId: session.uid,
       role: "admin",
       action: "personal_info_settings_updated",
       ip: getClientIp(request),
-      details: `更新 ${period.academicYear} 學年度第 ${period.semester} 學期個人資料填寫規則（${settings.enabled ? "開放" : "關閉"}，對象=${target.mode}，${startDate || "未設定"} 至 ${endDate || "未設定"}）`,
+      details: `更新 ${period.academicYear} 學年度第 ${period.semester} 學期個人資料填寫規則（${settings.enabled ? "開放" : "關閉"}，對象=${target.mode}，入學照=${settings.allowAdmissionPhotoReplacement ? "開" : "關"}，畢業照=${settings.allowGraduationPhotoUpload ? "開" : "關"}，${startDate || "未設定"} 至 ${endDate || "未設定"}）`,
     });
 
     return NextResponse.json(
