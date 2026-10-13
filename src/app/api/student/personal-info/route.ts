@@ -23,6 +23,7 @@ import {
   EMPTY_STUDENT_PERSONAL_INFO_PHOTOS,
   isIsoDate,
   isStudentPersonalInfoTargetEligible,
+  validateStudentPersonalId,
   STUDENT_PERSONAL_IDENTITY_FIELD_DEFS,
   STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS,
   type StudentPersonalIdentityFields,
@@ -31,26 +32,37 @@ import {
 
 const noStore = { "Cache-Control": "no-store" };
 
-function validateStudentIdentity(raw: unknown): StudentPersonalIdentityFields | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+type StudentIdentityValidation =
+  | { ok: true; identity: StudentPersonalIdentityFields }
+  | { ok: false; message: string };
+
+function validateStudentIdentity(raw: unknown): StudentIdentityValidation {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, message: "請檢查性別、證件與生日資料格式" };
+  }
   const input = raw as Record<string, unknown>;
   const fields = { ...EMPTY_STUDENT_PERSONAL_IDENTITY };
   for (const definition of STUDENT_PERSONAL_IDENTITY_FIELD_DEFS) {
     const rawValue = input[definition.key];
     const value = typeof rawValue === "string" ? rawValue.trim() : "";
-    if (value.length > definition.maxLength) return null;
+    if (value.length > definition.maxLength) {
+      return { ok: false, message: `${definition.label}長度不可超過 ${definition.maxLength} 字` };
+    }
     fields[definition.key] = value;
   }
-  if (
-    fields.gender &&
-    !STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.find((field) => field.key === "gender")?.options?.includes(fields.gender)
-  ) {
-    return null;
+  const genderOptions = STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.find(
+    (field) => field.key === "gender"
+  )?.options;
+  if (fields.gender && !genderOptions?.some((option) => option.value === fields.gender)) {
+    return { ok: false, message: "性別僅提供男、女" };
   }
   if (fields.birthday && (!isIsoDate(fields.birthday) || fields.birthday > taipeiDateString())) {
-    return null;
+    return { ok: false, message: "生日格式無效或晚於今天" };
   }
-  return fields;
+  const idValidation = validateStudentPersonalId(fields.idType, fields.nationalId);
+  if (!idValidation.ok) return { ok: false, message: idValidation.message };
+  fields.nationalId = fields.nationalId.trim().toUpperCase();
+  return { ok: true, identity: fields };
 }
 
 function validateStudentTermFields(raw: unknown): StudentPersonalInfoTermFields | null {
@@ -257,13 +269,14 @@ export async function PATCH(request: NextRequest) {
         { status: 400, headers: noStore }
       );
     }
-    const identity = validateStudentIdentity(body.identity);
-    if (!identity) {
+    const identityValidation = validateStudentIdentity(body.identity);
+    if (!identityValidation.ok) {
       return NextResponse.json(
-        { success: false, message: "請檢查性別、身分證與生日資料格式" },
+        { success: false, message: identityValidation.message },
         { status: 400, headers: noStore }
       );
     }
+    const identity = identityValidation.identity;
 
     const period = await getCurrentPeriod();
     const settings = await getStudentPersonalInfoSettings(period);

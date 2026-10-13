@@ -217,6 +217,7 @@ export async function saveStudentPersonalInfo(
       fields: {
         ...fields,
         gender: FieldValue.delete(),
+        idType: FieldValue.delete(),
         nationalId: FieldValue.delete(),
         birthday: FieldValue.delete(),
       },

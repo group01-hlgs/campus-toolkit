@@ -6,8 +6,11 @@ import {
   EMPTY_STUDENT_PERSONAL_IDENTITY,
   EMPTY_STUDENT_PERSONAL_INFO_TERM,
   STUDENT_PERSONAL_PHOTO_MAX_BYTES,
+  STUDENT_PERSONAL_GENDER_OPTIONS,
   STUDENT_PERSONAL_IDENTITY_FIELD_DEFS,
+  STUDENT_PERSONAL_ID_TYPE_OPTIONS,
   STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS,
+  validateStudentPersonalId,
   type StudentPersonalPhotoKind,
   type StudentPersonalIdentityFields,
   type StudentPersonalInfoTermFields,
@@ -141,6 +144,11 @@ export default function StudentPersonalInfoForm({
 
   async function saveIdentity() {
     if (savingIdentity || !canEdit) return;
+    const idValidation = validateStudentPersonalId(identity.idType, identity.nationalId);
+    if (!idValidation.ok) {
+      setFeedback({ kind: "error", message: idValidation.message });
+      return;
+    }
     setSavingIdentity(true);
     try {
       const response = await fetch("/api/student/personal-info", {
@@ -221,6 +229,9 @@ export default function StudentPersonalInfoForm({
     },
   ].sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
 
+  const idValidation = validateStudentPersonalId(identity.idType, identity.nationalId);
+  const showIdError = (Boolean(identity.idType) || Boolean(identity.nationalId)) && !idValidation.ok;
+
   return (
     <>
       {!loading && !loadError && (
@@ -231,33 +242,65 @@ export default function StudentPersonalInfoForm({
           </summary>
           <div className="px-5 sm:px-7 pb-5">
             <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
-              性別、身分證與生日跨學期共用，不會因年度或學期改變。
+              性別、生日與證件資訊跨學期共用，不會因年度或學期改變。
             </p>
             {canEdit ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.map((field) => (
-                  <label key={field.key} className="block space-y-1 text-sm text-t2">
-                    <span>{field.label}</span>
-                    {field.type === "select" ? (
-                      <select
-                        value={identity[field.key]}
-                        onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
-                        className="w-full input-theme rounded px-3 py-2 text-sm"
-                      >
-                        <option value="">請選擇</option>
-                        {field.options?.map((option) => <option key={option} value={option}>{option}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type={field.type}
-                        value={identity[field.key]}
-                        onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
-                        maxLength={field.maxLength}
-                        className="w-full input-theme rounded px-3 py-2 text-sm"
-                      />
-                    )}
-                  </label>
-                ))}
+                <label className="block space-y-1 text-sm text-t2">
+                  <span>性別</span>
+                  <select
+                    value={identity.gender}
+                    onChange={(event) => setIdentity({ ...identity, gender: event.target.value })}
+                    className="w-full input-theme rounded px-3 py-2 text-sm"
+                  >
+                    <option value="">請選擇</option>
+                    {STUDENT_PERSONAL_GENDER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block space-y-1 text-sm text-t2">
+                  <span>生日</span>
+                  <input
+                    type="date"
+                    value={identity.birthday}
+                    onChange={(event) => setIdentity({ ...identity, birthday: event.target.value })}
+                    maxLength={10}
+                    className="w-full input-theme rounded px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block space-y-1 text-sm text-t2">
+                  <span>證件類型</span>
+                  <select
+                    value={identity.idType}
+                    onChange={(event) => setIdentity({ ...identity, idType: event.target.value })}
+                    className="w-full input-theme rounded px-3 py-2 text-sm"
+                  >
+                    <option value="">請選擇</option>
+                    {STUDENT_PERSONAL_ID_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block space-y-1 text-sm text-t2">
+                  <span>身分證統一編號</span>
+                  <input
+                    type="text"
+                    value={identity.nationalId}
+                    onChange={(event) =>
+                      setIdentity({ ...identity, nationalId: event.target.value.toUpperCase() })
+                    }
+                    maxLength={10}
+                    className="w-full input-theme rounded px-3 py-2 text-sm"
+                  />
+                  {showIdError ? (
+                    <span className="text-xs text-danger" role="alert">{idValidation.message}</span>
+                  ) : (
+                    <span className="text-xs text-t3">
+                      國民身分證或居留證（新式統一證號），格式為 1 碼大寫英文＋9 碼數字。
+                    </span>
+                  )}
+                </label>
                 <div className="sm:col-span-2 flex justify-end">
                   <button
                     type="button"
@@ -363,10 +406,10 @@ export default function StudentPersonalInfoForm({
                                   onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
                                   className="w-full input-theme rounded px-3 py-2 text-sm"
                                 >
-                                  <option value="">請選擇</option>
-                                  {field.options?.map((option) => (
-                                    <option key={option} value={option}>{option}</option>
-                                  ))}
+                                <option value="">請選擇</option>
+                                {field.options?.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
                                 </select>
                               ) : field.type === "textarea" ? (
                                 <textarea
@@ -467,14 +510,18 @@ function StudentPersonalInfoFieldsView({ fields }: { fields: StudentPersonalInfo
 function StudentPersonalIdentityFieldsView({ identity }: { identity: StudentPersonalIdentityFields }) {
   return (
     <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-6">
-      {STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.map((field) => (
-        <div key={field.key} className="border-b border-themed py-3">
-          <dt className="text-xs text-t3">{field.label}</dt>
-          <dd className="text-sm text-t1 mt-1 whitespace-pre-wrap break-words">
-            {identity[field.key] || "—"}
-          </dd>
-        </div>
-      ))}
+      {STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.map((field) => {
+        const raw = identity[field.key];
+        const value = field.display ? field.display(raw) : raw;
+        return (
+          <div key={field.key} className="border-b border-themed py-3">
+            <dt className="text-xs text-t3">{field.label}</dt>
+            <dd className="text-sm text-t1 mt-1 whitespace-pre-wrap break-words">
+              {value || "—"}
+            </dd>
+          </div>
+        );
+      })}
     </dl>
   );
 }

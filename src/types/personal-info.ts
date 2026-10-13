@@ -31,10 +31,92 @@ export interface StudentPersonalInfoEntry {
   legacyIdentity: StudentPersonalIdentityFields;
 }
 
+export interface StudentPersonalIdTypeOption {
+  value: string;
+  label: string;
+}
+
+/** 證件類型：國民身分證（有戶籍國民）或居留證（外來人口統一證號）。 */
+export const STUDENT_PERSONAL_ID_TYPE_OPTIONS: readonly StudentPersonalIdTypeOption[] = [
+  { value: "national", label: "國民身分證" },
+  { value: "resident", label: "居留證" },
+];
+
+export const STUDENT_PERSONAL_GENDER_OPTIONS: readonly StudentPersonalIdTypeOption[] = [
+  { value: "男", label: "男" },
+  { value: "女", label: "女" },
+];
+
+export function studentPersonalIdTypeLabel(value: string): string {
+  return STUDENT_PERSONAL_ID_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? "";
+}
+
+/**
+ * 國民身分證統一編號／外來人口統一證號的首碼英文字母對照值
+ * （內政部戶政司配賦表；I、O 為後來升格縣市專用碼）。
+ */
+const STUDENT_ID_LETTER_VALUES: Record<string, number> = {
+  A: 10, B: 11, C: 12, D: 13, E: 14, F: 15, G: 16, H: 17, I: 34, J: 18, K: 19,
+  L: 20, M: 21, N: 22, O: 35, P: 23, Q: 24, R: 25, S: 26, T: 27, U: 28, V: 29,
+  W: 32, X: 30, Y: 31, Z: 33,
+};
+
+/** 檢查碼權數：首碼展開為兩位數後共 11 碼，依序乘上 1、9、8、7、6、5、4、3、2、1、1。 */
+const STUDENT_ID_WEIGHTS = [1, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1];
+
+function studentIdChecksumValid(id: string): boolean {
+  const letterValue = STUDENT_ID_LETTER_VALUES[id[0]];
+  if (letterValue === undefined) return false;
+  const digits = [
+    Math.trunc(letterValue / 10),
+    letterValue % 10,
+    ...id.slice(1).split("").map(Number),
+  ];
+  return digits.reduce((sum, digit, index) => sum + digit * STUDENT_ID_WEIGHTS[index], 0) % 10 === 0;
+}
+
+export interface StudentPersonalIdValidation {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * 依證件類型驗證編號：
+ * - 國民身分證：1 碼英文＋9 碼數字，第 2 碼性別碼 1（男）／2（女），第 10 碼為檢查碼。
+ * - 居留證（新式外來人口統一證號，110-01-02 起）：同格式，第 2 碼性別碼 8（男）／9（女），
+ *   檢查碼規則同國民身分證。
+ */
+export function validateStudentPersonalId(idType: string, raw: string): StudentPersonalIdValidation {
+  const typeLabel = studentPersonalIdTypeLabel(idType);
+  if (!typeLabel) {
+    return { ok: false, message: "請選擇證件類型（國民身分證或居留證）。" };
+  }
+  const id = raw.trim().toUpperCase();
+  if (!id) {
+    return { ok: false, message: `請輸入${typeLabel}編號。` };
+  }
+  if (!/^[A-Z][0-9]{9}$/.test(id)) {
+    return { ok: false, message: `${typeLabel}編號為 1 碼大寫英文字母加上 9 碼數字，請重新輸入。` };
+  }
+  const genderCode = id[1];
+  if (idType === "national" && genderCode !== "1" && genderCode !== "2") {
+    return { ok: false, message: "國民身分證第 2 碼為性別碼，須為 1（男）或 2（女）。" };
+  }
+  if (idType === "resident" && genderCode !== "8" && genderCode !== "9") {
+    return { ok: false, message: "居留證第 2 碼為性別碼，須為 8（男）或 9（女）。" };
+  }
+  if (!studentIdChecksumValid(id)) {
+    return { ok: false, message: `${typeLabel}編號檢查碼不符，請確認是否輸入正確。` };
+  }
+  return { ok: true, message: "" };
+}
+
 export interface StudentPersonalIdentityFields {
   gender: string;
-  nationalId: string;
   birthday: string;
+  /** 必填：studentPersonalIdTypeLabel() 的 value，空值表示尚未擇一。 */
+  idType: string;
+  nationalId: string;
 }
 
 export interface StudentPersonalInfoTermFields {
@@ -42,9 +124,9 @@ export interface StudentPersonalInfoTermFields {
   householdAddress: string;
   mailingPostalCode: string;
   mailingAddress: string;
+  contactPhone: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
-  contactPhone: string;
 }
 
 export interface StudentPersonalInfoFields
@@ -59,13 +141,29 @@ export interface StudentPersonalInfoFieldDefinition<
   label: string;
   type: "text" | "date" | "tel" | "select" | "textarea";
   maxLength: number;
-  options?: readonly string[];
+  options?: readonly StudentPersonalIdTypeOption[];
+  /** 選單存值為代碼時，唯讀檢視用來顯示名稱 */
+  display?: (value: string) => string;
 }
 
 export const STUDENT_PERSONAL_INFO_FIELD_DEFS: StudentPersonalInfoFieldDefinition[] = [
-  { key: "gender", label: "性別", type: "select", maxLength: 10, options: ["男", "女", "其他", "不提供"] },
-  { key: "nationalId", label: "身分證", type: "text", maxLength: 20 },
+  {
+    key: "gender",
+    label: "性別",
+    type: "select",
+    maxLength: 10,
+    options: STUDENT_PERSONAL_GENDER_OPTIONS,
+  },
   { key: "birthday", label: "生日", type: "date", maxLength: 10 },
+  {
+    key: "idType",
+    label: "證件類型",
+    type: "select",
+    maxLength: 10,
+    options: STUDENT_PERSONAL_ID_TYPE_OPTIONS,
+    display: studentPersonalIdTypeLabel,
+  },
+  { key: "nationalId", label: "身分證統一編號", type: "text", maxLength: 10 },
   { key: "householdPostalCode", label: "戶籍郵區", type: "text", maxLength: 6 },
   { key: "householdAddress", label: "戶籍地址", type: "textarea", maxLength: 200 },
   { key: "mailingPostalCode", label: "通訊郵區", type: "text", maxLength: 6 },
@@ -75,17 +173,25 @@ export const STUDENT_PERSONAL_INFO_FIELD_DEFS: StudentPersonalInfoFieldDefinitio
   { key: "emergencyContactPhone", label: "緊急聯絡人電話", type: "tel", maxLength: 30 },
 ];
 
+export const STUDENT_PERSONAL_IDENTITY_KEYS = [
+  "gender",
+  "birthday",
+  "idType",
+  "nationalId",
+] as const satisfies readonly (keyof StudentPersonalIdentityFields)[];
+
 export const STUDENT_PERSONAL_IDENTITY_FIELD_DEFS = STUDENT_PERSONAL_INFO_FIELD_DEFS.filter(
-  ({ key }) => key === "gender" || key === "nationalId" || key === "birthday"
+  ({ key }) => (STUDENT_PERSONAL_IDENTITY_KEYS as readonly string[]).includes(key)
 ) as StudentPersonalInfoFieldDefinition<keyof StudentPersonalIdentityFields>[];
 export const STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS = STUDENT_PERSONAL_INFO_FIELD_DEFS.filter(
-  ({ key }) => key !== "gender" && key !== "nationalId" && key !== "birthday"
+  ({ key }) => !(STUDENT_PERSONAL_IDENTITY_KEYS as readonly string[]).includes(key)
 ) as StudentPersonalInfoFieldDefinition<keyof StudentPersonalInfoTermFields>[];
 
 export const EMPTY_STUDENT_PERSONAL_IDENTITY: StudentPersonalIdentityFields = {
   gender: "",
-  nationalId: "",
   birthday: "",
+  idType: "",
+  nationalId: "",
 };
 
 export const EMPTY_STUDENT_PERSONAL_INFO_TERM: StudentPersonalInfoTermFields = {
@@ -93,22 +199,23 @@ export const EMPTY_STUDENT_PERSONAL_INFO_TERM: StudentPersonalInfoTermFields = {
   householdAddress: "",
   mailingPostalCode: "",
   mailingAddress: "",
+  contactPhone: "",
   emergencyContactName: "",
   emergencyContactPhone: "",
-  contactPhone: "",
 };
 
 export const EMPTY_STUDENT_PERSONAL_INFO: StudentPersonalInfoFields = {
   gender: "",
-  nationalId: "",
   birthday: "",
+  idType: "",
+  nationalId: "",
   householdPostalCode: "",
   householdAddress: "",
   mailingPostalCode: "",
   mailingAddress: "",
+  contactPhone: "",
   emergencyContactName: "",
   emergencyContactPhone: "",
-  contactPhone: "",
 };
 
 export const EMPTY_STUDENT_PERSONAL_INFO_PHOTOS: StudentPersonalInfoRecord["photos"] = {
@@ -241,8 +348,9 @@ export function readStudentPersonalIdentityFields(raw: unknown): StudentPersonal
     : data) as Record<string, unknown>;
   return {
     gender: typeof source.gender === "string" ? source.gender.slice(0, 10) : "",
-    nationalId: typeof source.nationalId === "string" ? source.nationalId.slice(0, 20) : "",
     birthday: typeof source.birthday === "string" ? source.birthday.slice(0, 10) : "",
+    idType: typeof source.idType === "string" ? source.idType.slice(0, 10) : "",
+    nationalId: typeof source.nationalId === "string" ? source.nationalId.slice(0, 10) : "",
   };
 }
 
