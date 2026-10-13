@@ -53,12 +53,38 @@ export interface StudentPersonalInfoSettings {
   enabled: boolean;
   startDate: string;
   endDate: string;
+  target: StudentPersonalInfoTarget;
 }
+
+export type StudentPersonalInfoTargetMode = "all" | "grades" | "classes";
+
+export interface StudentPersonalInfoTarget {
+  mode: StudentPersonalInfoTargetMode;
+  /** 名冊 grade 欄位儲存的年級編號字串，例如 "1" */
+  grades: string[];
+  /** 名冊 classCode 欄位儲存的班級代碼 */
+  classes: string[];
+}
+
+export interface StudentPersonalInfoTargetOptions {
+  grades: {
+    value: string;
+    label: string;
+    classes: { value: string; label: string }[];
+  }[];
+}
+
+export const DEFAULT_STUDENT_PERSONAL_INFO_TARGET: StudentPersonalInfoTarget = {
+  mode: "all",
+  grades: [],
+  classes: [],
+};
 
 export const DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS: StudentPersonalInfoSettings = {
   enabled: false,
   startDate: "",
   endDate: "",
+  target: { ...DEFAULT_STUDENT_PERSONAL_INFO_TARGET },
 };
 
 export function personalInfoSettingsDocId(period: SchoolPeriod): string {
@@ -72,6 +98,24 @@ export function studentPersonalInfoDocId(uid: string, period: SchoolPeriod): str
 export function readStudentPersonalInfoSettings(raw: unknown): StudentPersonalInfoSettings {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS };
   const data = raw as Record<string, unknown>;
+  const hasStoredTarget = Object.prototype.hasOwnProperty.call(data, "target");
+  const targetData = data.target && typeof data.target === "object"
+    ? (data.target as Record<string, unknown>)
+    : null;
+  const mode = targetData?.mode === "grades" || targetData?.mode === "classes"
+    ? targetData.mode
+    : targetData?.mode === "all" || !hasStoredTarget
+      ? "all"
+      : "classes";
+  const readList = (value: unknown, maxLength: number): string[] =>
+    Array.isArray(value)
+      ? [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))].slice(0, maxLength)
+      : [];
+  const target: StudentPersonalInfoTarget = {
+    mode,
+    grades: mode === "grades" ? readList(targetData?.grades, 24) : [],
+    classes: mode === "classes" ? readList(targetData?.classes, 300) : [],
+  };
   const rawStartDate = typeof data.startDate === "string" ? data.startDate : "";
   const rawEndDate = typeof data.endDate === "string" ? data.endDate : "";
   const startDate = normalizePersonalInfoDateTime(rawStartDate, "start");
@@ -81,10 +125,26 @@ export function readStudentPersonalInfoSettings(raw: unknown): StudentPersonalIn
       data.enabled === true &&
       Boolean(startDate) &&
       Boolean(endDate) &&
-      endDate >= startDate,
+      endDate >= startDate &&
+      (target.mode === "all" ||
+        (target.mode === "grades" && target.grades.length > 0) ||
+        (target.mode === "classes" && target.classes.length > 0)),
     startDate,
     endDate,
+    target,
   };
+}
+
+export function isStudentPersonalInfoTargetEligible(
+  target: StudentPersonalInfoTarget,
+  grade: unknown,
+  classCode: unknown
+): boolean {
+  if (target.mode === "all") return true;
+  const studentGrade = typeof grade === "string" || typeof grade === "number" ? String(grade) : "";
+  const studentClass = typeof classCode === "string" ? classCode : "";
+  if (target.mode === "grades") return target.grades.includes(studentGrade);
+  return target.classes.includes(studentClass);
 }
 
 export function readStudentPersonalInfoFields(raw: unknown): StudentPersonalInfoFields {

@@ -2,7 +2,10 @@ import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedSettingDoc, invalidateReadCache } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
+import { CLASSES_DOC_ID, readSchoolClasses, type SchoolClassesContext } from "@/types/school-classes";
+import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 import {
+  DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
   EMPTY_STUDENT_PERSONAL_INFO,
   PERSONAL_INFO_COLLECTION,
   personalInfoSettingsDocId,
@@ -11,6 +14,7 @@ import {
   studentPersonalInfoDocId,
   type StudentPersonalInfoFields,
   type StudentPersonalInfoSettings,
+  type StudentPersonalInfoTargetOptions,
 } from "@/types/personal-info";
 import type { SchoolPeriod } from "@/types/settings";
 
@@ -26,7 +30,7 @@ export async function getStudentPersonalInfoSettings(
     return readStudentPersonalInfoSettings(raw);
   } catch (error) {
     console.error("Student personal info settings read error:", error);
-    return { enabled: false, startDate: "", endDate: "" };
+    return { ...DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS };
   }
 }
 
@@ -42,6 +46,41 @@ export async function saveStudentPersonalInfoSettings(
     updatedAt: Date.now(),
   });
   invalidateReadCache(`setting-doc:${docId}`);
+}
+
+export async function getStudentPersonalInfoTargetOptions(): Promise<StudentPersonalInfoTargetOptions> {
+  try {
+    const db = getAdminDb();
+    const [classesSnap, profileSnap] = await Promise.all([
+      cachedSettingDoc(CLASSES_DOC_ID, () =>
+        db.collection(SETTINGS_COLLECTION).doc(CLASSES_DOC_ID).get()
+      ),
+      cachedSettingDoc(PROFILE_DOC_ID, () =>
+        db.collection(SETTINGS_COLLECTION).doc(PROFILE_DOC_ID).get()
+      ),
+    ]);
+    const profile = readSchoolProfile(profileSnap.exists ? profileSnap.data() : null);
+    const context: SchoolClassesContext = {
+      stages: profile.stages.map(({ stage, years }) => ({ stage, years })),
+    };
+    const schoolClasses = readSchoolClasses(
+      classesSnap.exists ? classesSnap.data() : null,
+      context
+    );
+    return {
+      grades: schoolClasses.grades.map((grade) => ({
+        value: String(grade.grade),
+        label: grade.name,
+        classes: grade.classes.map((classRow) => ({
+          value: classRow.code,
+          label: classRow.name,
+        })),
+      })),
+    };
+  } catch (error) {
+    console.error("Student personal info target options read error:", error);
+    return { grades: [] };
+  }
 }
 
 export async function getStudentPersonalInfo(

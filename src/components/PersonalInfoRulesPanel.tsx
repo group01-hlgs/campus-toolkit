@@ -5,6 +5,7 @@ import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
   type StudentPersonalInfoSettings,
+  type StudentPersonalInfoTargetOptions,
 } from "@/types/personal-info";
 
 interface SettingsResponse {
@@ -12,12 +13,14 @@ interface SettingsResponse {
   message?: string;
   settings?: StudentPersonalInfoSettings;
   period?: { academicYear: number; semester: number };
+  targetOptions?: StudentPersonalInfoTargetOptions;
 }
 
 export default function PersonalInfoRulesPanel() {
   const [settings, setSettings] = useState<StudentPersonalInfoSettings>(
     DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS
   );
+  const [targetOptions, setTargetOptions] = useState<StudentPersonalInfoTargetOptions>({ grades: [] });
   const [period, setPeriod] = useState<{ academicYear: number; semester: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -30,11 +33,12 @@ export default function PersonalInfoRulesPanel() {
     try {
       const response = await fetch("/api/admin/personal-info/settings", { cache: "no-store" });
       const data: SettingsResponse = await response.json();
-      if (!response.ok || !data.success || !data.settings || !data.period) {
+      if (!response.ok || !data.success || !data.settings || !data.period || !data.targetOptions) {
         throw new Error(data.message || "讀取個人資料管理規則失敗");
       }
       setSettings(data.settings);
       setPeriod(data.period);
+      setTargetOptions(data.targetOptions);
     } catch (error) {
       const message = error instanceof Error ? error.message : "讀取個人資料管理規則失敗";
       setLoadError(message);
@@ -56,6 +60,14 @@ export default function PersonalInfoRulesPanel() {
     }
     if (settings.startDate && settings.endDate && settings.endDate < settings.startDate) {
       setFeedback({ kind: "error", message: "結束日期時間不可早於起始日期時間。" });
+      return;
+    }
+    if (settings.enabled && settings.target.mode === "grades" && settings.target.grades.length === 0) {
+      setFeedback({ kind: "error", message: "請至少選擇一個開放填寫的年級。" });
+      return;
+    }
+    if (settings.enabled && settings.target.mode === "classes" && settings.target.classes.length === 0) {
+      setFeedback({ kind: "error", message: "請至少選擇一個開放填寫的班級。" });
       return;
     }
 
@@ -124,6 +136,96 @@ export default function PersonalInfoRulesPanel() {
               />
               <span>開放填寫本學期的基本資料</span>
             </label>
+
+            <div className="space-y-3">
+              <label className="block space-y-1 text-xs text-t2">
+                <span>開放填寫的學生對象</span>
+                <select
+                  value={settings.target.mode}
+                  onChange={(event) => {
+                    const mode = event.target.value as StudentPersonalInfoSettings["target"]["mode"];
+                    setSettings({
+                      ...settings,
+                      target: { mode, grades: [], classes: [] },
+                    });
+                  }}
+                  className="w-full sm:w-72 input-theme rounded px-3 py-2 text-sm"
+                >
+                  <option value="all">全校學生</option>
+                  <option value="grades">指定年級</option>
+                  <option value="classes">指定班級</option>
+                </select>
+              </label>
+
+              {settings.target.mode === "grades" && (
+                <fieldset className="rounded border border-themed p-3">
+                  <legend className="px-1 text-xs text-t2">選擇年級</legend>
+                  {targetOptions.grades.length > 0 ? (
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      {targetOptions.grades.map((grade) => (
+                        <label key={grade.value} className="inline-flex items-center gap-1.5 text-sm text-t1">
+                          <input
+                            type="checkbox"
+                            checked={settings.target.grades.includes(grade.value)}
+                            onChange={(event) => {
+                              const grades = new Set(settings.target.grades);
+                              if (event.target.checked) grades.add(grade.value);
+                              else grades.delete(grade.value);
+                              setSettings({
+                                ...settings,
+                                target: { mode: "grades", grades: [...grades], classes: [] },
+                              });
+                            }}
+                            className="accent-current"
+                          />
+                          {grade.label}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-t3">尚未設定年級，請先至「學校基本設定」建立年級。</p>
+                  )}
+                </fieldset>
+              )}
+
+              {settings.target.mode === "classes" && (
+                <fieldset className="space-y-3 rounded border border-themed p-3">
+                  <legend className="px-1 text-xs text-t2">選擇班級</legend>
+                  {targetOptions.grades.some((grade) => grade.classes.length > 0) ? (
+                    targetOptions.grades.map((grade) =>
+                      grade.classes.length === 0 ? null : (
+                        <div key={grade.value} className="space-y-2">
+                          <p className="text-xs font-medium text-t2">{grade.label}</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-2">
+                            {grade.classes.map((classRow) => (
+                              <label key={classRow.value} className="inline-flex items-center gap-1.5 text-sm text-t1">
+                                <input
+                                  type="checkbox"
+                                  checked={settings.target.classes.includes(classRow.value)}
+                                  onChange={(event) => {
+                                    const classes = new Set(settings.target.classes);
+                                    if (event.target.checked) classes.add(classRow.value);
+                                    else classes.delete(classRow.value);
+                                    setSettings({
+                                      ...settings,
+                                      target: { mode: "classes", grades: [], classes: [...classes] },
+                                    });
+                                  }}
+                                  className="accent-current"
+                                />
+                                {classRow.label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    )
+                  ) : (
+                    <p className="text-xs text-t3">尚未設定班級，請先至「學校基本設定」建立班級。</p>
+                  )}
+                </fieldset>
+              )}
+            </div>
 
             <div>
               <p className="text-xs text-t2 mb-2">開放填寫的起訖日期與時間（台北時間，配合上方開放設定）</p>
