@@ -363,8 +363,8 @@ function OptionalRow({
         <td className="px-3 py-2 whitespace-nowrap">
           <span className="flex flex-col items-center gap-1">
             <span className="flex items-center justify-center gap-2">
-              <span className={`text-xs font-medium ${enabled ? "text-success" : "text-t3"}`}>
-                開
+              <span className={`text-xs font-medium ${enabled ? "text-t3" : "text-t2"}`}>
+                關
               </span>
               <button
                 type="button"
@@ -381,8 +381,8 @@ function OptionalRow({
                   className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`}
                 />
               </button>
-              <span className={`text-xs font-medium ${enabled ? "text-t3" : "text-t2"}`}>
-                關
+              <span className={`text-xs font-medium ${enabled ? "text-success" : "text-t3"}`}>
+                開
               </span>
             </span>
             {saving && <span className="text-xs text-t3">處理中...</span>}
