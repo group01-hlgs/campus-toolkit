@@ -138,6 +138,34 @@ export default function StudentPersonalInfoForm({
 
   return (
     <>
+      {!loading && !loadError && (
+        <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
+          <header className="mb-4 border-b border-themed pb-3">
+            <h3 className="text-lg font-bold text-t1">個人證件照</h3>
+            <p className="text-xs text-t3 mt-1">
+              須為高彩彩色 JPG、至少 450 × 600 pixels、解析度 300 dpi 以上，檔案不超過 5 MB。
+            </p>
+          </header>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <StudentPhotoTile
+              key={photos.admission?.updatedAt ?? "admission-empty"}
+              kind="admission"
+              photo={photos.admission}
+              canUpload={photoPermissions.admission}
+              uploading={uploadingPhoto === "admission"}
+              onSelect={(file) => void uploadPhoto("admission", file)}
+            />
+            <StudentPhotoTile
+              key={photos.graduation?.updatedAt ?? "graduation-empty"}
+              kind="graduation"
+              photo={photos.graduation}
+              canUpload={photoPermissions.graduation}
+              uploading={uploadingPhoto === "graduation"}
+              onSelect={(file) => void uploadPhoto("graduation", file)}
+            />
+          </div>
+        </section>
+      )}
       <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
         <header className="mb-4 border-b border-themed pb-3">
           <h3 className="text-lg font-bold text-t1">本學期個人資料</h3>
@@ -238,34 +266,6 @@ export default function StudentPersonalInfoForm({
           </>
         )}
       </section>
-      {!loading && !loadError && (
-        <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
-          <header className="mb-4 border-b border-themed pb-3">
-            <h3 className="text-lg font-bold text-t1">個人證件照</h3>
-            <p className="text-xs text-t3 mt-1">
-              須為高彩彩色 JPG、至少 450 × 600 pixels、解析度 300 dpi 以上，檔案不超過 5 MB。
-            </p>
-          </header>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <StudentPhotoTile
-              key={photos.admission?.updatedAt ?? "admission-empty"}
-              kind="admission"
-              photo={photos.admission}
-              canUpload={photoPermissions.admission}
-              uploading={uploadingPhoto === "admission"}
-              onSelect={(file) => void uploadPhoto("admission", file)}
-            />
-            <StudentPhotoTile
-              key={photos.graduation?.updatedAt ?? "graduation-empty"}
-              kind="graduation"
-              photo={photos.graduation}
-              canUpload={photoPermissions.graduation}
-              uploading={uploadingPhoto === "graduation"}
-              onSelect={(file) => void uploadPhoto("graduation", file)}
-            />
-          </div>
-        </section>
-      )}
       <PersonalInfoResultDialog
         message={feedback?.message ?? null}
         kind={feedback?.kind ?? "success"}
