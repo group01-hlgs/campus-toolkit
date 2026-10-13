@@ -29,8 +29,6 @@ export interface StudentPersonalInfoEntry {
   photos: Record<StudentPersonalPhotoKind, StudentPersonalPhotoMetadata | null>;
   /** 舊期文件遷移到獨立身分文件前的欄位，僅伺服器端用來補資料 */
   legacyIdentity: StudentPersonalIdentityFields;
-  /** 開發環境展示用假資料，絕不寫入資料庫 */
-  isDemo?: boolean;
 }
 
 export interface StudentPersonalIdentityFields {
@@ -72,9 +70,9 @@ export const STUDENT_PERSONAL_INFO_FIELD_DEFS: StudentPersonalInfoFieldDefinitio
   { key: "householdAddress", label: "戶籍地址", type: "textarea", maxLength: 200 },
   { key: "mailingPostalCode", label: "通訊郵區", type: "text", maxLength: 6 },
   { key: "mailingAddress", label: "通訊地址", type: "textarea", maxLength: 200 },
+  { key: "contactPhone", label: "聯絡電話", type: "tel", maxLength: 30 },
   { key: "emergencyContactName", label: "緊急聯絡人（姓名）", type: "text", maxLength: 40 },
   { key: "emergencyContactPhone", label: "緊急聯絡人電話", type: "tel", maxLength: 30 },
-  { key: "contactPhone", label: "聯絡電話", type: "tel", maxLength: 30 },
 ];
 
 export const STUDENT_PERSONAL_IDENTITY_FIELD_DEFS = STUDENT_PERSONAL_INFO_FIELD_DEFS.filter(

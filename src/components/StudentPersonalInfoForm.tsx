@@ -30,7 +30,6 @@ interface StudentPersonalInfoEntry {
   semester: number;
   fields: StudentPersonalInfoTermFields;
   photos: Record<StudentPersonalPhotoKind, { updatedAt: number } | null>;
-  isDemo?: boolean;
 }
 
 interface SavePersonalInfoResponse {
@@ -92,7 +91,7 @@ export default function StudentPersonalInfoForm({
           (entry) => entry.academicYear !== data.period!.academicYear || entry.semester !== data.period!.semester
         )
       );
-      setExpandedPeriods([`${data.period.academicYear}_${data.period.semester}`]);
+      setExpandedPeriods([]);
       setIdentity(data.identity ?? { ...EMPTY_STUDENT_PERSONAL_IDENTITY });
       setFields(currentEntry?.fields ?? { ...EMPTY_STUDENT_PERSONAL_INFO_TERM });
       setPhotos({
@@ -225,194 +224,205 @@ export default function StudentPersonalInfoForm({
   return (
     <>
       {!loading && !loadError && (
-        <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
-          <header className="mb-4 border-b border-themed pb-3">
-            <h3 className="text-lg font-bold text-t1">固定基本資料</h3>
-            <p className="text-xs text-t3 mt-1">性別、身分證與生日跨學期共用，不會因年度或學期改變。</p>
-          </header>
-          {canEdit ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.map((field) => (
-                <label key={field.key} className="block space-y-1 text-sm text-t2">
-                  <span>{field.label}</span>
-                  {field.type === "select" ? (
-                    <select
-                      value={identity[field.key]}
-                      onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
-                      className="w-full input-theme rounded px-3 py-2 text-sm"
-                    >
-                      <option value="">請選擇</option>
-                      {field.options?.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      type={field.type}
-                      value={identity[field.key]}
-                      onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
-                      maxLength={field.maxLength}
-                      className="w-full input-theme rounded px-3 py-2 text-sm"
-                    />
-                  )}
-                </label>
-              ))}
-              <div className="sm:col-span-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void saveIdentity()}
-                  disabled={savingIdentity}
-                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-                >
-                  {savingIdentity ? "儲存中…" : "儲存固定基本資料"}
-                </button>
+        <details className="group/card mt-4 border border-themed rounded-lg bg-card">
+          <summary className="cursor-pointer list-none px-5 sm:px-7 py-5 flex items-center justify-between gap-3">
+            <h3 className="text-lg font-bold text-t1">基礎資料</h3>
+            <Chevron card />
+          </summary>
+          <div className="px-5 sm:px-7 pb-5">
+            <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
+              性別、身分證與生日跨學期共用，不會因年度或學期改變。
+            </p>
+            {canEdit ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.map((field) => (
+                  <label key={field.key} className="block space-y-1 text-sm text-t2">
+                    <span>{field.label}</span>
+                    {field.type === "select" ? (
+                      <select
+                        value={identity[field.key]}
+                        onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
+                        className="w-full input-theme rounded px-3 py-2 text-sm"
+                      >
+                        <option value="">請選擇</option>
+                        {field.options?.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type}
+                        value={identity[field.key]}
+                        onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
+                        maxLength={field.maxLength}
+                        className="w-full input-theme rounded px-3 py-2 text-sm"
+                      />
+                    )}
+                  </label>
+                ))}
+                <div className="sm:col-span-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void saveIdentity()}
+                    disabled={savingIdentity}
+                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {savingIdentity ? "儲存中…" : "儲存基礎資料"}
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <StudentPersonalIdentityFieldsView identity={identity} />
-          )}
-        </section>
+            ) : (
+              <StudentPersonalIdentityFieldsView identity={identity} />
+            )}
+          </div>
+        </details>
       )}
       {!loading && !loadError && (
-        <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
-          <header className="mb-4 border-b border-themed pb-3">
+        <details className="group/card mt-4 border border-themed rounded-lg bg-card">
+          <summary className="cursor-pointer list-none px-5 sm:px-7 py-5 flex items-center justify-between gap-3">
             <h3 className="text-lg font-bold text-t1">個人證件照</h3>
-            <p className="text-xs text-t3 mt-1">
+            <Chevron card />
+          </summary>
+          <div className="px-5 sm:px-7 pb-5">
+            <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
               須為高彩彩色 JPG、至少 450 × 600 pixels、解析度 300 dpi 以上，檔案不超過 5 MB。
             </p>
-          </header>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <StudentPhotoTile
-              key={photos.admission?.updatedAt ?? "admission-empty"}
-              kind="admission"
-              photo={photos.admission}
-              canUpload={photoPermissions.admission}
-              uploading={uploadingPhoto === "admission"}
-              onSelect={(file) => void uploadPhoto("admission", file)}
-            />
-            <StudentPhotoTile
-              key={photos.graduation?.updatedAt ?? "graduation-empty"}
-              kind="graduation"
-              photo={photos.graduation}
-              canUpload={photoPermissions.graduation}
-              uploading={uploadingPhoto === "graduation"}
-              onSelect={(file) => void uploadPhoto("graduation", file)}
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <StudentPhotoTile
+                key={photos.admission?.updatedAt ?? "admission-empty"}
+                kind="admission"
+                photo={photos.admission}
+                canUpload={photoPermissions.admission}
+                uploading={uploadingPhoto === "admission"}
+                onSelect={(file) => void uploadPhoto("admission", file)}
+              />
+              <StudentPhotoTile
+                key={photos.graduation?.updatedAt ?? "graduation-empty"}
+                kind="graduation"
+                photo={photos.graduation}
+                canUpload={photoPermissions.graduation}
+                uploading={uploadingPhoto === "graduation"}
+                onSelect={(file) => void uploadPhoto("graduation", file)}
+              />
+            </div>
           </div>
-        </section>
+        </details>
       )}
-      <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
-        <header className="mb-4 border-b border-themed pb-3">
-          <h3 className="text-lg font-bold text-t1">個人基本資料</h3>
-          <p className="text-xs text-t3 mt-1">
+      <details className="group/card mt-4 border border-themed rounded-lg bg-card">
+        <summary className="cursor-pointer list-none px-5 sm:px-7 py-5 flex items-center justify-between gap-3">
+          <h3 className="text-lg font-bold text-t1">各學期基本資料</h3>
+          <Chevron card />
+        </summary>
+        <div className="px-5 sm:px-7 pb-5">
+          <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
             每學期一筆，非本學期資料預設收合；資料僅供本人查看。
           </p>
-        </header>
 
-        {loading ? (
-          <p className="text-sm text-t3" role="status">載入個人資料中…</p>
-        ) : loadError ? (
-          <div className="space-y-3" role="alert">
-            <p className="text-sm text-danger">{loadError}</p>
-            <button
-              type="button"
-              onClick={() => void loadFields()}
-              className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-            >
-              重新載入
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {periodRows.map((row) => (
-              <details
-                key={row.key}
-                open={expandedPeriods.includes(row.key)}
-                onToggle={(event) => onTogglePeriod(row.key, event.currentTarget.open)}
-                className="group border border-themed rounded-lg bg-card"
+          {loading ? (
+            <p className="text-sm text-t3" role="status">載入個人資料中…</p>
+          ) : loadError ? (
+            <div className="space-y-3" role="alert">
+              <p className="text-sm text-danger">{loadError}</p>
+              <button
+                type="button"
+                onClick={() => void loadFields()}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
               >
-                <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 text-t1">
-                  <span className="font-medium">
-                    {row.academicYear} 學年度第 {row.semester} 學期
-                  </span>
-                  <PeriodChevron />
-                </summary>
-                {row.isCurrent ? (
-                  <div className="border-t border-themed p-4">
-                    <p className={`mb-4 text-sm ${canEdit ? "text-success" : "text-t2"}`} role="status">
-                      {availabilityMessage}
-                    </p>
-                    {canEdit ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.map((field) => (
-                          <label
-                            key={field.key}
-                            className={`block space-y-1 text-sm text-t2 ${field.type === "textarea" ? "sm:col-span-2" : ""}`}
-                          >
-                            <span>{field.label}</span>
-                            {field.type === "select" ? (
-                              <select
-                                value={fields[field.key]}
-                                onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                                className="w-full input-theme rounded px-3 py-2 text-sm"
-                              >
-                                <option value="">請選擇</option>
-                                {field.options?.map((option) => (
-                                  <option key={option} value={option}>{option}</option>
-                                ))}
-                              </select>
-                            ) : field.type === "textarea" ? (
-                              <textarea
-                                value={fields[field.key]}
-                                onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                                maxLength={field.maxLength}
-                                rows={2}
-                                className="w-full input-theme rounded px-3 py-2 text-sm"
-                              />
-                            ) : (
-                              <input
-                                type={field.type}
-                                value={fields[field.key]}
-                                onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                                maxLength={field.maxLength}
-                                list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
-                                className="w-full input-theme rounded px-3 py-2 text-sm"
-                              />
-                            )}
-                          </label>
-                        ))}
-                        <datalist id="student-postal-code-options">
-                          {postalCodeOptions.map((option, index) => (
-                            <option
-                              key={`${index}-${option.code}-${option.district}`}
-                              value={option.code}
-                              label={option.district}
-                            />
+                重新載入
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {periodRows.map((row) => (
+                <details
+                  key={row.key}
+                  open={expandedPeriods.includes(row.key)}
+                  onToggle={(event) => onTogglePeriod(row.key, event.currentTarget.open)}
+                  className="group border border-themed rounded-lg bg-card"
+                >
+                  <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 text-t1">
+                    <span className="font-medium">
+                      {row.academicYear} 學年度第 {row.semester} 學期
+                    </span>
+                    <Chevron />
+                  </summary>
+                  {row.isCurrent ? (
+                    <div className="border-t border-themed p-4">
+                      <p className={`mb-4 text-sm ${canEdit ? "text-success" : "text-t2"}`} role="status">
+                        {availabilityMessage}
+                      </p>
+                      {canEdit ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.map((field) => (
+                            <label
+                              key={field.key}
+                              className={`block space-y-1 text-sm text-t2 ${field.type === "textarea" ? "sm:col-span-2" : ""}`}
+                            >
+                              <span>{field.label}</span>
+                              {field.type === "select" ? (
+                                <select
+                                  value={fields[field.key]}
+                                  onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                                  className="w-full input-theme rounded px-3 py-2 text-sm"
+                                >
+                                  <option value="">請選擇</option>
+                                  {field.options?.map((option) => (
+                                    <option key={option} value={option}>{option}</option>
+                                  ))}
+                                </select>
+                              ) : field.type === "textarea" ? (
+                                <textarea
+                                  value={fields[field.key]}
+                                  onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                                  maxLength={field.maxLength}
+                                  rows={2}
+                                  className="w-full input-theme rounded px-3 py-2 text-sm"
+                                />
+                              ) : (
+                                <input
+                                  type={field.type}
+                                  value={fields[field.key]}
+                                  onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                                  maxLength={field.maxLength}
+                                  list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
+                                  className="w-full input-theme rounded px-3 py-2 text-sm"
+                                />
+                              )}
+                            </label>
                           ))}
-                        </datalist>
-                        <div className="sm:col-span-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => void saveFields()}
-                            disabled={saving}
-                            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-                          >
-                            {saving ? "儲存中…" : "儲存個人資料"}
-                          </button>
+                          <datalist id="student-postal-code-options">
+                            {postalCodeOptions.map((option, index) => (
+                              <option
+                                key={`${index}-${option.code}-${option.district}`}
+                                value={option.code}
+                                label={option.district}
+                              />
+                            ))}
+                          </datalist>
+                          <div className="sm:col-span-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void saveFields()}
+                              disabled={saving}
+                              className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                            >
+                              {saving ? "儲存中…" : "儲存個人資料"}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <StudentPersonalInfoFieldsView fields={fields} />
-                    )}
-                  </div>
-                ) : (
-                  <div className="border-t border-themed px-4 pb-3">
-                    <StudentPersonalInfoFieldsView fields={row.fields} />
-                  </div>
-                )}
-              </details>
-            ))}
-          </div>
-        )}
-      </section>
+                      ) : (
+                        <StudentPersonalInfoFieldsView fields={fields} />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border-t border-themed px-4 pb-3">
+                      <StudentPersonalInfoFieldsView fields={row.fields} />
+                    </div>
+                  )}
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
       <PersonalInfoResultDialog
         message={feedback?.message ?? null}
         kind={feedback?.kind ?? "success"}
@@ -422,10 +432,10 @@ export default function StudentPersonalInfoForm({
   );
 }
 
-function PeriodChevron() {
+function Chevron({ card = false }: { card?: boolean }) {
   return (
     <svg
-      className="h-4 w-4 text-t3 transition-transform group-open:rotate-90"
+      className={`h-4 w-4 text-t3 transition-transform ${card ? "group-open/card:rotate-90" : "group-open:rotate-90"}`}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

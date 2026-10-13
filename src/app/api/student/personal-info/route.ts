@@ -26,35 +26,10 @@ import {
   STUDENT_PERSONAL_IDENTITY_FIELD_DEFS,
   STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS,
   type StudentPersonalIdentityFields,
-  type StudentPersonalInfoEntry,
   type StudentPersonalInfoTermFields,
 } from "@/types/personal-info";
 
 const noStore = { "Cache-Control": "no-store" };
-
-const DEMO_ENTRY_PERIOD = { academicYear: 114, semester: 2 } as const;
-
-function makeLocalDemoEntry(): StudentPersonalInfoEntry {
-  return {
-    ...DEMO_ENTRY_PERIOD,
-    fields: {
-      householdPostalCode: "100",
-      householdAddress: "臺北市中正區虛構路 100 號",
-      mailingPostalCode: "220",
-      mailingAddress: "新北市板橋區測試街 99 號",
-      emergencyContactName: "虛構聯絡人 王小明",
-      emergencyContactPhone: "0900-000-000",
-      contactPhone: "0912-345-678",
-    },
-    photos: { ...EMPTY_STUDENT_PERSONAL_INFO_PHOTOS },
-    legacyIdentity: {
-      gender: "女",
-      nationalId: "A123456789",
-      birthday: "2010-04-05",
-    },
-    isDemo: true,
-  };
-}
 
 function validateStudentIdentity(raw: unknown): StudentPersonalIdentityFields | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -129,17 +104,6 @@ export async function GET(request: NextRequest) {
     const previousEntries = personalInfoEntries.filter(
         (entry) => entry.academicYear !== period.academicYear || entry.semester !== period.semester
       );
-    if (
-      process.env.NODE_ENV === "development" &&
-      (period.academicYear !== DEMO_ENTRY_PERIOD.academicYear || period.semester !== DEMO_ENTRY_PERIOD.semester) &&
-      !personalInfoEntries.some(
-        (entry) =>
-          entry.academicYear === DEMO_ENTRY_PERIOD.academicYear &&
-          entry.semester === DEMO_ENTRY_PERIOD.semester
-      )
-    ) {
-      previousEntries.push(makeLocalDemoEntry());
-    }
     previousEntries.sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
     const entries = [current, ...previousEntries];
     const rosterEntry = (session as VerifiedSession).__entry;
@@ -169,7 +133,6 @@ export async function GET(request: NextRequest) {
           academicYear: entry.academicYear,
           semester: entry.semester,
           fields: entry.fields,
-          ...(entry.isDemo === true ? { isDemo: true } : {}),
           photos: {
             admission: entry.photos.admission
               ? { updatedAt: entry.photos.admission.updatedAt }
