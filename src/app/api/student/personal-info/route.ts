@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const period = await getCurrentPeriod();
-    const [settings, fields, postalCodeOptions] = await Promise.all([
+    const [settings, personalInfo, postalCodeOptions] = await Promise.all([
       getStudentPersonalInfoSettings(period),
       getStudentPersonalInfo(session.uid, period),
       getPostalCodeOptions(),
@@ -77,6 +77,10 @@ export async function GET(request: NextRequest) {
       rosterEntry?.classCode
     );
     const canEdit = isStudentPersonalInfoOpen(settings, currentDateTime) && targetEligible;
+    const photoPermissions = {
+      admission: canEdit && settings.allowAdmissionPhotoReplacement,
+      graduation: canEdit && settings.allowGraduationPhotoUpload,
+    };
     const availabilityMessage = !isStudentPersonalInfoOpen(settings, currentDateTime)
       ? studentPersonalInfoAvailabilityMessage(settings, currentDateTime)
       : !targetEligible
@@ -87,7 +91,16 @@ export async function GET(request: NextRequest) {
         success: true,
         period,
         settings,
-        fields,
+        fields: personalInfo.fields,
+        photos: {
+          admission: personalInfo.photos.admission
+            ? { updatedAt: personalInfo.photos.admission.updatedAt }
+            : null,
+          graduation: personalInfo.photos.graduation
+            ? { updatedAt: personalInfo.photos.graduation.updatedAt }
+            : null,
+        },
+        photoPermissions,
         postalCodeOptions,
         canEdit,
         targetEligible,

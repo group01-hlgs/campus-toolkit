@@ -7,6 +7,7 @@ import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
 import { cachedListRead, invalidateAdminListCache } from "@/lib/list-cache";
+import { deleteStudentPersonalPhotoObjects, personalPhotoObjectPathsForRecord } from "@/lib/personal-info";
 import {
   AccountStatus,
   AccountSummary,
@@ -662,11 +663,17 @@ export async function DELETE(request: NextRequest) {
             .where("semester", "==", period.semester)
         : personalInfoCollection.where("uid", "==", uid);
       const personalInfo = await personalInfoQuery.get();
+      const photoObjectPaths: string[] = [];
       for (const doc of personalInfo.docs) {
+        photoObjectPaths.push(...personalPhotoObjectPathsForRecord(uid, period ?? {
+          academicYear: Number(doc.data().academicYear),
+          semester: Number(doc.data().semester),
+        }, doc.data()));
         batch.delete(doc.ref);
         deletes += 1;
       }
       if (deletes > 0) await batch.commit();
+      await deleteStudentPersonalPhotoObjects(photoObjectPaths);
     }
 
     await invalidateAdminListCache();
