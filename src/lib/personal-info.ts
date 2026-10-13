@@ -299,7 +299,7 @@ function firestorePointerToPhotoDocId(pointer: string): string | null {
 function assertFirebaseStorageConfigured(): void {
   if (!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim()) {
     throw new Error(
-      "尚未建立 Firebase Storage bucket，無法存入 Firebase Storage。請到「系統設定 → 免費仔福地」把證件照儲存改為 Firestore，或先完成 bucket 建立。"
+      "尚未建立 Firebase Storage bucket，無法存入 Firebase Storage。請到「系統設定 → 省錢專區」把證件照儲存改為 Firestore，或先完成 bucket 建立。"
     );
   }
 }

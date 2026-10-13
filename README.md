@@ -107,7 +107,7 @@ https://vercel.com/%2Fnew%2Fcontinue%3FloginReturn%3D...
    ⚠️ **2026/02/03 起 Cloud Storage for Firebase 一律要求綁定 Blaze（隨用隨付）方案**，Spark（免費）方案無法建立或存取 bucket。Blaze 在免費額度內帳單仍為 $0，但必須綁定信用卡。
    ⚠️ **免費額度只存在於美國三區** `us-central1`／`us-east1`／`us-west1`（5 GB 儲存、100 GB 流量／月）。選亞洲等其他區域＝沒有任何免費額度，**建好就不能改**。
    新專案的 bucket 名稱為 `你的專案ID.firebasestorage.app`，填進 `.env.local` 的 `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`；
-   然後到 **系統設定 → 免費仔福地 → 學生證件照儲存位置** 改選「Firebase Storage」。
+   然後到 **系統設定 → 省錢專區 → 學生證件照儲存位置** 改選「Firebase Storage」。
 4. 啟用 **Google 登入**（Authentication → Sign-in method → Google）。
 5. 新增 **Web 應用程式**，複製一串設定（API Key 等 6 個 `NEXT_PUBLIC_*`）。
 6. 下載**服務帳號私鑰**（專案設定 → 服務帳號 → 產生新的私鑰）。此服務帳號須能讀寫上面的 bucket：Firebase 預設服務帳號已具專案編輯者權限（涵蓋 Storage Object Admin），通常不需另外設；若自行新建服務帳號，請額外授予 **Storage Object Admin**。
