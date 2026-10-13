@@ -14,12 +14,24 @@ import type { PostalCodeOption } from "@/types/postal-codes";
 interface StudentPersonalInfoResponse {
   success?: boolean;
   message?: string;
-  fields?: StudentPersonalInfoFields;
-  photos?: Record<StudentPersonalPhotoKind, { updatedAt: number; contentType: string } | null>;
+  entries?: StudentPersonalInfoEntry[];
   photoPermissions?: Record<StudentPersonalPhotoKind, boolean>;
   postalCodeOptions?: PostalCodeOption[];
   canEdit?: boolean;
   period?: { academicYear: number; semester: number };
+}
+
+interface StudentPersonalInfoEntry {
+  academicYear: number;
+  semester: number;
+  fields: StudentPersonalInfoFields;
+  photos: Record<StudentPersonalPhotoKind, { updatedAt: number } | null>;
+}
+
+interface SavePersonalInfoResponse {
+  success?: boolean;
+  message?: string;
+  fields?: StudentPersonalInfoFields;
 }
 
 export default function StudentPersonalInfoForm({
@@ -30,6 +42,8 @@ export default function StudentPersonalInfoForm({
   semester: number;
 }) {
   const [fields, setFields] = useState<StudentPersonalInfoFields>({ ...EMPTY_STUDENT_PERSONAL_INFO });
+  const [previousEntries, setPreviousEntries] = useState<StudentPersonalInfoEntry[]>([]);
+  const [expandedPeriods, setExpandedPeriods] = useState<string[]>([]);
   const [photos, setPhotos] = useState<Record<StudentPersonalPhotoKind, { updatedAt: number } | null>>({
     admission: null,
     graduation: null,
@@ -54,13 +68,22 @@ export default function StudentPersonalInfoForm({
     try {
       const response = await fetch("/api/student/personal-info", { cache: "no-store" });
       const data: StudentPersonalInfoResponse = await response.json();
-      if (!response.ok || !data.success || !data.fields) {
+      if (!response.ok || !data.success || !Array.isArray(data.entries) || !data.period) {
         throw new Error(data.message || "讀取本學期個人資料失敗");
       }
-      setFields(data.fields);
+      const currentEntry = data.entries.find(
+        (entry) => entry.academicYear === data.period!.academicYear && entry.semester === data.period!.semester
+      );
+      setPreviousEntries(
+        data.entries.filter(
+          (entry) => entry.academicYear !== data.period!.academicYear || entry.semester !== data.period!.semester
+        )
+      );
+      setExpandedPeriods([`${data.period.academicYear}_${data.period.semester}`]);
+      setFields(currentEntry?.fields ?? { ...EMPTY_STUDENT_PERSONAL_INFO });
       setPhotos({
-        admission: data.photos?.admission ? { updatedAt: data.photos.admission.updatedAt } : null,
-        graduation: data.photos?.graduation ? { updatedAt: data.photos.graduation.updatedAt } : null,
+        admission: currentEntry?.photos.admission ? { updatedAt: currentEntry.photos.admission.updatedAt } : null,
+        graduation: currentEntry?.photos.graduation ? { updatedAt: currentEntry.photos.graduation.updatedAt } : null,
       });
       setPhotoPermissions(data.photoPermissions ?? { admission: false, graduation: false });
       setPostalCodeOptions(data.postalCodeOptions ?? []);
@@ -87,7 +110,7 @@ export default function StudentPersonalInfoForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fields }),
       });
-      const data: StudentPersonalInfoResponse = await response.json();
+      const data: SavePersonalInfoResponse = await response.json();
       if (!response.ok || !data.success || !data.fields) {
         throw new Error(data.message || "儲存個人資料失敗");
       }
@@ -136,6 +159,13 @@ export default function StudentPersonalInfoForm({
     }
   }
 
+  function onTogglePeriod(key: string, isOpen: boolean) {
+    setExpandedPeriods((current) => {
+      if (isOpen) return current.includes(key) ? current : [...current, key];
+      return current.filter((item) => item !== key);
+    });
+  }
+
   return (
     <>
       {!loading && !loadError && (
@@ -168,9 +198,9 @@ export default function StudentPersonalInfoForm({
       )}
       <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
         <header className="mb-4 border-b border-themed pb-3">
-          <h3 className="text-lg font-bold text-t1">本學期個人資料</h3>
+          <h3 className="text-lg font-bold text-t1">個人基本資料</h3>
           <p className="text-xs text-t3 mt-1">
-            {activePeriod.academicYear} 學年度第 {activePeriod.semester} 學期；資料僅供本人查看與填寫。
+            每學期一筆，非本學期資料預設收合；資料僅供本人查看。
           </p>
         </header>
 
@@ -188,82 +218,120 @@ export default function StudentPersonalInfoForm({
             </button>
           </div>
         ) : (
-          <>
-            <p className={`mb-4 text-sm ${canEdit ? "text-success" : "text-t2"}`} role="status">
-              {availabilityMessage}
-            </p>
-            {canEdit ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {STUDENT_PERSONAL_INFO_FIELD_DEFS.map((field) => (
-                  <label
-                    key={field.key}
-                    className={`block space-y-1 text-sm text-t2 ${field.type === "textarea" ? "sm:col-span-2" : ""}`}
-                  >
-                    <span>{field.label}</span>
-                    {field.type === "select" ? (
-                      <select
-                        value={fields[field.key]}
-                        onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                        className="w-full input-theme rounded px-3 py-2 text-sm"
-                      >
-                        <option value="">請選擇</option>
-                        {field.options?.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    ) : field.type === "textarea" ? (
-                      <textarea
-                        value={fields[field.key]}
-                        onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                        maxLength={field.maxLength}
-                        rows={2}
-                        className="w-full input-theme rounded px-3 py-2 text-sm"
-                      />
-                    ) : (
-                      <input
-                        type={field.type}
-                        value={fields[field.key]}
-                        onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                        maxLength={field.maxLength}
-                        list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
-                        className="w-full input-theme rounded px-3 py-2 text-sm"
-                      />
-                    )}
-                  </label>
-                ))}
-                <datalist id="student-postal-code-options">
-                  {postalCodeOptions.map((option, index) => (
-                    <option
-                      key={`${index}-${option.code}-${option.district}`}
-                      value={option.code}
-                      label={option.district}
-                    />
-                  ))}
-                </datalist>
-                <div className="sm:col-span-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => void saveFields()}
-                    disabled={saving}
-                    className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
-                  >
-                    {saving ? "儲存中…" : "儲存個人資料"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-                {STUDENT_PERSONAL_INFO_FIELD_DEFS.map((field) => (
-                  <div key={field.key} className="border-b border-themed py-3">
-                    <dt className="text-xs text-t3">{field.label}</dt>
-                    <dd className="text-sm text-t1 mt-1 whitespace-pre-wrap break-words">
-                      {fields[field.key].trim() || "—"}
-                    </dd>
+          <div className="space-y-3">
+            {previousEntries.map((entry) => {
+              const key = `${entry.academicYear}_${entry.semester}`;
+              return (
+                <details
+                  key={key}
+                  open={expandedPeriods.includes(key)}
+                  onToggle={(event) => onTogglePeriod(key, event.currentTarget.open)}
+                  className="group border border-themed rounded-lg bg-card"
+                >
+                  <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 text-t1">
+                    <span className="font-medium">
+                      {entry.academicYear} 學年度第 {entry.semester} 學期
+                    </span>
+                    <span className="flex items-center gap-2 text-xs text-t3">
+                      歷史資料
+                      <PeriodChevron />
+                    </span>
+                  </summary>
+                  <div className="border-t border-themed px-4 pb-3">
+                    <StudentPersonalInfoFieldsView fields={entry.fields} />
                   </div>
-                ))}
-              </dl>
-            )}
-          </>
+                </details>
+              );
+            })}
+
+            <details
+              open={expandedPeriods.includes(`${activePeriod.academicYear}_${activePeriod.semester}`)}
+              onToggle={(event) =>
+                onTogglePeriod(
+                  `${activePeriod.academicYear}_${activePeriod.semester}`,
+                  event.currentTarget.open
+                )
+              }
+              className="group border border-themed rounded-lg bg-card"
+            >
+              <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 text-t1">
+                <span className="font-medium">
+                  {activePeriod.academicYear} 學年度第 {activePeriod.semester} 學期
+                </span>
+                <span className="flex items-center gap-2 text-xs text-success">
+                  本學期
+                  <PeriodChevron />
+                </span>
+              </summary>
+              <div className="border-t border-themed p-4">
+                <p className={`mb-4 text-sm ${canEdit ? "text-success" : "text-t2"}`} role="status">
+                  {availabilityMessage}
+                </p>
+                {canEdit ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {STUDENT_PERSONAL_INFO_FIELD_DEFS.map((field) => (
+                      <label
+                        key={field.key}
+                        className={`block space-y-1 text-sm text-t2 ${field.type === "textarea" ? "sm:col-span-2" : ""}`}
+                      >
+                        <span>{field.label}</span>
+                        {field.type === "select" ? (
+                          <select
+                            value={fields[field.key]}
+                            onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                            className="w-full input-theme rounded px-3 py-2 text-sm"
+                          >
+                            <option value="">請選擇</option>
+                            {field.options?.map((option) => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        ) : field.type === "textarea" ? (
+                          <textarea
+                            value={fields[field.key]}
+                            onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                            maxLength={field.maxLength}
+                            rows={2}
+                            className="w-full input-theme rounded px-3 py-2 text-sm"
+                          />
+                        ) : (
+                          <input
+                            type={field.type}
+                            value={fields[field.key]}
+                            onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                            maxLength={field.maxLength}
+                            list={field.key.endsWith("PostalCode") ? "student-postal-code-options" : undefined}
+                            className="w-full input-theme rounded px-3 py-2 text-sm"
+                          />
+                        )}
+                      </label>
+                    ))}
+                    <datalist id="student-postal-code-options">
+                      {postalCodeOptions.map((option, index) => (
+                        <option
+                          key={`${index}-${option.code}-${option.district}`}
+                          value={option.code}
+                          label={option.district}
+                        />
+                      ))}
+                    </datalist>
+                    <div className="sm:col-span-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void saveFields()}
+                        disabled={saving}
+                        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                      >
+                        {saving ? "儲存中…" : "儲存個人資料"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <StudentPersonalInfoFieldsView fields={fields} />
+                )}
+              </div>
+            </details>
+          </div>
         )}
       </section>
       <PersonalInfoResultDialog
@@ -272,6 +340,38 @@ export default function StudentPersonalInfoForm({
         onClose={() => setFeedback(null)}
       />
     </>
+  );
+}
+
+function PeriodChevron() {
+  return (
+    <svg
+      className="h-4 w-4 text-t3 transition-transform group-open:rotate-90"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function StudentPersonalInfoFieldsView({ fields }: { fields: StudentPersonalInfoFields }) {
+  return (
+    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+      {STUDENT_PERSONAL_INFO_FIELD_DEFS.map((field) => (
+        <div key={field.key} className="border-b border-themed py-3">
+          <dt className="text-xs text-t3">{field.label}</dt>
+          <dd className="text-sm text-t1 mt-1 whitespace-pre-wrap break-words">
+            {fields[field.key].trim() || "—"}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

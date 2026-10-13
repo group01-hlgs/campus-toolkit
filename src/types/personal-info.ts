@@ -21,6 +21,11 @@ export interface StudentPersonalInfoRecord {
   photos: Record<StudentPersonalPhotoKind, StudentPersonalPhotoMetadata | null>;
 }
 
+export interface StudentPersonalInfoEntry extends StudentPersonalInfoRecord {
+  academicYear: number;
+  semester: number;
+}
+
 export interface StudentPersonalInfoFields {
   gender: string;
   nationalId: string;

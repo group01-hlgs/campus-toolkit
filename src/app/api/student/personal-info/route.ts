@@ -7,7 +7,7 @@ import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getPostalCodeOptions } from "@/lib/postal-codes";
 import {
-  getStudentPersonalInfo,
+  getStudentPersonalInfoEntries,
   getStudentPersonalInfoSettings,
   isStudentPersonalInfoOpen,
   saveStudentPersonalInfo,
@@ -16,6 +16,8 @@ import {
   taipeiDateString,
 } from "@/lib/personal-info";
 import {
+  EMPTY_STUDENT_PERSONAL_INFO,
+  EMPTY_STUDENT_PERSONAL_INFO_PHOTOS,
   isIsoDate,
   isStudentPersonalInfoTargetEligible,
   STUDENT_PERSONAL_INFO_FIELD_DEFS,
@@ -64,11 +66,25 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const period = await getCurrentPeriod();
-    const [settings, personalInfo, postalCodeOptions] = await Promise.all([
+    const [settings, personalInfoEntries, postalCodeOptions] = await Promise.all([
       getStudentPersonalInfoSettings(period),
-      getStudentPersonalInfo(session.uid, period),
+      getStudentPersonalInfoEntries(session.uid),
       getPostalCodeOptions(),
     ]);
+    const currentEntry = personalInfoEntries.find(
+      (entry) => entry.academicYear === period.academicYear && entry.semester === period.semester
+    );
+    const entries = [
+      currentEntry ?? {
+        academicYear: period.academicYear,
+        semester: period.semester,
+        fields: { ...EMPTY_STUDENT_PERSONAL_INFO },
+        photos: { ...EMPTY_STUDENT_PERSONAL_INFO_PHOTOS },
+      },
+      ...personalInfoEntries.filter(
+        (entry) => entry.academicYear !== period.academicYear || entry.semester !== period.semester
+      ),
+    ];
     const rosterEntry = (session as VerifiedSession).__entry;
     const currentDateTime = taipeiDateTimeString();
     const targetEligible = isStudentPersonalInfoTargetEligible(
@@ -91,15 +107,19 @@ export async function GET(request: NextRequest) {
         success: true,
         period,
         settings,
-        fields: personalInfo.fields,
-        photos: {
-          admission: personalInfo.photos.admission
-            ? { updatedAt: personalInfo.photos.admission.updatedAt }
-            : null,
-          graduation: personalInfo.photos.graduation
-            ? { updatedAt: personalInfo.photos.graduation.updatedAt }
-            : null,
-        },
+        entries: entries.map((entry) => ({
+          academicYear: entry.academicYear,
+          semester: entry.semester,
+          fields: entry.fields,
+          photos: {
+            admission: entry.photos.admission
+              ? { updatedAt: entry.photos.admission.updatedAt }
+              : null,
+            graduation: entry.photos.graduation
+              ? { updatedAt: entry.photos.graduation.updatedAt }
+              : null,
+          },
+        })),
         photoPermissions,
         postalCodeOptions,
         canEdit,

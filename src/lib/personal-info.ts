@@ -15,6 +15,7 @@ import {
   studentPersonalInfoDocId,
   type StudentPersonalInfoFields,
   type StudentPersonalInfoSettings,
+  type StudentPersonalInfoEntry,
   type StudentPersonalInfoRecord,
   type StudentPersonalPhotoKind,
   type StudentPersonalPhotoMetadata,
@@ -98,6 +99,35 @@ export async function getStudentPersonalInfo(
   return snap.exists
     ? readStudentPersonalInfoRecord(snap.data())
     : { fields: { ...EMPTY_STUDENT_PERSONAL_INFO }, photos: { ...EMPTY_STUDENT_PERSONAL_INFO_PHOTOS } };
+}
+
+/** 依登入者 uid 取得已填寫的各學期個人資料（有界於單一使用者，不載入全校資料）。 */
+export async function getStudentPersonalInfoEntries(uid: string): Promise<StudentPersonalInfoEntry[]> {
+  const snapshot = await getAdminDb()
+    .collection(PERSONAL_INFO_COLLECTION)
+    .where("uid", "==", uid)
+    .get();
+  return snapshot.docs
+    .map((doc) => {
+      const raw = doc.data();
+      const academicYear = Number(raw.academicYear);
+      const semester = Number(raw.semester);
+      if (
+        raw.uid !== uid ||
+        !Number.isInteger(academicYear) ||
+        academicYear <= 0 ||
+        (semester !== 1 && semester !== 2)
+      ) {
+        return null;
+      }
+      return {
+        ...readStudentPersonalInfoRecord(raw),
+        academicYear,
+        semester,
+      } satisfies StudentPersonalInfoEntry;
+    })
+    .filter((entry): entry is StudentPersonalInfoEntry => entry !== null)
+    .sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
 }
 
 export async function saveStudentPersonalInfo(
