@@ -26,7 +26,10 @@ import {
   UserRole,
 } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
-import { PERSONAL_INFO_COLLECTION } from "@/types/personal-info";
+import {
+  PERSONAL_INFO_COLLECTION,
+  STUDENT_PERSONAL_IDENTITY_COLLECTION,
+} from "@/types/personal-info";
 import {
   isRosterRole,
   rosterCollection,
@@ -670,6 +673,10 @@ export async function DELETE(request: NextRequest) {
           semester: Number(doc.data().semester),
         }, doc.data()));
         batch.delete(doc.ref);
+        deletes += 1;
+      }
+      if (rosterScope === "all") {
+        batch.delete(db.collection(STUDENT_PERSONAL_IDENTITY_COLLECTION).doc(uid));
         deletes += 1;
       }
       if (deletes > 0) await batch.commit();

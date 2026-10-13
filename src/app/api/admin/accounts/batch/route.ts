@@ -11,7 +11,10 @@ import { invalidateAdminListCache } from "@/lib/list-cache";
 import { deleteStudentPersonalPhotoObjects, personalPhotoObjectPathsForRecord } from "@/lib/personal-info";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
 import { SchoolPeriod } from "@/types/settings";
-import { PERSONAL_INFO_COLLECTION } from "@/types/personal-info";
+import {
+  PERSONAL_INFO_COLLECTION,
+  STUDENT_PERSONAL_IDENTITY_COLLECTION,
+} from "@/types/personal-info";
 import {
   ACCOUNT_BATCH_MODE_LABELS,
   ACTIVE_STATUS,
@@ -724,6 +727,11 @@ async function executePlan(
     // 範圍下推成 Firestore 查詢：uid in＋（current 時）學期等值條件，
     // 只讀命中的列，不再把四張名冊整表抓回來過濾（鐵律 3：查詢回傳幾筆＝幾次讀取）
     if (rosterScope !== "none") {
+      if (rosterScope === "all") {
+        for (const uid of deleteUids) {
+          refs.push(db.collection(STUDENT_PERSONAL_IDENTITY_COLLECTION).doc(uid));
+        }
+      }
       const collections = ["rosterStudents", "rosterParents", "rosterStaff", "rosterAdmins"];
       for (const name of collections) {
         const col = db.collection(name);

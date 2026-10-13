@@ -1,26 +1,42 @@
 import "server-only";
-import { getAdminDb, getAdminStorageBucket } from "@/lib/firebase-admin";
+import { FieldValue, getAdminDb, getAdminStorageBucket } from "@/lib/firebase-admin";
 import { cachedSettingDoc, invalidateReadCache } from "@/lib/read-cache";
-import { SETTINGS_COLLECTION } from "@/lib/settings-server";
+import { SETTINGS_COLLECTION, readSystemDoc } from "@/lib/settings-server";
 import { CLASSES_DOC_ID, readSchoolClasses, type SchoolClassesContext } from "@/types/school-classes";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
+  EMPTY_STUDENT_PERSONAL_IDENTITY,
   EMPTY_STUDENT_PERSONAL_INFO,
   EMPTY_STUDENT_PERSONAL_INFO_PHOTOS,
   PERSONAL_INFO_COLLECTION,
+  STUDENT_PERSONAL_IDENTITY_COLLECTION,
+  STUDENT_PERSONAL_PHOTO_COLLECTION,
+  STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX,
+  STUDENT_PERSONAL_PHOTO_STORED_MAX_BYTES,
+  STUDENT_PERSONAL_PHOTO_STORAGE_MAX_BYTES,
   personalInfoSettingsDocId,
+  personalPhotoPointerMatches,
+  readStudentPersonalIdentityFields,
   readStudentPersonalInfoRecord,
   readStudentPersonalInfoSettings,
+  readStudentPersonalInfoTermFields,
   studentPersonalInfoDocId,
-  type StudentPersonalInfoFields,
   type StudentPersonalInfoSettings,
+  type StudentPersonalInfoEntry,
+  type StudentPersonalIdentityFields,
+  type StudentPersonalInfoTermFields,
   type StudentPersonalInfoRecord,
   type StudentPersonalPhotoKind,
   type StudentPersonalPhotoMetadata,
   type StudentPersonalInfoTargetOptions,
 } from "@/types/personal-info";
-import type { SchoolPeriod } from "@/types/settings";
+import {
+  DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE,
+  isStudentPersonalPhotoStorage,
+  type SchoolPeriod,
+  type StudentPersonalPhotoStorage,
+} from "@/types/settings";
 
 export async function getStudentPersonalInfoSettings(
   period: SchoolPeriod
@@ -100,21 +116,142 @@ export async function getStudentPersonalInfo(
     : { fields: { ...EMPTY_STUDENT_PERSONAL_INFO }, photos: { ...EMPTY_STUDENT_PERSONAL_INFO_PHOTOS } };
 }
 
+/** 依登入者 uid 取得已填寫的各學期個人資料（有界於單一使用者，不載入全校資料）。 */
+export async function getStudentPersonalInfoEntries(uid: string): Promise<StudentPersonalInfoEntry[]> {
+  const snapshot = await getAdminDb()
+    .collection(PERSONAL_INFO_COLLECTION)
+    .where("uid", "==", uid)
+    .get();
+  return snapshot.docs
+    .map((doc) => {
+      const raw = doc.data();
+      const academicYear = Number(raw.academicYear);
+      const semester = Number(raw.semester);
+      if (
+        raw.uid !== uid ||
+        !Number.isInteger(academicYear) ||
+        academicYear <= 0 ||
+        (semester !== 1 && semester !== 2)
+      ) {
+        return null;
+      }
+      const record = readStudentPersonalInfoRecord(raw);
+      return {
+        fields: readStudentPersonalInfoTermFields(raw),
+        photos: record.photos,
+        legacyIdentity: readStudentPersonalIdentityFields(raw),
+        academicYear,
+        semester,
+      } satisfies StudentPersonalInfoEntry;
+    })
+    .filter((entry): entry is StudentPersonalInfoEntry => entry !== null)
+    .sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
+}
+
+/** 身分識別資料以 uid 為鍵跨學期保存；缺少新文件時從最新舊期名冊資料相容讀取。 */
+export async function getStudentPersonalIdentity(
+  uid: string,
+  legacyEntries: StudentPersonalInfoEntry[]
+): Promise<StudentPersonalIdentityFields> {
+  const snapshot = await getAdminDb()
+    .collection(STUDENT_PERSONAL_IDENTITY_COLLECTION)
+    .doc(uid)
+    .get();
+  if (snapshot.exists) return readStudentPersonalIdentityFields(snapshot.data());
+
+  return legacyStudentPersonalIdentity(legacyEntries);
+}
+
+export function legacyStudentPersonalIdentity(
+  legacyEntries: { legacyIdentity: StudentPersonalIdentityFields }[]
+): StudentPersonalIdentityFields {
+  const identity = { ...EMPTY_STUDENT_PERSONAL_IDENTITY };
+  for (const entry of legacyEntries) {
+    for (const key of Object.keys(identity) as (keyof StudentPersonalIdentityFields)[]) {
+      if (!identity[key] && entry.legacyIdentity[key]) identity[key] = entry.legacyIdentity[key];
+    }
+  }
+  return identity;
+}
+
+export async function saveStudentPersonalIdentity(
+  uid: string,
+  fields: StudentPersonalIdentityFields
+): Promise<void> {
+  await getAdminDb()
+    .collection(STUDENT_PERSONAL_IDENTITY_COLLECTION)
+    .doc(uid)
+    .set({ uid, ...fields, updatedAt: Date.now() });
+}
+
 export async function saveStudentPersonalInfo(
   uid: string,
   period: SchoolPeriod,
-  fields: StudentPersonalInfoFields
+  fields: StudentPersonalInfoTermFields
 ): Promise<void> {
-  await getAdminDb()
-    .collection(PERSONAL_INFO_COLLECTION)
-    .doc(studentPersonalInfoDocId(uid, period))
-    .set({
+  const db = getAdminDb();
+  const personalInfoRef = db.collection(PERSONAL_INFO_COLLECTION).doc(studentPersonalInfoDocId(uid, period));
+  const identityRef = db.collection(STUDENT_PERSONAL_IDENTITY_COLLECTION).doc(uid);
+  await db.runTransaction(async (transaction) => {
+    const identitySnapshot = await transaction.get(identityRef);
+    if (!identitySnapshot.exists) {
+      const historySnapshot = await transaction.get(
+        db.collection(PERSONAL_INFO_COLLECTION).where("uid", "==", uid)
+      );
+      const legacyEntries = historySnapshot.docs
+        .map((doc) => {
+          const data = doc.data();
+          return {
+            academicYear: Number(data.academicYear),
+            semester: Number(data.semester),
+            legacyIdentity: readStudentPersonalIdentityFields(data),
+            uid: data.uid,
+          };
+        })
+        .filter((entry) =>
+          entry.uid === uid &&
+          Number.isInteger(entry.academicYear) &&
+          entry.academicYear > 0 &&
+          (entry.semester === 1 || entry.semester === 2)
+        )
+        .sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
+      const identityToMigrate = legacyStudentPersonalIdentity(legacyEntries);
+      if (Object.values(identityToMigrate).some(Boolean)) {
+        transaction.set(identityRef, { uid, ...identityToMigrate, updatedAt: Date.now() });
+      }
+    }
+    transaction.set(personalInfoRef, {
       uid,
       academicYear: period.academicYear,
       semester: period.semester,
-      fields,
+      fields: {
+        ...fields,
+        gender: FieldValue.delete(),
+        idType: FieldValue.delete(),
+        nationalId: FieldValue.delete(),
+        birthday: FieldValue.delete(),
+      },
       updatedAt: Date.now(),
     }, { merge: true });
+  });
+}
+
+/** 讀取系統設定的「證件照儲存後端」；讀不到時回免費方案可用的 Firestore。 */
+export async function getStudentPersonalPhotoStorage(): Promise<StudentPersonalPhotoStorage> {
+  try {
+    const value = (await readSystemDoc())?.studentPersonalPhotoStorage;
+    return isStudentPersonalPhotoStorage(value) ? value : DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE;
+  } catch (error) {
+    console.error("Student personal photo storage setting read error:", error);
+    return DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE;
+  }
+}
+
+/** 各後端的實存上限：Firestore 受單一文件 1 MiB 限制，Storage 沿用 5 MB。 */
+export function studentPersonalPhotoBackendLimit(backend: StudentPersonalPhotoStorage): number {
+  return backend === "firestore"
+    ? STUDENT_PERSONAL_PHOTO_STORED_MAX_BYTES
+    : STUDENT_PERSONAL_PHOTO_STORAGE_MAX_BYTES;
 }
 
 export function studentPersonalInfoPhotoObjectPathPrefix(
@@ -125,6 +262,117 @@ export function studentPersonalInfoPhotoObjectPathPrefix(
   return `student-personal-info/${uid}/${period.academicYear}_${period.semester}/${kind}/`;
 }
 
+function studentPersonalPhotoDocId(
+  uid: string,
+  period: SchoolPeriod,
+  kind: StudentPersonalPhotoKind
+): string {
+  return `${uid}_${period.academicYear}_${period.semester}_${kind}`;
+}
+
+/** Firestore 後端的指標：`firestore:` + 與物件路徑同形狀，讓前綴檢查可共用兩種後端。 */
+function studentPersonalPhotoFirestorePointer(
+  uid: string,
+  period: SchoolPeriod,
+  kind: StudentPersonalPhotoKind
+): string {
+  return `${STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX}${studentPersonalInfoPhotoObjectPathPrefix(
+    uid,
+    period,
+    kind
+  )}${Date.now()}-${crypto.randomUUID()}.jpg`;
+}
+
+/** 由 `firestore:student-personal-info/{uid}/{y}_{s}/{kind}/{檔名}` 還原照片文件 ID。 */
+function firestorePointerToPhotoDocId(pointer: string): string | null {
+  if (!pointer.startsWith(STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX)) return null;
+  const parts = pointer.slice(STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX.length).split("/");
+  if (parts.length !== 5 || parts[0] !== "student-personal-info") return null;
+  const [, uid, period, kind, fileName] = parts;
+  if (!uid || !period || !kind || !fileName) return null;
+  if (!/^\d+_\d+$/.test(period)) return null;
+  if (kind !== "admission" && kind !== "graduation") return null;
+  if (/[.#\[\]]/.test(uid)) return null;
+  return `${uid}_${period}_${kind}`;
+}
+
+function assertFirebaseStorageConfigured(): void {
+  if (!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim()) {
+    throw new Error(
+      "尚未建立 Firebase Storage bucket，無法存入 Firebase Storage。請到「系統設定 → 省錢專區」把證件照儲存改為 Firestore，或先完成 bucket 建立。"
+    );
+  }
+}
+
+async function writeStudentPersonalPhotoBytes(
+  uid: string,
+  period: SchoolPeriod,
+  kind: StudentPersonalPhotoKind,
+  metadata: StudentPersonalPhotoMetadata,
+  bytes: Buffer
+): Promise<void> {
+  if (metadata.backend === "firestore") {
+    await getAdminDb()
+      .collection(STUDENT_PERSONAL_PHOTO_COLLECTION)
+      .doc(studentPersonalPhotoDocId(uid, period, kind))
+      .set({
+        uid,
+        academicYear: period.academicYear,
+        semester: period.semester,
+        kind,
+        pointer: metadata.objectPath,
+        bytes: Buffer.from(bytes),
+        contentType: metadata.contentType,
+        updatedAt: metadata.updatedAt,
+      });
+    return;
+  }
+  assertFirebaseStorageConfigured();
+  await getAdminStorageBucket().file(metadata.objectPath).save(bytes, {
+    resumable: false,
+    metadata: { contentType: metadata.contentType, cacheControl: "private, no-store" },
+  });
+}
+
+async function removeStudentPersonalPhotoBytes(
+  metadata: Pick<StudentPersonalPhotoMetadata, "objectPath" | "backend">
+): Promise<void> {
+  if (metadata.backend === "firestore") {
+    const docId = firestorePointerToPhotoDocId(metadata.objectPath);
+    if (!docId) return;
+    await getAdminDb().collection(STUDENT_PERSONAL_PHOTO_COLLECTION).doc(docId).delete();
+    return;
+  }
+  if (
+    !metadata.objectPath.startsWith("student-personal-info/") ||
+    metadata.objectPath.includes("..")
+  ) {
+    return;
+  }
+  await getAdminStorageBucket()
+    .file(metadata.objectPath)
+    .delete({ ignoreNotFound: true });
+}
+
+/** 讀取照片本體，後端依 metadata.backend 決定（舊照片仍讀得到）。 */
+export async function readStudentPersonalPhotoBytes(
+  metadata: StudentPersonalPhotoMetadata
+): Promise<Buffer> {
+  if (metadata.backend === "firestore") {
+    const docId = firestorePointerToPhotoDocId(metadata.objectPath);
+    if (!docId) throw new Error("證件照指標無效");
+    const snap = await getAdminDb().collection(STUDENT_PERSONAL_PHOTO_COLLECTION).doc(docId).get();
+    const bytes = snap.exists
+      ? ((snap.data()?.bytes as Uint8Array | undefined) ?? null)
+      : null;
+    if (!bytes || bytes.length === 0) throw new Error("證件照檔案不存在");
+    return Buffer.from(bytes);
+  }
+  assertFirebaseStorageConfigured();
+  const [contents] = await getAdminStorageBucket().file(metadata.objectPath).download();
+  return contents;
+}
+
 export async function saveStudentPersonalPhoto(
   uid: string,
   period: SchoolPeriod,
@@ -133,14 +381,29 @@ export async function saveStudentPersonalPhoto(
   contentType: StudentPersonalPhotoMetadata["contentType"]
 ): Promise<StudentPersonalPhotoMetadata> {
   const current = await getStudentPersonalInfo(uid, period);
+  const backend = await getStudentPersonalPhotoStorage();
+  const limit = studentPersonalPhotoBackendLimit(backend);
+  if (bytes.length > limit) {
+    throw new Error(
+      backend === "firestore"
+        ? `證件照超過 Firestore 的 ${Math.round(limit / 1024)} KB 上限，請改用解析度較低的照片`
+        : `證件照超過 ${Math.round(limit / 1024 / 1024)} MB 上限`
+    );
+  }
+
   const extension = contentType === "image/jpeg" ? "jpg" : contentType === "image/png" ? "png" : "webp";
-  const objectPath = `${studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind)}${Date.now()}-${crypto.randomUUID()}.${extension}`;
-  const metadata: StudentPersonalPhotoMetadata = { objectPath, contentType, updatedAt: Date.now() };
-  const bucket = getAdminStorageBucket();
-  await bucket.file(objectPath).save(bytes, {
-    resumable: false,
-    metadata: { contentType, cacheControl: "private, no-store" },
-  });
+  const objectPath =
+    backend === "firestore"
+      ? studentPersonalPhotoFirestorePointer(uid, period, kind)
+      : `${studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind)}${Date.now()}-${crypto.randomUUID()}.${extension}`;
+  const metadata: StudentPersonalPhotoMetadata = {
+    objectPath,
+    backend,
+    contentType,
+    updatedAt: Date.now(),
+  };
+
+  await writeStudentPersonalPhotoBytes(uid, period, kind, metadata, bytes);
 
   try {
     await getAdminDb()
@@ -154,18 +417,19 @@ export async function saveStudentPersonalPhoto(
         updatedAt: metadata.updatedAt,
       }, { merge: true });
   } catch (error) {
-    await bucket.file(objectPath).delete({ ignoreNotFound: true }).catch(() => undefined);
+    await removeStudentPersonalPhotoBytes(metadata).catch(() => undefined);
     throw error;
   }
 
-  const oldPath = current.photos[kind]?.objectPath;
+  const old = current.photos[kind];
+  const prefix = studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind);
   if (
-    oldPath &&
-    oldPath !== objectPath &&
-    oldPath.startsWith(studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind))
+    old &&
+    old.objectPath !== metadata.objectPath &&
+    personalPhotoPointerMatches(old.objectPath, prefix)
   ) {
-    await bucket.file(oldPath).delete({ ignoreNotFound: true }).catch(() => {
-      console.error("Unable to remove replaced personal photo from storage");
+    await removeStudentPersonalPhotoBytes(old).catch(() => {
+      console.error("Unable to remove replaced personal photo");
     });
   }
   return metadata;
@@ -180,7 +444,7 @@ export function personalPhotoObjectPathsForRecord(
   const paths: string[] = [];
   for (const kind of Object.keys(record.photos) as StudentPersonalPhotoKind[]) {
     const objectPath = record.photos[kind]?.objectPath;
-    if (objectPath?.startsWith(studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind))) {
+    if (objectPath && personalPhotoPointerMatches(objectPath, studentPersonalInfoPhotoObjectPathPrefix(uid, period, kind))) {
       paths.push(objectPath);
     }
   }
@@ -188,15 +452,45 @@ export function personalPhotoObjectPathsForRecord(
 }
 
 export async function deleteStudentPersonalPhotoObjects(objectPaths: string[]): Promise<void> {
-  const safePaths = [...new Set(objectPaths)].filter((objectPath) =>
-    objectPath.startsWith("student-personal-info/") && !objectPath.includes("..")
+  const unique = [...new Set(objectPaths)];
+  const firestorePointers = unique.filter((pointer) =>
+    pointer.startsWith(STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX)
   );
-  if (safePaths.length === 0) return;
+  const storagePaths = unique.filter(
+    (objectPath) =>
+      !objectPath.startsWith(STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX) &&
+      objectPath.startsWith("student-personal-info/") &&
+      !objectPath.includes("..")
+  );
+
+  if (firestorePointers.length > 0) {
+    try {
+      const ids = [
+        ...new Set(
+          firestorePointers
+            .map(firestorePointerToPhotoDocId)
+            .filter((docId): docId is string => Boolean(docId))
+        ),
+      ];
+      if (ids.length > 0) {
+        const db = getAdminDb();
+        const batch = db.batch();
+        for (const docId of ids) {
+          batch.delete(db.collection(STUDENT_PERSONAL_PHOTO_COLLECTION).doc(docId));
+        }
+        await batch.commit();
+      }
+    } catch {
+      console.error("Unable to clean up personal photos from firestore");
+    }
+  }
+
+  if (storagePaths.length === 0) return;
   try {
     const bucket = getAdminStorageBucket();
-    for (let offset = 0; offset < safePaths.length; offset += 100) {
+    for (let offset = 0; offset < storagePaths.length; offset += 100) {
       await Promise.all(
-        safePaths.slice(offset, offset + 100).map((objectPath) =>
+        storagePaths.slice(offset, offset + 100).map((objectPath) =>
           bucket.file(objectPath).delete({ ignoreNotFound: true }).catch(() => {
             console.error("Unable to remove personal photo from storage");
           })

@@ -1,16 +1,11 @@
 "use client";
 
-import versionData from "@/version.json";
-
 interface CopyrightProps {
   mode: string;
 }
 
-// production 不對外揭露精確版本／建置日期（避免幫攻擊者辨識版本）
-const isProd = process.env.NODE_ENV === "production";
-const versionText = isProd
-  ? ""
-  : `Version ${versionData.version} on ${versionData.date.replace(/-/g, ".")}`;
+// 資訊安全：頁尾一律不揭露版本號與建置日期（避免幫攻擊者辨識版本）
+const POWERED_BY = "Powered by Next.js on Vercel";
 
 export default function Copyright({ mode }: CopyrightProps) {
   if (mode === "關閉") {
@@ -39,8 +34,7 @@ function CopyrightFull() {
               />
             </td>
             <td style={{ borderBottom: "none", padding: "0", border: "none" }}>
-      {versionText && <div>{versionText}</div>}
-      <div>Powered by Next.js on Vercel</div>
+      <div>{POWERED_BY}</div>
               <div className="flex items-center justify-center gap-2 my-1 flex-wrap">
                 {/* Donate */}
                 <a
@@ -152,8 +146,8 @@ function CopyrightFull() {
 function CopyrightSimple() {
   return (
     <div className="text-center text-sm py-4">
-      <div>Powered By Google</div>
-      <div>數位校園工具箱{versionText ? ` ${versionText}` : ""}</div>
+      <div>{POWERED_BY}</div>
+      <div>數位校園工具箱</div>
       <div className="flex items-center justify-center gap-2 mt-1">
         <span>Chang, Chia-Cheng 張家誠</span>
         <a

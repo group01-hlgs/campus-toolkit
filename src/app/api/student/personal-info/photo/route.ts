@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { getAdminStorageBucket } from "@/lib/firebase-admin";
 import { inspectJpegPhoto } from "@/lib/jpeg-photo";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
@@ -10,15 +9,19 @@ import { serverErrorMessage } from "@/lib/api-error";
 import {
   getStudentPersonalInfo,
   getStudentPersonalInfoSettings,
+  getStudentPersonalPhotoStorage,
   isStudentPersonalInfoOpen,
+  readStudentPersonalPhotoBytes,
   saveStudentPersonalPhoto,
   studentPersonalInfoPhotoObjectPathPrefix,
+  studentPersonalPhotoBackendLimit,
   taipeiDateTimeString,
 } from "@/lib/personal-info";
 import {
   isStudentPersonalInfoTargetEligible,
   isStudentPersonalPhotoKind,
-  STUDENT_PERSONAL_PHOTO_MAX_BYTES,
+  personalPhotoPointerMatches,
+  STUDENT_PERSONAL_PHOTO_SOURCE_MAX_BYTES,
 } from "@/types/personal-info";
 
 const privateNoStore = {
@@ -50,17 +53,29 @@ export async function GET(request: NextRequest) {
     const photo = record.photos[kind];
     if (
       !photo ||
-      !photo.objectPath.startsWith(studentPersonalInfoPhotoObjectPathPrefix(session.uid, period, kind))
+      !personalPhotoPointerMatches(
+        photo.objectPath,
+        studentPersonalInfoPhotoObjectPathPrefix(session.uid, period, kind)
+      )
     ) {
       return NextResponse.json({ success: false, message: "尚未上傳證件照" }, { status: 404, headers: privateNoStore });
     }
 
-    const file = getAdminStorageBucket().file(photo.objectPath);
-    const [exists] = await file.exists();
-    if (!exists) {
-      return NextResponse.json({ success: false, message: "證件照檔案不存在" }, { status: 404, headers: privateNoStore });
+    let contents: Buffer;
+    try {
+      contents = await readStudentPersonalPhotoBytes(photo);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (
+        detail.includes("證件照檔案不存在") ||
+        detail.includes("證件照指標無效") ||
+        detail.toLowerCase().includes("not found") ||
+        detail.includes("no such object")
+      ) {
+        return NextResponse.json({ success: false, message: "證件照檔案不存在" }, { status: 404, headers: privateNoStore });
+      }
+      throw error;
     }
-    const [contents] = await file.download();
     return new NextResponse(new Uint8Array(contents), {
       headers: {
         ...privateNoStore,
@@ -95,9 +110,9 @@ export async function POST(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const contentLength = Number(request.headers.get("content-length") ?? 0);
-    if (Number.isFinite(contentLength) && contentLength > STUDENT_PERSONAL_PHOTO_MAX_BYTES + 128_000) {
+    if (Number.isFinite(contentLength) && contentLength > STUDENT_PERSONAL_PHOTO_SOURCE_MAX_BYTES + 128_000) {
       return NextResponse.json(
-        { success: false, message: "照片不可超過 5 MB" },
+        { success: false, message: "照片原始檔不可超過 20 MB" },
         { status: 413, headers: privateNoStore }
       );
     }
@@ -111,8 +126,8 @@ export async function POST(request: NextRequest) {
     if (!isStudentPersonalPhotoKind(kind) || !(file instanceof File)) {
       return NextResponse.json({ success: false, message: "請選擇證件照檔案" }, { status: 400, headers: privateNoStore });
     }
-    if (file.size <= 0 || file.size > STUDENT_PERSONAL_PHOTO_MAX_BYTES) {
-      return NextResponse.json({ success: false, message: "照片不可為空，且檔案大小不可超過 5 MB" }, { status: 400, headers: privateNoStore });
+    if (file.size <= 0 || file.size > STUDENT_PERSONAL_PHOTO_SOURCE_MAX_BYTES) {
+      return NextResponse.json({ success: false, message: "照片不可為空，且原始檔不可超過 20 MB" }, { status: 400, headers: privateNoStore });
     }
 
     const period = await getCurrentPeriod();
@@ -156,9 +171,17 @@ export async function POST(request: NextRequest) {
         { status: 400, headers: privateNoStore }
       );
     }
-    if (properties.dpiX === null || properties.dpiY === null || properties.dpiX < 300 || properties.dpiY < 300) {
+    const backend = await getStudentPersonalPhotoStorage();
+    const storedLimit = studentPersonalPhotoBackendLimit(backend);
+    if (contents.length > storedLimit) {
       return NextResponse.json(
-        { success: false, message: "照片解析度需達 300 dpi 以上，且檔案須包含解析度資訊" },
+        {
+          success: false,
+          message:
+            backend === "firestore"
+              ? `縮圖後仍超過 Firestore 的 ${Math.round(storedLimit / 1024)} KB 上限，請改用解析度較低的照片`
+              : `照片不可超過 ${Math.round(storedLimit / 1024 / 1024)} MB`,
+        },
         { status: 400, headers: privateNoStore }
       );
     }
@@ -169,7 +192,7 @@ export async function POST(request: NextRequest) {
       role: "student",
       action: "student_personal_photo_updated",
       ip: getClientIp(request),
-      details: `上傳或更換 ${kind === "admission" ? "入學時" : "畢業"}證件照（${period.academicYear} 學年度第 ${period.semester} 學期）`,
+      details: `上傳或更換 ${kind === "admission" ? "入學時" : "畢業"}證件照（${period.academicYear} 學年度第 ${period.semester} 學期，儲存=${backend === "firestore" ? "Firestore" : "Firebase Storage"}）`,
     });
     return NextResponse.json(
       { success: true, message: "證件照已上傳", photo: { updatedAt: photo.updatedAt } },

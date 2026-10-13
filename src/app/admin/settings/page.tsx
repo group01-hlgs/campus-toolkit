@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, defaultSettings } from "@/types/settings";
+import { Settings, defaultSettings, STUDENT_PERSONAL_PHOTO_STORAGE_OPTIONS } from "@/types/settings";
 import { logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
@@ -115,7 +115,7 @@ const settingGroups: SettingGroup[] = [
     ],
   },
   {
-    title: "總量管制",
+    title: "省錢專區",
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
@@ -131,6 +131,17 @@ const settingGroups: SettingGroup[] = [
           { value: "false", label: "停用" },
         ],
         help: "提供採用免費架構網站的夥伴勉強使用",
+      },
+      {
+        id: "studentPersonalPhotoStorage",
+        label: "學生證件照儲存位置",
+        type: "select",
+        options: STUDENT_PERSONAL_PHOTO_STORAGE_OPTIONS.map((option) => ({
+          value: option.value,
+          label: option.label,
+        })),
+        help:
+          "Firestore 可在免費（Spark）方案使用，檔案上限 900 KB；Firebase Storage 自 2026/02 起一律要求綁定 Blaze，且免費額度僅存在於美國的 us-central1／us-east1／us-west1。切換只影響新上傳的照片，舊照片仍依其原儲存位置讀取。",
       },
     ],
   },
