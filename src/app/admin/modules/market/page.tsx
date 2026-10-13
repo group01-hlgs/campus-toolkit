@@ -392,6 +392,44 @@ export default function ModuleMarketPage() {
 
   return (
     <div className="w-full max-w-5xl space-y-6">
+      {installMessage && (
+        <div
+          role={installKind === "error" ? "alert" : "status"}
+          aria-live={installKind === "error" ? "assertive" : "polite"}
+          className={`fixed bottom-4 left-1/2 z-40 w-[min(92vw,64rem)] -translate-x-1/2 rounded-lg border p-3 text-sm shadow-lg ${
+            installKind === "success"
+              ? "border-success/60 bg-card text-success"
+              : "border-danger/60 bg-card text-danger"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="min-w-0 flex-1 break-words">{installMessage}</p>
+            <button
+              type="button"
+              onClick={() => setInstallMessage(null)}
+              aria-label="關閉安裝結果提示"
+              className="shrink-0 rounded px-1 text-t3 hover:text-t1 cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
+          {(installCommitUrl || installBranch) && (
+            <div className="mt-2 text-xs">
+              {installBranch && <p>分支：{installBranch}</p>}
+              {installCommitUrl && (
+                <a
+                  href={installCommitUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  查看提交紀錄
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {uninstallTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <button
@@ -735,31 +773,6 @@ export default function ModuleMarketPage() {
           </div>
         </details>
       </div>
-
-      {installMessage && (
-        <div
-          className={`border rounded-lg p-3 text-sm ${
-            installKind === "success" ? "border-success/60 bg-success/10 text-success" : "border-danger/60 bg-danger/10 text-danger"
-          }`}
-        >
-          <p>{installMessage}</p>
-          {(installCommitUrl || installBranch) && (
-            <div className="mt-2 text-xs">
-              {installBranch && <p>分支：{installBranch}</p>}
-              {installCommitUrl && (
-                <a
-                  href={installCommitUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline"
-                >
-                  查看提交紀錄
-                </a>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
     </div>
   );
