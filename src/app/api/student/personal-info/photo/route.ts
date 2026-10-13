@@ -156,13 +156,6 @@ export async function POST(request: NextRequest) {
         { status: 400, headers: privateNoStore }
       );
     }
-    if (properties.dpiX === null || properties.dpiY === null || properties.dpiX < 300 || properties.dpiY < 300) {
-      return NextResponse.json(
-        { success: false, message: "照片解析度需達 300 dpi 以上，且檔案須包含解析度資訊" },
-        { status: 400, headers: privateNoStore }
-      );
-    }
-
     const photo = await saveStudentPersonalPhoto(session.uid, period, kind, contents, "image/jpeg");
     await logActivity({
       userId: session.uid,
