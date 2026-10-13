@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
   EMPTY_STUDENT_PERSONAL_IDENTITY,
@@ -231,7 +231,10 @@ export default function StudentPersonalInfoForm({
       fields,
       isCurrent: true,
     },
-  ].sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
+  ]
+    .sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester)
+    .map((row) => ({ ...row, complete: isTermFieldsComplete(row.fields) }));
+  const incompleteCount = periodRows.filter((row) => !row.complete).length;
 
   const idValidation = validateStudentPersonalId(identity.idType, identity.nationalId);
   const showIdError = (Boolean(identity.idType) || Boolean(identity.nationalId)) && !idValidation.ok;
@@ -354,10 +357,21 @@ export default function StudentPersonalInfoForm({
         </details>
       )}
       <details className="group/card mt-4 border border-themed rounded-lg bg-card">
-        <summary className="cursor-pointer list-none px-5 sm:px-7 py-5 flex items-center justify-between gap-3">
-          <h3 className="text-lg font-bold text-t1">各學期基本資料</h3>
-          <Chevron card />
-        </summary>
+          <summary className="cursor-pointer list-none px-5 sm:px-7 py-5 flex items-center justify-between gap-3">
+            <h3 className="text-lg font-bold text-t1 flex items-center gap-2">
+              各學期基本資料
+              {!loading && !loadError && canEdit && (
+                <PeriodHintBadge tone="open">{PERIOD_HINT_OPEN}</PeriodHintBadge>
+              )}
+              {!loading && !loadError &&
+                (incompleteCount > 0 ? (
+                  <PeriodHintBadge tone="incomplete">{incompleteCount} 筆未完成</PeriodHintBadge>
+                ) : (
+                  <PeriodHintBadge tone="done">全部{PERIOD_HINT_DONE}</PeriodHintBadge>
+                ))}
+            </h3>
+            <Chevron card />
+          </summary>
         <div className="px-5 sm:px-7 pb-5">
           <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
             每學期一筆，非本學期資料預設收合；資料僅供本人查看。
@@ -386,8 +400,14 @@ export default function StudentPersonalInfoForm({
                   className="group border border-themed rounded-lg bg-card"
                 >
                   <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 text-t1">
-                    <span className="font-medium">
+                    <span className="font-medium flex items-center gap-2">
                       {row.academicYear} 學年度第 {row.semester} 學期
+                      {row.isCurrent && canEdit && (
+                        <PeriodHintBadge tone="open">{PERIOD_HINT_OPEN}</PeriodHintBadge>
+                      )}
+                      <PeriodHintBadge tone={row.complete ? "done" : "incomplete"}>
+                        {row.complete ? PERIOD_HINT_DONE : PERIOD_HINT_INCOMPLETE}
+                      </PeriodHintBadge>
                     </span>
                     <Chevron />
                   </summary>
@@ -476,6 +496,26 @@ export default function StudentPersonalInfoForm({
         onClose={() => setFeedback(null)}
       />
     </>
+  );
+}
+
+const PERIOD_HINT_OPEN = "開放填寫中";
+const PERIOD_HINT_INCOMPLETE = "未完成";
+const PERIOD_HINT_DONE = "已完成";
+
+/** 紅框內的學期欄位全部為必填：任一為空即視為未完成 */
+function isTermFieldsComplete(source: StudentPersonalInfoTermFields): boolean {
+  return STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.every((field) => source[field.key].trim() !== "");
+}
+
+function PeriodHintBadge({ tone, children }: { tone: "open" | "incomplete" | "done"; children: ReactNode }) {
+  const toneClass = tone === "open" ? "text-success" : tone === "incomplete" ? "text-danger" : "text-t3";
+  return (
+    <span
+      className={`inline-block rounded-full border border-themed px-2 py-0.5 text-xs font-normal align-middle ${toneClass}`}
+    >
+      {children}
+    </span>
   );
 }
 
