@@ -330,7 +330,6 @@ function OptionalRow({
   marketLatestVersion?: string;
 }) {
   const stateText = enabled ? "已啟用" : "未啟用";
-  const stateClass = enabled ? "text-success" : "text-t2";
   const hasNewerVersion =
     !!marketLatestVersion && compareModuleVersions(item.author.version, marketLatestVersion) === 1;
   const disabledReason = !isSuper ? "僅超級管理員可操作" : saving ? "處理中..." : undefined;
@@ -363,22 +362,29 @@ function OptionalRow({
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
           <span className="flex flex-col items-center gap-1">
-            <span className={`text-sm font-medium ${stateClass}`}>{stateText}</span>
-            <button
-              type="button"
-              onClick={() => onToggleMaster(item, !enabled)}
-              disabled={!isSuper || saving}
-              role="switch"
-              aria-checked={enabled}
-              aria-label={`「${item.label}」總開關：${stateText}`}
-              title={disabledReason}
-              className={`inline-flex h-6 w-11 items-center rounded-full border border-themed transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${enabled ? "bg-primary" : "bg-surface"}`}
-            >
-              <span
-                aria-hidden="true"
-                className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`}
-              />
-            </button>
+            <span className="flex items-center justify-center gap-2">
+              <span className={`text-xs font-medium ${enabled ? "text-success" : "text-t3"}`}>
+                開
+              </span>
+              <button
+                type="button"
+                onClick={() => onToggleMaster(item, !enabled)}
+                disabled={!isSuper || saving}
+                role="switch"
+                aria-checked={enabled}
+                aria-label={`「${item.label}」總開關：${stateText}`}
+                title={disabledReason}
+                className={`inline-flex h-6 w-11 items-center rounded-full border border-themed transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${enabled ? "bg-primary" : "bg-surface"}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`}
+                />
+              </button>
+              <span className={`text-xs font-medium ${enabled ? "text-t3" : "text-t2"}`}>
+                關
+              </span>
+            </span>
             {saving && <span className="text-xs text-t3">處理中...</span>}
           </span>
         </td>
