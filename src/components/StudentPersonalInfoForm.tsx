@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
-  EMPTY_STUDENT_PERSONAL_INFO,
+  EMPTY_STUDENT_PERSONAL_IDENTITY,
+  EMPTY_STUDENT_PERSONAL_INFO_TERM,
   STUDENT_PERSONAL_PHOTO_MAX_BYTES,
-  STUDENT_PERSONAL_INFO_FIELD_DEFS,
+  STUDENT_PERSONAL_IDENTITY_FIELD_DEFS,
+  STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS,
   type StudentPersonalPhotoKind,
-  type StudentPersonalInfoFields,
+  type StudentPersonalIdentityFields,
+  type StudentPersonalInfoTermFields,
 } from "@/types/personal-info";
 import type { PostalCodeOption } from "@/types/postal-codes";
 
@@ -15,6 +18,7 @@ interface StudentPersonalInfoResponse {
   success?: boolean;
   message?: string;
   entries?: StudentPersonalInfoEntry[];
+  identity?: StudentPersonalIdentityFields;
   photoPermissions?: Record<StudentPersonalPhotoKind, boolean>;
   postalCodeOptions?: PostalCodeOption[];
   canEdit?: boolean;
@@ -24,14 +28,21 @@ interface StudentPersonalInfoResponse {
 interface StudentPersonalInfoEntry {
   academicYear: number;
   semester: number;
-  fields: StudentPersonalInfoFields;
+  fields: StudentPersonalInfoTermFields;
   photos: Record<StudentPersonalPhotoKind, { updatedAt: number } | null>;
+  isDemo?: boolean;
 }
 
 interface SavePersonalInfoResponse {
   success?: boolean;
   message?: string;
-  fields?: StudentPersonalInfoFields;
+  fields?: StudentPersonalInfoTermFields;
+}
+
+interface SaveIdentityResponse {
+  success?: boolean;
+  message?: string;
+  identity?: StudentPersonalIdentityFields;
 }
 
 export default function StudentPersonalInfoForm({
@@ -41,7 +52,8 @@ export default function StudentPersonalInfoForm({
   academicYear: number;
   semester: number;
 }) {
-  const [fields, setFields] = useState<StudentPersonalInfoFields>({ ...EMPTY_STUDENT_PERSONAL_INFO });
+  const [identity, setIdentity] = useState<StudentPersonalIdentityFields>({ ...EMPTY_STUDENT_PERSONAL_IDENTITY });
+  const [fields, setFields] = useState<StudentPersonalInfoTermFields>({ ...EMPTY_STUDENT_PERSONAL_INFO_TERM });
   const [previousEntries, setPreviousEntries] = useState<StudentPersonalInfoEntry[]>([]);
   const [expandedPeriods, setExpandedPeriods] = useState<string[]>([]);
   const [photos, setPhotos] = useState<Record<StudentPersonalPhotoKind, { updatedAt: number } | null>>({
@@ -59,6 +71,7 @@ export default function StudentPersonalInfoForm({
   const [availabilityMessage, setAvailabilityMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingIdentity, setSavingIdentity] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
@@ -80,7 +93,8 @@ export default function StudentPersonalInfoForm({
         )
       );
       setExpandedPeriods([`${data.period.academicYear}_${data.period.semester}`]);
-      setFields(currentEntry?.fields ?? { ...EMPTY_STUDENT_PERSONAL_INFO });
+      setIdentity(data.identity ?? { ...EMPTY_STUDENT_PERSONAL_IDENTITY });
+      setFields(currentEntry?.fields ?? { ...EMPTY_STUDENT_PERSONAL_INFO_TERM });
       setPhotos({
         admission: currentEntry?.photos.admission ? { updatedAt: currentEntry.photos.admission.updatedAt } : null,
         graduation: currentEntry?.photos.graduation ? { updatedAt: currentEntry.photos.graduation.updatedAt } : null,
@@ -126,6 +140,31 @@ export default function StudentPersonalInfoForm({
     }
   }
 
+  async function saveIdentity() {
+    if (savingIdentity || !canEdit) return;
+    setSavingIdentity(true);
+    try {
+      const response = await fetch("/api/student/personal-info", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity }),
+      });
+      const data: SaveIdentityResponse = await response.json();
+      if (!response.ok || !data.success || !data.identity) {
+        throw new Error(data.message || "儲存固定個人資料失敗");
+      }
+      setIdentity(data.identity);
+      setFeedback({ kind: "success", message: data.message || "固定個人資料已儲存。" });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: error instanceof Error ? error.message : "儲存固定個人資料失敗",
+      });
+    } finally {
+      setSavingIdentity(false);
+    }
+  }
+
   async function uploadPhoto(kind: StudentPersonalPhotoKind, file: File) {
     if (!photoPermissions[kind] || uploadingPhoto) return;
     if (file.size <= 0 || file.size > STUDENT_PERSONAL_PHOTO_MAX_BYTES) {
@@ -168,6 +207,53 @@ export default function StudentPersonalInfoForm({
 
   return (
     <>
+      {!loading && !loadError && (
+        <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
+          <header className="mb-4 border-b border-themed pb-3">
+            <h3 className="text-lg font-bold text-t1">固定基本資料</h3>
+            <p className="text-xs text-t3 mt-1">性別、身分證與生日跨學期共用，不會因年度或學期改變。</p>
+          </header>
+          {canEdit ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.map((field) => (
+                <label key={field.key} className="block space-y-1 text-sm text-t2">
+                  <span>{field.label}</span>
+                  {field.type === "select" ? (
+                    <select
+                      value={identity[field.key]}
+                      onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
+                      className="w-full input-theme rounded px-3 py-2 text-sm"
+                    >
+                      <option value="">請選擇</option>
+                      {field.options?.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      type={field.type}
+                      value={identity[field.key]}
+                      onChange={(event) => setIdentity({ ...identity, [field.key]: event.target.value })}
+                      maxLength={field.maxLength}
+                      className="w-full input-theme rounded px-3 py-2 text-sm"
+                    />
+                  )}
+                </label>
+              ))}
+              <div className="sm:col-span-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void saveIdentity()}
+                  disabled={savingIdentity}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {savingIdentity ? "儲存中…" : "儲存固定基本資料"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <StudentPersonalIdentityFieldsView identity={identity} />
+          )}
+        </section>
+      )}
       {!loading && !loadError && (
         <section className="mt-4 border border-themed rounded-lg bg-card p-5 sm:p-7">
           <header className="mb-4 border-b border-themed pb-3">
@@ -232,8 +318,8 @@ export default function StudentPersonalInfoForm({
                     <span className="font-medium">
                       {entry.academicYear} 學年度第 {entry.semester} 學期
                     </span>
-                    <span className="flex items-center gap-2 text-xs text-t3">
-                      歷史資料
+                    <span className={`flex items-center gap-2 text-xs ${entry.isDemo ? "text-warning" : "text-t3"}`}>
+                      {entry.isDemo ? "本機測試資料（虛構）" : "歷史資料"}
                       <PeriodChevron />
                     </span>
                   </summary>
@@ -269,7 +355,7 @@ export default function StudentPersonalInfoForm({
                 </p>
                 {canEdit ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {STUDENT_PERSONAL_INFO_FIELD_DEFS.map((field) => (
+                    {STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.map((field) => (
                       <label
                         key={field.key}
                         className={`block space-y-1 text-sm text-t2 ${field.type === "textarea" ? "sm:col-span-2" : ""}`}
@@ -360,14 +446,29 @@ function PeriodChevron() {
   );
 }
 
-function StudentPersonalInfoFieldsView({ fields }: { fields: StudentPersonalInfoFields }) {
+function StudentPersonalInfoFieldsView({ fields }: { fields: StudentPersonalInfoTermFields }) {
   return (
     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-      {STUDENT_PERSONAL_INFO_FIELD_DEFS.map((field) => (
+      {STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.map((field) => (
         <div key={field.key} className="border-b border-themed py-3">
           <dt className="text-xs text-t3">{field.label}</dt>
           <dd className="text-sm text-t1 mt-1 whitespace-pre-wrap break-words">
             {fields[field.key].trim() || "—"}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function StudentPersonalIdentityFieldsView({ identity }: { identity: StudentPersonalIdentityFields }) {
+  return (
+    <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-6">
+      {STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.map((field) => (
+        <div key={field.key} className="border-b border-themed py-3">
+          <dt className="text-xs text-t3">{field.label}</dt>
+          <dd className="text-sm text-t1 mt-1 whitespace-pre-wrap break-words">
+            {identity[field.key] || "—"}
           </dd>
         </div>
       ))}

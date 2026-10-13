@@ -7,30 +7,60 @@ import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getPostalCodeOptions } from "@/lib/postal-codes";
 import {
+  getStudentPersonalIdentity,
   getStudentPersonalInfoEntries,
   getStudentPersonalInfoSettings,
   isStudentPersonalInfoOpen,
+  saveStudentPersonalIdentity,
   saveStudentPersonalInfo,
   studentPersonalInfoAvailabilityMessage,
   taipeiDateTimeString,
   taipeiDateString,
 } from "@/lib/personal-info";
 import {
-  EMPTY_STUDENT_PERSONAL_INFO,
+  EMPTY_STUDENT_PERSONAL_IDENTITY,
+  EMPTY_STUDENT_PERSONAL_INFO_TERM,
   EMPTY_STUDENT_PERSONAL_INFO_PHOTOS,
   isIsoDate,
   isStudentPersonalInfoTargetEligible,
-  STUDENT_PERSONAL_INFO_FIELD_DEFS,
-  type StudentPersonalInfoFields,
+  STUDENT_PERSONAL_IDENTITY_FIELD_DEFS,
+  STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS,
+  type StudentPersonalIdentityFields,
+  type StudentPersonalInfoEntry,
+  type StudentPersonalInfoTermFields,
 } from "@/types/personal-info";
 
 const noStore = { "Cache-Control": "no-store" };
 
-function validateStudentFields(raw: unknown): StudentPersonalInfoFields | null {
+const DEMO_ENTRY_PERIOD = { academicYear: 114, semester: 2 } as const;
+
+function makeLocalDemoEntry(): StudentPersonalInfoEntry {
+  return {
+    ...DEMO_ENTRY_PERIOD,
+    fields: {
+      householdPostalCode: "100",
+      householdAddress: "臺北市中正區虛構路 100 號",
+      mailingPostalCode: "220",
+      mailingAddress: "新北市板橋區測試街 99 號",
+      emergencyContactName: "虛構聯絡人 王小明",
+      emergencyContactPhone: "0900-000-000",
+      contactPhone: "0912-345-678",
+    },
+    photos: { ...EMPTY_STUDENT_PERSONAL_INFO_PHOTOS },
+    legacyIdentity: {
+      gender: "女",
+      nationalId: "A123456789",
+      birthday: "2010-04-05",
+    },
+    isDemo: true,
+  };
+}
+
+function validateStudentIdentity(raw: unknown): StudentPersonalIdentityFields | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const input = raw as Record<string, unknown>;
-  const fields = {} as StudentPersonalInfoFields;
-  for (const definition of STUDENT_PERSONAL_INFO_FIELD_DEFS) {
+  const fields = { ...EMPTY_STUDENT_PERSONAL_IDENTITY };
+  for (const definition of STUDENT_PERSONAL_IDENTITY_FIELD_DEFS) {
     const rawValue = input[definition.key];
     const value = typeof rawValue === "string" ? rawValue.trim() : "";
     if (value.length > definition.maxLength) return null;
@@ -38,12 +68,25 @@ function validateStudentFields(raw: unknown): StudentPersonalInfoFields | null {
   }
   if (
     fields.gender &&
-    !STUDENT_PERSONAL_INFO_FIELD_DEFS.find((field) => field.key === "gender")?.options?.includes(fields.gender)
+    !STUDENT_PERSONAL_IDENTITY_FIELD_DEFS.find((field) => field.key === "gender")?.options?.includes(fields.gender)
   ) {
     return null;
   }
   if (fields.birthday && (!isIsoDate(fields.birthday) || fields.birthday > taipeiDateString())) {
     return null;
+  }
+  return fields;
+}
+
+function validateStudentTermFields(raw: unknown): StudentPersonalInfoTermFields | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const input = raw as Record<string, unknown>;
+  const fields = { ...EMPTY_STUDENT_PERSONAL_INFO_TERM };
+  for (const definition of STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS) {
+    const rawValue = input[definition.key];
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
+    if (value.length > definition.maxLength) return null;
+    fields[definition.key as keyof StudentPersonalInfoTermFields] = value;
   }
   for (const postalCode of [fields.householdPostalCode, fields.mailingPostalCode]) {
     if (postalCode && !/^\d{3,6}$/.test(postalCode)) return null;
@@ -71,20 +114,34 @@ export async function GET(request: NextRequest) {
       getStudentPersonalInfoEntries(session.uid),
       getPostalCodeOptions(),
     ]);
+    const identity = await getStudentPersonalIdentity(session.uid, personalInfoEntries);
     const currentEntry = personalInfoEntries.find(
       (entry) => entry.academicYear === period.academicYear && entry.semester === period.semester
     );
-    const entries = [
+    const current =
       currentEntry ?? {
         academicYear: period.academicYear,
         semester: period.semester,
-        fields: { ...EMPTY_STUDENT_PERSONAL_INFO },
+        fields: { ...EMPTY_STUDENT_PERSONAL_INFO_TERM },
         photos: { ...EMPTY_STUDENT_PERSONAL_INFO_PHOTOS },
-      },
-      ...personalInfoEntries.filter(
+        legacyIdentity: identity,
+      };
+    const previousEntries = personalInfoEntries.filter(
         (entry) => entry.academicYear !== period.academicYear || entry.semester !== period.semester
-      ),
-    ];
+      );
+    if (
+      process.env.NODE_ENV === "development" &&
+      (period.academicYear !== DEMO_ENTRY_PERIOD.academicYear || period.semester !== DEMO_ENTRY_PERIOD.semester) &&
+      !personalInfoEntries.some(
+        (entry) =>
+          entry.academicYear === DEMO_ENTRY_PERIOD.academicYear &&
+          entry.semester === DEMO_ENTRY_PERIOD.semester
+      )
+    ) {
+      previousEntries.push(makeLocalDemoEntry());
+    }
+    previousEntries.sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
+    const entries = [current, ...previousEntries];
     const rosterEntry = (session as VerifiedSession).__entry;
     const currentDateTime = taipeiDateTimeString();
     const targetEligible = isStudentPersonalInfoTargetEligible(
@@ -107,10 +164,12 @@ export async function GET(request: NextRequest) {
         success: true,
         period,
         settings,
+        identity,
         entries: entries.map((entry) => ({
           academicYear: entry.academicYear,
           semester: entry.semester,
           fields: entry.fields,
+          ...(entry.isDemo === true ? { isDemo: true } : {}),
           photos: {
             admission: entry.photos.admission
               ? { updatedAt: entry.photos.admission.updatedAt }
@@ -162,7 +221,7 @@ export async function PUT(request: NextRequest) {
         { status: 400, headers: noStore }
       );
     }
-    const fields = validateStudentFields(body.fields);
+    const fields = validateStudentTermFields(body.fields);
     if (!fields) {
       return NextResponse.json(
         { success: false, message: "請檢查資料格式、郵遞區號與欄位長度" },
@@ -206,6 +265,75 @@ export async function PUT(request: NextRequest) {
     console.error("Save student personal info error:", error);
     return NextResponse.json(
       { success: false, message: serverErrorMessage(error, "儲存個人資料失敗") },
+      { status: 500, headers: noStore }
+    );
+  }
+}
+
+/** 性別、身分證與生日屬於跨學期的固定資料，獨立以 uid 保存。 */
+export async function PATCH(request: NextRequest) {
+  try {
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
+
+    const limited = enforceRateLimit(
+      request,
+      "student-personal-identity-save",
+      RATE.ACCOUNT_UPDATE.limit,
+      RATE.ACCOUNT_UPDATE.windowMs
+    );
+    if (limited) return limited;
+
+    const { session, denial } = await requireRole("student");
+    if (denial) return toAuthResponse(denial);
+
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || JSON.stringify(body).length > 4_000) {
+      return NextResponse.json(
+        { success: false, message: "固定個人資料內容無效或過大" },
+        { status: 400, headers: noStore }
+      );
+    }
+    const identity = validateStudentIdentity(body.identity);
+    if (!identity) {
+      return NextResponse.json(
+        { success: false, message: "請檢查性別、身分證與生日資料格式" },
+        { status: 400, headers: noStore }
+      );
+    }
+
+    const period = await getCurrentPeriod();
+    const settings = await getStudentPersonalInfoSettings(period);
+    if (!isStudentPersonalInfoOpen(settings)) {
+      return NextResponse.json(
+        { success: false, message: studentPersonalInfoAvailabilityMessage(settings) },
+        { status: 403, headers: noStore }
+      );
+    }
+    const rosterEntry = (session as VerifiedSession).__entry;
+    if (!isStudentPersonalInfoTargetEligible(settings.target, rosterEntry?.grade, rosterEntry?.classCode)) {
+      return NextResponse.json(
+        { success: false, message: "本次開放填寫對象不包含你的年級或班級" },
+        { status: 403, headers: noStore }
+      );
+    }
+
+    await saveStudentPersonalIdentity(session.uid, identity);
+    await logActivity({
+      userId: session.uid,
+      role: "student",
+      action: "student_personal_info_updated",
+      ip: getClientIp(request),
+      details: "更新跨學期固定個人資料",
+    });
+    return NextResponse.json(
+      { success: true, message: "固定個人資料已儲存", identity },
+      { headers: noStore }
+    );
+  } catch (error) {
+    console.error("Save student personal identity error:", error);
+    return NextResponse.json(
+      { success: false, message: serverErrorMessage(error, "儲存固定個人資料失敗") },
       { status: 500, headers: noStore }
     );
   }

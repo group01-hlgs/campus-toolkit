@@ -1,6 +1,7 @@
 import type { SchoolPeriod } from "@/types/settings";
 
 export const PERSONAL_INFO_COLLECTION = "studentPersonalInfo";
+export const STUDENT_PERSONAL_IDENTITY_COLLECTION = "studentPersonalIdentity";
 export const STUDENT_PERSONAL_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 
 export type StudentPersonalPhotoKind = "admission" | "graduation";
@@ -21,15 +22,24 @@ export interface StudentPersonalInfoRecord {
   photos: Record<StudentPersonalPhotoKind, StudentPersonalPhotoMetadata | null>;
 }
 
-export interface StudentPersonalInfoEntry extends StudentPersonalInfoRecord {
+export interface StudentPersonalInfoEntry {
   academicYear: number;
   semester: number;
+  fields: StudentPersonalInfoTermFields;
+  photos: Record<StudentPersonalPhotoKind, StudentPersonalPhotoMetadata | null>;
+  /** 舊期文件遷移到獨立身分文件前的欄位，僅伺服器端用來補資料 */
+  legacyIdentity: StudentPersonalIdentityFields;
+  /** 開發環境展示用假資料，絕不寫入資料庫 */
+  isDemo?: boolean;
 }
 
-export interface StudentPersonalInfoFields {
+export interface StudentPersonalIdentityFields {
   gender: string;
   nationalId: string;
   birthday: string;
+}
+
+export interface StudentPersonalInfoTermFields {
   householdPostalCode: string;
   householdAddress: string;
   mailingPostalCode: string;
@@ -39,15 +49,22 @@ export interface StudentPersonalInfoFields {
   contactPhone: string;
 }
 
+export interface StudentPersonalInfoFields
+  extends StudentPersonalIdentityFields, StudentPersonalInfoTermFields {}
+
 export type StudentPersonalInfoFieldKey = keyof StudentPersonalInfoFields;
 
-export const STUDENT_PERSONAL_INFO_FIELD_DEFS: {
-  key: StudentPersonalInfoFieldKey;
+export interface StudentPersonalInfoFieldDefinition<
+  K extends StudentPersonalInfoFieldKey = StudentPersonalInfoFieldKey
+> {
+  key: K;
   label: string;
   type: "text" | "date" | "tel" | "select" | "textarea";
   maxLength: number;
   options?: readonly string[];
-}[] = [
+}
+
+export const STUDENT_PERSONAL_INFO_FIELD_DEFS: StudentPersonalInfoFieldDefinition[] = [
   { key: "gender", label: "性別", type: "select", maxLength: 10, options: ["男", "女", "其他", "不提供"] },
   { key: "nationalId", label: "身分證", type: "text", maxLength: 20 },
   { key: "birthday", label: "生日", type: "date", maxLength: 10 },
@@ -59,6 +76,29 @@ export const STUDENT_PERSONAL_INFO_FIELD_DEFS: {
   { key: "emergencyContactPhone", label: "緊急聯絡人電話", type: "tel", maxLength: 30 },
   { key: "contactPhone", label: "聯絡電話", type: "tel", maxLength: 30 },
 ];
+
+export const STUDENT_PERSONAL_IDENTITY_FIELD_DEFS = STUDENT_PERSONAL_INFO_FIELD_DEFS.filter(
+  ({ key }) => key === "gender" || key === "nationalId" || key === "birthday"
+) as StudentPersonalInfoFieldDefinition<keyof StudentPersonalIdentityFields>[];
+export const STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS = STUDENT_PERSONAL_INFO_FIELD_DEFS.filter(
+  ({ key }) => key !== "gender" && key !== "nationalId" && key !== "birthday"
+) as StudentPersonalInfoFieldDefinition<keyof StudentPersonalInfoTermFields>[];
+
+export const EMPTY_STUDENT_PERSONAL_IDENTITY: StudentPersonalIdentityFields = {
+  gender: "",
+  nationalId: "",
+  birthday: "",
+};
+
+export const EMPTY_STUDENT_PERSONAL_INFO_TERM: StudentPersonalInfoTermFields = {
+  householdPostalCode: "",
+  householdAddress: "",
+  mailingPostalCode: "",
+  mailingAddress: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
+  contactPhone: "",
+};
 
 export const EMPTY_STUDENT_PERSONAL_INFO: StudentPersonalInfoFields = {
   gender: "",
@@ -191,6 +231,33 @@ export function readStudentPersonalInfoFields(raw: unknown): StudentPersonalInfo
   const result = { ...EMPTY_STUDENT_PERSONAL_INFO };
   for (const { key, maxLength } of STUDENT_PERSONAL_INFO_FIELD_DEFS) {
     result[key] = typeof fields[key] === "string" ? fields[key].slice(0, maxLength) : "";
+  }
+  return result;
+}
+
+export function readStudentPersonalIdentityFields(raw: unknown): StudentPersonalIdentityFields {
+  if (!raw || typeof raw !== "object") return { ...EMPTY_STUDENT_PERSONAL_IDENTITY };
+  const data = raw as Record<string, unknown>;
+  const source = (data.fields && typeof data.fields === "object"
+    ? data.fields
+    : data) as Record<string, unknown>;
+  return {
+    gender: typeof source.gender === "string" ? source.gender.slice(0, 10) : "",
+    nationalId: typeof source.nationalId === "string" ? source.nationalId.slice(0, 20) : "",
+    birthday: typeof source.birthday === "string" ? source.birthday.slice(0, 10) : "",
+  };
+}
+
+export function readStudentPersonalInfoTermFields(raw: unknown): StudentPersonalInfoTermFields {
+  if (!raw || typeof raw !== "object") return { ...EMPTY_STUDENT_PERSONAL_INFO_TERM };
+  const data = raw as Record<string, unknown>;
+  const source = (data.fields && typeof data.fields === "object"
+    ? data.fields
+    : data) as Record<string, unknown>;
+  const result = { ...EMPTY_STUDENT_PERSONAL_INFO_TERM };
+  for (const { key, maxLength } of STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS) {
+    result[key as keyof StudentPersonalInfoTermFields] =
+      typeof source[key] === "string" ? source[key].slice(0, maxLength) : "";
   }
   return result;
 }

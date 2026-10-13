@@ -1,21 +1,26 @@
 import "server-only";
-import { getAdminDb, getAdminStorageBucket } from "@/lib/firebase-admin";
+import { FieldValue, getAdminDb, getAdminStorageBucket } from "@/lib/firebase-admin";
 import { cachedSettingDoc, invalidateReadCache } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { CLASSES_DOC_ID, readSchoolClasses, type SchoolClassesContext } from "@/types/school-classes";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
+  EMPTY_STUDENT_PERSONAL_IDENTITY,
   EMPTY_STUDENT_PERSONAL_INFO,
   EMPTY_STUDENT_PERSONAL_INFO_PHOTOS,
   PERSONAL_INFO_COLLECTION,
+  STUDENT_PERSONAL_IDENTITY_COLLECTION,
   personalInfoSettingsDocId,
+  readStudentPersonalIdentityFields,
   readStudentPersonalInfoRecord,
   readStudentPersonalInfoSettings,
+  readStudentPersonalInfoTermFields,
   studentPersonalInfoDocId,
-  type StudentPersonalInfoFields,
   type StudentPersonalInfoSettings,
   type StudentPersonalInfoEntry,
+  type StudentPersonalIdentityFields,
+  type StudentPersonalInfoTermFields,
   type StudentPersonalInfoRecord,
   type StudentPersonalPhotoKind,
   type StudentPersonalPhotoMetadata,
@@ -120,8 +125,11 @@ export async function getStudentPersonalInfoEntries(uid: string): Promise<Studen
       ) {
         return null;
       }
+      const record = readStudentPersonalInfoRecord(raw);
       return {
-        ...readStudentPersonalInfoRecord(raw),
+        fields: readStudentPersonalInfoTermFields(raw),
+        photos: record.photos,
+        legacyIdentity: readStudentPersonalIdentityFields(raw),
         academicYear,
         semester,
       } satisfies StudentPersonalInfoEntry;
@@ -130,21 +138,91 @@ export async function getStudentPersonalInfoEntries(uid: string): Promise<Studen
     .sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
 }
 
+/** 身分識別資料以 uid 為鍵跨學期保存；缺少新文件時從最新舊期名冊資料相容讀取。 */
+export async function getStudentPersonalIdentity(
+  uid: string,
+  legacyEntries: StudentPersonalInfoEntry[]
+): Promise<StudentPersonalIdentityFields> {
+  const snapshot = await getAdminDb()
+    .collection(STUDENT_PERSONAL_IDENTITY_COLLECTION)
+    .doc(uid)
+    .get();
+  if (snapshot.exists) return readStudentPersonalIdentityFields(snapshot.data());
+
+  return legacyStudentPersonalIdentity(legacyEntries);
+}
+
+export function legacyStudentPersonalIdentity(
+  legacyEntries: { legacyIdentity: StudentPersonalIdentityFields }[]
+): StudentPersonalIdentityFields {
+  const identity = { ...EMPTY_STUDENT_PERSONAL_IDENTITY };
+  for (const entry of legacyEntries) {
+    for (const key of Object.keys(identity) as (keyof StudentPersonalIdentityFields)[]) {
+      if (!identity[key] && entry.legacyIdentity[key]) identity[key] = entry.legacyIdentity[key];
+    }
+  }
+  return identity;
+}
+
+export async function saveStudentPersonalIdentity(
+  uid: string,
+  fields: StudentPersonalIdentityFields
+): Promise<void> {
+  await getAdminDb()
+    .collection(STUDENT_PERSONAL_IDENTITY_COLLECTION)
+    .doc(uid)
+    .set({ uid, ...fields, updatedAt: Date.now() });
+}
+
 export async function saveStudentPersonalInfo(
   uid: string,
   period: SchoolPeriod,
-  fields: StudentPersonalInfoFields
+  fields: StudentPersonalInfoTermFields
 ): Promise<void> {
-  await getAdminDb()
-    .collection(PERSONAL_INFO_COLLECTION)
-    .doc(studentPersonalInfoDocId(uid, period))
-    .set({
+  const db = getAdminDb();
+  const personalInfoRef = db.collection(PERSONAL_INFO_COLLECTION).doc(studentPersonalInfoDocId(uid, period));
+  const identityRef = db.collection(STUDENT_PERSONAL_IDENTITY_COLLECTION).doc(uid);
+  await db.runTransaction(async (transaction) => {
+    const identitySnapshot = await transaction.get(identityRef);
+    if (!identitySnapshot.exists) {
+      const historySnapshot = await transaction.get(
+        db.collection(PERSONAL_INFO_COLLECTION).where("uid", "==", uid)
+      );
+      const legacyEntries = historySnapshot.docs
+        .map((doc) => {
+          const data = doc.data();
+          return {
+            academicYear: Number(data.academicYear),
+            semester: Number(data.semester),
+            legacyIdentity: readStudentPersonalIdentityFields(data),
+            uid: data.uid,
+          };
+        })
+        .filter((entry) =>
+          entry.uid === uid &&
+          Number.isInteger(entry.academicYear) &&
+          entry.academicYear > 0 &&
+          (entry.semester === 1 || entry.semester === 2)
+        )
+        .sort((a, b) => b.academicYear - a.academicYear || b.semester - a.semester);
+      const identityToMigrate = legacyStudentPersonalIdentity(legacyEntries);
+      if (Object.values(identityToMigrate).some(Boolean)) {
+        transaction.set(identityRef, { uid, ...identityToMigrate, updatedAt: Date.now() });
+      }
+    }
+    transaction.set(personalInfoRef, {
       uid,
       academicYear: period.academicYear,
       semester: period.semester,
-      fields,
+      fields: {
+        ...fields,
+        gender: FieldValue.delete(),
+        nationalId: FieldValue.delete(),
+        birthday: FieldValue.delete(),
+      },
       updatedAt: Date.now(),
     }, { merge: true });
+  });
 }
 
 export function studentPersonalInfoPhotoObjectPathPrefix(
