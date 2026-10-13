@@ -25,6 +25,7 @@ import {
   UserRole,
 } from "@/types/users";
 import { SchoolPeriod } from "@/types/settings";
+import { PERSONAL_INFO_COLLECTION } from "@/types/personal-info";
 import {
   isRosterRole,
   rosterCollection,
@@ -652,6 +653,18 @@ export async function DELETE(request: NextRequest) {
           batch.delete(doc.ref);
           deletes += 1;
         }
+      }
+      const personalInfoCollection = db.collection(PERSONAL_INFO_COLLECTION);
+      const personalInfoQuery = period
+        ? personalInfoCollection
+            .where("uid", "==", uid)
+            .where("academicYear", "==", period.academicYear)
+            .where("semester", "==", period.semester)
+        : personalInfoCollection.where("uid", "==", uid);
+      const personalInfo = await personalInfoQuery.get();
+      for (const doc of personalInfo.docs) {
+        batch.delete(doc.ref);
+        deletes += 1;
       }
       if (deletes > 0) await batch.commit();
     }

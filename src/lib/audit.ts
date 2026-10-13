@@ -48,6 +48,8 @@ export type ActivityAction =
   | "announcements_deleted"
   | "announcements_staff_posted"
   | "announcements_settings_updated"
+  | "personal_info_settings_updated"
+  | "student_personal_info_updated"
   | "calendar_created"
   | "calendar_updated"
   | "calendar_cancelled"

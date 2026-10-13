@@ -10,6 +10,7 @@ import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
 import { invalidateAdminListCache } from "@/lib/list-cache";
 import { normalizeAccount, normalizeEmail } from "@/lib/validation";
 import { SchoolPeriod } from "@/types/settings";
+import { PERSONAL_INFO_COLLECTION } from "@/types/personal-info";
 import {
   ACCOUNT_BATCH_MODE_LABELS,
   ACTIVE_STATUS,
@@ -746,6 +747,21 @@ async function executePlan(
             }
             refs.push(doc.ref);
           }
+        }
+      }
+      const personalInfoCollection = db.collection(PERSONAL_INFO_COLLECTION);
+      for (let i = 0; i < deleteUids.length; i += IN_CHUNK) {
+        const chunk = deleteUids.slice(i, i + IN_CHUNK);
+        const query =
+          rosterScope === "current" && period
+            ? personalInfoCollection
+                .where("uid", "in", chunk)
+                .where("academicYear", "==", period.academicYear)
+                .where("semester", "==", period.semester)
+            : personalInfoCollection.where("uid", "in", chunk);
+        const snapshot = await query.get();
+        for (const doc of snapshot.docs) {
+          if (targets.has(String(doc.data().uid ?? ""))) refs.push(doc.ref);
         }
       }
     }
