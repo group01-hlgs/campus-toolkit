@@ -1,9 +1,11 @@
 import "server-only";
+import type { DocumentData } from "firebase-admin/firestore";
 import { FieldValue, getAdminDb, getAdminStorageBucket } from "@/lib/firebase-admin";
 import { cachedSettingDoc, invalidateReadCache } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION, readSystemDoc } from "@/lib/settings-server";
 import { CLASSES_DOC_ID, readSchoolClasses, type SchoolClassesContext } from "@/types/school-classes";
 import { PROFILE_DOC_ID, readSchoolProfile } from "@/types/school-profile";
+import { rosterCollection } from "@/types/roster";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
   EMPTY_STUDENT_PERSONAL_IDENTITY,
@@ -15,6 +17,7 @@ import {
   STUDENT_PERSONAL_PHOTO_FIRESTORE_PREFIX,
   STUDENT_PERSONAL_PHOTO_STORED_MAX_BYTES,
   STUDENT_PERSONAL_PHOTO_STORAGE_MAX_BYTES,
+  isStudentPersonalInfoTermComplete,
   personalInfoSettingsDocId,
   personalPhotoPointerMatches,
   readStudentPersonalIdentityFields,
@@ -101,6 +104,99 @@ export async function getStudentPersonalInfoTargetOptions(): Promise<StudentPers
     console.error("Student personal info target options read error:", error);
     return { grades: [] };
   }
+}
+
+/** 管理端列表的一列（僅回必要欄位；不回個資內容，避免整班資料外洩到列表） */
+export interface StudentPersonalInfoListRow {
+  uid: string;
+  studentId: string;
+  name: string;
+  classCode: string;
+  /** none＝本期尚無文件；incomplete＝有文件但學期欄位未填妥；complete＝學期欄位全填 */
+  status: "none" | "incomplete" | "complete";
+  /** 本期文件的最後更新時間（epoch ms；無文件為 null） */
+  updatedAt: number | null;
+}
+
+/**
+ * 統計本期已建立個人資料文件的數量（省流模式的輕量總數）。
+ * 使用 Firestore count 聚合：每個計數僅 1 次讀取、不載入任何文件內容。
+ */
+export async function countStudentPersonalInfoByTerm(period: SchoolPeriod): Promise<number> {
+  const snap = await getAdminDb()
+    .collection(PERSONAL_INFO_COLLECTION)
+    .where("academicYear", "==", period.academicYear)
+    .where("semester", "==", period.semester)
+    .count()
+    .get();
+  return snap.data().count;
+}
+
+/**
+ * 依班級代碼載入本期學生個人資料列表（管理端用）。
+ *
+ * 讀取範圍嚴格限定於該班（鐵律 2 過濾下推）：名冊以
+ * academicYear＋semester＋classCode 三個等值條件下推，回傳筆數≈該班人數而非全校；
+ * 個人資料文件以本班 uid 逐一點查（點查不存在＝0 讀），200 筆／批（鐵律 4）。
+ * 回傳前依學號排序；不含聯絡方式等個資內容，僅回填寫狀態與更新時間。
+ */
+export async function loadStudentPersonalInfoClassList(
+  period: SchoolPeriod,
+  classCode: string
+): Promise<StudentPersonalInfoListRow[]> {
+  if (!classCode) return [];
+  const db = getAdminDb();
+  const rosterSnap = await db
+    .collection(rosterCollection("student"))
+    .where("academicYear", "==", period.academicYear)
+    .where("semester", "==", period.semester)
+    .where("classCode", "==", classCode)
+    .get();
+
+  const entries = rosterSnap.docs
+    .map((doc) => doc.data())
+    .filter((entry) => {
+      // 條目有效（缺 status 視為有效）；同 lib/roster.ts isActiveEntry 語意
+      const status = typeof entry.status === "string" ? entry.status : "有效";
+      return status === "有效";
+    })
+    .sort((a, b) =>
+      String(a.studentId ?? "").localeCompare(String(b.studentId ?? ""), "zh-Hant")
+    );
+
+  const uids = entries
+    .map((entry) => (typeof entry.uid === "string" ? entry.uid : ""))
+    .filter(Boolean);
+  const infoByUid = new Map<string, DocumentData>();
+  for (let offset = 0; offset < uids.length; offset += 200) {
+    const chunk = uids.slice(offset, offset + 200);
+    const snaps = await db.getAll(
+      ...chunk.map((uid) => db.collection(PERSONAL_INFO_COLLECTION).doc(studentPersonalInfoDocId(uid, period)))
+    );
+    for (let index = 0; index < snaps.length; index += 1) {
+      if (snaps[index].exists) infoByUid.set(chunk[index], snaps[index].data() ?? {});
+    }
+  }
+
+  return entries.map((entry) => {
+    const uid = typeof entry.uid === "string" ? entry.uid : "";
+    const info = infoByUid.get(uid);
+    const termFields = info ? readStudentPersonalInfoTermFields(info) : null;
+    const status: StudentPersonalInfoListRow["status"] = !info
+      ? "none"
+      : isStudentPersonalInfoTermComplete(termFields!)
+        ? "complete"
+        : "incomplete";
+    const updatedAt = info && typeof info.updatedAt === "number" ? info.updatedAt : null;
+    return {
+      uid,
+      studentId: typeof entry.studentId === "string" ? entry.studentId : "",
+      name: typeof entry.name === "string" ? entry.name : "",
+      classCode: typeof entry.classCode === "string" ? entry.classCode : "",
+      status,
+      updatedAt,
+    };
+  });
 }
 
 export async function getStudentPersonalInfo(
