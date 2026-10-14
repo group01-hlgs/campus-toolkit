@@ -59,6 +59,8 @@ function attributeOf(entry: Record<string, unknown> | null | undefined): string 
 export const maxDuration = 300;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 900;
+/** 保留在 Firestore WriteBatch 500 筆上限內，並為不同模式留出餘裕。 */
+const WRITE_BATCH_CHUNK = 400;
 
 const MODES: RosterBatchMode[] = ["create", "update", "delete"];
 
@@ -566,34 +568,53 @@ async function executePlan(
   let updated = 0;
   let deleted = 0;
 
-  // 覆蓋：先清空同一學期既有條目，再依計畫建立
-  for (const uid of clearUids) {
-    await entries.doc(rosterEntryId(uid, period)).delete();
-    cleared += 1;
+  // 覆蓋：先以多個原子 batch 清空同一學期既有條目，再依計畫建立。
+  for (let offset = 0; offset < clearUids.length; offset += WRITE_BATCH_CHUNK) {
+    const chunk = clearUids.slice(offset, offset + WRITE_BATCH_CHUNK);
+    const batch = db.batch();
+    for (const uid of chunk) batch.delete(entries.doc(rosterEntryId(uid, period)));
+    await batch.commit();
+    cleared += chunk.length;
   }
 
+  const actionable = planned.filter((item) => item.action !== "skip");
   for (const item of planned) {
-    if (item.action === "skip") {
-      skipped.push({ row: item.row, reason: item.reason });
-    } else if (item.action === "create") {
-      // 只建立名冊條目：帳號與密碼一律不動
-      await entries
-        .doc(rosterEntryId(item.uid, period))
-        .set(
+    if (item.action === "skip") skipped.push({ row: item.row, reason: item.reason });
+  }
+
+  // 每列原本各自 await 一次 Firestore RPC；改為每批最多 400 筆原子寫入，
+  // 降低 900 列匯入時的網路往返，同時維持批次大小低於 Firestore 500 筆上限。
+  for (let offset = 0; offset < actionable.length; offset += WRITE_BATCH_CHUNK) {
+    const chunk = actionable.slice(offset, offset + WRITE_BATCH_CHUNK);
+    const batch = db.batch();
+    let chunkCreated = 0;
+    let chunkUpdated = 0;
+    let chunkDeleted = 0;
+    for (const item of chunk) {
+      const ref = entries.doc(rosterEntryId(item.uid, period));
+      if (item.action === "create") {
+        // 只建立名冊條目：帳號與密碼一律不動
+        batch.set(
+          ref,
           buildRosterEntry(item.uid, role, period, item.roster, {
             email: item.email,
             account: item.account,
             name: item.name,
           })
         );
-      created += 1;
-    } else if (item.action === "update") {
-      await entries.doc(rosterEntryId(item.uid, period)).update(item.entryPatch);
-      updated += 1;
-    } else {
-      await entries.doc(rosterEntryId(item.uid, period)).delete();
-      deleted += 1;
+        chunkCreated += 1;
+      } else if (item.action === "update") {
+        batch.update(ref, item.entryPatch);
+        chunkUpdated += 1;
+      } else {
+        batch.delete(ref);
+        chunkDeleted += 1;
+      }
     }
+    await batch.commit();
+    created += chunkCreated;
+    updated += chunkUpdated;
+    deleted += chunkDeleted;
   }
 
   return { cleared, created, updated, deleted, skipped };

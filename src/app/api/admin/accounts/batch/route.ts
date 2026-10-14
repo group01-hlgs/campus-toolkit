@@ -61,7 +61,6 @@ import {
   LinkTarget,
   loadAdminGuardContext,
   rosterEntryId,
-  syncEntryIdentity,
   validateAccountInput,
   validateRosterInput,
 } from "@/lib/roster";
@@ -70,12 +69,14 @@ export const maxDuration = 300;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 900;
 const DELETE_CHUNK = 400;
+const WRITE_BATCH_CHUNK = 400;
+const GET_ALL_CHUNK = 200;
 /** Firestore in／not-in 子句的比較值上限 */
 const IN_CHUNK = 30;
 /** 各模式每批處理列數：單批須在 300 秒（Vercel maxDuration）內完成，故依模式切割、由前端依 progress 迴圈送下一批 */
 const CHUNK_SIZE: Record<AccountBatchMode, number> = {
   create: 120,
-  update: 200,
+  update: 400,
   delete: 400,
 };
 
@@ -87,6 +88,11 @@ type AccountColumnKey = "email" | "account" | "name" | "password" | "preferredRo
 type BatchFieldKey = AccountColumnKey | "role" | EntryFieldKey;
 
 type BatchFields = Record<BatchFieldKey, string>;
+
+interface EntryIdentitySync {
+  uid: string;
+  patch: { account?: string; name?: string };
+}
 
 const FIELD_HEADERS: { key: AccountColumnKey; aliases: string[] }[] = [
   { key: "email", aliases: ["電子郵件地址", "電子郵件", "信箱", "email", "e-mail", "mail"] },
@@ -613,6 +619,44 @@ function buildPreview(mode: AccountBatchMode, planned: PlannedRow[]): AccountBat
 }
 
 /**
+ * 批次同步帳號展示欄位：先以 getAll 200/批精準點查當期四種名冊，
+ * 再以 WriteBatch 400/批更新存在的條目，避免逐帳號串行執行四次 get＋多次 update。
+ */
+async function syncEntryIdentityBatch(items: EntryIdentitySync[], period: SchoolPeriod): Promise<void> {
+  if (items.length === 0) return;
+  const db = getAdminDb();
+  const roles: RosterRole[] = ["student", "parent", "staff", "admin"];
+  const refs = items.flatMap((item) =>
+    roles.map((role) => ({
+      ref: db.collection(rosterCollection(role)).doc(rosterEntryId(item.uid, period)),
+      patch: item.patch,
+    }))
+  );
+  const updates: { ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> }[] = [];
+
+  for (let offset = 0; offset < refs.length; offset += GET_ALL_CHUNK) {
+    const chunk = refs.slice(offset, offset + GET_ALL_CHUNK);
+    const snapshots = await db.getAll(...chunk.map(({ ref }) => ref));
+    for (let index = 0; index < snapshots.length; index += 1) {
+      const snapshot = snapshots[index];
+      if (!snapshot.exists) continue;
+      updates.push({
+        ref: snapshot.ref,
+        data: { ...chunk[index].patch, updatedAt: Date.now() },
+      });
+    }
+  }
+
+  for (let offset = 0; offset < updates.length; offset += WRITE_BATCH_CHUNK) {
+    const batch = db.batch();
+    for (const update of updates.slice(offset, offset + WRITE_BATCH_CHUNK)) {
+      batch.update(update.ref, update.data);
+    }
+    await batch.commit();
+  }
+}
+
+/**
  * 執行計畫：建立帳號的同時寫入本學期身分名冊條目（有「身分」者）、
  * 自動銜接同辨識鍵的孤兒名冊條目；刪除列的名冊處理依 rosterScope
  * （all＝所有學期、current＝僅本學期、none＝完全保留）。
@@ -646,28 +690,41 @@ async function executePlan(
     account: string;
     name: string;
   }[] = [];
+  const identitySyncs: EntryIdentitySync[] = [];
+  const userWriteBatch = db.batch();
+  let userWriteCount = 0;
+  const createItems = planned.filter((item): item is PlannedCreate => item.action === "create");
+  // 先產生 uid 並平行計算本批密碼雜湊；之後一次批次建立使用者文件。
+  const preparedCreates = await Promise.all(createItems.map(async (item) => {
+    const ref = users.doc();
+    const record = buildAccountRecord(
+      item.account,
+      await hashRosterPassword(item.password),
+      item.preferredRole
+    );
+    return { item, ref, record };
+  }));
+  const preparedCreateByRow = new Map(preparedCreates.map((entry) => [entry.item.row, entry]));
 
   for (const item of planned) {
     if (item.action === "skip") {
       skipped.push({ row: item.row, reason: item.reason });
     } else if (item.action === "create") {
-      const record = buildAccountRecord(
-        item.account,
-        await hashRosterPassword(item.password),
-        item.preferredRole
-      );
-      const docRef = await users.add(record);
+      const prepared = preparedCreateByRow.get(item.row);
+      if (!prepared) throw new Error(`第 ${item.row} 列帳號資料準備失敗`);
+      userWriteBatch.create(prepared.ref, prepared.record);
+      userWriteCount += 1;
       created += 1;
       // 自動銜接與條目寫入延後到 B／C 段統一處理（順序：先銜接、後寫條目）
       linkTargets.push({
-        uid: docRef.id,
+        uid: prepared.ref.id,
         email: item.account.email,
         account: item.account.account,
       });
       if (item.role && item.roster && period) {
         entryWrites.push({
           role: item.role,
-          uid: docRef.id,
+          uid: prepared.ref.id,
           roster: item.roster,
           email: item.account.email,
           account: item.account.account,
@@ -675,13 +732,17 @@ async function executePlan(
         });
       }
     } else if (item.action === "update") {
-      await users.doc(item.uid).update(item.patch);
+      userWriteBatch.update(users.doc(item.uid), item.patch);
+      userWriteCount += 1;
       const nameChanged = typeof item.patch.name === "string";
       const accountChanged = typeof item.patch.account === "string";
       if (nameChanged || accountChanged) {
-        await syncEntryIdentity(item.uid, await getCurrentPeriod(), {
-          ...(nameChanged ? { name: item.patch.name as string } : {}),
-          ...(accountChanged ? { account: item.patch.account as string } : {}),
+        identitySyncs.push({
+          uid: item.uid,
+          patch: {
+            ...(nameChanged ? { name: item.patch.name as string } : {}),
+            ...(accountChanged ? { account: item.patch.account as string } : {}),
+          },
         });
       }
       // 帳號名（辨識鍵）變更：把同辨識鍵的孤兒名冊條目銜接回本帳號（併入 B 段）
@@ -699,24 +760,33 @@ async function executePlan(
     }
   }
 
+  if (userWriteCount > 0) await userWriteBatch.commit();
+
+  if (identitySyncs.length > 0) {
+    await syncEntryIdentityBatch(identitySyncs, period ?? await getCurrentPeriod());
+  }
+
   // B) 全部帳號就緒後一次批量銜接：in 分塊查詢＋跨目標共用孤兒判定
   if (linkTargets.length > 0) {
     linked += await linkOrphanEntriesBatch(linkTargets, isSuper);
   }
 
-  // C) 寫入本學期條目（銜接已完成，同身分同學期不會重複）
-  for (const write of entryWrites) {
-    await db
-      .collection(rosterCollection(write.role))
-      .doc(rosterEntryId(write.uid, period!))
-      .set(
+  // C) 批次寫入本學期條目（銜接已完成，同身分同學期不會重複）。
+  for (let offset = 0; offset < entryWrites.length; offset += WRITE_BATCH_CHUNK) {
+    const chunk = entryWrites.slice(offset, offset + WRITE_BATCH_CHUNK);
+    const batch = db.batch();
+    for (const write of chunk) {
+      batch.set(
+        db.collection(rosterCollection(write.role)).doc(rosterEntryId(write.uid, period!)),
         buildRosterEntry(write.uid, write.role, period!, write.roster, {
           email: write.email,
           account: write.account,
           name: write.name,
         })
       );
-    rostered += 1;
+    }
+    await batch.commit();
+    rostered += chunk.length;
   }
 
   if (deleteUids.length > 0) {
