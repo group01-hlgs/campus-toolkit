@@ -45,11 +45,11 @@ const personalCard: ModuleCard = {
   href: "/admin/admins",
 };
 
-/** 個人基本資料不需管理權限；四種身分都可使用，仍依模組顯示開關過濾 */
+/** 學生個人資料不需管理權限；四種身分都可使用，仍依模組顯示開關過濾 */
 const personalInfoCard: ModuleCard = {
   id: "personalInfo",
   icon: <ModuleIcon value="personalInfo" />,
-  label: "個人基本資料",
+  label: "學生個人資料",
   href: "/admin/personal-info",
 };
 

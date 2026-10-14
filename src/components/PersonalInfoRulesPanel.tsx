@@ -102,7 +102,7 @@ export default function PersonalInfoRulesPanel() {
           <div>
             <h3 className="text-lg font-bold text-t1">管理規則</h3>
             <p className="text-xs text-t3 mt-1">
-              學生可填寫自己的個人基本資料；學號、年級、班級與座號等學籍名冊資料不在此修改。
+              學生可填寫自己的個人資料；學號、年級、班級與座號等學籍名冊資料不在此修改。
             </p>
           </div>
           {period && (

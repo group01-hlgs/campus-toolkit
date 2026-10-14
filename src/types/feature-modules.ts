@@ -199,7 +199,7 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
   },
   {
     value: "personalInfo",
-    label: "個人基本資料",
+    label: "學生個人資料",
     kind: "builtin",
     status: "live",
     description: "學生檢視本學期的基本資料；以學生學籍資料為主，並提供家長、教職員與管理員依權限查閱與管理。",

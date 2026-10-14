@@ -229,7 +229,7 @@ export async function PUT(request: NextRequest) {
       role: "student",
       action: "student_personal_info_updated",
       ip: getClientIp(request),
-      details: `更新 ${period.academicYear} 學年度第 ${period.semester} 學期個人基本資料`,
+      details: `更新 ${period.academicYear} 學年度第 ${period.semester} 學期學生個人資料`,
     });
 
     return NextResponse.json(
