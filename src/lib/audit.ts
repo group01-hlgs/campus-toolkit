@@ -52,6 +52,7 @@ export type ActivityAction =
   | "postal_codes_updated"
   | "student_personal_photo_updated"
   | "student_personal_info_updated"
+  | "student_personal_info_batch_updated"
   | "calendar_created"
   | "calendar_updated"
   | "calendar_cancelled"

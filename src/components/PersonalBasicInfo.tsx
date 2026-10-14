@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import RolePageShell from "@/components/RolePageShell";
 import PersonalInfoRulesPanel from "@/components/PersonalInfoRulesPanel";
+import PersonalInfoBatchPanel from "@/components/PersonalInfoBatchPanel";
 import StudentPersonalInfoForm from "@/components/StudentPersonalInfoForm";
 import { ROSTER_FIELDS } from "@/types/roster";
 import { isUserRole, ROLE_HOME, type UserRole } from "@/types/users";
@@ -95,7 +96,10 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
         </div>
 
         {role === "admin" ? (
-          <PersonalInfoRulesPanel />
+          <div className="space-y-4">
+            <PersonalInfoRulesPanel />
+            <PersonalInfoBatchPanel />
+          </div>
         ) : loading ? (
           <div className="border border-themed rounded-lg bg-card p-8 text-center text-t3" role="status">
             載入學生個人資料中…
