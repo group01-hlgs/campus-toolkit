@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import { fetchSession } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
 import {
@@ -399,16 +400,15 @@ export default function CalendarView({
       </div>
 
       {canCreate && (
-        <section className="border border-themed rounded-lg bg-card p-5">
-          <button
-            type="button"
-            aria-expanded={formOpen}
-            onClick={() => setFormOpen((prev) => !prev)}
-            className="w-full flex items-center justify-between text-left cursor-pointer"
-          >
+        <details
+          open={formOpen}
+          onToggle={(event) => setFormOpen(event.currentTarget.open)}
+          className="border border-themed rounded-lg bg-card p-5"
+        >
+          <summary className="flex list-none cursor-pointer items-center justify-between gap-3 text-left">
             <h3 className="text-lg font-bold text-t1">建立行程</h3>
-            <span className="text-t3 text-sm">{formOpen ? "收合 ▲" : "展開 ▼"}</span>
-          </button>
+            <DisclosureArrow />
+          </summary>
           {formOpen && (
             <form onSubmit={submitCreate} className="mt-3 space-y-3">
               <div>
@@ -565,7 +565,7 @@ export default function CalendarView({
               </button>
             </form>
           )}
-        </section>
+        </details>
       )}
 
       <section>
@@ -786,28 +786,29 @@ function EventCard({
 }) {
   return (
     <li className="border border-themed rounded-lg bg-card">
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={onToggleExpand}
-        className="w-full flex items-start justify-between gap-2 px-4 py-3 text-left cursor-pointer"
+      <details
+        open={expanded}
+        onToggle={(event) => {
+          if (event.currentTarget.open !== expanded) onToggleExpand();
+        }}
       >
-        <span className="min-w-0">
-          <span className={`${sizes.title} font-bold text-t1`}>
-            {item.important && <span className="text-primary mr-1">★</span>}
-            {item.title}
+        <summary className="flex list-none cursor-pointer items-start justify-between gap-2 px-4 py-3 text-left">
+          <span className="min-w-0">
+            <span className={`${sizes.title} font-bold text-t1`}>
+              {item.important && <span className="text-primary mr-1">★</span>}
+              {item.title}
+            </span>
+            <span className={`${sizes.meta} block text-t3 mt-0.5`}>
+              {formatRange(item)}
+              {item.location ? `｜${item.location}` : ""}
+              {`｜行事曆類型：${categoryName}`}
+              {item.classScoped ? "｜班級" : ""}
+            </span>
           </span>
-          <span className={`${sizes.meta} block text-t3 mt-0.5`}>
-            {formatRange(item)}
-            {item.location ? `｜${item.location}` : ""}
-            {`｜行事曆類型：${categoryName}`}
-            {item.classScoped ? "｜班級" : ""}
-          </span>
-        </span>
-        <span className={`${sizes.meta} text-t3 shrink-0`}>{expanded ? "▲" : "▼"}</span>
-      </button>
-      {expanded && (
-        <div className="border-t border-themed px-4 py-3">
+          <DisclosureArrow />
+        </summary>
+        {expanded && (
+          <div className="border-t border-themed px-4 py-3">
           <p className={`${sizes.meta} text-t3`}>
             行事曆類型：{categoryName}｜{item.createdByName}
             {item.classScoped ? `｜${item.classCodes.join("、")}` : "｜全校"}
@@ -834,8 +835,9 @@ function EventCard({
               </button>
             </div>
           )}
-        </div>
-      )}
+          </div>
+        )}
+      </details>
     </li>
   );
 }

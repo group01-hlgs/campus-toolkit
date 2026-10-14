@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import DisclosureArrow from "@/components/DisclosureArrow";
 
 const DEFAULT_MARKET_INDEX_URL =
   "https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/index.json";
@@ -75,26 +76,6 @@ function buildFallbackManualGuide(moduleId: string): NonNullable<InstallResponse
     command: `npm run module:install -- ../${moduleId}`,
     note: "手動安裝同樣會走掃描器與 lint 驗證鏈。",
   };
-}
-
-function CollapseChevron() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="text-t3 transition-transform duration-200 group-open:rotate-90"
-    >
-      <polyline points="9 18 15 12 9 6"></polyline>
-    </svg>
-  );
 }
 
 export default function ModuleMarketPage() {
@@ -517,7 +498,7 @@ export default function ModuleMarketPage() {
               >
                 {canAutoInstall ? "目前可用" : "尚未完成參數設定"}
               </span>
-              <CollapseChevron />
+              <DisclosureArrow />
             </div>
           </summary>
 
@@ -623,7 +604,7 @@ export default function ModuleMarketPage() {
                         <span className="text-xs border border-themed rounded px-2 py-1 text-t2">
                           v{module.version}
                         </span>
-                        <CollapseChevron />
+                        <DisclosureArrow />
                       </div>
                     </summary>
 
@@ -729,7 +710,7 @@ export default function ModuleMarketPage() {
         <details className="group border border-themed rounded-lg bg-card p-4">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-t1">半自動上傳安裝</h2>
-            <CollapseChevron />
+            <DisclosureArrow />
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-xs text-t2">
@@ -763,7 +744,7 @@ export default function ModuleMarketPage() {
         <details className="group border border-themed rounded-lg bg-card p-4">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-t1">手動安裝</h2>
-            <CollapseChevron />
+            <DisclosureArrow />
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-xs text-t2">

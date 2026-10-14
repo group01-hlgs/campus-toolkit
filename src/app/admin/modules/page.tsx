@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import { fetchSession } from "@/lib/session";
 import {
   FEATURE_MODULES,
@@ -92,40 +93,36 @@ function Badge({ text, className = "" }: { text: string; className?: string }) {
   );
 }
 
-/** 模組名稱旁的「說明」按鈕（? 圓圈 SVG）：點擊展開／收合該列下方的說明列 */
+/** 模組名稱旁的說明展開箭頭，控制該列下方的說明列 */
 function HelpToggle({
+  id,
   label,
   open,
   onToggle,
 }: {
+  id: string;
   label: string;
   open: boolean;
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      aria-label={`查看「${label}」說明`}
-      title="查看說明"
-      className="inline-flex items-center justify-center align-middle w-5 h-5 rounded-full border border-themed text-t3 hover:text-t1 hover:border-t1 cursor-pointer"
+    <details
+      open={open}
+      onToggle={(event) => {
+        if (event.currentTarget.open !== open) onToggle();
+      }}
+      className="inline-flex align-middle"
     >
-      <svg
-        viewBox="0 0 24 24"
-        width="12"
-        height="12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        aria-hidden="true"
+      <summary
+        aria-label={`查看「${label}」說明`}
+        aria-controls={`module-description-${id}`}
+        title="查看說明"
+        className="flex h-5 w-5 list-none cursor-pointer items-center justify-center"
       >
-        <path d="M9.2 9.2a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.7v.4" />
-        <path d="M12 17.4v.01" />
-      </svg>
-      <span className="sr-only">{open ? "收合說明" : "展開說明"}</span>
-    </button>
+        <DisclosureArrow className="h-3.5 w-3.5" />
+      </summary>
+      <span className="sr-only">說明內容顯示於模組列下方</span>
+    </details>
   );
 }
 
@@ -144,7 +141,7 @@ function DescriptionRow({
 }) {
   if (!open) return null;
   return (
-    <tr className="border-b border-themed last:border-0">
+    <tr id={`module-description-${item.value}`} className="border-b border-themed last:border-0">
       <td colSpan={colSpan} className="px-3 py-2 text-xs text-t3 bg-surface space-y-1.5">
         <p>{item.description}</p>
         <p>
@@ -270,6 +267,7 @@ function BuiltinRow({
           <span className="flex items-center gap-2">
             <span className="font-medium">{item.label}</span>
             <HelpToggle
+              id={item.value}
               label={item.label}
               open={open}
               onToggle={() => onToggleHelp(item.value)}
@@ -343,6 +341,7 @@ function OptionalRow({
           <span className="flex items-center gap-2">
             <span className="font-medium">{item.label}</span>
             <HelpToggle
+              id={item.value}
               label={item.label}
               open={open}
               onToggle={() => onToggleHelp(item.value)}
@@ -426,7 +425,7 @@ function OptionalRow({
 
 /**
  * 「功能模組管理」入口（僅超級管理員）：
- * 內建／選用兩份功能模組列表，說明與作者／版本／提供功能由名稱旁 ? 就地展開；
+ * 內建／選用兩份功能模組列表，說明與作者／版本／提供功能由名稱旁箭頭就地展開；
  * 選用模組有總開關；四種身分欄＝**顯示與否**（提供功能＝否顯示「未提供」）。
  */
 export default function ModulesPage() {
@@ -737,7 +736,7 @@ export default function ModulesPage() {
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
           <p className="text-xs text-t3">
-            隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的 ? 可展開說明與作者版本資訊；
+            隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的箭頭可展開說明與作者版本資訊；
             四種身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝顯示與否
             （關閉＝暫時不顯示、禁止進入）。
           </p>

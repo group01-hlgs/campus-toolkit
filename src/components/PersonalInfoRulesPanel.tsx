@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
@@ -98,8 +99,17 @@ export default function PersonalInfoRulesPanel() {
 
   return (
     <>
-      <section className="border border-themed rounded-lg bg-card p-5 sm:p-6 mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <details
+        open={expanded}
+        onToggle={(event) => {
+          if (event.currentTarget.open !== expanded) setExpanded(event.currentTarget.open);
+        }}
+        className="border border-themed rounded-lg bg-card p-5 sm:p-6 mb-4"
+      >
+        <summary
+          aria-controls="personal-info-rules-content"
+          className="flex list-none cursor-pointer flex-wrap items-center justify-between gap-2"
+        >
           <div>
             <h3 className="text-lg font-bold text-t1">管理規則</h3>
             {period && (
@@ -108,16 +118,8 @@ export default function PersonalInfoRulesPanel() {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            aria-expanded={expanded}
-            aria-controls="personal-info-rules-content"
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-          >
-            {expanded ? "收合" : "展開"}
-          </button>
-        </div>
+          <DisclosureArrow />
+        </summary>
 
         {expanded && (
           <div id="personal-info-rules-content" className="mt-4">
@@ -307,7 +309,7 @@ export default function PersonalInfoRulesPanel() {
         )}
           </div>
         )}
-      </section>
+      </details>
       <PersonalInfoResultDialog
         message={feedback?.message ?? null}
         kind={feedback?.kind ?? "success"}

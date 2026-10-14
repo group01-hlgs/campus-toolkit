@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import {
   ANNOUNCEMENT_PERMISSION_ROLES,
   ANNOUNCEMENT_SURFACE_LABELS,
@@ -760,26 +761,22 @@ export default function AdminAnnouncementsPage() {
       </SettingsCard>
 
       {/* 2. 建立／編輯公告（預設收納） */}
-      <section className="border border-themed rounded-lg bg-card">
-        <button
-          type="button"
-          onClick={() => {
-            if (formOpen) {
-              cancelEdit();
-            } else {
-              setFormOpen(true);
-            }
-          }}
-          aria-expanded={formOpen}
-          className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
-        >
+      <details
+        open={formOpen}
+        onToggle={(event) => {
+          const nextOpen = event.currentTarget.open;
+          if (nextOpen === formOpen) return;
+          if (nextOpen) setFormOpen(true);
+          else cancelEdit();
+        }}
+        className="border border-themed rounded-lg bg-card"
+      >
+        <summary className="flex list-none cursor-pointer items-center justify-between gap-3 px-5 py-4 text-left">
           <h3 className="text-lg font-bold text-t1">
             {form.id ? "編輯公告" : "建立公告"}
           </h3>
-          <span className="text-t3 text-sm shrink-0">
-            {formOpen ? "收合" : "展開"} {formOpen ? "▲" : "▼"}
-          </span>
-        </button>
+          <DisclosureArrow />
+        </summary>
         {formOpen && (
           <div className="px-5 pt-2.5 pb-5">
             <form onSubmit={submitForm} className="space-y-3">
@@ -943,7 +940,7 @@ export default function AdminAnnouncementsPage() {
             </form>
           </div>
         )}
-      </section>
+      </details>
 
       {/* 3. 公告清單（省流：啟用時預設不載入） */}
       <section>
@@ -1214,20 +1211,19 @@ function SettingsCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border border-themed rounded-lg bg-card">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="w-full flex items-center justify-between px-5 py-3.5 text-left cursor-pointer"
-      >
+    <details
+      open={open}
+      onToggle={(event) => {
+        if (event.currentTarget.open !== open) onToggle();
+      }}
+      className="border border-themed rounded-lg bg-card"
+    >
+      <summary className="flex list-none cursor-pointer items-center justify-between gap-3 px-5 py-3.5 text-left">
         <h3 className="text-base font-bold text-t1">{title}</h3>
-        <span className="text-t3 text-xs shrink-0">
-          {open ? "收合" : "展開"} {open ? "▲" : "▼"}
-        </span>
-      </button>
+        <DisclosureArrow />
+      </summary>
       {open && <div className="px-5 pt-2.5 pb-5">{children}</div>}
-    </section>
+    </details>
   );
 }
 
@@ -1245,12 +1241,11 @@ function PolicyRow({
   onChange: (checked: boolean) => void;
   hint: string;
 }) {
-  const [showHint, setShowHint] = useState(false);
   return (
-    <div>
+    <div className="flex items-start gap-2">
       <label
         htmlFor={id}
-        className="inline-flex items-center gap-1.5 text-sm text-t1 cursor-pointer"
+        className="inline-flex flex-1 items-center gap-1.5 text-sm text-t1 cursor-pointer"
       >
         <input
           id={id}
@@ -1260,18 +1255,12 @@ function PolicyRow({
         />
         {label}
       </label>
-      <button
-        type="button"
-        aria-expanded={showHint}
-        onClick={() => setShowHint((prev) => !prev)}
-        className="ml-1.5 inline-flex w-4 h-4 leading-4 items-center justify-center border border-themed rounded-full text-t2 text-xs cursor-pointer hover:bg-themed"
-        title="顯示說明"
-      >
-        ?
-      </button>
-      {showHint && (
-        <p className="text-xs text-t3 mt-0.5 pl-6">{hint}</p>
-      )}
+      <details className="mt-0.5 shrink-0">
+        <summary aria-label="顯示說明" title="顯示說明" className="list-none cursor-pointer">
+          <DisclosureArrow className="h-3.5 w-3.5" />
+        </summary>
+        <p className="mt-1 text-xs text-t3">{hint}</p>
+      </details>
     </div>
   );
 }
