@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SchoolPeriod } from "@/types/settings";
 
 type BatchMode = "create" | "update" | "delete";
-type MatchBy = "studentId" | "nationalId";
 type BatchRowAction = BatchMode | "skip";
 
 interface BatchRowSummary {
@@ -48,7 +47,6 @@ export default function PersonalInfoBatchPanel() {
   const [period, setPeriod] = useState<SchoolPeriod | null>(null);
   const [periodLoading, setPeriodLoading] = useState(true);
   const [mode, setMode] = useState<BatchMode>("create");
-  const [matchBy, setMatchBy] = useState<MatchBy>("studentId");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState<"preview" | "execute" | "">("");
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
@@ -100,11 +98,6 @@ export default function PersonalInfoBatchPanel() {
     clearBatchState();
   }
 
-  function changeMatchBy(value: MatchBy) {
-    setMatchBy(value);
-    clearBatchState();
-  }
-
   function changePeriod(key: "academicYear" | "semester", value: number) {
     setPeriod((current) => (current ? { ...current, [key]: value } : current));
     clearBatchState();
@@ -119,7 +112,6 @@ export default function PersonalInfoBatchPanel() {
     if (!period || !file) throw new Error("請先選擇學年度學期與試算表檔案");
     const body = new FormData();
     body.append("mode", mode);
-    body.append("matchBy", matchBy);
     body.append("academicYear", String(period.academicYear));
     body.append("semester", String(period.semester));
     body.append("dryRun", dryRun ? "true" : "false");
@@ -201,7 +193,7 @@ export default function PersonalInfoBatchPanel() {
         <div className="mb-4">
           <h3 className="text-lg font-bold text-t1">資料管理</h3>
           <p className="text-xs text-t3 mt-1">
-            依學號或身分證辨識既有學生，對指定學年度學期批次匯入、修改或刪除個人資料。
+            依 Excel 標題中的學號或證件號碼自動辨識學生，對指定學年度學期批次匯入、修改或刪除個人資料。
           </p>
         </div>
 
@@ -244,18 +236,6 @@ export default function PersonalInfoBatchPanel() {
               ))}
             </select>
           </label>
-          <label className="space-y-1 text-sm text-t2">
-            <span className="block">辨識學生依據</span>
-            <select
-              value={matchBy}
-              onChange={(event) => changeMatchBy(event.target.value as MatchBy)}
-              disabled={busy !== ""}
-              className="w-full input-theme rounded px-3 py-2"
-            >
-              <option value="studentId">學號（選定學期名冊）</option>
-              <option value="nationalId">身分證（跨學期資料）</option>
-            </select>
-          </label>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -295,7 +275,7 @@ export default function PersonalInfoBatchPanel() {
             </button>
           )}
           <a
-            href={`/api/admin/personal-info/batch?template=1&matchBy=${matchBy}`}
+            href="/api/admin/personal-info/batch?template=1"
             className="text-sm text-t1 underline underline-offset-2"
             download
           >
@@ -307,8 +287,10 @@ export default function PersonalInfoBatchPanel() {
 
         <ul className="mt-4 list-disc space-y-1 pl-5 text-xs text-t3">
           <li>支援 Excel（.xlsx、.xls）與 CSV，單檔上限 5 MB、最多 900 列；執行前會先列出預覽。</li>
-          <li>範本包含「辨識學號」與「辨識身分證」欄，依上方選擇的辨識依據填其中一欄。</li>
-          <li>修改時空白欄位保留原值；輸入「[清空]」可清除該欄。證件類型、性別與生日請依範本格式填寫。</li>
+          <li>每列優先使用「學號」辨識；學號空白時改用「證件號碼」。姓名僅供核對，不會修改帳號姓名。</li>
+          <li>Excel 範本含「匯入資料」與「範例資料」工作表；請把實際資料放在「匯入資料」，保留標題列與欄位名稱。</li>
+          <li>「範例資料」僅供格式參考，請以真實學生資料取代；證件號碼會依證件類型驗證格式與檢查碼。</li>
+          <li>修改時空白欄位保留原值；輸入「[清空]」可清除該欄。生日接受民國年月日（例：0990101）。</li>
           <li>刪除只移除所選學年度學期的個人資料與該期證件照；性別、生日、證件資訊等跨學期身分資料會保留。</li>
         </ul>
 

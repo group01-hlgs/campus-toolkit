@@ -35,16 +35,17 @@ const IN_CHUNK = 30;
 const GET_ALL_CHUNK = 200;
 const CLEAR_VALUE = "[清空]";
 const MODES = ["create", "update", "delete"] as const;
-const MATCH_FIELDS = ["studentId", "nationalId"] as const;
 
 type BatchMode = (typeof MODES)[number];
-type MatchBy = (typeof MATCH_FIELDS)[number];
+type MatchBy = "studentId" | "nationalId";
 type BatchFields = Partial<Record<StudentPersonalInfoFieldKey, string>>;
 type BatchRowAction = BatchMode | "skip";
 
 interface ParsedRow {
   row: number;
+  matchBy: MatchBy | null;
   key: string;
+  referenceName: string;
   fields: BatchFields;
   error: string;
 }
@@ -75,7 +76,7 @@ const HEADER_ALIASES: Partial<Record<StudentPersonalInfoFieldKey, string[]>> = {
   gender: ["性別"],
   birthday: ["生日", "出生日期"],
   idType: ["證件類型", "身分證類型"],
-  nationalId: ["身分證", "身分證字號", "統一證號", "nationalid"],
+  nationalId: ["證件號碼", "身分證", "身分證字號", "統一證號", "nationalid"],
   householdPostalCode: ["戶籍郵遞區號", "戶籍郵區"],
   householdAddress: ["戶籍地址"],
   mailingPostalCode: ["通訊郵遞區號", "通訊郵區"],
@@ -98,6 +99,10 @@ function normalizeMatchKey(value: string, matchBy: MatchBy): string {
   return matchBy === "nationalId" ? trimmed.toUpperCase() : trimmed;
 }
 
+function lookupIndexKey(matchBy: MatchBy, key: string): string {
+  return `${matchBy}:${key}`;
+}
+
 function isClearValue(value: string): boolean {
   return value === CLEAR_VALUE || value === "【清空】";
 }
@@ -105,15 +110,29 @@ function isClearValue(value: string): boolean {
 function parseFieldValue(key: StudentPersonalInfoFieldKey, value: string): string {
   if (!value || isClearValue(value)) return value;
   if (key === "nationalId") return value.toUpperCase();
+  if (key === "birthday") {
+    const compactRocDate = value.match(/^(\d{2,3})(\d{2})(\d{2})$/);
+    if (compactRocDate) {
+      const [, rawYear, month, day] = compactRocDate;
+      const year = Number(rawYear) + 1911;
+      return `${String(year).padStart(4, "0")}-${month}-${day}`;
+    }
+    const separatedRocDate = value.match(/^(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})$/);
+    if (separatedRocDate) {
+      const [, rawYear, rawMonth, rawDay] = separatedRocDate;
+      const year = Number(rawYear) + 1911;
+      return `${String(year).padStart(4, "0")}-${rawMonth.padStart(2, "0")}-${rawDay.padStart(2, "0")}`;
+    }
+  }
   if (key === "idType") {
     const normalized = normalizeHeader(value);
-    if (normalized === "國民身分證" || normalized === "national") return "national";
+    if (normalized === "身分證" || normalized === "國民身分證" || normalized === "national") return "national";
     if (normalized === "居留證" || normalized === "resident") return "resident";
   }
   return value;
 }
 
-function parseSpreadsheet(buffer: Buffer, matchBy: MatchBy, mode: BatchMode):
+function parseSpreadsheet(buffer: Buffer, mode: BatchMode):
   | { rows: ParsedRow[] }
   | { error: string } {
   let dataRows: unknown[][];
@@ -134,9 +153,12 @@ function parseSpreadsheet(buffer: Buffer, matchBy: MatchBy, mode: BatchMode):
 
   if (dataRows.length < 2) return { error: "檔案需包含標題列與至少一筆資料" };
   const headers = dataRows[0].map((value) => String(value ?? "").trim());
-  const headerMap = new Map<string, "studentId" | "matchNationalId" | StudentPersonalInfoFieldKey>();
+  const headerMap = new Map<string, "studentId" | "matchNationalId" | "referenceName" | StudentPersonalInfoFieldKey>();
   for (const alias of ["辨識學號", "識別學號", "學號", "studentid", "student id"]) {
     headerMap.set(normalizeHeader(alias), "studentId");
+  }
+  for (const alias of ["姓名", "學生姓名", "name", "studentname"]) {
+    headerMap.set(normalizeHeader(alias), "referenceName");
   }
   for (const alias of ["辨識身分證", "識別身分證", "辨識身分證統一編號", "matchnationalid"]) {
     headerMap.set(normalizeHeader(alias), "matchNationalId");
@@ -147,13 +169,12 @@ function parseSpreadsheet(buffer: Buffer, matchBy: MatchBy, mode: BatchMode):
     }
   }
 
-  const keyHeader = matchBy === "studentId" ? "studentId" : "matchNationalId";
-  if (!headers.some((header) => headerMap.get(normalizeHeader(header)) === keyHeader)) {
-    return {
-      error: matchBy === "studentId"
-        ? "標題列缺少「辨識學號」欄位，請下載範本並依選定的辨識依據填寫。"
-        : "標題列缺少「辨識身分證」欄位，請下載範本並依選定的辨識依據填寫。",
-    };
+  const hasStudentIdHeader = headers.some((header) => headerMap.get(normalizeHeader(header)) === "studentId");
+  const hasNationalIdHeader = headers.some((header) =>
+    headerMap.get(normalizeHeader(header)) === "matchNationalId" || headerMap.get(normalizeHeader(header)) === "nationalId"
+  );
+  if (!hasStudentIdHeader && !hasNationalIdHeader) {
+    return { error: "標題列需要「學號」或「證件號碼」欄位，請下載 Excel 範本。" };
   }
   if (mode !== "delete" && !headers.some((header) => FIELD_KEYS.has(String(headerMap.get(normalizeHeader(header)))))) {
     return { error: "匯入或修改檔案至少需包含一個個人資料欄位" };
@@ -163,23 +184,38 @@ function parseSpreadsheet(buffer: Buffer, matchBy: MatchBy, mode: BatchMode):
   for (let rowIndex = 1; rowIndex < dataRows.length; rowIndex += 1) {
     const cells = dataRows[rowIndex];
     if (cells.every((value) => String(value ?? "").trim() === "")) continue;
-    let key = "";
+    let studentId = "";
+    let separateNationalIdKey = "";
+    let referenceName = "";
     const fields: BatchFields = {};
     for (let column = 0; column < headers.length; column += 1) {
       const mapped = headerMap.get(normalizeHeader(headers[column]));
       if (!mapped) continue;
       const value = String(cells[column] ?? "").trim();
-      if (mapped === "studentId" || mapped === "matchNationalId") {
-        if (mapped === keyHeader) key = value;
+      if (mapped === "studentId") {
+        studentId = value;
+        continue;
+      }
+      if (mapped === "matchNationalId") {
+        separateNationalIdKey = value;
+        continue;
+      }
+      if (mapped === "referenceName") {
+        referenceName = value;
         continue;
       }
       if (value) fields[mapped] = parseFieldValue(mapped, value);
     }
+    const nationalIdKey = separateNationalIdKey || fields.nationalId || "";
+    const matchBy: MatchBy | null = studentId ? "studentId" : nationalIdKey ? "nationalId" : null;
+    const key = matchBy === "studentId" ? studentId : nationalIdKey;
     rows.push({
       row: rowIndex + 1,
-      key: normalizeMatchKey(key, matchBy),
+      matchBy,
+      key: matchBy ? normalizeMatchKey(key, matchBy) : "",
+      referenceName,
       fields,
-      error: key ? "" : matchBy === "studentId" ? "缺少辨識學號" : "缺少辨識身分證",
+      error: matchBy ? "" : "缺少學號與證件號碼，無法辨識學生",
     });
   }
 
@@ -191,7 +227,10 @@ function parseSpreadsheet(buffer: Buffer, matchBy: MatchBy, mode: BatchMode):
 function duplicateKeys(rows: ParsedRow[]): Set<string> {
   const counts = new Map<string, number>();
   for (const row of rows) {
-    if (row.key && !row.error) counts.set(row.key, (counts.get(row.key) ?? 0) + 1);
+    if (row.key && row.matchBy && !row.error) {
+      const key = lookupIndexKey(row.matchBy, row.key);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
   }
   return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
 }
@@ -207,10 +246,15 @@ async function lookupStudents(
   rows: ParsedRow[],
   matchBy: MatchBy,
   period: SchoolPeriod
-): Promise<{ index: Map<string, Set<string>>; identities: Map<string, FirebaseFirestore.DocumentData> }> {
+): Promise<{
+  index: Map<string, Set<string>>;
+  identities: Map<string, FirebaseFirestore.DocumentData>;
+  names: Map<string, string>;
+}> {
   const db = getAdminDb();
   const index = new Map<string, Set<string>>();
   const identities = new Map<string, FirebaseFirestore.DocumentData>();
+  const names = new Map<string, string>();
   const keys = [...new Set(rows.filter((row) => !row.error).map((row) => row.key))];
 
   for (let offset = 0; offset < keys.length; offset += IN_CHUNK) {
@@ -227,6 +271,7 @@ async function lookupStudents(
         const studentId = typeof data.studentId === "string" ? data.studentId.trim() : "";
         const uid = typeof data.uid === "string" ? data.uid : "";
         addMatch(index, studentId, uid);
+        if (uid && typeof data.name === "string") names.set(uid, data.name.trim());
       }
       continue;
     }
@@ -282,6 +327,7 @@ async function lookupStudents(
           data.semester === period.semester
         ) {
           eligibleUids.add(data.uid);
+          if (typeof data.name === "string") names.set(data.uid, data.name.trim());
         }
       }
     }
@@ -293,7 +339,36 @@ async function lookupStudents(
     }
   }
 
-  return { index, identities };
+  return { index, identities, names };
+}
+
+async function lookupRows(
+  rows: ParsedRow[],
+  period: SchoolPeriod
+): Promise<{
+  index: Map<string, Set<string>>;
+  identities: Map<string, FirebaseFirestore.DocumentData>;
+  names: Map<string, string>;
+}> {
+  const studentRows = rows.filter((row) => row.matchBy === "studentId");
+  const nationalIdRows = rows.filter((row) => row.matchBy === "nationalId");
+  const empty: Awaited<ReturnType<typeof lookupStudents>> = {
+    index: new Map(),
+    identities: new Map(),
+    names: new Map(),
+  };
+  const [studentLookup, nationalIdLookup] = await Promise.all([
+    studentRows.length ? lookupStudents(studentRows, "studentId", period) : Promise.resolve(empty),
+    nationalIdRows.length ? lookupStudents(nationalIdRows, "nationalId", period) : Promise.resolve(empty),
+  ]);
+  const index = new Map<string, Set<string>>();
+  for (const [key, uids] of studentLookup.index) index.set(lookupIndexKey("studentId", key), uids);
+  for (const [key, uids] of nationalIdLookup.index) index.set(lookupIndexKey("nationalId", key), uids);
+  return {
+    index,
+    identities: nationalIdLookup.identities,
+    names: new Map([...studentLookup.names, ...nationalIdLookup.names]),
+  };
 }
 
 async function loadSnapshots(
@@ -431,15 +506,27 @@ function rowHasData(fields: BatchFields): boolean {
 async function buildPlans(
   rows: ParsedRow[],
   mode: BatchMode,
-  matchBy: MatchBy,
   period: SchoolPeriod,
   duplicates: Set<string>
 ): Promise<RowPlan[]> {
   const db = getAdminDb();
-  const lookup = await lookupStudents(rows.filter((row) => !row.error && !duplicates.has(row.key)), matchBy, period);
+  const lookup = await lookupRows(
+    rows.filter((row) => !row.error && row.matchBy && !duplicates.has(lookupIndexKey(row.matchBy, row.key))),
+    period
+  );
+  const uidCounts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.error || !row.matchBy || duplicates.has(lookupIndexKey(row.matchBy, row.key))) continue;
+    const matches = lookup.index.get(lookupIndexKey(row.matchBy, row.key));
+    if (!matches || matches.size !== 1) continue;
+    const uid = [...matches][0];
+    uidCounts.set(uid, (uidCounts.get(uid) ?? 0) + 1);
+  }
+  const duplicateUids = new Set([...uidCounts].filter(([, count]) => count > 1).map(([uid]) => uid));
   const uniqueUids = [...new Set(rows
-    .filter((row) => !row.error && !duplicates.has(row.key))
-    .flatMap((row) => [...(lookup.index.get(row.key) ?? [])]))];
+    .filter((row) => !row.error && row.matchBy && !duplicates.has(lookupIndexKey(row.matchBy, row.key)))
+    .flatMap((row) => [...(lookup.index.get(lookupIndexKey(row.matchBy!, row.key)) ?? [])])
+    .filter((uid) => !duplicateUids.has(uid)))];
   const termRefs = uniqueUids.map((uid) =>
     db.collection(PERSONAL_INFO_COLLECTION).doc(`${uid}_${period.academicYear}_${period.semester}`)
   );
@@ -451,10 +538,12 @@ async function buildPlans(
   const identityRequiredUids = new Set<string>();
   if (mode === "delete" || identityFieldsRequested) {
     for (const row of rows) {
-      if (row.error || duplicates.has(row.key)) continue;
+      if (row.error || !row.matchBy || duplicates.has(lookupIndexKey(row.matchBy, row.key))) continue;
       if (mode !== "delete" && !Object.keys(row.fields).some((key) => IDENTITY_KEYS.has(key))) continue;
-      const matches = lookup.index.get(row.key);
-      if (matches?.size === 1) identityRequiredUids.add([...matches][0]);
+      const matches = lookup.index.get(lookupIndexKey(row.matchBy, row.key));
+      if (matches?.size === 1 && !duplicateUids.has([...matches][0])) {
+        identityRequiredUids.add([...matches][0]);
+      }
     }
   }
   const identities = new Map<string, FirebaseFirestore.DocumentData>(lookup.identities);
@@ -473,10 +562,11 @@ async function buildPlans(
   if (mode !== "delete") {
     for (const input of rows) {
       const proposedId = input.fields.nationalId;
-      if (!proposedId || isClearValue(proposedId) || input.error || duplicates.has(input.key)) continue;
-      const matches = lookup.index.get(input.key);
+      if (!proposedId || isClearValue(proposedId) || input.error || !input.matchBy || duplicates.has(lookupIndexKey(input.matchBy, input.key))) continue;
+      const matches = lookup.index.get(lookupIndexKey(input.matchBy, input.key));
       if (!matches || matches.size !== 1) continue;
       const uid = [...matches][0];
+      if (duplicateUids.has(uid)) continue;
       const termRefId = `${uid}_${period.academicYear}_${period.semester}`;
       const hasTermRecord = terms.has(termRefId);
       if ((mode === "create" && hasTermRecord) || (mode === "update" && !hasTermRecord)) continue;
@@ -500,19 +590,27 @@ async function buildPlans(
 
   return rows.map((input) => {
     if (input.error) return { input, action: "skip", reason: input.error };
-    if (duplicates.has(input.key)) return { input, action: "skip", reason: "檔案內辨識欄位重複" };
-    const matches = lookup.index.get(input.key);
+    if (!input.matchBy) return { input, action: "skip", reason: "缺少學號與證件號碼，無法辨識學生" };
+    if (duplicates.has(lookupIndexKey(input.matchBy, input.key))) {
+      return { input, action: "skip", reason: "檔案內辨識欄位重複" };
+    }
+    const matches = lookup.index.get(lookupIndexKey(input.matchBy, input.key));
     if (!matches || matches.size === 0) {
       return {
         input,
         action: "skip",
-        reason: matchBy === "studentId"
+        reason: input.matchBy === "studentId"
           ? "選定學年度學期的學生名冊中找不到此學號"
-          : "找不到此身分證對應的學生",
+          : "找不到此證件號碼對應的學生",
       };
     }
     if (matches.size > 1) return { input, action: "skip", reason: "辨識欄位對應到多位學生，請先修正重複資料" };
     const uid = [...matches][0];
+    if (duplicateUids.has(uid)) return { input, action: "skip", reason: "檔案內多列指向同一位學生" };
+    const rosterName = lookup.names.get(uid);
+    if (input.referenceName && rosterName && input.referenceName !== rosterName) {
+      return { input, action: "skip", reason: "姓名與選定學年度學期學生名冊不符" };
+    }
     const termRef = db.collection(PERSONAL_INFO_COLLECTION).doc(`${uid}_${period.academicYear}_${period.semester}`);
     const termData = terms.get(termRef.id);
     const exists = Boolean(termData);
@@ -578,34 +676,46 @@ function summarize(plans: RowPlan[]) {
   };
 }
 
-async function getTemplateResponse(request: NextRequest) {
+async function getTemplateResponse() {
   const { denial } = await requireRole("admin");
   if (denial) return toAuthResponse(denial);
-  const matchBy = request.nextUrl.searchParams.get("matchBy");
-  if (matchBy !== "studentId" && matchBy !== "nationalId") {
-    return noStoreJson({ success: false, message: "辨識依據無效" }, 400);
-  }
   const headers = [
-    "辨識學號",
-    "辨識身分證",
-    ...FIELD_DEFS.map(({ label }) => label),
+    "學號",
+    "姓名",
+    "性別",
+    "生日",
+    "證件類型",
+    "證件號碼",
+    "戶籍郵區",
+    "戶籍地址",
+    "通訊郵區",
+    "通訊地址",
+    "聯絡電話",
+    "緊急聯絡人（姓名）",
+    "緊急聯絡人電話",
+    "標題不可刪除",
+  ];
+  const examples = [
+    ["910998", "A同學", "", "0990101", "身分證", "A123456789", "970", "花蓮縣花蓮市菁華街2號", "970", "花蓮縣花蓮市菁華街2號", "0922415546", "A媽媽", "0922415546", ""],
+    ["910999", "B同學", "", "0991010", "居留證", "U900000001", "970", "花蓮縣花蓮市菁華街2號", "970", "花蓮縣花蓮市菁華街2號", "0922415546", "B爸爸", "0922415546", ""],
   ];
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers]), "學生個人資料");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers]), "匯入資料");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers, ...examples]), "範例資料");
   const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer;
   const bytes = new Uint8Array(buffer);
   return new NextResponse(bytes, {
     headers: {
       "Cache-Control": "no-store",
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`學生個人資料範本_${matchBy}.xlsx`)}`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent("學生個人資料範本.xlsx")}`,
     },
   });
 }
 
 export async function GET(request: NextRequest) {
   try {
-    if (request.nextUrl.searchParams.get("template") === "1") return await getTemplateResponse(request);
+    if (request.nextUrl.searchParams.get("template") === "1") return await getTemplateResponse();
     const limited = enforceRateLimit(
       request,
       "feature-modules",
@@ -637,15 +747,11 @@ export async function POST(request: NextRequest) {
     const mode = typeof modeRaw === "string" && MODES.includes(modeRaw as BatchMode)
       ? modeRaw as BatchMode
       : null;
-    const matchByRaw = formData.get("matchBy");
-    const matchBy = typeof matchByRaw === "string" && MATCH_FIELDS.includes(matchByRaw as MatchBy)
-      ? matchByRaw as MatchBy
-      : null;
     const academicYear = Number(formData.get("academicYear"));
     const semester = Number(formData.get("semester"));
     const dryRun = formData.get("dryRun") === "true";
     const offset = Number(formData.get("offset") ?? 0);
-    if (!mode || !matchBy) return noStoreJson({ success: false, message: "批次作業或辨識依據無效" }, 400);
+    if (!mode) return noStoreJson({ success: false, message: "批次作業模式無效" }, 400);
     if (!Number.isInteger(academicYear) || academicYear <= 0 || academicYear > 999 || (semester !== 1 && semester !== 2)) {
       return noStoreJson({ success: false, message: "請選擇有效的學年度與學期" }, 400);
     }
@@ -656,14 +762,14 @@ export async function POST(request: NextRequest) {
     if (file.size > MAX_FILE_BYTES) return noStoreJson({ success: false, message: "檔案超過 5 MB，請拆分檔案" }, 400);
     if (!/\.(xlsx|xls|csv)$/i.test(file.name)) return noStoreJson({ success: false, message: "僅支援 Excel 或 CSV 檔案" }, 400);
 
-    const parsed = parseSpreadsheet(Buffer.from(await file.arrayBuffer()), matchBy, mode);
+    const parsed = parseSpreadsheet(Buffer.from(await file.arrayBuffer()), mode);
     if ("error" in parsed) return noStoreJson({ success: false, message: parsed.error }, 400);
     const period: SchoolPeriod = { academicYear, semester };
     const duplicates = duplicateKeys(parsed.rows);
     const chunkRows = dryRun
       ? parsed.rows
       : parsed.rows.slice(offset, offset + WRITE_CHUNK);
-    const plans = await buildPlans(chunkRows, mode, matchBy, period, duplicates);
+    const plans = await buildPlans(chunkRows, mode, period, duplicates);
 
     if (dryRun) return noStoreJson({ success: true, preview: summarize(plans) });
 
