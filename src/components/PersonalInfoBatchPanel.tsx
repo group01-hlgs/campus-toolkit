@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import type { SchoolPeriod } from "@/types/settings";
 
 type BatchMode = "create" | "update" | "delete";
@@ -54,6 +55,7 @@ export default function PersonalInfoBatchPanel() {
   const [result, setResult] = useState<BatchResponse["result"] | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -189,14 +191,25 @@ export default function PersonalInfoBatchPanel() {
 
   return (
     <>
-      <section className="border border-themed rounded-lg bg-card p-5 sm:p-6">
-        <div className="mb-4">
-          <h3 className="text-lg font-bold text-t1">資料管理</h3>
-          <p className="text-xs text-t3 mt-1">
-            依 Excel 標題中的學號或證件號碼自動辨識學生，對指定學年度學期批次匯入、修改或刪除個人資料。
-          </p>
-        </div>
+      <details
+        open={expanded}
+        onToggle={(event) => setExpanded(event.currentTarget.open)}
+        className="border border-themed rounded-lg bg-card p-5 sm:p-6"
+      >
+        <summary
+          aria-controls="personal-info-batch-content"
+          className="flex list-none cursor-pointer flex-wrap items-center justify-between gap-2"
+        >
+          <div>
+            <h3 className="text-lg font-bold text-t1">資料管理</h3>
+            <p className="text-xs text-t3 mt-1">
+              依 Excel 標題中的學號或證件號碼自動辨識學生，對指定學年度學期批次匯入、修改或刪除個人資料。
+            </p>
+          </div>
+          <DisclosureArrow />
+        </summary>
 
+        <div id="personal-info-batch-content" className="mt-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1 text-sm text-t2">
             <span className="block">學年度</span>
@@ -329,7 +342,8 @@ export default function PersonalInfoBatchPanel() {
             批次執行中：{progress.processed}/{progress.total} 列
           </p>
         )}
-      </section>
+        </div>
+      </details>
 
       {confirmOpen && preview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

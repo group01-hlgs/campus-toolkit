@@ -221,6 +221,13 @@ export const STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS = STUDENT_PERSONAL_INFO_FIELD
   ({ key }) => !(STUDENT_PERSONAL_IDENTITY_KEYS as readonly string[]).includes(key)
 ) as StudentPersonalInfoFieldDefinition<keyof StudentPersonalInfoTermFields>[];
 
+/** 學期欄位是否全部填妥（學生表單與管理端列表共用判定；任一為空即未完成） */
+export function isStudentPersonalInfoTermComplete(
+  fields: StudentPersonalInfoTermFields
+): boolean {
+  return STUDENT_PERSONAL_INFO_TERM_FIELD_DEFS.every((field) => fields[field.key].trim() !== "");
+}
+
 export const EMPTY_STUDENT_PERSONAL_IDENTITY: StudentPersonalIdentityFields = {
   gender: "",
   birthday: "",

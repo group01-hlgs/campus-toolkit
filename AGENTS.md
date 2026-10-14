@@ -32,6 +32,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
      （每頁筆數下拉＋頁碼導覽）。
    - **有班級前提**的清單／列表（如名冊、帳號）：預設以「班級」為分頁單位
      （依班級代碼分組切頁），使用者仍可切換為其他分頁方式。
+4. **收合／展開一律用 SVG 箭頭，不用按鈕**：所有「收合／展開」控制
+   （卡片、清單、表單、說明面板等）一律以原生 `<details>`／`<summary>`
+   實作，圖示統一使用共用元件 `src/components/DisclosureArrow.tsx`
+   （展開時箭頭自動旋轉）。**禁止**再以 `<button>` 搭配「收合／展開」文字
+   或 ▲／▼ 字元切換；`aria-expanded` 由 `<details>` 自帶，必要時以
+   `aria-controls` 指向內容區 id。
 
 ## 修改完成後的流程
 
