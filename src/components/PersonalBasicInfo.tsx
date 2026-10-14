@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import RolePageShell from "@/components/RolePageShell";
 import PersonalInfoRulesPanel from "@/components/PersonalInfoRulesPanel";
+import PersonalInfoBatchPanel from "@/components/PersonalInfoBatchPanel";
 import StudentPersonalInfoForm from "@/components/StudentPersonalInfoForm";
 import { ROSTER_FIELDS } from "@/types/roster";
 import { isUserRole, ROLE_HOME, type UserRole } from "@/types/users";
@@ -32,7 +33,7 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
       const response = await fetch("/api/me", { cache: "no-store" });
       const data = await response.json();
       if (!response.ok || !data?.success || !data.profile) {
-        setError(data?.message || "目前無法載入個人基本資料，請稍後再試。");
+        setError(data?.message || "目前無法載入學生個人資料，請稍後再試。");
         return;
       }
       const next = data.profile as PersonalProfile;
@@ -46,8 +47,8 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
       }
       setProfile(next);
     } catch (loadError) {
-      console.error("載入個人基本資料失敗:", loadError);
-      setError("目前無法載入個人基本資料，請稍後再試。");
+      console.error("載入學生個人資料失敗:", loadError);
+      setError("目前無法載入學生個人資料，請稍後再試。");
     } finally {
       setLoading(false);
     }
@@ -67,7 +68,7 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
     <RolePageShell>
       <main className="content-width max-w-3xl mb-8">
         <header className="mb-4 text-center">
-          <h2 className="text-2xl font-bold text-t1">個人基本資料</h2>
+          <h2 className="text-2xl font-bold text-t1">學生個人資料</h2>
           <p className="text-sm text-t3 mt-1">
             {role === "student"
               ? "檢視與填寫本人本學期的基本資料。"
@@ -95,10 +96,13 @@ export default function PersonalBasicInfo({ role }: { role: UserRole }) {
         </div>
 
         {role === "admin" ? (
-          <PersonalInfoRulesPanel />
+          <div className="space-y-4">
+            <PersonalInfoRulesPanel />
+            <PersonalInfoBatchPanel />
+          </div>
         ) : loading ? (
           <div className="border border-themed rounded-lg bg-card p-8 text-center text-t3" role="status">
-            載入個人基本資料中…
+            載入學生個人資料中…
           </div>
         ) : error ? (
           <div className="border border-themed rounded-lg bg-card p-6 text-center" role="alert">

@@ -53,6 +53,14 @@ body {
   transition: background-color var(--transition), color var(--transition);
 }
 
+details[open] > summary .disclosure-arrow {
+  transform: rotate(180deg);
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
 /* 表單元素主題 */
 input, select, textarea {
   background-color: var(--bg2);

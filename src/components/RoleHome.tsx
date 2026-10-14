@@ -131,7 +131,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
       ? [
           {
             icon: <ModuleIcon value="personalInfo" />,
-            label: "個人基本資料",
+            label: "學生個人資料",
             id: "personalInfo",
             href: `${ROLE_HOME[role]}/personal-info`,
           },

@@ -11,6 +11,7 @@ import type {
 } from "@/types/announcements";
 import { ROLE_LABELS, type UserRole } from "@/types/users";
 import PinIcon from "@/components/PinIcon";
+import DisclosureArrow from "@/components/DisclosureArrow";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -618,73 +619,59 @@ function AnnouncementCompactRow({
   const [open, setOpen] = useState(false);
   return (
     <li className="border border-themed rounded-lg bg-card">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((prev) => !prev)}
-        className="w-full flex items-center gap-2 px-4 py-2.5 text-left cursor-pointer"
-      >
-        <svg
-          className={`w-4 h-4 shrink-0 text-t3 transition-transform ${
-            open ? "rotate-90" : ""
-          }`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span className={`flex-1 min-w-0 truncate ${sizes.body} text-t2`}>
-          <span className="text-t3">
-            {item.publishAt ? new Date(item.publishAt).toLocaleDateString("zh-TW") : ""}
+      <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary className="flex list-none cursor-pointer items-center gap-2 px-4 py-2.5 text-left">
+          <DisclosureArrow />
+          <span className={`flex-1 min-w-0 truncate ${sizes.body} text-t2`}>
+            <span className="text-t3">
+              {item.publishAt ? new Date(item.publishAt).toLocaleDateString("zh-TW") : ""}
+            </span>
+            ｜{item.categoryName}｜
+            <span className="font-medium text-t1">{clipText(item.title, 20)}</span>
           </span>
-          ｜{item.categoryName}｜
-          <span className="font-medium text-t1">{clipText(item.title, 20)}</span>
-        </span>
-        {item.expiringSoon && (
-          <span className="text-sm text-danger border border-danger rounded px-1.5 py-0.5 shrink-0">
-            即將到期
-          </span>
-        )}
-      </button>
-      {open && (
-        <div className="border-t border-themed px-4 py-3">
-          <p className={`${sizes.meta} text-t3 mb-2`}>
-            {item.categoryName}｜{item.authorName}
-            {item.classScoped ? "｜班級公告" : "｜校級"}
-            {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
-            {item.isPublic ? (
-              <span className="ml-1.5 text-t2 border border-themed rounded px-1.5 py-0.5">
-                公開
-              </span>
-            ) : null}
-          </p>
-          <p className={`${sizes.body} text-t2 whitespace-pre-wrap`}>{item.body}</p>
-          {remindersEnabled && (
-            <div className="mt-3">
-              <button
-                type="button"
-                disabled={toggling}
-                onClick={() => onToggleReminder(item.id)}
-                className={
-                  item.reminded
-                    ? "btn-danger rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
-                    : "btn-soft rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
-                }
-                title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
-              >
-                {toggling
-                  ? "處理中..."
-                  : item.reminded
-                    ? "已設定提醒"
-                    : "提醒我"}
-              </button>
-            </div>
+          {item.expiringSoon && (
+            <span className="text-sm text-danger border border-danger rounded px-1.5 py-0.5 shrink-0">
+              即將到期
+            </span>
           )}
-        </div>
-      )}
+        </summary>
+        {open && (
+          <div className="border-t border-themed px-4 py-3">
+            <p className={`${sizes.meta} text-t3 mb-2`}>
+              {item.categoryName}｜{item.authorName}
+              {item.classScoped ? "｜班級公告" : "｜校級"}
+              {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
+              {item.isPublic ? (
+                <span className="ml-1.5 text-t2 border border-themed rounded px-1.5 py-0.5">
+                  公開
+                </span>
+              ) : null}
+            </p>
+            <p className={`${sizes.body} text-t2 whitespace-pre-wrap`}>{item.body}</p>
+            {remindersEnabled && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  disabled={toggling}
+                  onClick={() => onToggleReminder(item.id)}
+                  className={
+                    item.reminded
+                      ? "btn-danger rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
+                      : "btn-soft rounded px-2.5 py-1 text-sm cursor-pointer disabled:opacity-50"
+                  }
+                  title="個人提醒：於首頁鈴鐺與本頁提醒區顯示（非系統推播）"
+                >
+                  {toggling
+                    ? "處理中..."
+                    : item.reminded
+                      ? "已設定提醒"
+                      : "提醒我"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </details>
     </li>
   );
 }

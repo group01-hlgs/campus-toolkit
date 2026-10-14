@@ -11,6 +11,7 @@ import {
   syncInstalledThemesToAccount,
 } from "@/lib/theme-store";
 import ThemeSubmissionForm from "@/components/ThemeSubmissionForm";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import { ThemeColors } from "@/types/theme";
 
 interface ThemeMarketEntry {
@@ -443,8 +444,9 @@ export default function ThemeMarketPage() {
       )}
 
       <details className="border border-themed rounded-lg bg-card p-5">
-        <summary className="cursor-pointer font-bold text-t1">
-          上架新主題（管理員發佈 → PR 審核 → merge 上架）
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-bold text-t1">
+          <span>上架新主題（管理員發佈 → PR 審核 → merge 上架）</span>
+          <DisclosureArrow />
         </summary>
         <p className="mt-2 mb-4 text-xs text-t3">
           發佈會以服務帳號對市集 repo 建立 PR；CI 驗證通過並經您 merge 後，主題即出現在市集索引中。

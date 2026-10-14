@@ -33,7 +33,7 @@ export async function GET() {
 
     const fields: Record<string, string> = {};
     for (const key of ROSTER_ENTRY_FIELDS[session.role]) {
-      // 管理員的授權模組屬權限資訊，不列入個人基本資料。
+      // 管理員的授權模組屬權限資訊，不列入個人資料。
       if (key === "modules") continue;
       if (key === "attribute" && session.role === "admin") {
         fields[key] = String(entry[key] ?? "一般");

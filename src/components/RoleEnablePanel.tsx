@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import { ALL_ROLES, ROLE_LABELS, UserRole } from "@/types/users";
 import { RoleEnabledMap } from "@/types/role-settings";
 
@@ -26,7 +27,7 @@ const ROLE_HINTS: Record<UserRole, string> = {
 
 /**
  * 身分啟用／停用面板（原「身分管理」頁，併入身分名冊管理頁頂端）。
- * 預設收合，管理員按「展開」才讀取／顯示四張開關卡（首次展開才打 API）。
+ * 預設收合，管理員展開箭頭才讀取／顯示四張開關卡（首次展開才打 API）。
  * 開關存於系統設定（settings/system 的 roleEnabled），屬現行狀態、跨學期沿用。
  */
 export default function RoleEnablePanel() {
@@ -55,8 +56,7 @@ export default function RoleEnablePanel() {
     }
   }
 
-  function handleOpenChange() {
-    const next = !open;
+  function handleOpenChange(next: boolean) {
     setOpen(next);
     if (next && !view) void loadView();
   }
@@ -86,18 +86,17 @@ export default function RoleEnablePanel() {
   }
 
   return (
-    <div className="border border-themed rounded-lg bg-card p-5">
-      <div className="flex items-center justify-between gap-3">
+    <details
+      open={open}
+      onToggle={(event) => {
+        if (event.currentTarget.open !== open) handleOpenChange(event.currentTarget.open);
+      }}
+      className="border border-themed rounded-lg bg-card p-5"
+    >
+      <summary className="flex list-none cursor-pointer items-center justify-between gap-3">
         <h3 className="text-lg font-bold text-t1">身分啟用狀態</h3>
-        <button
-          type="button"
-          onClick={handleOpenChange}
-          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-          aria-expanded={open}
-        >
-          {open ? "收合" : "展開"}
-        </button>
-      </div>
+        <DisclosureArrow />
+      </summary>
 
       {open && (
         <div className="mt-3">
@@ -176,6 +175,6 @@ export default function RoleEnablePanel() {
           ) : null}
         </div>
       )}
-    </div>
+    </details>
   );
 }

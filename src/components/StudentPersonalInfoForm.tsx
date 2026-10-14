@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
   EMPTY_STUDENT_PERSONAL_IDENTITY,
@@ -276,7 +277,7 @@ export default function StudentPersonalInfoForm({
         <details className="group/card mt-4 border border-themed rounded-lg bg-card">
           <summary className="cursor-pointer list-none px-5 sm:px-7 py-5 flex items-center justify-between gap-3">
             <h3 className="text-lg font-bold text-t1">基礎資料</h3>
-            <Chevron card />
+            <DisclosureArrow className="h-5 w-5" />
           </summary>
           <div className="px-5 sm:px-7 pb-5">
             <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
@@ -360,7 +361,7 @@ export default function StudentPersonalInfoForm({
         <details className="group/card mt-4 border border-themed rounded-lg bg-card">
           <summary className="cursor-pointer list-none px-5 sm:px-7 py-5 flex items-center justify-between gap-3">
             <h3 className="text-lg font-bold text-t1">個人證件照</h3>
-            <Chevron card />
+            <DisclosureArrow className="h-5 w-5" />
           </summary>
           <div className="px-5 sm:px-7 pb-5">
             <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
@@ -401,7 +402,7 @@ export default function StudentPersonalInfoForm({
                   <PeriodHintBadge tone="done">全部{PERIOD_HINT_DONE}</PeriodHintBadge>
                 ))}
             </h3>
-            <Chevron card />
+            <DisclosureArrow className="h-5 w-5" />
           </summary>
         <div className="px-5 sm:px-7 pb-5">
           <p className="mb-4 border-b border-themed pb-3 text-xs text-t3">
@@ -440,7 +441,7 @@ export default function StudentPersonalInfoForm({
                         {row.complete ? PERIOD_HINT_DONE : PERIOD_HINT_INCOMPLETE}
                       </PeriodHintBadge>
                     </span>
-                    <Chevron />
+                    <DisclosureArrow />
                   </summary>
                   {row.isCurrent ? (
                     <div className="border-t border-themed p-4">
@@ -577,23 +578,6 @@ function PeriodHintBadge({ tone, children }: { tone: "open" | "incomplete" | "do
     >
       {children}
     </span>
-  );
-}
-
-function Chevron({ card = false }: { card?: boolean }) {
-  return (
-    <svg
-      className={`h-4 w-4 text-t3 transition-transform ${card ? "group-open/card:rotate-90" : "group-open:rotate-90"}`}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
   );
 }
 

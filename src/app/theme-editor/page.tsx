@@ -13,6 +13,7 @@ import {
   syncInstalledThemesToAccount,
 } from "@/lib/theme-store";
 import ThemeSubmissionForm from "@/components/ThemeSubmissionForm";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import { ThemeColors, THEME_COLOR_KEYS } from "@/types/theme";
 
 /**
@@ -330,13 +331,6 @@ export default function ThemeEditorPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowSubmit((open) => !open)}
-                className="btn-theme rounded px-4 py-2 text-sm cursor-pointer"
-              >
-                {showSubmit ? "收合投稿表單" : "投稿上架到市集..."}
-              </button>
-              <button
-                type="button"
                 onClick={() => router.push(roleHome(session?.role))}
                 className="rounded px-4 py-2 text-sm border border-themed bg-card text-t2 cursor-pointer"
               >
@@ -445,13 +439,6 @@ export default function ThemeEditorPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => setShowSubmit((open) => !open)}
-                  className="btn-theme rounded px-4 py-2 text-sm cursor-pointer"
-                >
-                  {showSubmit ? "收合投稿表單" : "投稿上架到市集..."}
-                </button>
-                <button
-                  type="button"
                   onClick={() => router.push(roleHome(session?.role))}
                   className="rounded px-4 py-2 text-sm border border-themed bg-card text-t2 cursor-pointer"
                 >
@@ -460,24 +447,34 @@ export default function ThemeEditorPage() {
               </div>
             </form>
 
-          {showSubmit && (
-            <div className="border border-themed rounded-lg bg-card p-5 space-y-3">
-              <div>
-                <h2 className="font-bold text-t1">投稿上架（經管理員審核後全校可安裝）</h2>
-                <p className="text-xs text-t3 mt-1">
-                  會帶入目前編輯的色彩；送出後建立草稿 PR，管理員在市集倉庫審核 merge 後即上架。
-                </p>
+          <details
+            open={showSubmit}
+            onToggle={(event) => setShowSubmit(event.currentTarget.open)}
+            className="border border-themed rounded-lg bg-card"
+          >
+            <summary className="flex list-none cursor-pointer items-center justify-between gap-3 p-5">
+              <span className="font-bold text-t1">投稿上架到市集</span>
+              <DisclosureArrow />
+            </summary>
+            {showSubmit && (
+              <div className="px-5 pb-5 space-y-3">
+                <div>
+                  <h2 className="font-bold text-t1">投稿上架（經管理員審核後全校可安裝）</h2>
+                  <p className="text-xs text-t3 mt-1">
+                    會帶入目前編輯的色彩；送出後建立草稿 PR，管理員在市集倉庫審核 merge 後即上架。
+                  </p>
+                </div>
+                <ThemeSubmissionForm
+                  endpoint="/api/market/submit"
+                  submitLabel="送出投稿"
+                  initialValues={{
+                    name: name.trim() === "我的主題" ? "" : name.trim(),
+                    colors,
+                  }}
+                />
               </div>
-              <ThemeSubmissionForm
-                endpoint="/api/market/submit"
-                submitLabel="送出投稿"
-                initialValues={{
-                  name: name.trim() === "我的主題" ? "" : name.trim(),
-                  colors,
-                }}
-              />
-            </div>
-          )}
+            )}
+          </details>
         </div>
       </div>
     </div>

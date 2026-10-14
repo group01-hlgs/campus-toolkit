@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
@@ -17,6 +18,7 @@ interface SettingsResponse {
 }
 
 export default function PersonalInfoRulesPanel() {
+  const [expanded, setExpanded] = useState(false);
   const [settings, setSettings] = useState<StudentPersonalInfoSettings>(
     DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS
   );
@@ -97,21 +99,33 @@ export default function PersonalInfoRulesPanel() {
 
   return (
     <>
-      <section className="border border-themed rounded-lg bg-card p-5 sm:p-6 mb-4">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
+      <details
+        open={expanded}
+        onToggle={(event) => {
+          if (event.currentTarget.open !== expanded) setExpanded(event.currentTarget.open);
+        }}
+        className="border border-themed rounded-lg bg-card p-5 sm:p-6 mb-4"
+      >
+        <summary
+          aria-controls="personal-info-rules-content"
+          className="flex list-none cursor-pointer flex-wrap items-center justify-between gap-2"
+        >
           <div>
             <h3 className="text-lg font-bold text-t1">管理規則</h3>
-            <p className="text-xs text-t3 mt-1">
-              學生可填寫自己的個人基本資料；學號、年級、班級與座號等學籍名冊資料不在此修改。
-            </p>
+            {period && (
+              <p className="text-xs text-t3 mt-1">
+                {period.academicYear} 學年度第 {period.semester} 學期
+              </p>
+            )}
           </div>
-          {period && (
-            <span className="text-xs text-t3 shrink-0">
-              {period.academicYear} 學年度第 {period.semester} 學期
-            </span>
-          )}
-        </div>
+          <DisclosureArrow />
+        </summary>
 
+        {expanded && (
+          <div id="personal-info-rules-content" className="mt-4">
+            <p className="text-xs text-t3 mb-4">
+              學生可填寫自己的個人資料；學號、年級、班級與座號等學籍名冊資料不在此修改。
+            </p>
         {loading ? (
           <p className="text-sm text-t3" role="status">載入管理規則中…</p>
         ) : loadError ? (
@@ -293,7 +307,9 @@ export default function PersonalInfoRulesPanel() {
             </div>
           </div>
         )}
-      </section>
+          </div>
+        )}
+      </details>
       <PersonalInfoResultDialog
         message={feedback?.message ?? null}
         kind={feedback?.kind ?? "success"}

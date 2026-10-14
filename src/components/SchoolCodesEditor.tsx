@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import {
   CODES_MAX_DEPARTMENTS,
   CODES_MAX_GROUPS,
@@ -52,7 +53,7 @@ const LIST_META: Record<
  * 各式代碼表編輯器（學校基本設定的子功能，系統的基礎資料庫）。
  * 自行讀取與儲存 `GET/PUT /api/admin/school/codes`；saved／draft 模式與
  * 其他學校基本設定子功能一致（還原、儲存變更、儲存遮罩與結果視窗）。
- * 三份清單進入頁面時預設收合，按標題展開後才顯示內容。
+ * 三份清單進入頁面時預設收合，使用標題列 SVG 箭頭展開後才顯示內容。
  */
 export default function SchoolCodesEditor() {
   const [saved, setSaved] = useState<SchoolCodesSetting | null>(null);
@@ -289,30 +290,7 @@ export default function SchoolCodesEditor() {
           const isOpen = open[listKey];
           return (
             <section key={listKey} className="border border-themed rounded-lg p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOpen((prev) => ({ ...prev, [listKey]: !isOpen }))}
-                  aria-expanded={isOpen}
-                  aria-controls={`codes-list-${listKey}`}
-                  className="flex items-center gap-1 text-sm font-bold text-t1 cursor-pointer"
-                >
-                  <svg
-                    className={`w-4 h-4 transition-transform ${isOpen ? "" : "-rotate-90"}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                  {meta.label}清單
-                </button>
-                <span className="text-xs text-t3">
-                  {draft[listKey].length} / {meta.cap} 筆
-                </span>
-                <span className="text-xs text-t3">{isOpen ? "收合" : "按標題展開"}</span>
+              <div className="flex flex-wrap items-start gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -321,11 +299,30 @@ export default function SchoolCodesEditor() {
                   }}
                   disabled={capped}
                   title={capped ? `最多 ${meta.cap} 筆` : "於清單末尾新增一列"}
-                  className="btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer ml-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="order-2 ml-auto btn-theme rounded-lg px-3 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   新增一列
                 </button>
-              </div>
+
+              <details
+                open={isOpen}
+                onToggle={(event) => {
+                  if (event.currentTarget.open !== isOpen) {
+                    setOpen((prev) => ({ ...prev, [listKey]: event.currentTarget.open }));
+                  }
+                }}
+                className="order-1 min-w-0 flex-1"
+              >
+                <summary
+                  aria-controls={`codes-list-${listKey}`}
+                  className="flex list-none cursor-pointer items-center gap-2 text-sm font-bold text-t1"
+                >
+                  <DisclosureArrow />
+                  <span>{meta.label}清單</span>
+                  <span className="ml-auto text-xs font-normal text-t3">
+                    {draft[listKey].length} / {meta.cap} 筆
+                  </span>
+                </summary>
 
               {isOpen && (
                 <div id={`codes-list-${listKey}`} className="mt-2">
@@ -411,6 +408,8 @@ export default function SchoolCodesEditor() {
                   </div>
                 </div>
               )}
+              </details>
+              </div>
             </section>
           );
         })}

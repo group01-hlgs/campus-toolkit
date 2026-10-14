@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import {
   ACCOUNT_BATCH_MODES,
   ACCOUNT_BATCH_MODE_LABELS,
@@ -1088,18 +1089,15 @@ export default function AccountsPage() {
       <hr className="w-full max-w-6xl border-themed mb-4" />
 
       {/* 批次管理：上傳試算表 → 預覽 → 確認執行（預設收合） */}
-      <div className="w-full max-w-6xl border border-themed rounded-lg bg-card p-4 mb-4">
-        <div className="flex items-center justify-between gap-3">
+      <details
+        open={batchOpen}
+        onToggle={(event) => setBatchOpen(event.currentTarget.open)}
+        className="w-full max-w-6xl border border-themed rounded-lg bg-card p-4 mb-4"
+      >
+        <summary className="flex list-none cursor-pointer items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-t1">批次管理</h3>
-          <button
-            type="button"
-            onClick={() => setBatchOpen((prev) => !prev)}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-            aria-expanded={batchOpen}
-          >
-            {batchOpen ? "收合" : "展開"}
-          </button>
-        </div>
+          <DisclosureArrow />
+        </summary>
 
         {batchOpen && (
           <div className="mt-3">
@@ -1237,7 +1235,7 @@ export default function AccountsPage() {
             )}
           </div>
         )}
-      </div>
+      </details>
 
       {/* 工具列：搜尋、新增 */}
       <div className="w-full max-w-6xl flex flex-wrap items-center gap-3 mb-4">
