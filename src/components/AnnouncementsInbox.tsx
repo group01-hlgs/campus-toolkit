@@ -12,8 +12,7 @@ import type {
 import { ROLE_LABELS, type UserRole } from "@/types/users";
 import PinIcon from "@/components/PinIcon";
 import DisclosureArrow from "@/components/DisclosureArrow";
-
-type Flash = { type: "success" | "error"; text: string } | null;
+import Toast, { type ToastMessage } from "@/components/Toast";
 
 type FontSize = "small" | "medium" | "large";
 
@@ -78,7 +77,7 @@ export default function AnnouncementsInbox({
   const [displayName, setDisplayName] = useState("");
   const [displayMethod, setDisplayMethod] = useState<AnnouncementSurfaceMethod>("list");
   const [loading, setLoading] = useState(true);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [roles, setRoles] = useState<UserRole[]>(
@@ -98,11 +97,7 @@ export default function AnnouncementsInbox({
     setFontSize(readStoredFontSize());
   }, []);
 
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -120,7 +115,7 @@ export default function AnnouncementsInbox({
       // 設定快取的 visibleModules：公告未提供或被關閉時提示（頁面仍可直接網址進入，API 會把關名冊）
       const visible = settingsData?.visibleModules;
       if (Array.isArray(visible) && !visible.includes("announcements")) {
-        setFlash({ type: "error", text: "公告功能目前對此身分關閉顯示" });
+        setToast({ kind: "error", text: "公告功能目前對此身分關閉顯示" });
       }
     }
     void boot();
@@ -142,10 +137,10 @@ export default function AnnouncementsInbox({
           setRemindersEnabled(data.remindersEnabled);
         }
       } else if (data?.message) {
-        setFlash({ type: "error", text: data.message });
+        setToast({ kind: "error", text: data.message });
       }
     } catch {
-      setFlash({ type: "error", text: "載入公告失敗" });
+      setToast({ kind: "error", text: "載入公告失敗" });
     } finally {
       setLoading(false);
     }
@@ -159,7 +154,7 @@ export default function AnnouncementsInbox({
     event.preventDefault();
     if (posting) return;
     setPosting(true);
-    setFlash(null);
+    setToast(null);
     try {
       const res = await fetch("/api/announcements", {
         method: "POST",
@@ -176,12 +171,12 @@ export default function AnnouncementsInbox({
       if (!res.ok || !data?.success) throw new Error(data?.message || "發佈失敗");
       setTitle("");
       setBody("");
-      setFlash({ type: "success", text: data.message || "公告已發佈" });
+      setToast({ kind: "success", text: data.message || "公告已發佈" });
       if (data.displayMethod) setDisplayMethod(data.displayMethod);
       if (data.items) setItems(data.items);
       else await load();
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "發佈失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "發佈失敗" });
     } finally {
       setPosting(false);
     }
@@ -207,13 +202,13 @@ export default function AnnouncementsInbox({
           item.id === announcementId ? { ...item, reminded: data.reminded === true } : item
         )
       );
-      setFlash({
-        type: "success",
+      setToast({
+        kind: "success",
         text: data.message || (data.reminded ? "已加入提醒" : "已取消提醒"),
       });
     } catch (error) {
-      setFlash({
-        type: "error",
+      setToast({
+        kind: "error",
         text: error instanceof Error ? error.message : "提醒設定失敗",
       });
     } finally {
@@ -246,15 +241,7 @@ export default function AnnouncementsInbox({
 
   return (
     <div className="w-full max-w-3xl mb-8 space-y-6">
-      {flash && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
-          style={{ background: `var(${flash.type === "success" ? "--success" : "--danger"})` }}
-          role="status"
-        >
-          {flash.text}
-        </div>
-      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       <div className="content-width text-center">
         <h2 className="text-2xl font-bold text-t1">公告</h2>
