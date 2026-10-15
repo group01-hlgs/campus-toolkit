@@ -146,7 +146,7 @@ export default function PersonalInfoListPanel() {
         className="flex list-none cursor-pointer flex-wrap items-center justify-between gap-2"
       >
         <div>
-          <h3 className="text-lg font-bold text-t1">學生個人基本資料列表</h3>
+          <h3 className="text-lg font-bold text-t1">學生個人資料列表</h3>
           <p className="text-xs text-t3 mt-1">{summaryText}</p>
         </div>
         <DisclosureArrow />
