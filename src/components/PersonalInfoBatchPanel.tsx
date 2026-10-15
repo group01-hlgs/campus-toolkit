@@ -10,6 +10,7 @@ type BatchRowAction = BatchMode | "skip";
 interface BatchRowSummary {
   row: number;
   action: BatchRowAction;
+  label: string;
   reason?: string;
 }
 
@@ -315,7 +316,7 @@ export default function PersonalInfoBatchPanel() {
             <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-t2">
               {preview.rows.map((row) => (
                 <li key={row.row}>
-                  第 {row.row} 列：{MODE_ACTION_LABELS[row.action]}{row.reason ? ` — ${row.reason}` : ""}
+                  {row.label}：{MODE_ACTION_LABELS[row.action]}{row.reason ? ` — ${row.reason}` : ""}
                 </li>
               ))}
             </ul>
@@ -330,7 +331,7 @@ export default function PersonalInfoBatchPanel() {
             {result.skippedRows.length > 0 && (
               <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-t2">
                 {result.skippedRows.map((row) => (
-                  <li key={row.row}>第 {row.row} 列：{row.reason || "略過"}</li>
+                  <li key={row.row}>{row.label}：{row.reason || "略過"}</li>
                 ))}
               </ul>
             )}

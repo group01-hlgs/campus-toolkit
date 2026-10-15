@@ -53,6 +53,7 @@ interface ParsedRow {
 interface PreviewRow {
   row: number;
   action: BatchRowAction;
+  label: string;
   reason?: string;
 }
 
@@ -661,11 +662,18 @@ async function buildPlans(
 }
 
 function summarize(plans: RowPlan[]) {
-  const rows: PreviewRow[] = plans.map(({ input, action, reason }) => ({
-    row: input.row,
-    action,
-    ...(reason ? { reason } : {}),
-  }));
+  const rows: PreviewRow[] = plans.map(({ input, action, reason }) => {
+    const parts: string[] = [];
+    if (input.matchBy === "studentId" && input.key) parts.push(input.key);
+    else if (input.matchBy === "nationalId" && input.key) parts.push(input.key);
+    if (input.referenceName) parts.push(input.referenceName);
+    return {
+      row: input.row,
+      action,
+      label: parts.join(" ") || `第 ${input.row} 列`,
+      ...(reason ? { reason } : {}),
+    };
+  });
   return {
     created: rows.filter((row) => row.action === "create").length,
     updated: rows.filter((row) => row.action === "update").length,
