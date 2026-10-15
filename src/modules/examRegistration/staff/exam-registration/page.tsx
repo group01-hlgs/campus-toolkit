@@ -4,16 +4,24 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import AdSense from "@/components/AdSense";
 import Copyright from "@/components/Copyright";
+import DisclosureArrow from "@/components/DisclosureArrow";
 import RevealListCard from "@/components/RevealListCard";
 import { logout } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
 import { defaultSettings, type Settings } from "@/types/settings";
-import { EXAM_REGISTRATION_MODE_LABELS, type ExamRegistrationMode } from "../../types/exam-registration";
+import {
+  effectiveExamStatus,
+  EXAM_EVENT_STATUS_LABELS,
+  EXAM_REGISTRATION_MODE_LABELS,
+  formatExamDateTime,
+  type ExamRegistrationMode,
+  type ExamEventType,
+} from "../../types/exam-registration";
 
 interface StaffEvent {
   eventId: string;
   title: string;
-  examDate: string;
+  status: ExamEventType;
   registrationOpenAt: number;
   deadline: number;
   registrationMode: ExamRegistrationMode;
@@ -30,18 +38,16 @@ interface StaffResponse {
   message?: string;
   classCode?: string;
   events?: StaffEvent[];
-  counts?: Record<string, number>;
+  counts?: Record<string, StaffEventCounts>;
+}
+
+interface StaffEventCounts {
+  listCount: number;
+  registeredCount: number;
 }
 
 function formatDateTime(value: number): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatExamDateTime(value);
 }
 
 function StaffExamEventCard({
@@ -49,7 +55,7 @@ function StaffExamEventCard({
   saverEnabled,
   studentsLoaded,
   studentsLoading,
-  studentCount,
+  counts,
   onReveal,
   error,
 }: {
@@ -57,85 +63,44 @@ function StaffExamEventCard({
   saverEnabled: boolean;
   studentsLoaded: boolean;
   studentsLoading: boolean;
-  studentCount: number;
+  counts?: StaffEventCounts;
   onReveal: () => void;
   error: string;
 }) {
   const registrationStart = event.registrationOpenAt
     ? formatDateTime(event.registrationOpenAt)
     : "場次開放後";
+  const effectiveStatus = effectiveExamStatus(event);
+  const statusLabel = effectiveStatus === "upcoming" ? "尚未開放" : EXAM_EVENT_STATUS_LABELS[effectiveStatus];
+  const registeredCount = counts?.registeredCount ?? event.students.filter((student) => student.status === "registered").length;
+  const listCount = counts?.listCount ?? event.students.length;
 
   return (
-    <section className="border border-themed rounded-lg p-5 bg-card">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-t3" aria-hidden="true">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75V3.75m7.5 3V3.75M3.75 9h16.5M5.25 5.25h13.5A1.5 1.5 0 0120.25 6.75v12A1.5 1.5 0 0118.75 20.25H5.25a1.5 1.5 0 01-1.5-1.5v-12a1.5 1.5 0 011.5-1.5z" />
-          </svg>
-        </span>
-        <h3 className="text-lg font-bold text-t1">{event.title}</h3>
-      </div>
-
-      <div className="space-y-4 mb-5">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <span className="text-t2 sm:w-40 shrink-0">考試日期</span>
-          <span className="text-t1">{event.examDate || "—"}</span>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <span className="text-t2 sm:w-40 shrink-0">報名期間</span>
-          <span className="text-t1">{registrationStart} ～ {formatDateTime(event.deadline)}</span>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <span className="text-t2 sm:w-40 shrink-0">報名方式</span>
-          <span className="text-t1">{EXAM_REGISTRATION_MODE_LABELS[event.registrationMode]}</span>
-        </div>
-        {studentsLoaded && (
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <span className="text-t2 sm:w-40 shrink-0">
-              {event.registrationMode === "required" ? "本班應報名人數" : "本班已報名人數"}
+    <details className="border border-themed rounded-lg bg-card">
+      <summary className="list-none cursor-pointer rounded-lg p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-t3 shrink-0" aria-hidden="true">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75V3.75m7.5 3V3.75M3.75 9h16.5M5.25 5.25h13.5A1.5 1.5 0 0120.25 6.75v12A1.5 1.5 0 0118.75 20.25H5.25a1.5 1.5 0 01-1.5-1.5v-12a1.5 1.5 0 011.5-1.5z" />
+              </svg>
             </span>
-            <span className="text-t1">{event.students.length} 人</span>
+            <h3 className="text-lg font-bold text-t1 truncate">{event.title}</h3>
           </div>
-        )}
-      </div>
-
-      {studentsLoaded && event.students.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-themed text-t2">
-                <th className="px-3 py-2">座號</th>
-                <th className="px-3 py-2">姓名</th>
-                <th className="px-3 py-2">登錄狀態</th>
-                <th className="px-3 py-2">選考科目</th>
-              </tr>
-            </thead>
-            <tbody>
-              {event.students.map((student, index) => (
-                <tr key={`${student.name}-${student.seatNo}-${index}`} className="border-b border-themed last:border-0">
-                  <td className="px-3 py-2">{student.seatNo || "—"}</td>
-                  <td className="px-3 py-2">{student.name || "—"}</td>
-                  <td className="px-3 py-2">
-                    {student.status === "pending"
-                      ? "未完成"
-                      : student.status === "opt_out"
-                        ? "不報名"
-                        : event.registrationMode === "required"
-                          ? "已完成"
-                          : "已報名"}
-                  </td>
-                  <td className="px-3 py-2">{student.subjects.length ? student.subjects.join("、") : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DisclosureArrow />
         </div>
-      )}
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <p><span className="text-t3">場次狀態：</span><span className="text-t1">{statusLabel}</span></p>
+          <p><span className="text-t3">報名方式：</span><span className="text-t1">{EXAM_REGISTRATION_MODE_LABELS[event.registrationMode]}</span></p>
+          <p><span className="text-t3">報名期間：</span><span className="text-t1">{registrationStart} ～ {formatDateTime(event.deadline)}</span></p>
+          <p><span className="text-t3">目前報名人數：</span><span className="text-t1">{registeredCount} 人</span></p>
+        </div>
+      </summary>
 
-      {saverEnabled && !studentsLoaded && (
-        <div className="border border-themed rounded-lg bg-card overflow-hidden">
-          {error ? (
-            <div className="p-4 text-center">
+      <div className="border-t border-themed p-5 space-y-5">
+        {saverEnabled && !studentsLoaded ? (
+          error ? (
+            <div className="border border-themed rounded-lg bg-surface p-4 text-center">
               <p className="text-danger mb-3">{error}</p>
               <button type="button" onClick={onReveal} className="btn-theme rounded-lg px-4 py-2 text-sm">
                 重試載入本場名單
@@ -144,19 +109,63 @@ function StaffExamEventCard({
           ) : studentsLoading ? (
             <p className="p-6 text-center text-t3">報名名單載入中...</p>
           ) : (
-            <RevealListCard
-              label="本場報名"
-              summary={
-                event.registrationMode === "required"
-                  ? `本班應報名學生共 ${studentCount} 人`
-                  : `本場已報名學生共 ${studentCount} 人`
-              }
-              onReveal={onReveal}
-            />
-          )}
-        </div>
-      )}
-    </section>
+            <div className="border border-themed rounded-lg bg-card overflow-hidden">
+              <RevealListCard
+                label="本場報名"
+                summary={
+                  event.registrationMode === "required"
+                    ? `全班名單共 ${listCount} 人`
+                    : `已報名名單共 ${listCount} 人`
+                }
+                onReveal={onReveal}
+              />
+            </div>
+          )
+        ) : studentsLoaded ? (
+          event.students.length > 0 ? (
+            <>
+              <div className="text-sm text-t2">
+                {event.registrationMode === "required" ? "全班應報名人數" : "已報名人數"}：{event.students.length} 人
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-themed text-t2">
+                      <th className="px-3 py-2">座號</th>
+                      <th className="px-3 py-2">姓名</th>
+                      <th className="px-3 py-2">登錄狀態</th>
+                      <th className="px-3 py-2">選考科目</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {event.students.map((student, index) => (
+                      <tr key={`${student.name}-${student.seatNo}-${index}`} className="border-b border-themed last:border-0">
+                        <td className="px-3 py-2">{student.seatNo || "—"}</td>
+                        <td className="px-3 py-2">{student.name || "—"}</td>
+                        <td className="px-3 py-2">
+                          {student.status === "pending"
+                            ? "未完成"
+                            : student.status === "opt_out"
+                              ? "不報名"
+                              : event.registrationMode === "required"
+                                ? "已完成"
+                                : "已報名"}
+                        </td>
+                        <td className="px-3 py-2">{student.subjects.length ? student.subjects.join("、") : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <p className="rounded-lg border border-themed bg-surface p-4 text-center text-sm text-t3">
+              目前尚無學生完成報名。
+            </p>
+          )
+        ) : null}
+      </div>
+    </details>
   );
 }
 
@@ -168,7 +177,7 @@ export default function StaffExamRegistrationPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saverEnabled, setSaverEnabled] = useState(false);
-  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [counts, setCounts] = useState<Record<string, StaffEventCounts>>({});
   const [loadedEventIds, setLoadedEventIds] = useState<Set<string>>(new Set());
   const [loadingEventIds, setLoadingEventIds] = useState<Set<string>>(new Set());
   const [eventErrors, setEventErrors] = useState<Record<string, string>>({});
@@ -215,7 +224,7 @@ export default function StaffExamRegistrationPage() {
         }
         const nextCounts = countData.counts;
         setCounts(nextCounts);
-        setEvents((data.events ?? []).filter((event) => (nextCounts[event.eventId] ?? 0) > 0));
+        setEvents(data.events ?? []);
       } catch {
         if (!cancelled) setMessage("載入失敗，請稍後再試。");
       } finally {
@@ -246,7 +255,7 @@ export default function StaffExamRegistrationPage() {
       const loadedEvent = data.events?.find((event) => event.eventId === eventId);
       if (!loadedEvent) {
         setEvents((previous) => previous.filter((event) => event.eventId !== eventId));
-        setCounts((previous) => ({ ...previous, [eventId]: 0 }));
+        setCounts((previous) => ({ ...previous, [eventId]: { listCount: 0, registeredCount: 0 } }));
       } else {
         setEvents((previous) => previous.map((event) => (event.eventId === eventId ? loadedEvent : event)));
       }
@@ -326,7 +335,7 @@ export default function StaffExamRegistrationPage() {
                 saverEnabled={saverEnabled}
                 studentsLoaded={eventStudentsLoaded}
                 studentsLoading={loadingEventIds.has(event.eventId)}
-                studentCount={counts[event.eventId] ?? event.students.length}
+                counts={counts[event.eventId]}
                 error={eventErrors[event.eventId] ?? ""}
                 onReveal={() => void loadRoster(event.eventId)}
               />

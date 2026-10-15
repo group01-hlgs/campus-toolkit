@@ -15,6 +15,8 @@ import {
   EXAM_CATEGORY_LABELS,
   EXAM_FEE_CODE_LABELS,
   calcExamFee,
+  formatExamDate,
+  formatExamDateTime,
   formatExamDateRange,
   resolveLocationLabel,
 } from "../../types/exam-registration";
@@ -35,25 +37,11 @@ type SortOrder = "deadline-desc" | "deadline-asc";
 const SUBJECT_SELECTED_VALUE = "__selected__";
 
 function formatDeadline(ms: number): string {
-  if (!ms) return "—";
-  return new Date(ms).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatExamDateTime(ms);
 }
 
 function formatDateTime(ms: number): string {
-  if (!ms) return "—";
-  return new Date(ms).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatExamDateTime(ms);
 }
 
 /**
@@ -619,8 +607,8 @@ function ExamEventCard({
           <dd className="text-t1">
             {item.examEndDate && item.examEndDate !== item.examDate ? (
               <span className="inline-flex flex-col">
-                <span>{item.examDate}</span>
-                <span>{item.examEndDate}</span>
+                <span>{formatExamDate(item.examDate)}</span>
+                <span>{formatExamDate(item.examEndDate)}</span>
               </span>
             ) : (
               formatExamDateRange(item)

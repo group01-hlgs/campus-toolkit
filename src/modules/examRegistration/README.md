@@ -15,7 +15,7 @@
 | 頁面/API | 路徑 | 誰可用 |
 |---|---|---|
 | 學生頁 | `/student/exam-registration` | 學生 |
-| 教職員頁 | `/staff/exam-registration` | 當期屬性為「兼導師」且有班級代碼者；必須報名列全班完成狀態、自由報名列已報名學生，省流模式下每場名單獨立延遲載入 |
+| 教職員頁 | `/staff/exam-registration` | 當期屬性為「兼導師」且有班級代碼者；必須報名列全班完成狀態、自由報名列已報名學生；適用場次即使無人報名仍顯示，每場卡片預設收合，顯示報名期間並依截止時間排序 |
 | 管理頁 | `/admin/exam-registration` | 具 `examRegistration` 權限單位者 |
 | API | `/api/exam-registration` | 學生（GET 場次＋我的登錄、POST 登錄、DELETE 取消） |
 | API | `/api/staff/exam-registration` | 教職員兼導師（僅當期本人班級，唯讀；`?summary=counts` 取各場 count、`?includeStudents=1&eventId=` 延遲載入單場名單） |
@@ -33,6 +33,7 @@
 
 `examEvents`（場次，科目內嵌）：
 - `title` / `examType`（mock|entrance|other）/ `examDate`（**YYYY-MM-DD 字串**，日期僅日、不涉時區）/ `location` / `note`
+- 畫面日期統一顯示為 **`yyyy/mm/dd`**；日期時間顯示為 **`yyyy/mm/dd HH:mm`**（24 小時制），Firestore/API 維持 ISO 日期格式。
 - `deadline`：timestamp（之後唯讀；`open` 且過期一律收斂為 `closed`，承辦忘記關也不會誤放行）
 - `subjects`：`[{ key, label, capacity? }]` 內嵌陣列（1～15 項；`key` 在改名／排序時保留，登錄鍵才不失效）；`capacity` 省略或 0＝不限，上限 999（M2 ①）
 - `target`：`{ grades: string[], classes: string[] }`（年級必填、班級選填——兩者都要）

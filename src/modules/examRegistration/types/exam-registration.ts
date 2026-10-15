@@ -424,9 +424,26 @@ export function isExamOpen(
   return effectiveExamStatus(event, now) === "open";
 }
 
-/** 考試日期顯示（單日原樣、多日 `起 ~ 訖`；對齊 GAS renderPipeInfo 考程顯示） */
+/** 日期顯示固定為西元 `yyyy/mm/dd`；資料儲存與 API 仍使用 ISO `yyyy-mm-dd`。 */
+export function formatExamDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[1]}/${match[2]}/${match[3]}` : value;
+}
+
+/** 日期時間顯示固定為 `yyyy/mm/dd HH:mm`（24 小時制）。 */
+export function formatExamDateTime(ms: number, emptyValue = "—"): string {
+  if (!ms) return emptyValue;
+  const date = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const year = String(date.getFullYear()).padStart(4, "0");
+  return `${year}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** 考試日期範圍顯示（單日原樣、多日 `起 ~ 訖`）。 */
 export function formatExamDateRange(event: Pick<ExamEvent, "examDate" | "examEndDate">): string {
-  return event.examEndDate ? `${event.examDate} ~ ${event.examEndDate}` : event.examDate;
+  const start = formatExamDate(event.examDate);
+  const end = event.examEndDate ? formatExamDate(event.examEndDate) : "";
+  return end ? `${start} ~ ${end}` : start;
 }
 
 /** 由選項清單反查顯示名稱（無對應回傳原代碼；無選項回傳 ""） */
@@ -975,10 +992,7 @@ function csvEscape(value: string): string {
 }
 
 export function formatExamRosterDateTime(ms: number): string {
-  if (!ms) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const date = new Date(ms);
-  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return formatExamDateTime(ms, "");
 }
 
 /**

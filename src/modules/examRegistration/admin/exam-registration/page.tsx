@@ -12,7 +12,9 @@ import {
   EXAM_EVENT_STATUS_LABELS,
   EXAM_REGISTRATION_MODE_LABELS,
   effectiveExamStatus,
+  formatExamDate,
   formatExamDateRange,
+  formatExamDateTime,
   makeSubjectKey,
   parseExamAdvancedOptions,
   parseExamLocationOptions,
@@ -258,14 +260,7 @@ function formatNumberedNote(value: string): string {
 }
 
 function formatListDateTime(value: number): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatExamDateTime(value);
 }
 
 /** 清單上建議的下一個狀態（與狀態機一致） */
@@ -2035,11 +2030,11 @@ export default function AdminExamRegistrationPage() {
                               <span className="text-xs text-t3 mr-1">考試日期：</span>
                               {item.examEndDate && item.examEndDate !== item.examDate ? (
                                 <span className="inline-flex flex-col align-top">
-                                  <span>{item.examDate}</span>
-                                  <span>{item.examEndDate}</span>
+                                  <span>{formatExamDate(item.examDate)}</span>
+                                  <span>{formatExamDate(item.examEndDate)}</span>
                                 </span>
                               ) : (
-                                <span>{item.examDate}</span>
+                                <span>{formatExamDate(item.examDate)}</span>
                               )}
                             </div>
                           </div>

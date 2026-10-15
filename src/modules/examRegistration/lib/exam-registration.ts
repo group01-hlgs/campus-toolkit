@@ -1081,7 +1081,7 @@ export async function getExamEventClassRoster(
 export interface StaffClassExamRegistration {
   eventId: string;
   title: string;
-  examDate: string;
+  status: ExamEvent["status"];
   registrationOpenAt: number;
   deadline: number;
   registrationMode: "required" | "optional";
@@ -1091,6 +1091,11 @@ export interface StaffClassExamRegistration {
     status: "pending" | "registered" | "opt_out";
     subjects: string[];
   }>;
+}
+
+export interface StaffClassExamRegistrationCounts {
+  listCount: number;
+  registeredCount: number;
 }
 
 interface StaffClassStudent {
@@ -1143,14 +1148,16 @@ async function getStaffClassExamContext(classCode: string): Promise<{
 
     const eventSnap = await db
       .collection(EXAM_EVENTS_COLLECTION)
-      .where("status", "==", "open")
+      .where("status", "in", ["draft", "open", "closed"])
       .limit(ADMIN_EVENT_LIST_LIMIT)
       .get();
     const grades = new Set(activeStudents.map((student) => student.grade).filter(Boolean));
     const events = eventSnap.docs
       .map((doc) => readExamEvent(doc.id, doc.data()))
       .filter((event) =>
-        [...grades].some((grade) => isTargetMatch(event.target, { grade, classCode: normalizedClass }))
+        event.target.classes.length > 0
+          ? event.target.classes.includes(normalizedClass)
+          : [...grades].some((grade) => event.target.grades.includes(grade))
       );
 
     return {
@@ -1162,15 +1169,17 @@ async function getStaffClassExamContext(classCode: string): Promise<{
   return { key, data };
 }
 
-function currentlyOpenStaffEvents(context: StaffClassExamContext): ExamEvent[] {
-  return context.events.filter((event) => isExamOpen(event));
+function staffVisibleExamEvents(context: StaffClassExamContext): ExamEvent[] {
+  return context.events.filter(
+    (event) => event.status === "draft" || event.status === "open" || event.status === "closed"
+  ).sort((a, b) => a.deadline - b.deadline);
 }
 
 function staffEventSummary(event: ExamEvent): StaffClassExamRegistration {
   return {
     eventId: event.id,
     title: event.title,
-    examDate: event.examEndDate ? `${event.examDate}～${event.examEndDate}` : event.examDate,
+    status: event.status,
     registrationOpenAt: event.registrationOpenAt,
     deadline: event.deadline,
     registrationMode: event.registrationMode,
@@ -1181,41 +1190,49 @@ function staffEventSummary(event: ExamEvent): StaffClassExamRegistration {
 /** 省流摘要：各場次以 count 聚合取得本班登錄總數，避免先讀取名單明細。 */
 export async function countStaffClassExamRegistrations(
   classCode: string
-): Promise<Record<string, number>> {
+): Promise<Record<string, StaffClassExamRegistrationCounts>> {
   const { key, data: context } = await getStaffClassExamContext(classCode);
-  const events = currentlyOpenStaffEvents(context);
+  const events = staffVisibleExamEvents(context);
   if (!key || events.length === 0) return {};
 
   const counts = await Promise.all(
     events.map(async (event) => {
-      const applicableStudents = context.activeStudents.filter((student) =>
-        isTargetMatch(event.target, { grade: student.grade, classCode: classCode.trim() })
-      );
-      if (event.registrationMode === "required") {
-        return [event.id, applicableStudents.length] as const;
-      }
-
+      const countUids = context.activeStudents.map((student) => student.uid);
       const uidChunks = Array.from(
-        { length: Math.ceil(applicableStudents.length / 30) },
-        (_, index) => applicableStudents.slice(index * 30, (index + 1) * 30).map((student) => student.uid)
+        { length: Math.ceil(countUids.length / 30) },
+        (_, index) => countUids.slice(index * 30, (index + 1) * 30)
       );
-      if (uidChunks.length === 0) return [event.id, 0] as const;
-
-      const { data } = await cachedListRead(`${key}:count:${event.id}`, async () => {
+      const aggregateKey = `${key}:counts-by-mode:${event.id}`;
+      const { data } = await cachedListRead(aggregateKey, async () => {
         const aggregateSnaps = await Promise.all(
-          uidChunks.map((uids) =>
-            getAdminDb()
+          uidChunks.map(async (uids) => {
+            const registrations = getAdminDb()
               .collection(EXAM_REGISTRATIONS_COLLECTION)
               .where("eventId", "==", event.id)
               .where("studentClass", "==", classCode.trim())
-              .where("studentUid", "in", uids)
-              .count()
-              .get()
-          )
+              .where("studentUid", "in", uids);
+            const [all, optOut] = await Promise.all([
+              registrations.count().get(),
+              registrations.where("optOut", "==", true).count().get(),
+            ]);
+            return {
+              registered: all.data().count ?? 0,
+              optOut: optOut.data().count ?? 0,
+            };
+          })
         );
-        return aggregateSnaps.reduce((total, snap) => total + (snap.data().count ?? 0), 0);
+        return aggregateSnaps.reduce(
+          (total, result) => ({
+            registeredCount: total.registeredCount + result.registered - result.optOut,
+          }),
+          { registeredCount: 0 }
+        );
       });
-      return [event.id, data] as const;
+      const listCount =
+        event.registrationMode === "required"
+          ? context.activeStudents.length
+          : data.registeredCount;
+      return [event.id, { listCount, registeredCount: data.registeredCount }] as const;
     })
   );
 
@@ -1230,7 +1247,7 @@ export async function listStaffClassExamRegistrations(
 ): Promise<StaffClassExamRegistration[]> {
   const normalizedClass = classCode.trim();
   const { key, data: context } = await getStaffClassExamContext(normalizedClass);
-  const events = currentlyOpenStaffEvents(context).filter((event) => !eventId || event.id === eventId);
+  const events = staffVisibleExamEvents(context).filter((event) => !eventId || event.id === eventId);
   if (events.length === 0) return [];
   if (!includeStudents) return events.map(staffEventSummary);
 
@@ -1275,9 +1292,6 @@ export async function listStaffClassExamRegistrations(
         const registrationByUid = new Map(rows.map((registration) => [registration.studentUid, registration]));
         if (event.registrationMode === "required") {
           const students = context.activeStudents
-            .filter((student) =>
-              isTargetMatch(event.target, { grade: student.grade, classCode: normalizedClass })
-            )
             .map((student) => {
               const registration = registrationByUid.get(student.uid);
               return {
@@ -1298,14 +1312,14 @@ export async function listStaffClassExamRegistrations(
             );
           return [{ ...staffEventSummary(event), students }];
         }
-        if (rows.length === 0) return [];
+        const completedRows = rows.filter((registration) => !registration.optOut);
         return [{
           ...staffEventSummary(event),
-          students: rows
+          students: completedRows
             .map((registration) => ({
               name: registration.studentName,
               seatNo: registration.seatNo,
-              status: registration.optOut ? "opt_out" as const : "registered" as const,
+              status: "registered" as const,
               subjects: registration.subjectKeys
                 .map((key) => event.subjects.find((subject) => subject.key === key)?.label)
                 .filter((label): label is string => Boolean(label)),
@@ -1317,7 +1331,6 @@ export async function listStaffClassExamRegistrations(
             ),
         }];
       })
-      .sort((a, b) => a.examDate.localeCompare(b.examDate, "zh-Hant"));
   });
 
   return data;
@@ -1845,12 +1858,15 @@ function buildEventDescription(event: ExamEvent): string {
 
 function formatDateTime(ms: number): string {
   if (!ms) return "—";
-  return new Date(ms).toLocaleString("zh-TW", {
+  const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Asia/Taipei",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  });
+    hourCycle: "h23",
+  }).formatToParts(new Date(ms));
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}/${value.month}/${value.day} ${value.hour}:${value.minute}`;
 }

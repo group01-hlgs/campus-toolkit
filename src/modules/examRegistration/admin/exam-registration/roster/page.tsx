@@ -10,6 +10,7 @@ import {
   EXAM_FEE_CODE_LABELS,
   EXAM_REGISTRATION_MODE_LABELS,
   formatExamDateRange,
+  formatExamDateTime,
   resolveLocationLabel,
 } from "../../../types/exam-registration";
 import type {
@@ -45,13 +46,7 @@ interface ExportResponse {
 }
 
 function formatListDateTime(value: number): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatExamDateTime(value);
 }
 
 export default function ExamRegistrationRosterPage() {
