@@ -176,11 +176,14 @@ function RoleCells({
   item,
   switches,
   disabled,
+  disabledTitle,
   onToggle,
 }: {
   item: FeatureModuleMeta;
   switches: FeatureModuleRoleSwitches | undefined;
   disabled: boolean;
+  /** 禁用原因覆寫（如狀態載入失敗）；缺省＝超級管理員／處理中 */
+  disabledTitle?: string;
   onToggle: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
 }) {
   return (
@@ -226,7 +229,7 @@ function RoleCells({
                   aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
                   title={
                     disabled
-                      ? "僅超級管理員可調整，且同一時間只能處理一筆變更"
+                      ? (disabledTitle ?? "僅超級管理員可調整，且同一時間只能處理一筆變更")
                       : "顯示與否（關閉＝暫時不顯示、禁止進入）"
                   }
                   className="accent-current cursor-pointer disabled:opacity-50"
@@ -247,6 +250,7 @@ function BuiltinRow({
   onToggleHelp,
   switches,
   disabled,
+  disabledTitle,
   onToggleRole,
   onOpen,
 }: {
@@ -255,6 +259,7 @@ function BuiltinRow({
   onToggleHelp: (value: string) => void;
   switches: FeatureModuleRoleSwitches | undefined;
   disabled: boolean;
+  disabledTitle?: string;
   onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
   onOpen: (href: string) => void;
 }) {
@@ -276,7 +281,7 @@ function BuiltinRow({
         <td className="px-3 py-2 whitespace-nowrap">
           <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
         </td>
-        <RoleCells item={item} switches={switches} disabled={disabled} onToggle={onToggleRole} />
+        <RoleCells item={item} switches={switches} disabled={disabled} disabledTitle={disabledTitle} onToggle={onToggleRole} />
         <td className="px-3 py-2 whitespace-nowrap text-right">
           {enterable ? (
             <button
@@ -304,6 +309,7 @@ function OptionalRow({
   enabled,
   switches,
   isSuper,
+  loadFailed,
   canUninstall,
   pendingUninstall,
   saving,
@@ -318,6 +324,8 @@ function OptionalRow({
   enabled: boolean;
   switches: FeatureModuleRoleSwitches | undefined;
   isSuper: boolean;
+  /** 開關狀態載入失敗：勾選／總開關不可信，一律禁用 */
+  loadFailed?: boolean;
   canUninstall: boolean;
   pendingUninstall?: { branch?: string; commitUrl?: string };
   saving: boolean;
@@ -329,7 +337,15 @@ function OptionalRow({
   const stateText = enabled ? "已啟用" : "未啟用";
   const hasNewerVersion =
     !!marketLatestVersion && compareModuleVersions(item.author.version, marketLatestVersion) === 1;
-  const disabledReason = !isSuper ? "僅超級管理員可操作" : saving ? "處理中..." : undefined;
+  const loadFailedReason = "開關狀態載入失敗，請重新整理頁面";
+  const disabledReason = loadFailed
+    ? loadFailedReason
+    : !isSuper
+      ? "僅超級管理員可操作"
+      : saving
+        ? "處理中..."
+        : undefined;
+  const switchesDisabled = !isSuper || saving || loadFailed === true;
   const uninstallDisabledReason = !canUninstall
     ? "目前環境尚未完成卸載管線設定"
     : disabledReason ?? "移除模組程式碼；資料庫資料預設保留";
@@ -367,7 +383,7 @@ function OptionalRow({
               <button
                 type="button"
                 onClick={() => onToggleMaster(item, !enabled)}
-                disabled={!isSuper || saving}
+                disabled={switchesDisabled}
                 role="switch"
                 aria-checked={enabled}
                 aria-label={`「${item.label}」總開關：${stateText}`}
@@ -386,7 +402,13 @@ function OptionalRow({
             {saving && <span className="text-xs text-t3">處理中...</span>}
           </span>
         </td>
-        <RoleCells item={item} switches={switches} disabled={!isSuper || saving} onToggle={onToggleRole} />
+        <RoleCells
+          item={item}
+          switches={switches}
+          disabled={switchesDisabled}
+          disabledTitle={loadFailed ? loadFailedReason : undefined}
+          onToggle={onToggleRole}
+        />
         <td className="px-3 py-2 whitespace-nowrap text-right">
           {pendingUninstall ? (
             <span className="text-xs text-warning inline-flex items-center gap-2">
@@ -435,6 +457,8 @@ export default function ModulesPage() {
   const [isSuper, setIsSuper] = useState(false);
   // 處理中的鍵：總開關＝模組代碼；顯示開關＝「模組代碼:身分」
   const [saving, setSaving] = useState<string | null>(null);
+  // 開關狀態載入失敗訊息：非空＝頁面勾選／總開關不可信（禁止默默呈現全未勾選）
+  const [loadError, setLoadError] = useState("");
   const [openDesc, setOpenDesc] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   // 卸載確認視窗（modal）：null＝關閉；否則為待卸載的模組
@@ -458,19 +482,29 @@ export default function ModulesPage() {
     let cancelled = false;
 
     fetch("/api/admin/feature-modules", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: FeatureModulesResponse | null) => {
+      .then(async (res) => {
+        const data: FeatureModulesResponse | null = await res.json().catch(() => null);
         if (cancelled) return;
-        setEnabled(data?.success && data.enabled ? data.enabled : {});
-        setRoles(data?.success && data.roles ? data.roles : {});
-        setCanUninstall(data?.success ? data.canUninstall === true : false);
+        if (res.ok && data?.success && data.enabled && data.roles) {
+          setEnabled(data.enabled);
+          setRoles(data.roles);
+          setCanUninstall(data.canUninstall === true);
+          setLoadError("");
+          return;
+        }
+        // 取得失敗仍以空值結束載入，但明確標示狀態不可信：
+        // 否則所有開關會默默呈現「未勾選」，被誤讀為權限已關閉
+        setEnabled({});
+        setRoles({});
+        setCanUninstall(false);
+        setLoadError(data?.message || `開關狀態載入失敗（HTTP ${res.status}）`);
       })
       .catch(() => {
-        if (!cancelled) {
-          setEnabled({});
-          setRoles({});
-          setCanUninstall(false);
-        }
+        if (cancelled) return;
+        setEnabled({});
+        setRoles({});
+        setCanUninstall(false);
+        setLoadError("開關狀態載入失敗（網路錯誤）");
       });
 
     fetchSession().then((session) => {
@@ -631,6 +665,22 @@ export default function ModulesPage() {
 
       <Toast message={toast} onClose={() => setToast(null)} />
 
+      {/* 開關狀態載入失敗：明確標示，避免「全數未勾選」被誤讀為權限已關閉 */}
+      {loadError && (
+        <div className="alert-danger p-4 text-sm" role="alert">
+          <span className="font-bold text-danger">開關狀態載入失敗：</span>
+          {loadError}
+          。目前顯示的勾選與總開關狀態不可信，已暫停操作，請重新整理後再試。
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer mt-3"
+          >
+            重新整理
+          </button>
+        </div>
+      )}
+
       {/* 卸載確認視窗（modal，樣式比照 IdleTimeout 對話框） */}
       {confirmUninstall && (
         <div
@@ -756,7 +806,8 @@ export default function ModulesPage() {
                     open={openDesc === item.value}
                     onToggleHelp={toggleHelp}
                     switches={roles[item.value]}
-                    disabled={!isSuper || saving !== null}
+                    disabled={!isSuper || saving !== null || loadError !== ""}
+                    disabledTitle={loadError ? "開關狀態載入失敗，請重新整理頁面" : undefined}
                     onToggleRole={toggleRole}
                     onOpen={(href) => router.push(href)}
                   />
@@ -819,6 +870,7 @@ export default function ModulesPage() {
                     enabled={enabled[item.value] === true}
                     switches={roles[item.value]}
                     isSuper={isSuper}
+                    loadFailed={loadError !== ""}
                     canUninstall={canUninstall}
                     pendingUninstall={pendingUninstalls[item.value]}
                     saving={
