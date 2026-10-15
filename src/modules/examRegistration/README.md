@@ -15,8 +15,10 @@
 | 頁面/API | 路徑 | 誰可用 |
 |---|---|---|
 | 學生頁 | `/student/exam-registration` | 學生 |
+| 教職員頁 | `/staff/exam-registration` | 當期屬性為「兼導師」且有班級代碼者；必須報名列全班完成狀態、自由報名列已報名學生，省流模式下每場名單獨立延遲載入 |
 | 管理頁 | `/admin/exam-registration` | 具 `examRegistration` 權限單位者 |
 | API | `/api/exam-registration` | 學生（GET 場次＋我的登錄、POST 登錄、DELETE 取消） |
+| API | `/api/staff/exam-registration` | 教職員兼導師（僅當期本人班級，唯讀；`?summary=counts` 取各場 count、`?includeStudents=1&eventId=` 延遲載入單場名單） |
 | API | `/api/admin/exam-registration` | 管理員（POST 建立、PATCH 編輯/狀態、GET 名單 `?eventId=`、GET CSV `?eventId=&format=csv`） |
 
 **場次狀態機**：`draft → open → closed → archived`（唯一狀態機；登錄文件有＝已登錄，取消＝刪除）
@@ -61,7 +63,7 @@
 ## 權限與掛勾
 
 - 權限單位：`mode:"new"`、`category:"校務資料"`；管理頁/API 走 `requireAdminModule("examRegistration")`
-- 限流：`EXAM_REGISTRATION_LIST`（120/分鐘）、`EXAM_REGISTRATION_MUTATE`（20/分鐘）、`EXAM_REGISTRATION_ADMIN`（60/分鐘）
+- 限流：`EXAM_REGISTRATION_LIST`（120/分鐘）、`EXAM_REGISTRATION_MUTATE`（20/分鐘）、`EXAM_REGISTRATION_ADMIN`（60/分鐘）、`EXAM_REGISTRATION_STAFF`（60/分鐘）
 - 稽核：`exam_registration_event_created`／`event_updated`／`recorded`／`withdrawn`／`archived`／`unarchived`
 - **回寫主程式（掛勾）**：`hooks: ["announcements", "calendar"]`——每場次可分別啟用公告與行事曆同步；
   管理規則可設定公告分類／自訂內容，以及行事曆發佈單位／地點／類型。場次開放時經
@@ -267,6 +269,7 @@ npm run dev
 1. `/admin/modules` → 找到「升學考試與模擬考校內報名」→ **開總開關**（預設未啟用 fail-safe；入口卡與首頁卡片隨之出現）。
 2. 權限：名冊 `attribute＝超級` 自動全開；其他身分需名冊條目 `modules` 含 `examRegistration`（無權限＝頁面 403、API 403「權限不足」）。
 3. 測試帳號 `takan003@gms.hlgs.hlc.edu.tw`／`111zzzZZZ`（四身分，超級）。**其名冊＝3 年 301**——建場次時對象年級選 3、班級填 301，學生端才看得到。
+4. 教職員首頁顯示模組卡；兼導師且當期有班級代碼時，只能檢視該班目前開放且已有登錄的場次。一般管理者仍由被指派的管理模組入口管理全校資料。
 
 ### 劇本（每步的預期）
 

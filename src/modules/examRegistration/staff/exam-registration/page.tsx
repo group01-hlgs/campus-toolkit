@@ -1,0 +1,360 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import AdSense from "@/components/AdSense";
+import Copyright from "@/components/Copyright";
+import RevealListCard from "@/components/RevealListCard";
+import { logout } from "@/lib/session";
+import { fetchSettings } from "@/lib/settings-client";
+import { defaultSettings, type Settings } from "@/types/settings";
+import { EXAM_REGISTRATION_MODE_LABELS, type ExamRegistrationMode } from "../../types/exam-registration";
+
+interface StaffEvent {
+  eventId: string;
+  title: string;
+  examDate: string;
+  registrationOpenAt: number;
+  deadline: number;
+  registrationMode: ExamRegistrationMode;
+  students: Array<{
+    name: string;
+    seatNo: string;
+    status: "pending" | "registered" | "opt_out";
+    subjects: string[];
+  }>;
+}
+
+interface StaffResponse {
+  success?: boolean;
+  message?: string;
+  classCode?: string;
+  events?: StaffEvent[];
+  counts?: Record<string, number>;
+}
+
+function formatDateTime(value: number): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("zh-TW", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function StaffExamEventCard({
+  event,
+  saverEnabled,
+  studentsLoaded,
+  studentsLoading,
+  studentCount,
+  onReveal,
+  error,
+}: {
+  event: StaffEvent;
+  saverEnabled: boolean;
+  studentsLoaded: boolean;
+  studentsLoading: boolean;
+  studentCount: number;
+  onReveal: () => void;
+  error: string;
+}) {
+  const registrationStart = event.registrationOpenAt
+    ? formatDateTime(event.registrationOpenAt)
+    : "場次開放後";
+
+  return (
+    <section className="border border-themed rounded-lg p-5 bg-card">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-t3" aria-hidden="true">
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75V3.75m7.5 3V3.75M3.75 9h16.5M5.25 5.25h13.5A1.5 1.5 0 0120.25 6.75v12A1.5 1.5 0 0118.75 20.25H5.25a1.5 1.5 0 01-1.5-1.5v-12a1.5 1.5 0 011.5-1.5z" />
+          </svg>
+        </span>
+        <h3 className="text-lg font-bold text-t1">{event.title}</h3>
+      </div>
+
+      <div className="space-y-4 mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <span className="text-t2 sm:w-40 shrink-0">考試日期</span>
+          <span className="text-t1">{event.examDate || "—"}</span>
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <span className="text-t2 sm:w-40 shrink-0">報名期間</span>
+          <span className="text-t1">{registrationStart} ～ {formatDateTime(event.deadline)}</span>
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <span className="text-t2 sm:w-40 shrink-0">報名方式</span>
+          <span className="text-t1">{EXAM_REGISTRATION_MODE_LABELS[event.registrationMode]}</span>
+        </div>
+        {studentsLoaded && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <span className="text-t2 sm:w-40 shrink-0">
+              {event.registrationMode === "required" ? "本班應報名人數" : "本班已報名人數"}
+            </span>
+            <span className="text-t1">{event.students.length} 人</span>
+          </div>
+        )}
+      </div>
+
+      {studentsLoaded && event.students.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-themed text-t2">
+                <th className="px-3 py-2">座號</th>
+                <th className="px-3 py-2">姓名</th>
+                <th className="px-3 py-2">登錄狀態</th>
+                <th className="px-3 py-2">選考科目</th>
+              </tr>
+            </thead>
+            <tbody>
+              {event.students.map((student, index) => (
+                <tr key={`${student.name}-${student.seatNo}-${index}`} className="border-b border-themed last:border-0">
+                  <td className="px-3 py-2">{student.seatNo || "—"}</td>
+                  <td className="px-3 py-2">{student.name || "—"}</td>
+                  <td className="px-3 py-2">
+                    {student.status === "pending"
+                      ? "未完成"
+                      : student.status === "opt_out"
+                        ? "不報名"
+                        : event.registrationMode === "required"
+                          ? "已完成"
+                          : "已報名"}
+                  </td>
+                  <td className="px-3 py-2">{student.subjects.length ? student.subjects.join("、") : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {saverEnabled && !studentsLoaded && (
+        <div className="border border-themed rounded-lg bg-card overflow-hidden">
+          {error ? (
+            <div className="p-4 text-center">
+              <p className="text-danger mb-3">{error}</p>
+              <button type="button" onClick={onReveal} className="btn-theme rounded-lg px-4 py-2 text-sm">
+                重試載入本場名單
+              </button>
+            </div>
+          ) : studentsLoading ? (
+            <p className="p-6 text-center text-t3">報名名單載入中...</p>
+          ) : (
+            <RevealListCard
+              label="本場報名"
+              summary={
+                event.registrationMode === "required"
+                  ? `本班應報名學生共 ${studentCount} 人`
+                  : `本場已報名學生共 ${studentCount} 人`
+              }
+              onReveal={onReveal}
+            />
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export default function StaffExamRegistrationPage() {
+  const router = useRouter();
+  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [classCode, setClassCode] = useState("");
+  const [events, setEvents] = useState<StaffEvent[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saverEnabled, setSaverEnabled] = useState(false);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loadedEventIds, setLoadedEventIds] = useState<Set<string>>(new Set());
+  const [loadingEventIds, setLoadingEventIds] = useState<Set<string>>(new Set());
+  const [eventErrors, setEventErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settingsData = await fetchSettings().catch(() => null);
+        if (!cancelled && settingsData?.success && settingsData.settings) {
+          setSettings({ ...defaultSettings, ...settingsData.settings });
+        }
+        const useSaver = settingsData?.settings?.dataSaverEnabled === true;
+        if (!cancelled) setSaverEnabled(useSaver);
+
+        const [eventsResponse, countResponse] = await Promise.all([
+          fetch(`/api/staff/exam-registration${useSaver ? "" : "?includeStudents=1"}`, {
+            cache: "no-store",
+          }),
+          useSaver
+            ? fetch("/api/staff/exam-registration?summary=counts", { cache: "no-store" })
+            : Promise.resolve(null),
+        ]);
+        const data: StaffResponse | null = await eventsResponse.json().catch(() => null);
+        if (cancelled) return;
+        if (!eventsResponse.ok || !data?.success) {
+          setMessage(data?.message || "目前無法使用此功能，請洽系統管理員。");
+          return;
+        }
+        setClassCode(data.classCode ?? "");
+        if (!useSaver) {
+          const loadedEvents = data.events ?? [];
+          setEvents(loadedEvents);
+          setLoadedEventIds(new Set(loadedEvents.map((event) => event.eventId)));
+          return;
+        }
+
+        const countData = countResponse
+          ? ((await countResponse.json().catch(() => null)) as StaffResponse | null)
+          : null;
+        if (!countResponse?.ok || !countData?.success || !countData.counts) {
+          setMessage("無法取得名單總數，請重新整理頁面後再試。");
+          return;
+        }
+        const nextCounts = countData.counts;
+        setCounts(nextCounts);
+        setEvents((data.events ?? []).filter((event) => (nextCounts[event.eventId] ?? 0) > 0));
+      } catch {
+        if (!cancelled) setMessage("載入失敗，請稍後再試。");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function loadRoster(eventId: string) {
+    if (loadingEventIds.has(eventId) || loadedEventIds.has(eventId)) return;
+    setLoadingEventIds((previous) => new Set(previous).add(eventId));
+    setEventErrors((previous) => {
+      const next = { ...previous };
+      delete next[eventId];
+      return next;
+    });
+    try {
+      const params = new URLSearchParams({ includeStudents: "1", eventId });
+      const response = await fetch(`/api/staff/exam-registration?${params.toString()}`, { cache: "no-store" });
+      const data: StaffResponse | null = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        setEventErrors((previous) => ({ ...previous, [eventId]: data?.message || "載入本場名單失敗。" }));
+        return;
+      }
+      const loadedEvent = data.events?.find((event) => event.eventId === eventId);
+      if (!loadedEvent) {
+        setEvents((previous) => previous.filter((event) => event.eventId !== eventId));
+        setCounts((previous) => ({ ...previous, [eventId]: 0 }));
+      } else {
+        setEvents((previous) => previous.map((event) => (event.eventId === eventId ? loadedEvent : event)));
+      }
+      setLoadedEventIds((previous) => new Set(previous).add(eventId));
+    } catch {
+      setEventErrors((previous) => ({ ...previous, [eventId]: "載入本場名單失敗，請稍後再試。" }));
+    } finally {
+      setLoadingEventIds((previous) => {
+        const next = new Set(previous);
+        next.delete(eventId);
+        return next;
+      });
+    }
+  }
+
+  function handleBack() {
+    router.push("/staff");
+  }
+
+  function handleLogout() {
+    void logout();
+    router.push("/");
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-t3">載入中...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
+      <div className="text-center mb-2">
+        <h1 className="text-4xl font-bold mb-2">{settings.systemName || "數位校園工具箱"}</h1>
+        <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>
+        <p className="text-lg text-t3">
+          {settings.academicYear} 學年度 第{settings.semester}學期
+        </p>
+      </div>
+
+      <div className="w-full max-w-2xl mt-4 mb-2 text-center">
+        <h2 className="text-2xl font-bold text-t1">升學考試與模擬考校內報名</h2>
+        {classCode && <p className="text-sm text-t2 mt-1">班級：{classCode}</p>}
+      </div>
+
+      <div className="w-full max-w-2xl flex justify-end gap-3 mb-4">
+        <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+          返回功能首頁
+        </button>
+        <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+          登出
+        </button>
+      </div>
+
+      <hr className="w-full max-w-2xl border-themed mb-4" />
+
+      {message ? (
+        <div className="w-full max-w-2xl border border-themed rounded-lg p-8 bg-card text-center mb-8">
+          <p className="text-lg font-bold text-t1">目前無法載入班級報名資料</p>
+          <p className="text-sm text-t2 mt-2">{message}</p>
+        </div>
+      ) : events.length === 0 ? (
+        <div className="w-full max-w-2xl border border-themed rounded-lg p-8 bg-card text-center mb-8">
+          <p className="text-lg font-bold text-t1">目前沒有本班學生正在報名的場次</p>
+          <p className="text-sm text-t2 mt-2">此處會顯示本班目前開放報名且已有學生登錄的場次。</p>
+        </div>
+      ) : (
+        <div className="w-full max-w-2xl space-y-4 mb-8">
+          {events.map((event) => {
+            const eventStudentsLoaded = loadedEventIds.has(event.eventId);
+            return (
+              <StaffExamEventCard
+                key={event.eventId}
+                event={event}
+                saverEnabled={saverEnabled}
+                studentsLoaded={eventStudentsLoaded}
+                studentsLoading={loadingEventIds.has(event.eventId)}
+                studentCount={counts[event.eventId] ?? event.students.length}
+                error={eventErrors[event.eventId] ?? ""}
+                onReveal={() => void loadRoster(event.eventId)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      <hr className="w-full max-w-2xl border-themed mb-4" />
+
+      <div className="w-full max-w-2xl flex justify-start gap-3 mb-8">
+        <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+          返回功能首頁
+        </button>
+        <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+          登出
+        </button>
+      </div>
+
+      {settings.sponsorAdEnabled && (
+        <div className="w-full max-w-2xl">
+          <AdSense />
+        </div>
+      )}
+
+      <div className="w-full max-w-2xl mt-auto">
+        <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
+      </div>
+    </div>
+  );
+}

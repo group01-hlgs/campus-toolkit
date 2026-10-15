@@ -10,22 +10,25 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "",
-    "version": "0.1.9",
+    "version": "0.1.14",
     "releasedAt": "2026-10-15"
   },
   "provides": { "student": true, "parent": false, "staff": true, "admin": true },
   "routes": [
     { "kind": "page", "path": "/student/exam-registration" },
+    { "kind": "page", "path": "/staff/exam-registration" },
     { "kind": "page", "path": "/admin/exam-registration" },
     { "kind": "page", "path": "/admin/exam-registration/roster" },
     { "kind": "api", "path": "/api/exam-registration" },
+    { "kind": "api", "path": "/api/staff/exam-registration" },
     { "kind": "api", "path": "/api/admin/exam-registration" }
   ],
   "permission": { "mode": "new", "value": "examRegistration", "category": "校務資料" },
   "rateLimits": [
     { "key": "EXAM_REGISTRATION_LIST", "limit": 120, "windowMs": 60000 },
     { "key": "EXAM_REGISTRATION_MUTATE", "limit": 20, "windowMs": 60000 },
-    { "key": "EXAM_REGISTRATION_ADMIN", "limit": 60, "windowMs": 60000 }
+    { "key": "EXAM_REGISTRATION_ADMIN", "limit": 60, "windowMs": 60000 },
+    { "key": "EXAM_REGISTRATION_STAFF", "limit": 60, "windowMs": 60000 }
   ],
   "auditActions": [
     "exam_registration_event_created",

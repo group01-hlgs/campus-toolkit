@@ -15,6 +15,7 @@ import {
   readStudentPersonalIdentityFields,
 } from "@/types/personal-info";
 import type { UserRole } from "@/types/users";
+import { rosterCollection } from "@/types/roster";
 import {
   ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS,
   EXAM_EVENT_STATUS_LABELS,
@@ -1075,6 +1076,251 @@ export async function getExamEventClassRoster(
     };
   });
   return { classCode: key, ...data, epoch };
+}
+
+export interface StaffClassExamRegistration {
+  eventId: string;
+  title: string;
+  examDate: string;
+  registrationOpenAt: number;
+  deadline: number;
+  registrationMode: "required" | "optional";
+  students: Array<{
+    name: string;
+    seatNo: string;
+    status: "pending" | "registered" | "opt_out";
+    subjects: string[];
+  }>;
+}
+
+interface StaffClassStudent {
+  uid: string;
+  grade: string;
+  name: string;
+  seatNo: string;
+}
+
+interface StaffClassExamContext {
+  activeStudents: StaffClassStudent[];
+  events: ExamEvent[];
+}
+
+function staffClassExamCacheKey(academicYear: number, semester: number, classCode: string): string {
+  return `staff:exam-registration:${academicYear}:${semester}:${classCode}`;
+}
+
+/** 共用當期導師班級與可報名場次上下文，按 cacheEpoch 快取。 */
+async function getStaffClassExamContext(classCode: string): Promise<{
+  key: string;
+  data: StaffClassExamContext;
+}> {
+  const normalizedClass = classCode.trim();
+  if (!normalizedClass) return { key: "", data: { activeStudents: [], events: [] } };
+
+  const period = await getCurrentPeriod();
+  const key = staffClassExamCacheKey(period.academicYear, period.semester, normalizedClass);
+  const { data } = await cachedListRead(`${key}:context`, async () => {
+    const db = getAdminDb();
+    const studentSnap = await db
+      .collection(rosterCollection("student"))
+      .where("academicYear", "==", period.academicYear)
+      .where("semester", "==", period.semester)
+      .where("classCode", "==", normalizedClass)
+      .limit(ROSTER_LIMIT)
+      .get();
+    const activeStudents = studentSnap.docs.flatMap((doc) => {
+      const entry = doc.data();
+      const uid = typeof entry.uid === "string" ? entry.uid : "";
+      if (!uid || !isActiveEntry(entry)) return [];
+      return [{
+        uid,
+        grade: typeof entry.grade === "string" ? entry.grade : "",
+        name: typeof entry.name === "string" ? entry.name : "",
+        seatNo: typeof entry.seatNo === "string" ? entry.seatNo : "",
+      }];
+    });
+    if (activeStudents.length === 0) return { activeStudents: [], events: [] };
+
+    const eventSnap = await db
+      .collection(EXAM_EVENTS_COLLECTION)
+      .where("status", "==", "open")
+      .limit(ADMIN_EVENT_LIST_LIMIT)
+      .get();
+    const grades = new Set(activeStudents.map((student) => student.grade).filter(Boolean));
+    const events = eventSnap.docs
+      .map((doc) => readExamEvent(doc.id, doc.data()))
+      .filter((event) =>
+        [...grades].some((grade) => isTargetMatch(event.target, { grade, classCode: normalizedClass }))
+      );
+
+    return {
+      activeStudents,
+      events,
+    };
+  });
+
+  return { key, data };
+}
+
+function currentlyOpenStaffEvents(context: StaffClassExamContext): ExamEvent[] {
+  return context.events.filter((event) => isExamOpen(event));
+}
+
+function staffEventSummary(event: ExamEvent): StaffClassExamRegistration {
+  return {
+    eventId: event.id,
+    title: event.title,
+    examDate: event.examEndDate ? `${event.examDate}～${event.examEndDate}` : event.examDate,
+    registrationOpenAt: event.registrationOpenAt,
+    deadline: event.deadline,
+    registrationMode: event.registrationMode,
+    students: [],
+  };
+}
+
+/** 省流摘要：各場次以 count 聚合取得本班登錄總數，避免先讀取名單明細。 */
+export async function countStaffClassExamRegistrations(
+  classCode: string
+): Promise<Record<string, number>> {
+  const { key, data: context } = await getStaffClassExamContext(classCode);
+  const events = currentlyOpenStaffEvents(context);
+  if (!key || events.length === 0) return {};
+
+  const counts = await Promise.all(
+    events.map(async (event) => {
+      const applicableStudents = context.activeStudents.filter((student) =>
+        isTargetMatch(event.target, { grade: student.grade, classCode: classCode.trim() })
+      );
+      if (event.registrationMode === "required") {
+        return [event.id, applicableStudents.length] as const;
+      }
+
+      const uidChunks = Array.from(
+        { length: Math.ceil(applicableStudents.length / 30) },
+        (_, index) => applicableStudents.slice(index * 30, (index + 1) * 30).map((student) => student.uid)
+      );
+      if (uidChunks.length === 0) return [event.id, 0] as const;
+
+      const { data } = await cachedListRead(`${key}:count:${event.id}`, async () => {
+        const aggregateSnaps = await Promise.all(
+          uidChunks.map((uids) =>
+            getAdminDb()
+              .collection(EXAM_REGISTRATIONS_COLLECTION)
+              .where("eventId", "==", event.id)
+              .where("studentClass", "==", classCode.trim())
+              .where("studentUid", "in", uids)
+              .count()
+              .get()
+          )
+        );
+        return aggregateSnaps.reduce((total, snap) => total + (snap.data().count ?? 0), 0);
+      });
+      return [event.id, data] as const;
+    })
+  );
+
+  return Object.fromEntries(counts);
+}
+
+/** 教職員導師只取得當期本人班級的場次；省流時不載入名單資料。 */
+export async function listStaffClassExamRegistrations(
+  classCode: string,
+  includeStudents = false,
+  eventId?: string
+): Promise<StaffClassExamRegistration[]> {
+  const normalizedClass = classCode.trim();
+  const { key, data: context } = await getStaffClassExamContext(normalizedClass);
+  const events = currentlyOpenStaffEvents(context).filter((event) => !eventId || event.id === eventId);
+  if (events.length === 0) return [];
+  if (!includeStudents) return events.map(staffEventSummary);
+
+  const eventIds = events.map((event) => event.id);
+  const rosterKey = eventId ? `${key}:roster:${eventId}` : `${key}:roster:${eventIds.join(",")}`;
+  const { data } = await cachedListRead(rosterKey, async () => {
+    const db = getAdminDb();
+    const activeStudentsByUid = new Map(context.activeStudents.map((student) => [student.uid, student]));
+    const registrationSnaps = eventId
+      ? [
+          await db
+            .collection(EXAM_REGISTRATIONS_COLLECTION)
+            .where("eventId", "==", eventId)
+            .where("studentClass", "==", normalizedClass)
+            .limit(ROSTER_LIMIT)
+            .get(),
+        ]
+      : await Promise.all(
+          Array.from({ length: Math.ceil(eventIds.length / 30) }, (_, index) => {
+            const ids = eventIds.slice(index * 30, (index + 1) * 30);
+            return db
+              .collection(EXAM_REGISTRATIONS_COLLECTION)
+              .where("eventId", "in", ids)
+              .where("studentClass", "==", normalizedClass)
+              .limit(ROSTER_LIMIT)
+              .get();
+          })
+        );
+    const registrations = registrationSnaps
+      .flatMap((snap) => snap.docs.map((doc) => readExamRegistration(doc.id, doc.data())))
+      .filter((registration) => activeStudentsByUid.has(registration.studentUid));
+    const registrationsByEvent = new Map<string, ExamRegistration[]>();
+    for (const registration of registrations) {
+      const rows = registrationsByEvent.get(registration.eventId) ?? [];
+      rows.push(registration);
+      registrationsByEvent.set(registration.eventId, rows);
+    }
+
+    return events
+      .flatMap((event) => {
+        const rows = registrationsByEvent.get(event.id) ?? [];
+        const registrationByUid = new Map(rows.map((registration) => [registration.studentUid, registration]));
+        if (event.registrationMode === "required") {
+          const students = context.activeStudents
+            .filter((student) =>
+              isTargetMatch(event.target, { grade: student.grade, classCode: normalizedClass })
+            )
+            .map((student) => {
+              const registration = registrationByUid.get(student.uid);
+              return {
+                name: student.name || registration?.studentName || "",
+                seatNo: student.seatNo || registration?.seatNo || "",
+                status: registration ? (registration.optOut ? "opt_out" as const : "registered" as const) : "pending" as const,
+                subjects: registration
+                  ? registration.subjectKeys
+                      .map((subjectKey) => event.subjects.find((subject) => subject.key === subjectKey)?.label)
+                      .filter((label): label is string => Boolean(label))
+                  : [],
+              };
+            })
+            .sort(
+              (a, b) =>
+                a.seatNo.localeCompare(b.seatNo, "zh-Hant", { numeric: true }) ||
+                a.name.localeCompare(b.name, "zh-Hant")
+            );
+          return [{ ...staffEventSummary(event), students }];
+        }
+        if (rows.length === 0) return [];
+        return [{
+          ...staffEventSummary(event),
+          students: rows
+            .map((registration) => ({
+              name: registration.studentName,
+              seatNo: registration.seatNo,
+              status: registration.optOut ? "opt_out" as const : "registered" as const,
+              subjects: registration.subjectKeys
+                .map((key) => event.subjects.find((subject) => subject.key === key)?.label)
+                .filter((label): label is string => Boolean(label)),
+            }))
+            .sort(
+              (a, b) =>
+                a.seatNo.localeCompare(b.seatNo, "zh-Hant", { numeric: true }) ||
+                a.name.localeCompare(b.name, "zh-Hant")
+            ),
+        }];
+      })
+      .sort((a, b) => a.examDate.localeCompare(b.examDate, "zh-Hant"));
+  });
+
+  return data;
 }
 
 function summarizeRoster(
