@@ -7,7 +7,9 @@ import { getAnnouncementSettings } from "@/lib/announcements";
 import { getCalendarSettings } from "@/lib/calendar";
 import {
   ExamRegistrationError,
+  buildAcademicAbilityOfficialXlsxForEvent,
   buildExamRegistrationCsvForEvent,
+  buildExamRegistrationXlsxForEvent,
   createExamEvent,
   countAdminExamEvents,
   deleteExamEvent,
@@ -16,6 +18,7 @@ import {
   unarchiveExamRegistration,
   updateExamEvent,
 } from "../../../lib/exam-registration";
+import { isExamRegistrationNumberField, isExamRosterExportScope } from "../../../types/exam-registration";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -82,6 +85,74 @@ export async function GET(request: NextRequest) {
             ...noStore,
             "Content-Type": "text/csv; charset=utf-8",
             "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(csv.filename)}`,
+          },
+        });
+      }
+      if (request.nextUrl.searchParams.get("format") === "official-xlsx") {
+        const schoolExamCode = request.nextUrl.searchParams.get("schoolExamCode")?.trim() ?? "";
+        const registrationNumberFieldRaw = request.nextUrl.searchParams.get("registrationNumberField") ?? "rollNo";
+        if (!schoolExamCode) {
+          return NextResponse.json(
+            { success: false, message: "請輸入學校升學代碼" },
+            { status: 400, headers: noStore }
+          );
+        }
+        if (!isExamRegistrationNumberField(registrationNumberFieldRaw)) {
+          return NextResponse.json(
+            { success: false, message: "報名序號欄位無效" },
+            { status: 400, headers: noStore }
+          );
+        }
+        const file = await buildAcademicAbilityOfficialXlsxForEvent(eventId, {
+          from: request.nextUrl.searchParams.get("from")?.trim() ?? "",
+          to: request.nextUrl.searchParams.get("to")?.trim() ?? "",
+          schoolExamCode,
+          registrationNumberField: registrationNumberFieldRaw,
+        });
+        if (!file) {
+          return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });
+        }
+        return new NextResponse(new Uint8Array(file.buffer), {
+          headers: {
+            ...noStore,
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+          },
+        });
+      }
+      if (request.nextUrl.searchParams.get("format") === "xlsx") {
+        const scopeRaw = request.nextUrl.searchParams.get("scope") ?? "";
+        if (!isExamRosterExportScope(scopeRaw)) {
+          return NextResponse.json(
+            { success: false, message: "缺少或無效的名單類型" },
+            { status: 400, headers: noStore }
+          );
+        }
+        const from = request.nextUrl.searchParams.get("from")?.trim() ?? "";
+        const to = request.nextUrl.searchParams.get("to")?.trim() ?? "";
+        const schoolExamCode = request.nextUrl.searchParams.get("schoolExamCode")?.trim() ?? "";
+        const registrationNumberFieldRaw = request.nextUrl.searchParams.get("registrationNumberField") ?? "rollNo";
+        if (!isExamRegistrationNumberField(registrationNumberFieldRaw)) {
+          return NextResponse.json(
+            { success: false, message: "報名序號欄位無效" },
+            { status: 400, headers: noStore }
+          );
+        }
+        const file = await buildExamRegistrationXlsxForEvent(eventId, {
+          scope: scopeRaw,
+          from,
+          to,
+          schoolExamCode,
+          registrationNumberField: registrationNumberFieldRaw,
+        });
+        if (!file) {
+          return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });
+        }
+        return new NextResponse(new Uint8Array(file.buffer), {
+          headers: {
+            ...noStore,
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
           },
         });
       }

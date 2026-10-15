@@ -39,6 +39,24 @@ export const EXAM_REGISTRATION_MODE_LABELS: Record<ExamRegistrationMode, string>
   optional: "自由報名",
 };
 
+/** 國內主要升學考試常見正式名稱與簡稱。 */
+const OFFICIAL_ENTRANCE_EXAM_TITLE_PATTERNS = [
+  /國中教育會考|教育會考|國中會考|會考/,
+  /學科能力測驗|大學學測|學測/,
+  /分科測驗|指定科目考試|指考/,
+  /高中英語聽力測驗|英語聽力測驗|高中英聽|英聽/,
+  /大學術科考試|術科考試/,
+  /四技二專統一入學測驗|統一入學測驗|四技二專統測|統測/,
+  /國中基本學力測驗|國中基測|基測/,
+];
+
+/** 場次名稱是否指向國內主要升學考試；模擬考名稱不標示為正式考試。 */
+export function isOfficialEntranceExamTitle(title: string): boolean {
+  const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
+  if (/模擬|模考|練習/.test(normalized)) return false;
+  return OFFICIAL_ENTRANCE_EXAM_TITLE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export const EXAM_FEE_CODE_LABELS: Record<ExamFeeCode, string> = {
   "1": "一般生",
   "2": "低收入戶",
@@ -173,6 +191,10 @@ export interface ExamRegistration {
   studentGrade: string;
   /** 學號（名冊有才帶，CSV 造冊用） */
   studentId: string;
+  /** 名冊班級名稱（向後相容：舊登錄可能沒有） */
+  studentClassName?: string;
+  /** 名冊班號（向後相容：舊登錄可能沒有） */
+  studentRollNo?: string;
   /** 座號（名冊有才帶） */
   seatNo: string;
   subjectKeys: string[];
@@ -802,11 +824,117 @@ function textOrEmpty(raw: unknown): string {
 
 // —— CSV 造冊（純計算；BOM 讓 Excel 直開中文不亂碼）——
 
+export type ExamRosterExportScope = "all" | "registered" | "pending";
+
+export type ExamRegistrationNumberField =
+  | "rollNo"
+  | "studentId"
+  | "grade"
+  | "classCode"
+  | "className"
+  | "seatNo";
+
+export const EXAM_REGISTRATION_NUMBER_FIELDS: readonly {
+  key: ExamRegistrationNumberField;
+  label: string;
+}[] = [
+  { key: "rollNo", label: "班號" },
+  { key: "studentId", label: "學號" },
+  { key: "grade", label: "年級" },
+  { key: "classCode", label: "班級代碼" },
+  { key: "className", label: "班級名稱" },
+  { key: "seatNo", label: "座號" },
+];
+
+export const ACADEMIC_ABILITY_EXAM_SUBJECT_COLUMNS = ["國文", "英文", "數學A", "數學B", "社會", "自然"] as const;
+export const ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS = [
+  "報名序號",
+  "身分證",
+  "考試地區",
+  ...ACADEMIC_ABILITY_EXAM_SUBJECT_COLUMNS,
+  "特殊應考需求",
+] as const;
+
+export function academicAbilityExamSubjectFlags(
+  subjects: ExamSubject[],
+  selectedKeys: string[],
+  advancedOptionCodes: Record<string, string>
+): number[] {
+  const selected = new Set(selectedKeys);
+  let chinese = 0;
+  let english = 0;
+  let mathA = 0;
+  let mathB = 0;
+  let social = 0;
+  let natural = 0;
+
+  const normalize = (value: string) => value.normalize("NFKC").toUpperCase().replace(/[\s_\-（）()【】]/g, "");
+  for (const subject of subjects) {
+    if (!selected.has(subject.key)) continue;
+    const label = normalize(subject.label);
+    if (label.includes("國文") || label.includes("國語文")) chinese = 1;
+    if (label.includes("英文") || label.includes("英語")) english = 1;
+    if (label.includes("社會")) social = 1;
+    if (label.includes("自然")) natural = 1;
+
+    if (label.includes("數學A") || label.includes("數甲")) mathA = 1;
+    if (label.includes("數學B") || label.includes("數乙")) mathB = 1;
+    if (label.includes("數學") && !label.includes("數學A") && !label.includes("數學B")) {
+      const code = advancedOptionCodes[subject.key] ?? "";
+      const option = (subject.advancedOptions ?? []).find((candidate) => candidate.code === code);
+      if (option) {
+        const optionLabel = normalize(option.label);
+        const optionCode = option.code.toUpperCase();
+        if (
+          optionLabel.includes("數學A") ||
+          optionLabel.includes("數甲") ||
+          optionLabel === "A" ||
+          optionCode === "A" ||
+          /(?:^|[_-])A$/i.test(option.code)
+        ) {
+          mathA = 1;
+        }
+        if (
+          optionLabel.includes("數學B") ||
+          optionLabel.includes("數乙") ||
+          optionLabel === "B" ||
+          optionCode === "B" ||
+          /(?:^|[_-])B$/i.test(option.code)
+        ) {
+          mathB = 1;
+        }
+      }
+    }
+  }
+
+  return [chinese, english, mathA, mathB, social, natural];
+}
+
+export function isExamRegistrationNumberField(value: string): value is ExamRegistrationNumberField {
+  return EXAM_REGISTRATION_NUMBER_FIELDS.some((field) => field.key === value);
+}
+
+export function composeExamRegistrationNumber(schoolExamCode: string, fieldValue: string): string {
+  const prefix = schoolExamCode.trim();
+  const suffix = fieldValue.trim();
+  return prefix && suffix ? `${prefix}${suffix}` : "";
+}
+
+export const EXAM_ROSTER_EXPORT_SCOPE_LABELS: Record<ExamRosterExportScope, string> = {
+  all: "全部情形名單",
+  registered: "完成報名名單",
+  pending: "未完成報名名單",
+};
+
+export function isExamRosterExportScope(value: string): value is ExamRosterExportScope {
+  return value === "all" || value === "registered" || value === "pending";
+}
+
 function csvEscape(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-function csvDateTime(ms: number): string {
+export function formatExamRosterDateTime(ms: number): string {
   if (!ms) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   const date = new Date(ms);
@@ -848,7 +976,7 @@ export function buildExamRegistrationCsv(
         csvEscape(row.optOut ? "0" : String(row.feeAmount)),
         csvEscape(row.optOut ? "" : resolveLocationLabel(locationOptions, row.locationCode)),
         csvEscape(row.archived ? "已封存" : ""),
-        csvEscape(csvDateTime(row.updatedAt)),
+        csvEscape(formatExamRosterDateTime(row.updatedAt)),
       ].join(",")
     );
   }

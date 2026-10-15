@@ -1,4 +1,5 @@
 import "server-only";
+import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 import { cachedListRead, invalidateAdminListCache } from "@/lib/list-cache";
@@ -8,17 +9,27 @@ import { logActivity } from "@/lib/audit";
 import { publishFromModule } from "@/lib/announcements";
 import { publishScheduleFromModule } from "@/lib/calendar";
 import { schoolWideAudience } from "@/types/announcements";
+import {
+  PERSONAL_INFO_COLLECTION,
+  STUDENT_PERSONAL_IDENTITY_COLLECTION,
+  readStudentPersonalIdentityFields,
+} from "@/types/personal-info";
 import type { UserRole } from "@/types/users";
 import {
+  ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS,
   EXAM_EVENT_STATUS_LABELS,
   EXAM_FEE_CODE_LABELS,
+  EXAM_ROSTER_EXPORT_SCOPE_LABELS,
+  academicAbilityExamSubjectFlags,
   buildExamRegistrationCsv,
   calcExamFee,
   canTransitionExamStatus,
   countSubjectsByRegistrations,
+  composeExamRegistrationNumber,
   effectiveExamStatus,
   examEventToDraft,
   formatExamDateRange,
+  formatExamRosterDateTime,
   isExamCategory,
   isExamEventType,
   isExamFeeCode,
@@ -42,6 +53,8 @@ import type {
   ExamEventDraft,
   ExamEventRoster,
   ExamRegistration,
+  ExamRegistrationNumberField,
+  ExamRosterExportScope,
   ExamRosterSummary,
   StudentExamEvent,
 } from "../types/exam-registration";
@@ -78,6 +91,10 @@ export interface StudentIdentity {
   studentId?: string;
   /** 座號（名冊有才帶） */
   seatNo?: string;
+  /** 班級名稱（名冊有才帶） */
+  className?: string;
+  /** 班號（名冊有才帶） */
+  rollNo?: string;
 }
 
 export interface Actor {
@@ -231,6 +248,8 @@ export function readExamRegistration(
     studentClass: typeof raw.studentClass === "string" ? raw.studentClass : "",
     studentGrade: typeof raw.studentGrade === "string" ? raw.studentGrade : "",
     studentId: typeof raw.studentId === "string" ? raw.studentId : "",
+    studentClassName: typeof raw.studentClassName === "string" ? raw.studentClassName : "",
+    studentRollNo: typeof raw.studentRollNo === "string" ? raw.studentRollNo : "",
     seatNo: typeof raw.seatNo === "string" ? raw.seatNo : "",
     subjectKeys: parseSubjectKeys(raw.subjectKeys),
     subjectAdvancedOptionCodes: readSubjectAdvancedOptionCodes(raw.subjectAdvancedOptionCodes),
@@ -518,6 +537,8 @@ export async function upsertExamRegistration(input: {
     studentGrade: input.student.grade,
     studentClass: input.student.classCode,
     studentId: input.student.studentId ?? "",
+    studentClassName: input.student.className ?? "",
+    studentRollNo: input.student.rollNo ?? "",
     seatNo: input.student.seatNo ?? "",
   };
   /** 先到先得且有科設名額上限 → transaction 內讀全场次統計（排除 optOut），額滿即拒 */
@@ -940,6 +961,360 @@ export async function buildExamRegistrationCsvForEvent(
   const safeTitle = roster.event.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
   const classSuffix = normalizedClassCode ? `_${normalizedClassCode}` : "";
   return { filename: `造冊_${safeTitle || eventId}${classSuffix}.csv`, content };
+}
+
+interface ExamRosterExportRow {
+  studentClass: string;
+  studentGrade: string;
+  studentId: string;
+  studentClassName: string;
+  studentRollNo: string;
+  seatNo: string;
+  studentName: string;
+  registrationNo: string;
+  statusLabel: string;
+  subjectsLabel: string;
+  optOutReason: string;
+  feeLabel: string;
+  feeAmount: string;
+  locationLabel: string;
+  archivedLabel: string;
+  updatedLabel: string;
+}
+
+function registrationExportRow(
+  row: ExamRegistration,
+  event: ExamEvent,
+  schoolExamCode: string,
+  registrationNumberField: ExamRegistrationNumberField,
+  rosterEntry?: Record<string, unknown>
+): ExamRosterExportRow {
+  const labelOf = new Map(event.subjects.map((subject) => [subject.key, subject.label]));
+  const studentClass = rosterString(rosterEntry, "classCode") || row.studentClass;
+  const studentGrade = rosterString(rosterEntry, "grade") || row.studentGrade;
+  const studentId = rosterString(rosterEntry, "studentId") || row.studentId;
+  const studentClassName = rosterString(rosterEntry, "className") || row.studentClassName || studentClass;
+  const seatNo = rosterString(rosterEntry, "seatNo") || row.seatNo;
+  const studentRollNo = rosterString(rosterEntry, "rollNo") || row.studentRollNo || `${studentClass}${seatNo}`;
+  const fieldValue = registrationNumberFieldValue(registrationNumberField, {
+    studentClass,
+    studentGrade,
+    studentId,
+    studentClassName,
+    studentRollNo,
+    seatNo,
+  });
+  return {
+    studentClass,
+    studentGrade,
+    studentId,
+    studentClassName,
+    studentRollNo,
+    seatNo,
+    studentName: row.studentName,
+    registrationNo: composeExamRegistrationNumber(schoolExamCode, fieldValue),
+    statusLabel: row.optOut ? "不報名" : "完成報名",
+    subjectsLabel: row.optOut
+      ? ""
+      : pickValidSubjectKeys(row.subjectKeys, event.subjects)
+          .map((key) => labelOf.get(key) ?? key)
+          .join("、"),
+    optOutReason: row.optOut ? row.optOutReason : "",
+    feeLabel: row.optOut ? "" : EXAM_FEE_CODE_LABELS[row.feeCode] ?? row.feeCode,
+    feeAmount: row.optOut ? "" : String(row.feeAmount),
+    locationLabel: row.optOut ? "" : resolveLocationLabel(event.locationOptions, row.locationCode),
+    archivedLabel: row.archived ? "已封存" : "",
+    updatedLabel: formatExamRosterDateTime(row.updatedAt),
+  };
+}
+
+function rosterString(entry: Record<string, unknown> | undefined, key: string): string {
+  const value = entry?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function registrationNumberFieldValue(
+  field: ExamRegistrationNumberField,
+  row: Pick<ExamRosterExportRow, "studentClass" | "studentGrade" | "studentId" | "studentClassName" | "studentRollNo" | "seatNo">
+): string {
+  switch (field) {
+    case "rollNo":
+      return row.studentRollNo || `${row.studentClass}${row.seatNo}`;
+    case "studentId":
+      return row.studentId;
+    case "grade":
+      return row.studentGrade;
+    case "classCode":
+      return row.studentClass;
+    case "className":
+      return row.studentClassName || row.studentClass;
+    case "seatNo":
+      return row.seatNo;
+  }
+}
+
+/**
+ * 名單類型 xlsx 造冊：
+ * - all：指定班級內全部應對象學生（含已報名、未報名；未報名者補名冊欄位、狀態「未完成報名」）
+ * - registered：指定班級內已完成報名（optOut=false）者
+ * - pending：指定班級內未完成報名者（無登錄文件或勾選不報名）
+ * from/to 以班級代碼排序（zh-Hant 數值序）取區間，含端點。
+ */
+export async function buildExamRegistrationXlsxForEvent(
+  eventId: string,
+  options: {
+    scope: ExamRosterExportScope;
+    from?: string;
+    to?: string;
+    schoolExamCode?: string;
+    registrationNumberField?: ExamRegistrationNumberField;
+  }
+): Promise<{ filename: string; buffer: Buffer } | null> {
+  const roster = await getExamEventRoster(eventId);
+  if (!roster) return null;
+  const { scope } = options;
+  const from = options.from?.trim() ?? "";
+  const to = options.to?.trim() ?? "";
+  const schoolExamCode = options.schoolExamCode?.trim() ?? "";
+  const registrationNumberField = options.registrationNumberField ?? "rollNo";
+  const inRange = (classCode: string): boolean => {
+    if (!classCode) return false;
+    if (from && classCode.localeCompare(from, "zh-Hant", { numeric: true }) < 0) return false;
+    if (to && classCode.localeCompare(to, "zh-Hant", { numeric: true }) > 0) return false;
+    return true;
+  };
+
+  let rows: ExamRosterExportRow[] = [];
+  if (scope === "registered") {
+    rows = roster.registrations
+      .filter((row) => !row.optOut && inRange(row.studentClass))
+      .map((row) => registrationExportRow(row, roster.event, schoolExamCode, registrationNumberField));
+  } else {
+    const period = await getCurrentPeriod();
+    const entries = await loadPeriodEntries(period, "student");
+    const regByUid = new Map(roster.registrations.map((row) => [row.studentUid, row]));
+    const seenUids = new Set<string>();
+    rows = [];
+    for (const [uid, entry] of entries) {
+      if (!isActiveEntry(entry)) continue;
+      const grade = typeof entry.grade === "string" ? entry.grade : "";
+      const classCode = typeof entry.classCode === "string" ? entry.classCode : "";
+      if (!inRange(classCode)) continue;
+      if (!isTargetMatch(roster.event.target, { grade, classCode })) continue;
+      seenUids.add(uid);
+      const reg = regByUid.get(uid);
+      if (reg) {
+        if (scope === "pending" && !reg.optOut) continue;
+        rows.push(registrationExportRow(reg, roster.event, schoolExamCode, registrationNumberField, entry));
+      } else {
+        // 無登錄文件：all 與 pending 皆列入（狀態「未完成報名」）
+        const studentId = typeof entry.studentId === "string" ? entry.studentId : "";
+        const studentClassName = typeof entry.className === "string" ? entry.className : classCode;
+        const seatNo = typeof entry.seatNo === "string" ? entry.seatNo : "";
+        const studentRollNo = typeof entry.rollNo === "string" ? entry.rollNo : `${classCode}${seatNo}`;
+        const fieldValue = registrationNumberFieldValue(registrationNumberField, {
+          studentClass: classCode,
+          studentGrade: grade,
+          studentId,
+          studentClassName,
+          studentRollNo,
+          seatNo,
+        });
+        rows.push({
+          studentClass: classCode,
+          studentGrade: grade,
+          studentId,
+          studentClassName,
+          studentRollNo,
+          seatNo,
+          studentName: typeof entry.name === "string" ? entry.name : "",
+          registrationNo: composeExamRegistrationNumber(schoolExamCode, fieldValue),
+          statusLabel: "未完成報名",
+          subjectsLabel: "",
+          optOutReason: "",
+          feeLabel: "",
+          feeAmount: "",
+          locationLabel: "",
+          archivedLabel: "",
+          updatedLabel: "",
+        });
+      }
+    }
+    // 名單上有登錄、但不在當期名冊（轉出等）：仍納入
+    for (const reg of roster.registrations) {
+      if (seenUids.has(reg.studentUid) || !inRange(reg.studentClass)) continue;
+      if (scope === "pending" && !reg.optOut) continue;
+      rows.push(registrationExportRow(reg, roster.event, schoolExamCode, registrationNumberField));
+    }
+  }
+
+  rows.sort(
+    (a, b) =>
+      a.studentClass.localeCompare(b.studentClass, "zh-Hant", { numeric: true }) ||
+      a.seatNo.localeCompare(b.seatNo, "zh-Hant", { numeric: true }) ||
+      a.studentName.localeCompare(b.studentName, "zh-Hant")
+  );
+
+  const columns = ["班級", "學號", "座號", "姓名", "報名情形", "選考科目", "不報名原因", "繳費身分", "應繳費用", "考試地點", "資料封存", "登錄時間"];
+  if (schoolExamCode) columns.unshift("報名序號");
+  const aoa: (string | number)[][] = [
+    columns,
+    ...rows.map((row) => [
+      ...(schoolExamCode ? [row.registrationNo] : []),
+      row.studentClass,
+      row.studentId,
+      row.seatNo,
+      row.studentName,
+      row.statusLabel,
+      row.subjectsLabel,
+      row.optOutReason,
+      row.feeLabel,
+      row.feeAmount,
+      row.locationLabel,
+      row.archivedLabel,
+      row.updatedLabel,
+    ]),
+  ];
+  const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "名單");
+  const buffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+
+  const safeTitle = roster.event.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+  const rangeSuffix = from || to ? `_${from || "*"}-${to || "*"}` : "";
+  const filename = schoolExamCode
+    ? `報名資料_${schoolExamCode}_${safeTitle || eventId}${rangeSuffix}.xlsx`
+    : `${EXAM_ROSTER_EXPORT_SCOPE_LABELS[scope]}_${safeTitle || eventId}${rangeSuffix}.xlsx`;
+  return { filename, buffer };
+}
+
+/** 以 uid 批次載入學生證件資料；僅官方報名檔產生時呼叫，絕不回傳至頁面 API。 */
+async function loadStudentNationalIds(uids: string[]): Promise<Map<string, string>> {
+  const db = getAdminDb();
+  const uniqueUids = [...new Set(uids.filter(Boolean))];
+  const nationalIds = new Map<string, string>();
+  const legacyUids: string[] = [];
+
+  for (let i = 0; i < uniqueUids.length; i += 200) {
+    const chunk = uniqueUids.slice(i, i + 200);
+    const snapshots = await db.getAll(
+      ...chunk.map((uid) => db.collection(STUDENT_PERSONAL_IDENTITY_COLLECTION).doc(uid))
+    );
+    snapshots.forEach((snapshot, index) => {
+      const uid = chunk[index];
+      if (!snapshot.exists) {
+        legacyUids.push(uid);
+        return;
+      }
+      nationalIds.set(
+        uid,
+        readStudentPersonalIdentityFields(snapshot.data()).nationalId.trim().toUpperCase()
+      );
+    });
+  }
+
+  // 舊版個人資料尚未遷移到獨立身分文件時，依 uid 分批讀歷史記錄並沿用最新非空身分證。
+  const legacyUidSet = new Set(legacyUids);
+  for (let i = 0; i < legacyUids.length; i += 30) {
+    const chunk = legacyUids.slice(i, i + 30);
+    const snapshot = await db
+      .collection(PERSONAL_INFO_COLLECTION)
+      .where("uid", "in", chunk)
+      .select("uid", "academicYear", "semester", "nationalId", "fields.nationalId")
+      .get();
+    const docs = snapshot.docs.filter((doc) => {
+      const data = doc.data();
+      const academicYear = Number(data.academicYear);
+      const semester = Number(data.semester);
+      return (
+        typeof data.uid === "string" &&
+        legacyUidSet.has(data.uid) &&
+        Number.isInteger(academicYear) &&
+        academicYear > 0 &&
+        (semester === 1 || semester === 2)
+      );
+    }).sort((a, b) => {
+      const left = a.data();
+      const right = b.data();
+      return (
+        Number(right.academicYear || 0) - Number(left.academicYear || 0) ||
+        Number(right.semester || 0) - Number(left.semester || 0)
+      );
+    });
+    for (const doc of docs) {
+      const uid = typeof doc.data().uid === "string" ? doc.data().uid : "";
+      if (!legacyUidSet.has(uid) || nationalIds.get(uid)) continue;
+      const nationalId = readStudentPersonalIdentityFields(doc.data()).nationalId.trim().toUpperCase();
+      if (nationalId) nationalIds.set(uid, nationalId);
+    }
+  }
+
+  return nationalIds;
+}
+
+/** 學科能力測驗官方報名格式：一名考生一列、各選考科目以 1/0 表示。 */
+export async function buildAcademicAbilityOfficialXlsxForEvent(
+  eventId: string,
+  options: { from?: string; to?: string; schoolExamCode: string; registrationNumberField: ExamRegistrationNumberField }
+): Promise<{ filename: string; buffer: Buffer } | null> {
+  const roster = await getExamEventRoster(eventId);
+  if (!roster) return null;
+  const from = options.from?.trim() ?? "";
+  const to = options.to?.trim() ?? "";
+  const schoolExamCode = options.schoolExamCode.trim();
+  const inRange = (classCode: string): boolean =>
+    Boolean(classCode) &&
+    (!from || classCode.localeCompare(from, "zh-Hant", { numeric: true }) >= 0) &&
+    (!to || classCode.localeCompare(to, "zh-Hant", { numeric: true }) <= 0);
+  const registrations = roster.registrations.filter((row) => !row.optOut && inRange(row.studentClass));
+  const nationalIds = await loadStudentNationalIds(registrations.map((row) => row.studentUid));
+  const missingIds = registrations.filter((row) => !nationalIds.get(row.studentUid));
+  if (missingIds.length) {
+    const sample = missingIds
+      .slice(0, 5)
+      .map((row) => `${row.studentClass} ${row.studentName}`)
+      .join("、");
+    const remainder = missingIds.length > 5 ? `等 ${missingIds.length} 人` : "";
+    throw new ExamRegistrationError(
+      400,
+      `部分已報名學生尚未填寫身分證資料，無法產生官方報名檔：${sample}${remainder}`
+    );
+  }
+
+  const aoa: (string | number)[][] = [
+    [...ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS],
+    ...registrations.map((row) => {
+      const exportRow = registrationExportRow(
+        row,
+        roster.event,
+        schoolExamCode,
+        options.registrationNumberField
+      );
+      const subjects = academicAbilityExamSubjectFlags(
+        roster.event.subjects,
+        row.subjectKeys,
+        row.subjectAdvancedOptionCodes
+      );
+      const specialNeeds = [
+        row.nonAirConditionedRoom ? "非冷氣試場" : "",
+        row.examServiceNote.trim(),
+      ].filter(Boolean).join("；");
+      return [
+        exportRow.registrationNo,
+        nationalIds.get(row.studentUid) ?? "",
+        row.locationCode,
+        ...subjects,
+        specialNeeds,
+      ];
+    }),
+  ];
+  const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "學科能力測驗");
+  const buffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+  const safeTitle = roster.event.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+  const filename = `學科能力測驗報名資料_${schoolExamCode}_${safeTitle || eventId}.xlsx`;
+  return { filename, buffer };
 }
 
 /**

@@ -8,6 +8,7 @@ import { fetchSettings } from "@/lib/settings-client";
 import { logout } from "@/lib/session";
 import { Settings, defaultSettings } from "@/types/settings";
 import { ConfirmModal, FlashModal } from "../../components/exam-feedback";
+import OfficialExamLabel from "../../components/official-exam-label";
 import type { Flash } from "../../components/exam-feedback";
 import {
   EXAM_SERVICE_NOTE_MAX,
@@ -571,7 +572,10 @@ function ExamEventCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-bold text-t1">{item.title}</h2>
+            <h2 className="text-base font-bold text-t1">
+              {item.title}
+              <OfficialExamLabel title={item.title} />
+            </h2>
             <span
               className={`text-[11px] px-2 py-0.5 rounded border ${
                 isRequired ? "border-danger text-danger" : "border-themed text-t2"
@@ -924,7 +928,10 @@ function RegistrationPrintSheet({ item }: { item: StudentExamEvent }) {
   return (
     <div className="hidden print:block border border-t1 rounded-lg p-8 text-t1 text-sm leading-relaxed">
       <h2 className="text-xl font-bold text-center mb-1">升學考試與模擬考報名表</h2>
-      <p className="text-center text-t2 mb-6">{item.title}</p>
+      <p className="text-center text-t2 mb-6">
+        {item.title}
+        <OfficialExamLabel title={item.title} />
+      </p>
       <table className="w-full mb-4">
         <tbody>
           <tr className="border-b border-themed">

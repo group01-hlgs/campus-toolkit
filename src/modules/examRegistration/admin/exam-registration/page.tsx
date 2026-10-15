@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RevealListCard from "@/components/RevealListCard";
 import { useDataSaver } from "@/lib/data-saver";
 import { ConfirmModal, FlashModal } from "../../components/exam-feedback";
+import OfficialExamLabel from "../../components/official-exam-label";
 import type { Flash } from "../../components/exam-feedback";
 import {
   EXAM_CATEGORY_LABELS,
@@ -1261,37 +1262,54 @@ export default function AdminExamRegistrationPage() {
                 />
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <label className="text-t2 sm:w-40 shrink-0" htmlFor="exam-type">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                <label className="text-t2 sm:w-40 shrink-0 sm:pt-2" htmlFor="exam-type">
                   考試類型
                 </label>
-                <select
-                  id="exam-type"
-                  className="flex-1 input-theme rounded px-3 py-2"
-                  value={form.examType}
-                  onChange={(e) => {
-                    const examType = e.target.value as ExamCategory;
-                    setForm({
-                      ...form,
-                      examType,
-                      ...(examType !== "entrance"
-                        ? {
-                            location: "",
-                            locationOptions: [],
-                            locationOptionsText: "",
-                            locationOptionCodeText: "",
-                            locationOptionLabelText: "",
-                          }
-                        : {}),
-                    });
-                  }}
-                >
-                  {(Object.keys(EXAM_CATEGORY_LABELS) as ExamCategory[]).map((key) => (
-                    <option key={key} value={key}>
-                      {EXAM_CATEGORY_LABELS[key]}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex-1 space-y-1.5">
+                  <select
+                    id="exam-type"
+                    className="w-full input-theme rounded px-3 py-2"
+                    value={form.examType}
+                    onChange={(e) => {
+                      const examType = e.target.value as ExamCategory;
+                      setForm({
+                        ...form,
+                        examType,
+                        ...(examType !== "entrance"
+                          ? {
+                              location: "",
+                              locationOptions: [],
+                              locationOptionsText: "",
+                              locationOptionCodeText: "",
+                              locationOptionLabelText: "",
+                            }
+                          : {}),
+                      });
+                    }}
+                  >
+                    {(Object.keys(EXAM_CATEGORY_LABELS) as ExamCategory[]).map((key) => (
+                      <option key={key} value={key}>
+                        {EXAM_CATEGORY_LABELS[key]}
+                      </option>
+                    ))}
+                  </select>
+                  {form.examType === "entrance" && (
+                    <div className="text-xs text-t3 space-y-1">
+                      <p>
+                        為取得官方報名資料上傳用檔案，建議使用正式名稱，以便程式能下載正確的報名資料檔案。
+                        目前各級學校升學考試正式名稱常見如下：
+                      </p>
+                      <ul className="list-disc pl-5 space-y-0.5">
+                        <li>學科能力測驗</li>
+                        <li>高中英語聽力測驗第一次考試</li>
+                        <li>高中英語聽力測驗第二次考試</li>
+                        <li>統一測驗</li>
+                        <li>分科測驗</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -1999,10 +2017,14 @@ export default function AdminExamRegistrationPage() {
                     const pastDeadline =
                       item.status === "open" && effectiveExamStatus(item) === "closed";
                     return (
-                      <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
+                      <Fragment key={item.id}>
+                      <tr className="border-b border-themed last:border-0 text-t1">
                         <td className="px-3 py-2">
                           <div className="space-y-1">
-                            <div className="font-medium">{item.title}</div>
+                            <div className="font-medium">
+                              {item.title}
+                              <OfficialExamLabel title={item.title} />
+                            </div>
                             <div className="text-xs text-t3">
                               報名方式：{EXAM_REGISTRATION_MODE_LABELS[item.registrationMode]}
                             </div>
@@ -2118,6 +2140,67 @@ export default function AdminExamRegistrationPage() {
                           </div>
                         </td>
                       </tr>
+                      {roster?.eventId === item.id ? (
+                        <tr>
+                          <td colSpan={6} className="px-3 pb-4 pt-1">
+                            <section className="border border-themed rounded-lg bg-card px-5 py-4 space-y-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <h3 className="text-lg font-bold text-t1">
+                                    名單｜{roster.event.title}
+                                    <OfficialExamLabel title={roster.event.title} />
+                                  </h3>
+                                  <p className="text-xs text-t3">
+                                    應報名 {roster.summary.applicableCount} 人／完成報名 {roster.summary.registeredCount} 人；
+                                    {formatExamDateRange(roster.event)}・
+                                    {EXAM_REGISTRATION_MODE_LABELS[roster.event.registrationMode]}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <a
+                                    href={`/admin/exam-registration/roster?eventId=${encodeURIComponent(roster.eventId)}`}
+                                    className="btn-soft rounded px-3 py-1 text-xs cursor-pointer"
+                                  >
+                                    查看名單
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRoster(null)}
+                                    className="btn-soft rounded px-3 py-1 text-xs cursor-pointer"
+                                  >
+                                    關閉
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* 各科統計數字（表格格線） */}
+                              <div className="overflow-x-auto border border-themed rounded">
+                                <table className="w-full text-sm text-left">
+                                  <thead className="border-b border-themed bg-themed">
+                                    <tr className="text-t2">
+                                      <th className="px-3 py-2 font-medium border-r border-themed">選考科目</th>
+                                      <th className="px-3 py-2 font-medium text-right">已報名</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {roster.event.subjects.map((subject) => {
+                                      const entry = roster.summary.bySubject[subject.key];
+                                      const count = entry?.count ?? 0;
+                                      return (
+                                        <tr key={subject.key} className="border-b border-themed last:border-b-0">
+                                          <td className="px-3 py-2 text-t2 border-r border-themed">{subject.label}</td>
+                                          <td className="px-3 py-2 text-t1 text-right">{count} 人</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </section>
+                          </td>
+                        </tr>
+                      ) : null}
+                      </Fragment>
                     );
                   })
                 )}
@@ -2195,61 +2278,6 @@ export default function AdminExamRegistrationPage() {
           </p>
         )}
       </section>
-
-      {/* 3. 名單與統計 */}
-      {roster && (
-        <section className="border border-themed rounded-lg bg-card px-5 py-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-bold text-t1">名單｜{roster.event.title}</h3>
-              <p className="text-xs text-t3">
-                應報名 {roster.summary.applicableCount} 人／完成報名 {roster.summary.registeredCount} 人；
-                {formatExamDateRange(roster.event)}・
-                {EXAM_REGISTRATION_MODE_LABELS[roster.event.registrationMode]}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <a
-                href={`/admin/exam-registration/roster?eventId=${encodeURIComponent(roster.eventId)}`}
-                className="btn-soft rounded px-3 py-1 text-xs cursor-pointer"
-              >
-                查看名單
-              </a>
-              <button
-                type="button"
-                onClick={() => setRoster(null)}
-                className="btn-soft rounded px-3 py-1 text-xs cursor-pointer"
-              >
-                關閉
-              </button>
-            </div>
-          </div>
-
-          {/* 各科統計數字（表格格線） */}
-          <div className="overflow-x-auto border border-themed rounded">
-            <table className="w-full text-sm text-left">
-              <thead className="border-b border-themed bg-themed">
-                <tr className="text-t2">
-                  <th className="px-3 py-2 font-medium border-r border-themed">選考科目</th>
-                  <th className="px-3 py-2 font-medium text-right">已報名</th>
-                </tr>
-              </thead>
-              <tbody>
-                {roster.event.subjects.map((subject) => {
-                  const entry = roster.summary.bySubject[subject.key];
-                  const count = entry?.count ?? 0;
-                  return (
-                    <tr key={subject.key} className="border-b border-themed last:border-b-0">
-                      <td className="px-3 py-2 text-t2 border-r border-themed">{subject.label}</td>
-                      <td className="px-3 py-2 text-t1 text-right">{count} 人</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

@@ -34,7 +34,9 @@ function studentIdentityOf(session: VerifiedSession): StudentIdentity | null {
       : session.displayName || session.account;
   const studentId = entry && typeof entry.studentId === "string" ? entry.studentId : "";
   const seatNo = entry && typeof entry.seatNo === "string" ? entry.seatNo : "";
-  return { uid: session.uid, name, grade, classCode, studentId, seatNo };
+  const className = entry && typeof entry.className === "string" ? entry.className : "";
+  const rollNo = entry && typeof entry.rollNo === "string" ? entry.rollNo : "";
+  return { uid: session.uid, name, grade, classCode, studentId, seatNo, className, rollNo };
 }
 
 /** GET：本人可見場次（已依對象過濾）＋我的登錄科目 */
