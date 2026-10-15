@@ -272,11 +272,29 @@ export interface ExamRosterSummary {
   byClass: Record<string, number>;
 }
 
+/** 名冊列：並列顯示已報名與未報名學生（報名狀態 + 登錄資料合併） */
+export interface ExamRosterStudent {
+  studentUid: string;
+  studentClass: string;
+  studentGrade: string;
+  studentName: string;
+  seatNo: string;
+  studentId: string;
+  studentClassName: string;
+  studentRollNo: string;
+  /** 報名狀態：registered=完成報名 / opt_out=不報名 / pending=未完成報名 */
+  status: "registered" | "opt_out" | "pending";
+  /** 登錄資料（pending 時為 null） */
+  registration: ExamRegistration | null;
+}
+
 /** 管理端場次名單＋統計（API 回應與頁面共用，不放在 server-only 的 lib） */
 export interface ExamEventRoster {
   eventId: string;
   event: ExamEvent;
   registrations: ExamRegistration[];
+  /** 全部應報名學生（含未報名，並列顯示） */
+  students: ExamRosterStudent[];
   summary: ExamRosterSummary;
   epoch: number;
 }

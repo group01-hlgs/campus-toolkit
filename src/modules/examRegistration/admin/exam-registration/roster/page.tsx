@@ -12,8 +12,8 @@ import {
 } from "../../../types/exam-registration";
 import type {
   ExamEventRoster,
-  ExamRegistration,
   ExamRegistrationNumberField,
+  ExamRosterStudent,
 } from "../../../types/exam-registration";
 
 interface AdminRosterResponse {
@@ -32,7 +32,7 @@ function formatListDateTime(value: number): string {
   });
 }
 
-function classKeyOf(row: ExamRegistration): string {
+function classKeyOf(row: ExamRosterStudent): string {
   return row.studentClass || "__no_class__";
 }
 
@@ -171,8 +171,8 @@ export default function ExamRegistrationRosterPage() {
   }
 
   const filteredRows = useMemo(() => {
-    if (!roster || !activeClass) return [] as ExamRegistration[];
-    return roster.registrations.filter((row) => classKeyOf(row) === activeClass);
+    if (!roster || !activeClass) return [] as ExamRosterStudent[];
+    return roster.students.filter((row) => classKeyOf(row) === activeClass);
   }, [roster, activeClass]);
 
   async function unarchiveRegistration(studentUid: string) {
@@ -192,6 +192,29 @@ export default function ExamRegistrationRosterPage() {
       await loadRoster();
     } catch (e) {
       setError(e instanceof Error ? e.message : "解除封存失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRegistration(studentUid: string, studentName: string) {
+    if (!roster || saving) return;
+    const confirmed = window.confirm(`確定要硬刪除「${studentName}」的報名登錄嗎？此操作無法復原。`);
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ id: roster.eventId, registrationId: studentUid });
+      const res = await fetch(`/api/admin/exam-registration?${params.toString()}`, {
+        method: "DELETE",
+      });
+      const data: AdminRosterResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "刪除失敗");
+      }
+      await loadRoster();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除失敗");
     } finally {
       setSaving(false);
     }
@@ -222,7 +245,9 @@ export default function ExamRegistrationRosterPage() {
                   <OfficialExamLabel title={roster.event.title} />
                 </h3>
                 <p className="text-xs text-t3">
-                  應報名 {roster.summary.applicableCount} 人／完成報名 {roster.summary.registeredCount} 人；
+                  應報名 {roster.summary.applicableCount} 人／完成報名 {roster.summary.registeredCount} 人／
+                  不報名 {roster.summary.optOutCount} 人／未完成報名{" "}
+                  {Math.max(0, roster.summary.applicableCount - roster.summary.registeredCount - roster.summary.optOutCount)} 人；
                   {formatExamDateRange(roster.event)}・
                   {EXAM_REGISTRATION_MODE_LABELS[roster.event.registrationMode]}
                 </p>
@@ -372,17 +397,20 @@ export default function ExamRegistrationRosterPage() {
                         colSpan={8 + (roster.event.locationOptions?.length ? 1 : 0)}
                         className="px-3 py-6 text-center text-t3"
                       >
-                        此班級尚無學生登錄
+                        此班級尚無學生
                       </td>
                     </tr>
                   ) : (
                     filteredRows.map((row) => {
-                      const labels = row.optOut
+                      const reg = row.registration;
+                      const isPending = row.status === "pending";
+                      const isOptOut = row.status === "opt_out";
+                      const labels = isOptOut || !reg
                         ? []
                         : roster.event.subjects
-                            .filter((subject) => row.subjectKeys.includes(subject.key))
+                            .filter((subject) => reg.subjectKeys.includes(subject.key))
                             .map((subject) => {
-                              const selectedCode = row.subjectAdvancedOptionCodes?.[subject.key] ?? "";
+                              const selectedCode = reg.subjectAdvancedOptionCodes?.[subject.key] ?? "";
                               const selectedLabel =
                                 selectedCode && subject.advancedOptions?.length
                                   ? subject.advancedOptions.find((option) => option.code === selectedCode)?.label ?? selectedCode
@@ -390,46 +418,64 @@ export default function ExamRegistrationRosterPage() {
                               return selectedLabel ? `${subject.label}（${selectedLabel}）` : subject.label;
                             });
                       return (
-                        <tr key={row.id} className="border-b border-themed last:border-0 text-t1">
+                        <tr key={row.studentUid} className="border-b border-themed last:border-0 text-t1">
                           <td className="px-3 py-2 whitespace-nowrap">{row.studentClass || "—"}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-t2">{row.seatNo || "—"}</td>
                           <td className="px-3 py-2">
                             {row.studentName}
-                            {row.archived && <span className="ml-1.5 text-xs text-t3">（已封存）</span>}
+                            {reg?.archived && <span className="ml-1.5 text-xs text-t3">（已封存）</span>}
                           </td>
                           <td className="px-3 py-2">
-                            {row.optOut ? (
-                              <span className="text-xs text-t2" title={row.optOutReason}>
+                            {isPending ? (
+                              <span className="text-xs text-t3">未完成報名</span>
+                            ) : isOptOut ? (
+                              <span className="text-xs text-t2" title={reg?.optOutReason}>
                                 不報名
                               </span>
                             ) : (
                               <span className="text-xs text-success">完成報名</span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-t2">{row.optOut ? "—" : labels.join("、") || "—"}</td>
+                          <td className="px-3 py-2 text-t2">{isOptOut || isPending ? "—" : labels.join("、") || "—"}</td>
                           {roster.event.locationOptions?.length ? (
                             <td className="px-3 py-2 text-t2 whitespace-nowrap">
-                              {row.optOut || !row.locationCode
+                              {isOptOut || isPending || !reg?.locationCode
                                 ? "—"
-                                : resolveLocationLabel(roster.event.locationOptions, row.locationCode)}
+                                : resolveLocationLabel(roster.event.locationOptions, reg.locationCode)}
                             </td>
                           ) : null}
                           <td className="px-3 py-2 text-t2 whitespace-nowrap">
-                            {row.optOut
+                            {isOptOut || isPending || !reg
                               ? "—"
-                              : `${EXAM_FEE_CODE_LABELS[row.feeCode] ?? row.feeCode} ${row.feeAmount} 元`}
+                              : `${EXAM_FEE_CODE_LABELS[reg.feeCode] ?? reg.feeCode} ${reg.feeAmount} 元`}
                           </td>
-                          <td className="px-3 py-2 text-t3 whitespace-nowrap">{formatListDateTime(row.updatedAt)}</td>
+                          <td className="px-3 py-2 text-t3 whitespace-nowrap">
+                            {reg ? formatListDateTime(reg.updatedAt) : "—"}
+                          </td>
                           <td className="px-3 py-2 text-right whitespace-nowrap">
-                            {row.archived ? (
-                              <button
-                                type="button"
-                                onClick={() => void unarchiveRegistration(row.studentUid)}
-                                disabled={saving}
-                                className="btn-soft rounded px-2 py-1 text-xs cursor-pointer disabled:opacity-50"
-                              >
-                                解除封存
-                              </button>
+                            {reg ? (
+                              <span className="inline-flex items-center gap-1">
+                                {reg.archived ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void unarchiveRegistration(reg.studentUid)}
+                                    disabled={saving}
+                                    className="btn-soft rounded px-2 py-1 text-xs cursor-pointer disabled:opacity-50"
+                                  >
+                                    解除封存
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-t3">—</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => void deleteRegistration(reg.studentUid, row.studentName)}
+                                  disabled={saving}
+                                  className="rounded border border-danger px-2 py-1 text-xs text-danger cursor-pointer disabled:opacity-50 hover:bg-danger hover:text-white"
+                                >
+                                  刪除
+                                </button>
+                              </span>
                             ) : (
                               <span className="text-xs text-t3">—</span>
                             )}

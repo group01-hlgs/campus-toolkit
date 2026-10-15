@@ -10,8 +10,8 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "",
-    "version": "0.1.7",
-    "releasedAt": "2026-10-14"
+    "version": "0.1.8",
+    "releasedAt": "2026-10-15"
   },
   "provides": { "student": true, "parent": false, "staff": true, "admin": true },
   "routes": [
@@ -34,7 +34,8 @@
     "exam_registration_recorded",
     "exam_registration_withdrawn",
     "exam_registration_archived",
-    "exam_registration_unarchived"
+    "exam_registration_unarchived",
+    "exam_registration_registration_deleted"
   ],
   "dataCollections": [
     "examEvents",

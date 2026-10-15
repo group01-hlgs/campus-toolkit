@@ -13,6 +13,7 @@ import {
   createExamEvent,
   countAdminExamEvents,
   deleteExamEvent,
+  deleteExamRegistration,
   getExamEventRoster,
   listAdminExamEvents,
   unarchiveExamRegistration,
@@ -282,7 +283,7 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-/** DELETE：硬刪除場次（`?id=`；連同該場次全部登錄名單一併刪除） */
+/** DELETE：硬刪除場次（`?id=`；連同該場次全部登錄名單一併刪除）或單筆登錄（`?id=&registrationId=`） */
 export async function DELETE(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -309,6 +310,22 @@ export async function DELETE(request: NextRequest) {
       name: session.displayName || session.account,
       role: "admin" as const,
     };
+
+    // 單筆登錄硬刪除：`?id=&registrationId=`
+    const registrationId = request.nextUrl.searchParams.get("registrationId");
+    if (registrationId) {
+      const { studentName } = await deleteExamRegistration({
+        eventId: id,
+        registrationId,
+        actor,
+        ip: getClientIp(request),
+      });
+      return NextResponse.json(
+        { success: true, message: `已刪除 ${studentName} 的報名登錄` },
+        { headers: noStore }
+      );
+    }
+
     const { events, epoch } = await deleteExamEvent(id, actor, getClientIp(request));
     return NextResponse.json(
       { success: true, message: "場次已刪除", events, epoch },

@@ -55,6 +55,7 @@ import type {
   ExamRegistration,
   ExamRegistrationNumberField,
   ExamRosterExportScope,
+  ExamRosterStudent,
   ExamRosterSummary,
   StudentExamEvent,
 } from "../types/exam-registration";
@@ -724,6 +725,34 @@ export async function unarchiveExamRegistration(input: {
   return { registration };
 }
 
+export async function deleteExamRegistration(input: {
+  eventId: string;
+  registrationId: string;
+  actor: Actor;
+  ip?: string;
+}): Promise<{ studentName: string }> {
+  const event = await getExamEvent(input.eventId);
+  if (!event) throw new ExamRegistrationError(404, "找不到報名場次");
+
+  const ref = getAdminDb()
+    .collection(EXAM_REGISTRATIONS_COLLECTION)
+    .doc(registrationDocId(event.id, input.registrationId));
+  const snap = await ref.get();
+  if (!snap.exists) throw new ExamRegistrationError(404, "查無此登錄資料");
+  const registration = readExamRegistration(snap.id, snap.data() ?? {});
+  await ref.delete();
+
+  await invalidateExamRegistrationCaches();
+  await logActivity({
+    userId: input.actor.uid,
+    role: input.actor.role,
+    action: "exam_registration_registration_deleted",
+    ip: input.ip,
+    details: `硬刪除登錄（${event.title}，${registration.studentName}）`,
+  });
+  return { studentName: registration.studentName };
+}
+
 function assertEventAcceptingRegistration(event: ExamEvent): void {
   if (isExamOpen(event)) return;
   if (event.status === "archived") throw new ExamRegistrationError(409, "場次已封存");
@@ -872,13 +901,13 @@ export async function getExamEventRoster(eventId: string): Promise<ExamEventRost
   const event = await getExamEvent(eventId);
   if (!event) return null;
   const { data, epoch } = await cachedListRead(`${ADMIN_ROSTER_KEY_PREFIX}${eventId}`, async () => {
-    const [snap, applicableCount] = await Promise.all([
+    const [snap, applicableStudents] = await Promise.all([
       getAdminDb()
         .collection(EXAM_REGISTRATIONS_COLLECTION)
         .where("eventId", "==", eventId)
         .limit(ROSTER_LIMIT)
         .get(),
-      countApplicableStudents(event),
+      loadApplicableStudents(event),
     ]);
     const rows = snap.docs.map((doc) => readExamRegistration(doc.id, doc.data()));
     rows.sort(
@@ -887,28 +916,98 @@ export async function getExamEventRoster(eventId: string): Promise<ExamEventRost
         a.seatNo.localeCompare(b.seatNo) ||
         a.studentName.localeCompare(b.studentName, "zh-Hant")
     );
-    return { registrations: rows, summary: summarizeRoster(rows, event, applicableCount) };
+    const students = buildRosterStudents(rows, applicableStudents);
+    return { registrations: rows, students, summary: summarizeRoster(rows, event, applicableStudents.length, students) };
   });
   return { eventId, event, ...data, epoch };
 }
 
-async function countApplicableStudents(event: ExamEvent): Promise<number> {
+interface ApplicableStudent {
+  uid: string;
+  name: string;
+  grade: string;
+  classCode: string;
+  studentId: string;
+  className: string;
+  seatNo: string;
+  rollNo: string;
+}
+
+async function loadApplicableStudents(event: ExamEvent): Promise<ApplicableStudent[]> {
   const period = await getCurrentPeriod();
   const entries = await loadPeriodEntries(period, "student");
-  let count = 0;
-  for (const entry of entries.values()) {
+  const students: ApplicableStudent[] = [];
+  for (const [uid, entry] of entries) {
     if (!isActiveEntry(entry)) continue;
     const grade = typeof entry.grade === "string" ? entry.grade : "";
     const classCode = typeof entry.classCode === "string" ? entry.classCode : "";
-    if (isTargetMatch(event.target, { grade, classCode })) count += 1;
+    if (!isTargetMatch(event.target, { grade, classCode })) continue;
+    students.push({
+      uid,
+      name: typeof entry.name === "string" ? entry.name : "",
+      grade,
+      classCode,
+      studentId: typeof entry.studentId === "string" ? entry.studentId : "",
+      className: typeof entry.className === "string" ? entry.className : classCode,
+      seatNo: typeof entry.seatNo === "string" ? entry.seatNo : "",
+      rollNo: typeof entry.rollNo === "string" ? entry.rollNo : "",
+    });
   }
-  return count;
+  return students;
+}
+
+function buildRosterStudents(
+  registrations: ExamRegistration[],
+  applicableStudents: ApplicableStudent[]
+): ExamRosterStudent[] {
+  const regByUid = new Map(registrations.map((row) => [row.studentUid, row]));
+  const seenUids = new Set<string>();
+  const students: ExamRosterStudent[] = [];
+  for (const student of applicableStudents) {
+    seenUids.add(student.uid);
+    const reg = regByUid.get(student.uid) ?? null;
+    students.push({
+      studentUid: student.uid,
+      studentClass: student.classCode || reg?.studentClass || "",
+      studentGrade: student.grade || reg?.studentGrade || "",
+      studentName: student.name || reg?.studentName || "",
+      seatNo: student.seatNo || reg?.seatNo || "",
+      studentId: student.studentId || reg?.studentId || "",
+      studentClassName: student.className || reg?.studentClassName || student.classCode,
+      studentRollNo: student.rollNo || reg?.studentRollNo || `${student.classCode}${student.seatNo}`,
+      status: reg ? (reg.optOut ? "opt_out" : "registered") : "pending",
+      registration: reg,
+    });
+  }
+  for (const reg of registrations) {
+    if (seenUids.has(reg.studentUid)) continue;
+    students.push({
+      studentUid: reg.studentUid,
+      studentClass: reg.studentClass,
+      studentGrade: reg.studentGrade,
+      studentName: reg.studentName,
+      seatNo: reg.seatNo,
+      studentId: reg.studentId,
+      studentClassName: reg.studentClassName || reg.studentClass,
+      studentRollNo: reg.studentRollNo || `${reg.studentClass}${reg.seatNo}`,
+      status: reg.optOut ? "opt_out" : "registered",
+      registration: reg,
+    });
+  }
+  students.sort(
+    (a, b) =>
+      a.studentClass.localeCompare(b.studentClass, "zh-Hant", { numeric: true }) ||
+      a.seatNo.localeCompare(b.seatNo, "zh-Hant", { numeric: true }) ||
+      a.studentName.localeCompare(b.studentName, "zh-Hant")
+  );
+  return students;
 }
 
 function summarizeRoster(
   rows: ExamRegistration[],
   event: ExamEvent,
-  applicableCount: number
+  applicableCount: number,
+  students: ExamRosterStudent[]
 ): ExamRosterSummary {
   const bySubject: ExamRosterSummary["bySubject"] = {};
   for (const subject of event.subjects) {
@@ -934,7 +1033,10 @@ function summarizeRoster(
         if (entry) entry.count += 1;
       }
     }
-    byClass[row.studentClass] = (byClass[row.studentClass] ?? 0) + 1;
+  }
+  for (const student of students) {
+    const code = student.studentClass || "__no_class__";
+    byClass[code] = (byClass[code] ?? 0) + 1;
   }
   for (const entry of Object.values(bySubject)) {
     entry.full = entry.capacity > 0 && entry.count >= entry.capacity;
