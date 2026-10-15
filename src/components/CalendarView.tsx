@@ -155,7 +155,7 @@ export default function CalendarView({
       }
       setDisplayName(session.displayName);
       const visible = settingsData?.visibleModules;
-      if (role !== "staff" && Array.isArray(visible) && !visible.includes("calendar")) {
+      if (Array.isArray(visible) && !visible.includes("calendar")) {
         setToast({ kind: "error", text: "行事曆功能目前對此身分關閉顯示" });
       }
     }
