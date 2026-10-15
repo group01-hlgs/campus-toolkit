@@ -112,9 +112,9 @@ export default function AnnouncementsInbox({
         return;
       }
       setDisplayName(session.displayName);
-      // 設定快取的 visibleModules：公告未提供或被關閉時提示（頁面仍可直接網址進入，API 會把關名冊）
+      // 教職員公告為固定顯示功能，不受模組「顯示」開關影響；其他身分保留提示。
       const visible = settingsData?.visibleModules;
-      if (Array.isArray(visible) && !visible.includes("announcements")) {
+      if (role !== "staff" && Array.isArray(visible) && !visible.includes("announcements")) {
         setToast({ kind: "error", text: "公告功能目前對此身分關閉顯示" });
       }
     }
