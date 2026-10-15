@@ -169,8 +169,8 @@ function DescriptionRow({
 }
 
 /**
- * 四種身分欄：同時顯示「提供功能」圖示＋「顯示與否」勾選。
- * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」與「顯示」勾選上下排列。
+ * 四種身分欄：同時顯示「提供功能」圖示＋「入口功能」勾選。
+ * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」與「入口功能」勾選上下排列。
  */
 function RoleCells({
   item,
@@ -220,17 +220,17 @@ function RoleCells({
                 提供
               </span>
               <label className="inline-flex items-center justify-center gap-1 text-xs text-t3">
-                <span>顯示</span>
+                <span>入口功能</span>
                 <input
                   type="checkbox"
                   checked={switches?.[role] === true}
                   disabled={disabled}
                   onChange={(event) => onToggle(item, role, event.target.checked)}
-                  aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的顯示與否`}
+                  aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的入口功能`}
                   title={
                     disabled
                       ? (disabledTitle ?? "僅超級管理員可調整，且同一時間只能處理一筆變更")
-                      : "顯示與否（關閉＝暫時不顯示、禁止進入）"
+                      : "入口功能（關閉＝首頁不顯示入口、禁止進入）"
                   }
                   className="accent-current cursor-pointer disabled:opacity-50"
                 />
@@ -243,7 +243,7 @@ function RoleCells({
   );
 }
 
-/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入；身分欄＝顯示與否 */
+/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入；身分欄＝入口功能 */
 function BuiltinRow({
   item,
   open,
@@ -301,7 +301,7 @@ function BuiltinRow({
   );
 }
 
-/** 選用功能模組列表列：總開關＋四種身分顯示與否＋操作（卸載），僅超級管理員可操作 */
+/** 選用功能模組列表列：總開關＋四種身分入口功能＋操作（卸載），僅超級管理員可操作 */
 function OptionalRow({
   item,
   open,
@@ -447,15 +447,15 @@ function OptionalRow({
 /**
  * 「功能模組管理」入口（僅超級管理員）：
  * 內建／選用兩份功能模組列表，說明與作者／版本／提供功能由名稱旁箭頭就地展開；
- * 選用模組有總開關；四種身分欄＝**顯示與否**（提供功能＝否顯示「未提供」）。
+ * 選用模組有總開關；四種身分欄＝**入口功能**（提供功能＝否顯示「未提供」）。
  */
 export default function ModulesPage() {
   const router = useRouter();
-  // 總開關與顯示開關：null＝載入中（fail-closed，先當全部未啟用）
+  // 總開關與入口功能開關：null＝載入中（fail-closed，先當全部未啟用）
   const [enabled, setEnabled] = useState<FeatureModulesEnabledMap | null>(null);
   const [roles, setRoles] = useState<FeatureModuleRolesMap | null>(null);
   const [isSuper, setIsSuper] = useState(false);
-  // 處理中的鍵：總開關＝模組代碼；顯示開關＝「模組代碼:身分」
+  // 處理中的鍵：總開關＝模組代碼；入口功能開關＝「模組代碼:身分」
   const [saving, setSaving] = useState<string | null>(null);
   // 開關狀態載入失敗訊息：非空＝頁面勾選／總開關不可信（禁止默默呈現全未勾選）
   const [loadError, setLoadError] = useState("");
@@ -531,7 +531,7 @@ export default function ModulesPage() {
     };
   }, []);
 
-  /** 送出 PATCH，成功後依回應更新總開關或顯示開關 */
+  /** 送出 PATCH，成功後依回應更新總開關或入口功能開關 */
   async function patch(body: Record<string, unknown>, key: string) {
     if (saving) return;
     setSaving(key);
@@ -561,7 +561,7 @@ export default function ModulesPage() {
     void patch({ value: item.value, enabled: next }, item.value);
   }
 
-  /** 模組 × 身分顯示與否 */
+  /** 模組 × 身分入口功能 */
   function toggleRole(item: FeatureModuleMeta, role: UserRole, next: boolean) {
     void patch({ value: item.value, role, enabled: next }, `${item.value}:${role}`);
   }
@@ -670,7 +670,7 @@ export default function ModulesPage() {
         <div className="alert-danger p-4 text-sm" role="alert">
           <span className="font-bold text-danger">開關狀態載入失敗：</span>
           {loadError}
-          。目前顯示的勾選與總開關狀態不可信，已暫停操作，請重新整理後再試。
+          。目前載入的勾選與總開關狀態不可信，已暫停操作，請重新整理後再試。
           <button
             type="button"
             onClick={() => window.location.reload()}
@@ -767,8 +767,8 @@ export default function ModulesPage() {
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
           <p className="text-xs text-t3">
             隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的箭頭可展開說明與作者版本資訊；
-            四種身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝顯示與否
-            （關閉＝暫時不顯示、禁止進入）。
+            四種身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
+            （關閉＝首頁不顯示入口、禁止進入）。
           </p>
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
@@ -825,7 +825,7 @@ export default function ModulesPage() {
           <p className="text-xs text-t3">
             已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用；
             「狀態」為模組作者宣告的進度資訊，不影響開關。
-            四種身分欄上下排列：綠勾「提供」與「顯示」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
+            四種身分欄上下排列：綠勾「提供」與「入口功能」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
             操作欄「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
@@ -911,11 +911,11 @@ export default function ModulesPage() {
             ：不開放指派，只有超級屬性可用（學校基本設定、功能模組管理、統計儀表板）。
           </li>
           <li>
-            此層權限決定管理員首頁卡片是否顯示，以及對應 API 是否放行（未具備一律 403）。
+            此層權限決定管理員首頁是否有對應入口功能，以及對應 API 是否放行（未具備一律 403）。
           </li>
           <li>
-            「顯示與否」關閉時，該身分首頁不顯示此模組入口；
-            API 仍以「指定功能模組」權限把關（不因顯示關閉而額外阻擋）。
+            「入口功能」關閉時，該身分首頁不顯示此模組入口；
+            API 仍以「指定功能模組」權限把關（不因入口功能關閉而額外阻擋）。
           </li>
         </ul>
       </section>

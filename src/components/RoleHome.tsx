@@ -95,7 +95,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const announcementsHref = `${ROLE_HOME[role]}/announcements`;
   const calendarHref = `${ROLE_HOME[role]}/calendar`;
   // 功能入口卡片：順序比照主程式管理員首頁
-  // 「帳號、身分與安全管理」「公告」「行事曆」依功能模組「顯示與否」過濾
+  // 「帳號、身分與安全管理」「公告」「行事曆」依功能模組「入口功能」過濾
   // 個人「設定」頁為個人偏好、非功能模組入口，不套顯示開關
   const accountVisible =
     visibleModules === null || visibleModules.includes("account");
