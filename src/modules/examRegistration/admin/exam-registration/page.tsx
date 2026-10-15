@@ -3,9 +3,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RevealListCard from "@/components/RevealListCard";
 import { useDataSaver } from "@/lib/data-saver";
-import { ConfirmModal, FlashModal } from "../../components/exam-feedback";
+import { ConfirmModal } from "../../components/exam-feedback";
+import Toast, { type ToastMessage } from "../../components/toast";
 import OfficialExamLabel from "../../components/official-exam-label";
-import type { Flash } from "../../components/exam-feedback";
 import {
   EXAM_CATEGORY_LABELS,
   EXAM_EVENT_LIMITS,
@@ -290,7 +290,7 @@ export default function AdminExamRegistrationPage() {
   const [listCount, setListCount] = useState<number | null>(null);
   const [loadingListCount, setLoadingListCount] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [studentArchiveHelpOpen, setStudentArchiveHelpOpen] = useState(false);
@@ -317,12 +317,6 @@ export default function AdminExamRegistrationPage() {
     confirmLabel: string;
     onConfirm: () => void;
   } | null>(null);
-
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), flash.durationMs ?? 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
 
   // 年級／班級選項：需「學校基本設定」權限，讀不到就退回手動輸入代碼
   useEffect(() => {
@@ -421,10 +415,10 @@ export default function AdminExamRegistrationPage() {
         setListCount(data.total ?? data.events?.length ?? 0);
         setListLoaded(true);
       } else {
-        setFlash({ type: "error", text: data?.message || "載入場次失敗" });
+        setToast({ kind: "error", text: data?.message || "載入場次失敗" });
       }
     } catch {
-      setFlash({ type: "error", text: "載入場次失敗" });
+      setToast({ kind: "error", text: "載入場次失敗" });
     } finally {
       setLoadingList(false);
     }
@@ -464,12 +458,12 @@ export default function AdminExamRegistrationPage() {
     const code = form.locationOptionCodeText.trim();
     const label = form.locationOptionLabelText.trim();
     if (!code || !label) {
-      setFlash({ type: "error", text: "請輸入考試地區代碼與名稱" });
+      setToast({ kind: "error", text: "請輸入考試地區代碼與名稱" });
       return;
     }
     const parsed = parseExamLocationOptions([...form.locationOptions, { code, label }]);
     if (!parsed.ok) {
-      setFlash({ type: "error", text: formatLocationOptionError(parsed.message) });
+      setToast({ kind: "error", text: formatLocationOptionError(parsed.message) });
       return;
     }
     setForm((prev) => ({
@@ -483,16 +477,16 @@ export default function AdminExamRegistrationPage() {
   function applyLocationBatch() {
     const batch = parseLocationBatchText(form.locationOptionsText);
     if (!batch.ok) {
-      setFlash({ type: "error", text: batch.message });
+      setToast({ kind: "error", text: batch.message });
       return;
     }
     if (!batch.value.length) {
-      setFlash({ type: "error", text: "請先輸入批次內容" });
+      setToast({ kind: "error", text: "請先輸入批次內容" });
       return;
     }
     const parsed = parseExamLocationOptions([...form.locationOptions, ...batch.value]);
     if (!parsed.ok) {
-      setFlash({ type: "error", text: formatLocationOptionError(parsed.message) });
+      setToast({ kind: "error", text: formatLocationOptionError(parsed.message) });
       return;
     }
     setForm((prev) => ({
@@ -526,7 +520,7 @@ export default function AdminExamRegistrationPage() {
         prev.locationOptions.map((option, i) => ({ ...option, isDefault: i === index }))
       ),
     }));
-    setFlash({ type: "success", text: `已將「${selected.label}」設為預設考區` });
+    setToast({ kind: "success", text: `已將「${selected.label}」設為預設考區` });
   }
 
   function addAdvancedOption(subjectIndex: number) {
@@ -535,12 +529,12 @@ export default function AdminExamRegistrationPage() {
     const code = subject.advancedOptionCodeText.trim();
     const label = subject.advancedOptionLabelText.trim();
     if (!code || !label) {
-      setFlash({ type: "error", text: "請輸入進階選項代碼與名稱" });
+      setToast({ kind: "error", text: "請輸入進階選項代碼與名稱" });
       return;
     }
     const parsed = parseExamAdvancedOptions([...subject.advancedOptions, { code, label }]);
     if (!parsed.ok) {
-      setFlash({ type: "error", text: parsed.message });
+      setToast({ kind: "error", text: parsed.message });
       return;
     }
     setForm((prev) => ({
@@ -563,16 +557,16 @@ export default function AdminExamRegistrationPage() {
     if (!subject) return;
     const batch = parseAdvancedOptionBatchText(subject.advancedOptionsText);
     if (!batch.ok) {
-      setFlash({ type: "error", text: batch.message });
+      setToast({ kind: "error", text: batch.message });
       return;
     }
     if (!batch.value.length) {
-      setFlash({ type: "error", text: "請先輸入批次內容" });
+      setToast({ kind: "error", text: "請先輸入批次內容" });
       return;
     }
     const parsed = parseExamAdvancedOptions([...subject.advancedOptions, ...batch.value]);
     if (!parsed.ok) {
-      setFlash({ type: "error", text: parsed.message });
+      setToast({ kind: "error", text: parsed.message });
       return;
     }
     setForm((prev) => ({
@@ -616,12 +610,12 @@ export default function AdminExamRegistrationPage() {
       };
       const parsedAdvancedOptions = parseExamAdvancedOptions(subject.advancedOptions);
       if (!parsedAdvancedOptions.ok) {
-        setFlash({ type: "error", text: `科目「${label}」的進階選項${parsedAdvancedOptions.message}` });
+        setToast({ kind: "error", text: `科目「${label}」的進階選項${parsedAdvancedOptions.message}` });
         return;
       }
       if (subject.enableAdvancedOption) {
         if (!parsedAdvancedOptions.value.length) {
-          setFlash({ type: "error", text: `科目「${label}」啟用進階選項時，請至少新增一個進階選項` });
+          setToast({ kind: "error", text: `科目「${label}」啟用進階選項時，請至少新增一個進階選項` });
           return;
         }
         entry.enableAdvancedOption = true;
@@ -640,49 +634,49 @@ export default function AdminExamRegistrationPage() {
     }
     for (const subject of subjects) {
       if (subject.capacity !== undefined && subject.capacity > EXAM_EVENT_LIMITS.subjectCapacityMax) {
-        setFlash({
-          type: "error",
+        setToast({
+          kind: "error",
           text: `科目「${subject.label}」名額上限過大（最多 ${EXAM_EVENT_LIMITS.subjectCapacityMax}）`,
         });
         return;
       }
     }
     if (subjects.length < EXAM_EVENT_LIMITS.subjectsMin) {
-      setFlash({ type: "error", text: "請至少輸入一個科目名稱" });
+      setToast({ kind: "error", text: "請至少輸入一個科目名稱" });
       return;
     }
     if (subjects.length > EXAM_EVENT_LIMITS.subjectsMax) {
-      setFlash({
-        type: "error",
+      setToast({
+        kind: "error",
         text: `科目最多 ${EXAM_EVENT_LIMITS.subjectsMax} 項（目前 ${subjects.length} 項）`,
       });
       return;
     }
     if (!form.grades.length) {
-      setFlash({ type: "error", text: "請至少指定一個年級" });
+      setToast({ kind: "error", text: "請至少指定一個年級" });
       return;
     }
     const deadline = parseDatetimeLocal(form.deadlineText);
     if (!deadline) {
-      setFlash({ type: "error", text: "請設定報名截止時間" });
+      setToast({ kind: "error", text: "請設定報名截止時間" });
       return;
     }
     if (form.status === "open" && deadline <= Date.now()) {
-      setFlash({ type: "error", text: "開放報名狀態的截止時間必須晚於現在" });
+      setToast({ kind: "error", text: "開放報名狀態的截止時間必須晚於現在" });
       return;
     }
     // 考試結束日須 >= 起日（空＝單日）
     if (form.examEndDate && form.examDate && form.examEndDate < form.examDate) {
-      setFlash({ type: "error", text: "考試結束日不可早於開始日" });
+      setToast({ kind: "error", text: "考試結束日不可早於開始日" });
       return;
     }
     const registrationOpenAt = parseDatetimeLocal(form.registrationOpenAtText);
     if (!registrationOpenAt) {
-      setFlash({ type: "error", text: "請設定報名開放時間" });
+      setToast({ kind: "error", text: "請設定報名開放時間" });
       return;
     }
     if (registrationOpenAt >= deadline) {
-      setFlash({ type: "error", text: "報名開放時間須早於報名截止時間" });
+      setToast({ kind: "error", text: "報名開放時間須早於報名截止時間" });
       return;
     }
     // 考試地區（僅升學考試）
@@ -691,7 +685,7 @@ export default function AdminExamRegistrationPage() {
     if (form.examType === "entrance") {
       const parsedLocationOptions = parseExamLocationOptions(form.locationOptions);
       if (!parsedLocationOptions.ok) {
-        setFlash({ type: "error", text: formatLocationOptionError(parsedLocationOptions.message) });
+        setToast({ kind: "error", text: formatLocationOptionError(parsedLocationOptions.message) });
         return;
       }
       locationOptions = normalizeLocationOptions(parsedLocationOptions.value);
@@ -703,14 +697,14 @@ export default function AdminExamRegistrationPage() {
     const basicFeeStandard = Number(form.basicFeeStandardText);
     const basicFeeReduced = Number(form.basicFeeReducedText);
     if (!Number.isInteger(basicFeeStandard) || basicFeeStandard < 0 || !Number.isInteger(basicFeeReduced) || basicFeeReduced < 0) {
-      setFlash({ type: "error", text: "基本費用數值無效（需 0 以上整數）" });
+      setToast({ kind: "error", text: "基本費用數值無效（需 0 以上整數）" });
       return;
     }
 
     const normalizedNote = formatNumberedNote(form.note);
 
     setSaving(true);
-    setFlash(null);
+    setToast(null);
     try {
       const payload = {
         id: form.id,
@@ -744,9 +738,9 @@ export default function AdminExamRegistrationPage() {
       setForm(emptyForm());
       setFormOpen(false);
       setRoster(null);
-      setFlash({ type: "success", text: data.message || "已儲存" });
+      setToast({ kind: "success", text: data.message || "已儲存" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -781,9 +775,9 @@ export default function AdminExamRegistrationPage() {
       if (!res.ok || !data?.success) throw new Error(data?.message || "操作失敗");
       applyList(data);
       setRoster((prev) => (prev && prev.eventId === item.id ? null : prev));
-      setFlash({ type: "success", text: data.message || "已更新" });
+      setToast({ kind: "success", text: data.message || "已更新" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "操作失敗" });
     } finally {
       setSaving(false);
     }
@@ -815,9 +809,9 @@ export default function AdminExamRegistrationPage() {
       setRoster((prev) => (prev && prev.eventId === item.id ? null : prev));
       setForm((prev) => (prev.id === item.id ? emptyForm() : prev));
       if (form.id === item.id) setFormOpen(false);
-      setFlash({ type: "success", text: data.message || "已刪除", durationMs: 2000 });
+      setToast({ kind: "success", text: data.message || "已刪除" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
       setSaving(false);
     }
@@ -894,7 +888,7 @@ export default function AdminExamRegistrationPage() {
       }
       setRoster(data.roster);
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "載入名單失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "載入名單失敗" });
     } finally {
       setLoadingRoster(false);
     }
@@ -962,7 +956,7 @@ export default function AdminExamRegistrationPage() {
 
   return (
     <div className="w-full max-w-4xl mb-8 space-y-6">
-      <FlashModal flash={flash} onDismiss={() => setFlash(null)} />
+      <Toast message={toast} onClose={() => setToast(null)} />
       {confirm && (
         <ConfirmModal
           text={confirm.text}

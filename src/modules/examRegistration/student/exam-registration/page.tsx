@@ -7,9 +7,9 @@ import Copyright from "@/components/Copyright";
 import { fetchSettings } from "@/lib/settings-client";
 import { logout } from "@/lib/session";
 import { Settings, defaultSettings } from "@/types/settings";
-import { ConfirmModal, FlashModal } from "../../components/exam-feedback";
+import { ConfirmModal } from "../../components/exam-feedback";
+import Toast, { type ToastMessage } from "../../components/toast";
 import OfficialExamLabel from "../../components/official-exam-label";
-import type { Flash } from "../../components/exam-feedback";
 import {
   EXAM_SERVICE_NOTE_MAX,
   EXAM_CATEGORY_LABELS,
@@ -66,7 +66,7 @@ export default function ExamRegistrationStudentPage() {
   const [events, setEvents] = useState<StudentExamEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [subjectOptionCodes, setSubjectOptionCodes] = useState<Record<string, Record<string, string>>>({});
   const [optOuts, setOptOuts] = useState<Record<string, boolean>>({});
   const [optOutReasons, setOptOutReasons] = useState<Record<string, string>>({});
@@ -95,12 +95,6 @@ export default function ExamRegistrationStudentPage() {
       })
       .map((subject) => subject.key);
   }, [subjectOptionCodes]);
-
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
 
   useEffect(() => {
     if (!printId) return;
@@ -180,10 +174,10 @@ export default function ExamRegistrationStudentPage() {
           )
         );
       } else {
-        setFlash({ type: "error", text: data?.message || "載入失敗" });
+        setToast({ kind: "error", text: data?.message || "載入失敗" });
       }
     } catch {
-      setFlash({ type: "error", text: "載入失敗" });
+      setToast({ kind: "error", text: "載入失敗" });
     } finally {
       setLoading(false);
     }
@@ -199,11 +193,11 @@ export default function ExamRegistrationStudentPage() {
     const reason = (optOutReasons[item.id] ?? "").trim();
     const examServiceNote = (examServiceNotes[item.id] ?? "").trim();
     if (optOut && item.registrationMode === "required" && !reason) {
-      setFlash({ type: "error", text: "勾選不報名時，請說明原因" });
+      setToast({ kind: "error", text: "勾選不報名時，請說明原因" });
       return;
     }
     if (!optOut && examServiceNote.length > EXAM_SERVICE_NOTE_MAX) {
-      setFlash({ type: "error", text: `特殊應考服務需求過長（最多 ${EXAM_SERVICE_NOTE_MAX} 字）` });
+      setToast({ kind: "error", text: `特殊應考服務需求過長（最多 ${EXAM_SERVICE_NOTE_MAX} 字）` });
       return;
     }
     const keys = selectedSubjectKeysByOptionCodes(item);
@@ -218,7 +212,7 @@ export default function ExamRegistrationStudentPage() {
       subjectAdvancedOptionCodes[subject.key] = code;
     }
     if (!optOut && !keys.length) {
-      setFlash({ type: "error", text: "請至少選擇一個科目" });
+      setToast({ kind: "error", text: "請至少選擇一個科目" });
       return;
     }
     setSavingId(item.id);
@@ -240,10 +234,10 @@ export default function ExamRegistrationStudentPage() {
       });
       const data: MutationResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "儲存失敗");
-      setFlash({ type: "success", text: data.message || "已儲存" });
+      setToast({ kind: "success", text: data.message || "已儲存" });
       await load();
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setSavingId(null);
     }
@@ -267,10 +261,10 @@ export default function ExamRegistrationStudentPage() {
       });
       const data: MutationResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "取消失敗");
-      setFlash({ type: "success", text: data.message || "已取消" });
+      setToast({ kind: "success", text: data.message || "已取消" });
       await load();
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "取消失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "取消失敗" });
     } finally {
       setSavingId(null);
     }
@@ -295,10 +289,10 @@ export default function ExamRegistrationStudentPage() {
       });
       const data: MutationResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "封存失敗");
-      setFlash({ type: "success", text: data.message || "已封存" });
+      setToast({ kind: "success", text: data.message || "已封存" });
       await load();
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "封存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "封存失敗" });
     } finally {
       setSavingId(null);
     }
@@ -348,7 +342,7 @@ export default function ExamRegistrationStudentPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
-      <FlashModal flash={flash} onDismiss={() => setFlash(null)} />
+      <Toast message={toast} onClose={() => setToast(null)} />
       {confirm && (
         <ConfirmModal
           text={confirm.text}

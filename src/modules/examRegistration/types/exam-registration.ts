@@ -299,6 +299,28 @@ export interface ExamEventRoster {
   epoch: number;
 }
 
+/** 延遲載入：班級分頁清單（初次載入，不含登錄明細） */
+export interface ExamClassTabs {
+  eventId: string;
+  event: ExamEvent;
+  classTabs: Array<{ key: string; label: string; count: number }>;
+  applicableCount: number;
+  epoch: number;
+}
+
+/** 延遲載入：單班名冊（點選班級分頁時載入） */
+export interface ExamClassRoster {
+  classCode: string;
+  students: ExamRosterStudent[];
+  classSummary: {
+    total: number;
+    registeredCount: number;
+    optOutCount: number;
+    archivedCount: number;
+  };
+  epoch: number;
+}
+
 export interface ExamEventDraft {
   title: string;
   examType: ExamCategory;

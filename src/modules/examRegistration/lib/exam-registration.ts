@@ -49,6 +49,8 @@ import type {
   ExamAnnouncementSync,
   ExamAdvancedOption,
   ExamCalendarSync,
+  ExamClassRoster,
+  ExamClassTabs,
   ExamEvent,
   ExamEventDraft,
   ExamEventRoster,
@@ -1001,6 +1003,78 @@ function buildRosterStudents(
       a.studentName.localeCompare(b.studentName, "zh-Hant")
   );
   return students;
+}
+
+// —— 延遲載入：班級分頁 / 單班名冊 ——
+
+let _applicableStudentsCache: { eventId: string; students: ApplicableStudent[] } | null = null;
+
+async function loadApplicableStudentsCached(event: ExamEvent): Promise<ApplicableStudent[]> {
+  if (_applicableStudentsCache?.eventId === event.id) return _applicableStudentsCache.students;
+  const students = await loadApplicableStudents(event);
+  _applicableStudentsCache = { eventId: event.id, students };
+  return students;
+}
+
+/** 班級分頁清單（不含登錄明細，僅讀名冊） */
+export async function getExamEventClassTabs(eventId: string): Promise<ExamClassTabs | null> {
+  const event = await getExamEvent(eventId);
+  if (!event) return null;
+  const { data, epoch } = await cachedListRead(`${ADMIN_ROSTER_KEY_PREFIX}${eventId}:tabs`, async () => {
+    const students = await loadApplicableStudentsCached(event);
+    const byClass = new Map<string, number>();
+    for (const student of students) {
+      const code = student.classCode || "__no_class__";
+      byClass.set(code, (byClass.get(code) ?? 0) + 1);
+    }
+    const classTabs = [...byClass.entries()]
+      .map(([code, count]) => ({
+        key: code,
+        label: code === "__no_class__" ? "未填班級" : code,
+        count,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant", { numeric: true }));
+    return { classTabs, applicableCount: students.length };
+  });
+  return { eventId, event, ...data, epoch };
+}
+
+/** 單班名冊（點選班級時才讀該班登錄） */
+export async function getExamEventClassRoster(
+  eventId: string,
+  classCode: string
+): Promise<ExamClassRoster | null> {
+  const event = await getExamEvent(eventId);
+  if (!event) return null;
+  const key = classCode || "__no_class__";
+  const normalizedClass = key === "__no_class__" ? "" : key;
+  const { data, epoch } = await cachedListRead(`${ADMIN_ROSTER_KEY_PREFIX}${eventId}:class:${key}`, async () => {
+    const [allStudents, snap] = await Promise.all([
+      loadApplicableStudentsCached(event),
+      getAdminDb()
+        .collection(EXAM_REGISTRATIONS_COLLECTION)
+        .where("eventId", "==", eventId)
+        .where("studentClass", "==", normalizedClass)
+        .limit(ROSTER_LIMIT)
+        .get(),
+    ]);
+    const classStudents = allStudents.filter((s) => (s.classCode || "__no_class__") === key);
+    const regs = snap.docs.map((doc) => readExamRegistration(doc.id, doc.data()));
+    const students = buildRosterStudents(regs, classStudents);
+    let registeredCount = 0;
+    let optOutCount = 0;
+    let archivedCount = 0;
+    for (const reg of regs) {
+      if (reg.archived) archivedCount += 1;
+      if (reg.optOut) optOutCount += 1;
+      else registeredCount += 1;
+    }
+    return {
+      students,
+      classSummary: { total: classStudents.length, registeredCount, optOutCount, archivedCount },
+    };
+  });
+  return { classCode: key, ...data, epoch };
 }
 
 function summarizeRoster(

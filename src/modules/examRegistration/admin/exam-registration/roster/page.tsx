@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import OfficialExamLabel from "../../../components/official-exam-label";
+import { ConfirmModal } from "../../../components/exam-feedback";
+import Toast, { type ToastMessage } from "../../../components/toast";
 import {
   EXAM_REGISTRATION_NUMBER_FIELDS,
   EXAM_FEE_CODE_LABELS,
@@ -11,15 +13,35 @@ import {
   resolveLocationLabel,
 } from "../../../types/exam-registration";
 import type {
-  ExamEventRoster,
+  ExamClassRoster,
+  ExamClassTabs,
+  ExamEvent,
   ExamRegistrationNumberField,
   ExamRosterStudent,
 } from "../../../types/exam-registration";
 
-interface AdminRosterResponse {
+interface ClassTabsResponse {
   success?: boolean;
   message?: string;
-  roster?: ExamEventRoster;
+  eventId?: string;
+  event?: ExamEvent;
+  classTabs?: ExamClassTabs["classTabs"];
+  applicableCount?: number;
+  epoch?: number;
+}
+
+interface ClassRosterResponse {
+  success?: boolean;
+  message?: string;
+  classCode?: string;
+  students?: ExamRosterStudent[];
+  classSummary?: ExamClassRoster["classSummary"];
+  epoch?: number;
+}
+
+interface ExportResponse {
+  success?: boolean;
+  message?: string;
 }
 
 function formatListDateTime(value: number): string {
@@ -32,69 +54,57 @@ function formatListDateTime(value: number): string {
   });
 }
 
-function classKeyOf(row: ExamRosterStudent): string {
-  return row.studentClass || "__no_class__";
-}
-
-function classLabelOf(code: string): string {
-  return code === "__no_class__" ? "未填班級" : code;
-}
-
 export default function ExamRegistrationRosterPage() {
   const searchParams = useSearchParams();
   const eventId = searchParams.get("eventId") ?? "";
 
   const [loading, setLoading] = useState(false);
+  const [classLoading, setClassLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [roster, setRoster] = useState<ExamEventRoster | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ uid: string; name: string } | null>(null);
+  const [event, setEvent] = useState<ExamEvent | null>(null);
+  const [classTabs, setClassTabs] = useState<ExamClassTabs["classTabs"]>([]);
+  const [applicableCount, setApplicableCount] = useState(0);
   const [activeClass, setActiveClass] = useState("");
+  const [classCache, setClassCache] = useState<Record<string, ExamClassRoster>>({});
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exportScope, setExportScope] = useState("");
   const [schoolExamCode, setSchoolExamCode] = useState("");
   const [registrationNumberField, setRegistrationNumberField] = useState<ExamRegistrationNumberField>("rollNo");
 
-  const loadRoster = useCallback(async () => {
+  const loadClassTabs = useCallback(async () => {
     if (!eventId) {
-      setRoster(null);
-      setError("缺少場次 id");
+      setEvent(null);
+      setClassTabs([]);
+      setToast({ kind: "error", text: "缺少場次 id" });
       return;
     }
     setLoading(true);
-    setError("");
     try {
       const res = await fetch(`/api/admin/exam-registration?eventId=${encodeURIComponent(eventId)}`, {
         cache: "no-store",
       });
-      const data: AdminRosterResponse | null = await res.json().catch(() => null);
-      if (!res.ok || !data?.success || !data.roster) {
-        throw new Error(data?.message || "載入名單失敗");
+      const data: ClassTabsResponse | null = await res.json().catch(() => null);
+      if (!res.ok || !data?.success || !data.classTabs) {
+        throw new Error(data?.message || "載入班級清單失敗");
       }
-      setRoster(data.roster);
+      setEvent(data.event ?? null);
+      setClassTabs(data.classTabs);
+      setApplicableCount(data.applicableCount ?? 0);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "載入名單失敗");
-      setRoster(null);
+      setToast({ kind: "error", text: e instanceof Error ? e.message : "載入班級清單失敗" });
+      setEvent(null);
+      setClassTabs([]);
     } finally {
       setLoading(false);
     }
   }, [eventId]);
 
   useEffect(() => {
-    void loadRoster();
-  }, [loadRoster]);
-
-  const classTabs = useMemo(() => {
-    if (!roster) return [] as Array<{ key: string; label: string; count: number }>;
-    const entries = Object.entries(roster.summary.byClass)
-      .map(([classCode, count]) => ({
-        key: classCode || "__no_class__",
-        label: classLabelOf(classCode || "__no_class__"),
-        count,
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant", { numeric: true }));
-    return entries;
-  }, [roster]);
+    void loadClassTabs();
+  }, [loadClassTabs]);
 
   useEffect(() => {
     if (!classTabs.length) {
@@ -106,17 +116,52 @@ export default function ExamRegistrationRosterPage() {
     }
   }, [activeClass, classTabs]);
 
+  const loadClassRoster = useCallback(
+    async (classCode: string) => {
+      if (!eventId || !classCode) return;
+      if (classCache[classCode]) return;
+      setClassLoading(true);
+      try {
+        const params = new URLSearchParams({ eventId, classCode });
+        const res = await fetch(`/api/admin/exam-registration?${params.toString()}`, { cache: "no-store" });
+        const data: ClassRosterResponse | null = await res.json().catch(() => null);
+        if (!res.ok || !data?.success || !data.students) {
+          throw new Error(data?.message || "載入班級名冊失敗");
+        }
+        setClassCache((prev) => ({
+          ...prev,
+          [classCode]: {
+            classCode: data.classCode ?? classCode,
+            students: data.students ?? [],
+            classSummary: data.classSummary ?? { total: 0, registeredCount: 0, optOutCount: 0, archivedCount: 0 },
+            epoch: data.epoch ?? 0,
+          },
+        }));
+      } catch (e) {
+        setToast({ kind: "error", text: e instanceof Error ? e.message : "載入班級名冊失敗" });
+      } finally {
+        setClassLoading(false);
+      }
+    },
+    [eventId, classCache]
+  );
+
+  useEffect(() => {
+    if (activeClass) void loadClassRoster(activeClass);
+  }, [activeClass, loadClassRoster]);
+
+  const currentClassData = useMemo(() => classCache[activeClass] ?? null, [classCache, activeClass]);
+
   const classOptions = useMemo(() => {
-    if (!roster) return [] as string[];
     const codes = new Set<string>();
-    roster.event.target.classes.forEach((code) => {
+    event?.target.classes.forEach((code) => {
       if (code) codes.add(code);
     });
-    Object.keys(roster.summary.byClass).forEach((code) => {
-      if (code) codes.add(code);
+    classTabs.forEach((tab) => {
+      if (tab.key && tab.key !== "__no_class__") codes.add(tab.key);
     });
     return Array.from(codes).sort((a, b) => a.localeCompare(b, "zh-Hant", { numeric: true }));
-  }, [roster]);
+  }, [event, classTabs]);
 
   useEffect(() => {
     if (!classOptions.length) {
@@ -129,9 +174,9 @@ export default function ExamRegistrationRosterPage() {
   }, [classOptions, exportFrom, exportTo]);
 
   async function downloadScopeXlsx(scope: string, includeRegistrationNumber = false) {
-    if (!roster) return;
+    if (!event) return;
     const params = new URLSearchParams({
-      eventId: roster.eventId,
+      eventId,
       format: includeRegistrationNumber ? "official-xlsx" : "xlsx",
       scope,
       from: exportFrom,
@@ -140,17 +185,16 @@ export default function ExamRegistrationRosterPage() {
     if (includeRegistrationNumber) {
       const code = schoolExamCode.trim();
       if (!code) {
-        setError("請輸入學校升學代碼");
+        setToast({ kind: "error", text: "請輸入學校升學代碼" });
         return;
       }
       params.set("schoolExamCode", code);
       params.set("registrationNumberField", registrationNumberField);
     }
     try {
-      setError("");
       const res = await fetch(`/api/admin/exam-registration?${params.toString()}`, { cache: "no-store" });
       if (!res.ok) {
-        const data: AdminRosterResponse | null = await res.json().catch(() => null);
+        const data: ExportResponse | null = await res.json().catch(() => null);
         throw new Error(data?.message || "下載名單失敗");
       }
       const blob = await res.blob();
@@ -166,55 +210,68 @@ export default function ExamRegistrationRosterPage() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "下載名單失敗");
+      setToast({ kind: "error", text: e instanceof Error ? e.message : "下載名單失敗" });
     }
   }
 
   const filteredRows = useMemo(() => {
-    if (!roster || !activeClass) return [] as ExamRosterStudent[];
-    return roster.students.filter((row) => classKeyOf(row) === activeClass);
-  }, [roster, activeClass]);
+    return currentClassData?.students ?? [];
+  }, [currentClassData]);
 
   async function unarchiveRegistration(studentUid: string) {
-    if (!roster || saving) return;
+    if (!eventId || saving) return;
     setSaving(true);
-    setError("");
     try {
       const res = await fetch("/api/admin/exam-registration", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: roster.eventId, registrationId: studentUid, unarchive: true }),
+        body: JSON.stringify({ id: eventId, registrationId: studentUid, unarchive: true }),
       });
-      const data: AdminRosterResponse | null = await res.json().catch(() => null);
+      const data: ExportResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || "解除封存失敗");
       }
-      await loadRoster();
+      setClassCache((prev) => {
+        const next = { ...prev };
+        delete next[activeClass];
+        return next;
+      });
+      await loadClassRoster(activeClass);
+      setToast({ kind: "success", text: "已解除封存" });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "解除封存失敗");
+      setToast({ kind: "error", text: e instanceof Error ? e.message : "解除封存失敗" });
     } finally {
       setSaving(false);
     }
   }
 
-  async function deleteRegistration(studentUid: string, studentName: string) {
-    if (!roster || saving) return;
-    const confirmed = window.confirm(`確定要硬刪除「${studentName}」的報名登錄嗎？此操作無法復原。`);
-    if (!confirmed) return;
+  function handleDeleteClick(studentUid: string, studentName: string) {
+    if (saving) return;
+    setConfirmDelete({ uid: studentUid, name: studentName });
+  }
+
+  async function confirmDeleteRegistration() {
+    if (!eventId || !confirmDelete || saving) return;
     setSaving(true);
-    setError("");
+    setConfirmDelete(null);
     try {
-      const params = new URLSearchParams({ id: roster.eventId, registrationId: studentUid });
+      const params = new URLSearchParams({ id: eventId, registrationId: confirmDelete.uid });
       const res = await fetch(`/api/admin/exam-registration?${params.toString()}`, {
         method: "DELETE",
       });
-      const data: AdminRosterResponse | null = await res.json().catch(() => null);
+      const data: ExportResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || "刪除失敗");
       }
-      await loadRoster();
+      setClassCache((prev) => {
+        const next = { ...prev };
+        delete next[activeClass];
+        return next;
+      });
+      await loadClassRoster(activeClass);
+      setToast({ kind: "success", text: "已刪除報名登錄" });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "刪除失敗");
+      setToast({ kind: "error", text: e instanceof Error ? e.message : "刪除失敗" });
     } finally {
       setSaving(false);
     }
@@ -226,7 +283,7 @@ export default function ExamRegistrationRosterPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-bold text-t1">查看名單</h2>
-            <p className="text-xs text-t3">以班級分頁檢視，匯出檔案請使用下方「資料整理」。</p>
+            <p className="text-xs text-t3">點選班級分頁載入該班名冊，匯出檔案請使用下方「資料整理」。</p>
           </div>
           <a href="/admin/exam-registration" className="btn-soft rounded px-3 py-1 text-xs cursor-pointer">
             返回場次清單
@@ -234,22 +291,22 @@ export default function ExamRegistrationRosterPage() {
         </div>
 
         {loading ? <p className="text-sm text-t2">載入中…</p> : null}
-        {error ? <p className="text-sm text-danger">{error}</p> : null}
 
-        {roster && !loading ? (
+        {event && !loading ? (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-bold text-t1">
-                  {roster.event.title}
-                  <OfficialExamLabel title={roster.event.title} />
+                  {event.title}
+                  <OfficialExamLabel title={event.title} />
                 </h3>
                 <p className="text-xs text-t3">
-                  應報名 {roster.summary.applicableCount} 人／完成報名 {roster.summary.registeredCount} 人／
-                  不報名 {roster.summary.optOutCount} 人／未完成報名{" "}
-                  {Math.max(0, roster.summary.applicableCount - roster.summary.registeredCount - roster.summary.optOutCount)} 人；
-                  {formatExamDateRange(roster.event)}・
-                  {EXAM_REGISTRATION_MODE_LABELS[roster.event.registrationMode]}
+                  應報名 {applicableCount} 人；
+                  {currentClassData
+                    ? `本班 ${currentClassData.classSummary.total} 人／完成報名 ${currentClassData.classSummary.registeredCount} 人／不報名 ${currentClassData.classSummary.optOutCount} 人／未完成報名 ${Math.max(0, currentClassData.classSummary.total - currentClassData.classSummary.registeredCount - currentClassData.classSummary.optOutCount)} 人；`
+                    : "點選班級查看明細；"}
+                  {formatExamDateRange(event)}・
+                  {EXAM_REGISTRATION_MODE_LABELS[event.registrationMode]}
                 </p>
               </div>
             </div>
@@ -265,7 +322,7 @@ export default function ExamRegistrationRosterPage() {
                   <span className="block text-xs text-t2">起始班級</span>
                   <select
                     value={exportFrom}
-                    onChange={(event) => setExportFrom(event.target.value)}
+                    onChange={(evt) => setExportFrom(evt.target.value)}
                     disabled={!classOptions.length}
                     className="input-theme rounded px-3 py-2 text-sm cursor-pointer disabled:opacity-50"
                   >
@@ -284,7 +341,7 @@ export default function ExamRegistrationRosterPage() {
                   <span className="block text-xs text-t2">結束班級</span>
                   <select
                     value={exportTo}
-                    onChange={(event) => setExportTo(event.target.value)}
+                    onChange={(evt) => setExportTo(evt.target.value)}
                     disabled={!classOptions.length}
                     className="input-theme rounded px-3 py-2 text-sm cursor-pointer disabled:opacity-50"
                   >
@@ -304,8 +361,8 @@ export default function ExamRegistrationRosterPage() {
                   <span className="block text-xs text-t2">名單類型</span>
                   <select
                     value={exportScope}
-                    onChange={(event) => {
-                      const scope = event.target.value;
+                    onChange={(evt) => {
+                      const scope = evt.target.value;
                       setExportScope(scope);
                       if (!scope) return;
                       void downloadScopeXlsx(scope).finally(() => setExportScope(""));
@@ -325,7 +382,7 @@ export default function ExamRegistrationRosterPage() {
                     type="text"
                     size={6}
                     value={schoolExamCode}
-                    onChange={(event) => setSchoolExamCode(event.target.value)}
+                    onChange={(evt) => setSchoolExamCode(evt.target.value)}
                     className="input-theme rounded px-3 py-2 text-sm"
                   />
                 </label>
@@ -333,7 +390,7 @@ export default function ExamRegistrationRosterPage() {
                   <span className="block text-xs text-t2">報名序號欄位</span>
                   <select
                     value={registrationNumberField}
-                    onChange={(event) => setRegistrationNumberField(event.target.value as ExamRegistrationNumberField)}
+                    onChange={(evt) => setRegistrationNumberField(evt.target.value as ExamRegistrationNumberField)}
                     className="input-theme rounded px-3 py-2 text-sm cursor-pointer"
                   >
                     {EXAM_REGISTRATION_NUMBER_FIELDS.map((field) => (
@@ -373,6 +430,9 @@ export default function ExamRegistrationRosterPage() {
               ))}
             </div>
 
+            {classLoading ? <p className="text-sm text-t2">載入班級名冊中…</p> : null}
+
+            {!classLoading && currentClassData ? (
             <div className="overflow-x-auto border border-themed rounded">
               <table className="w-full text-sm text-left">
                 <thead className="border-b border-themed">
@@ -382,7 +442,7 @@ export default function ExamRegistrationRosterPage() {
                     <th className="px-3 py-2 font-medium">姓名</th>
                     <th className="px-3 py-2 font-medium">報名情形</th>
                     <th className="px-3 py-2 font-medium">選考科目</th>
-                    {roster.event.locationOptions?.length ? (
+                    {event.locationOptions?.length ? (
                       <th className="px-3 py-2 font-medium">試場</th>
                     ) : null}
                     <th className="px-3 py-2 font-medium">繳費</th>
@@ -394,7 +454,7 @@ export default function ExamRegistrationRosterPage() {
                   {filteredRows.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8 + (roster.event.locationOptions?.length ? 1 : 0)}
+                        colSpan={8 + (event.locationOptions?.length ? 1 : 0)}
                         className="px-3 py-6 text-center text-t3"
                       >
                         此班級尚無學生
@@ -407,7 +467,7 @@ export default function ExamRegistrationRosterPage() {
                       const isOptOut = row.status === "opt_out";
                       const labels = isOptOut || !reg
                         ? []
-                        : roster.event.subjects
+                        : event.subjects
                             .filter((subject) => reg.subjectKeys.includes(subject.key))
                             .map((subject) => {
                               const selectedCode = reg.subjectAdvancedOptionCodes?.[subject.key] ?? "";
@@ -437,11 +497,11 @@ export default function ExamRegistrationRosterPage() {
                             )}
                           </td>
                           <td className="px-3 py-2 text-t2">{isOptOut || isPending ? "—" : labels.join("、") || "—"}</td>
-                          {roster.event.locationOptions?.length ? (
+                          {event.locationOptions?.length ? (
                             <td className="px-3 py-2 text-t2 whitespace-nowrap">
                               {isOptOut || isPending || !reg?.locationCode
                                 ? "—"
-                                : resolveLocationLabel(roster.event.locationOptions, reg.locationCode)}
+                                : resolveLocationLabel(event.locationOptions, reg.locationCode)}
                             </td>
                           ) : null}
                           <td className="px-3 py-2 text-t2 whitespace-nowrap">
@@ -469,7 +529,7 @@ export default function ExamRegistrationRosterPage() {
                                 )}
                                 <button
                                   type="button"
-                                  onClick={() => void deleteRegistration(reg.studentUid, row.studentName)}
+                                  onClick={() => handleDeleteClick(reg.studentUid, row.studentName)}
                                   disabled={saving}
                                   className="rounded border border-danger px-2 py-1 text-xs text-danger cursor-pointer disabled:opacity-50 hover:bg-danger hover:text-white"
                                 >
@@ -487,9 +547,21 @@ export default function ExamRegistrationRosterPage() {
                 </tbody>
               </table>
             </div>
+            ) : null}
           </div>
         ) : null}
       </section>
+
+      {confirmDelete && (
+        <ConfirmModal
+          text={`確定要硬刪除「${confirmDelete.name}」的報名登錄嗎？\n此操作無法復原。`}
+          confirmLabel="刪除"
+          danger
+          onConfirm={() => void confirmDeleteRegistration()}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

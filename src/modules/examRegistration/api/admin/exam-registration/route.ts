@@ -14,6 +14,8 @@ import {
   countAdminExamEvents,
   deleteExamEvent,
   deleteExamRegistration,
+  getExamEventClassRoster,
+  getExamEventClassTabs,
   getExamEventRoster,
   listAdminExamEvents,
   unarchiveExamRegistration,
@@ -157,11 +159,21 @@ export async function GET(request: NextRequest) {
           },
         });
       }
-      const roster = await getExamEventRoster(eventId);
-      if (!roster) {
+      // 延遲載入：`?eventId=&classCode=` 回傳單班名冊
+      const classCode = request.nextUrl.searchParams.get("classCode");
+      if (classCode !== null) {
+        const classRoster = await getExamEventClassRoster(eventId, classCode);
+        if (!classRoster) {
+          return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });
+        }
+        return NextResponse.json({ success: true, ...classRoster }, { headers: noStore });
+      }
+      // 延遲載入：`?eventId=` 回傳班級分頁（不含登錄明細）
+      const tabs = await getExamEventClassTabs(eventId);
+      if (!tabs) {
         return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });
       }
-      return NextResponse.json({ success: true, roster }, { headers: noStore });
+      return NextResponse.json({ success: true, ...tabs }, { headers: noStore });
     }
 
     if (request.nextUrl.searchParams.get("summary") === "count") {
