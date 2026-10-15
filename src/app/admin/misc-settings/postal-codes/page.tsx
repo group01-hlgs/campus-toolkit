@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ListPagination, { paginate } from "@/components/ListPagination";
-import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import {
   POSTAL_CODE_MAX_LENGTH,
   POSTAL_DISTRICT_MAX_LENGTH,
@@ -35,7 +35,7 @@ export default function PostalCodesPage() {
   const [editCode, setEditCode] = useState("");
   const [editDistrict, setEditDistrict] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const loadOptions = useCallback(async () => {
     setLoading(true);
@@ -94,7 +94,7 @@ export default function PostalCodesPage() {
   function addOption() {
     const error = validateOption(newCode, newDistrict);
     if (error) {
-      setFeedback({ kind: "error", message: error });
+      setToast({ kind: "error", text: error });
       return;
     }
     setOptions((current) => [
@@ -116,7 +116,7 @@ export default function PostalCodesPage() {
   function saveEdit(index: number) {
     const error = validateOption(editCode, editDistrict, index);
     if (error) {
-      setFeedback({ kind: "error", message: error });
+      setToast({ kind: "error", text: error });
       return;
     }
     setOptions((current) =>
@@ -156,11 +156,11 @@ export default function PostalCodesPage() {
       const values = data.options.map((item) => ({ ...item }));
       setOptions(values);
       setSavedOptions(values.map((item) => ({ ...item })));
-      setFeedback({ kind: "success", message: data.message || "郵遞區號設定已儲存。" });
+      setToast({ kind: "success", text: data.message || "郵遞區號設定已儲存。" });
     } catch (error) {
-      setFeedback({
+      setToast({
         kind: "error",
-        message: error instanceof Error ? error.message : "儲存郵遞區號設定失敗",
+        text: error instanceof Error ? error.message : "儲存郵遞區號設定失敗",
       });
     } finally {
       setSaving(false);
@@ -391,11 +391,7 @@ export default function PostalCodesPage() {
         </div>
       )}
 
-      <PersonalInfoResultDialog
-        message={feedback?.message ?? null}
-        kind={feedback?.kind ?? "success"}
-        onClose={() => setFeedback(null)}
-      />
+      <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );
 }

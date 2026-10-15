@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import DisclosureArrow from "@/components/DisclosureArrow";
-import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import {
   DEFAULT_STUDENT_PERSONAL_INFO_SETTINGS,
   type StudentPersonalInfoSettings,
@@ -27,7 +27,7 @@ export default function PersonalInfoRulesPanel() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -44,7 +44,7 @@ export default function PersonalInfoRulesPanel() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "讀取個人資料管理規則失敗";
       setLoadError(message);
-      setFeedback({ kind: "error", message });
+      setToast({ kind: "error", text: message });
     } finally {
       setLoading(false);
     }
@@ -57,19 +57,19 @@ export default function PersonalInfoRulesPanel() {
   async function saveSettings() {
     if (saving) return;
     if (settings.enabled && (!settings.startDate || !settings.endDate)) {
-      setFeedback({ kind: "error", message: "開放填寫前，請先設定起始日期時間與結束日期時間。" });
+      setToast({ kind: "error", text: "開放填寫前，請先設定起始日期時間與結束日期時間。" });
       return;
     }
     if (settings.startDate && settings.endDate && settings.endDate < settings.startDate) {
-      setFeedback({ kind: "error", message: "結束日期時間不可早於起始日期時間。" });
+      setToast({ kind: "error", text: "結束日期時間不可早於起始日期時間。" });
       return;
     }
     if (settings.enabled && settings.target.mode === "grades" && settings.target.grades.length === 0) {
-      setFeedback({ kind: "error", message: "請至少選擇一個開放填寫的年級。" });
+      setToast({ kind: "error", text: "請至少選擇一個開放填寫的年級。" });
       return;
     }
     if (settings.enabled && settings.target.mode === "classes" && settings.target.classes.length === 0) {
-      setFeedback({ kind: "error", message: "請至少選擇一個開放填寫的班級。" });
+      setToast({ kind: "error", text: "請至少選擇一個開放填寫的班級。" });
       return;
     }
 
@@ -86,11 +86,11 @@ export default function PersonalInfoRulesPanel() {
       }
       setSettings(data.settings);
       if (data.period) setPeriod(data.period);
-      setFeedback({ kind: "success", message: data.message || "管理規則已儲存。" });
+      setToast({ kind: "success", text: data.message || "管理規則已儲存。" });
     } catch (error) {
-      setFeedback({
+      setToast({
         kind: "error",
-        message: error instanceof Error ? error.message : "儲存個人資料管理規則失敗",
+        text: error instanceof Error ? error.message : "儲存個人資料管理規則失敗",
       });
     } finally {
       setSaving(false);
@@ -310,11 +310,7 @@ export default function PersonalInfoRulesPanel() {
           </div>
         )}
       </details>
-      <PersonalInfoResultDialog
-        message={feedback?.message ?? null}
-        kind={feedback?.kind ?? "success"}
-        onClose={() => setFeedback(null)}
-      />
+      <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );
 }

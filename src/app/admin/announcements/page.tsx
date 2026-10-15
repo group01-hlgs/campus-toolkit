@@ -26,8 +26,7 @@ import { normalizeCategoryId } from "@/types/category";
 import { useDataSaver } from "@/lib/data-saver";
 import RevealListCard from "@/components/RevealListCard";
 import PinIcon from "@/components/PinIcon";
-
-type Flash = { type: "success" | "error"; text: string } | null;
+import Toast, { type ToastMessage } from "@/components/Toast";
 
 interface AdminListResponse {
   success?: boolean;
@@ -97,7 +96,7 @@ export default function AdminAnnouncementsPage() {
   const gating = saverOn && !listLoaded;
   const [loadingList, setLoadingList] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   // 建立／編輯表單：預設收納；點「展開」或由清單按「編輯」時展開
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -186,12 +185,6 @@ export default function AdminAnnouncementsPage() {
     };
   }, [settingsReady, saverOn]);
 
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
-
   /** 套用設定回應（分類、顯示位置、公告原則） */
   const applySettings = useCallback((next: AnnouncementSettings) => {
     setSettings(next);
@@ -230,10 +223,10 @@ export default function AdminAnnouncementsPage() {
         if (data.settings) applySettings(data.settings);
         setListLoaded(true);
       } else {
-        setFlash({ type: "error", text: data?.message || "載入公告失敗" });
+        setToast({ kind: "error", text: data?.message || "載入公告失敗" });
       }
     } catch {
-      setFlash({ type: "error", text: "載入公告失敗" });
+      setToast({ kind: "error", text: "載入公告失敗" });
     } finally {
       setLoadingList(false);
     }
@@ -258,7 +251,7 @@ export default function AdminAnnouncementsPage() {
     event.preventDefault();
     if (saving) return;
     setSaving(true);
-    setFlash(null);
+    setToast(null);
     try {
       const classCodes = form.classCodesText
         .split(/[,、;；\s]+/)
@@ -292,9 +285,9 @@ export default function AdminAnnouncementsPage() {
       applyListFromResponse(data);
       setForm(emptyForm);
       setFormOpen(false);
-      setFlash({ type: "success", text: data.message || "已儲存" });
+      setToast({ kind: "success", text: data.message || "已儲存" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -316,9 +309,9 @@ export default function AdminAnnouncementsPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "封存失敗");
       applyListFromResponse(data);
-      setFlash({ type: "success", text: data.message || "已封存" });
+      setToast({ kind: "success", text: data.message || "已封存" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "封存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "封存失敗" });
     } finally {
       setSaving(false);
     }
@@ -341,9 +334,9 @@ export default function AdminAnnouncementsPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "刪除失敗");
       applyListFromResponse(data);
-      setFlash({ type: "success", text: data.message || "已真實刪除" });
+      setToast({ kind: "success", text: data.message || "已真實刪除" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
       setSaving(false);
     }
@@ -382,9 +375,9 @@ export default function AdminAnnouncementsPage() {
       if (!res.ok || !data?.success) throw new Error(data?.message || "批次作業失敗");
       applyListFromResponse(data);
       setSelectedIds(new Set());
-      setFlash({ type: "success", text: data.message || "批次作業完成" });
+      setToast({ kind: "success", text: data.message || "批次作業完成" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "批次作業失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "批次作業失敗" });
     } finally {
       setSaving(false);
     }
@@ -425,9 +418,9 @@ export default function AdminAnnouncementsPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "設定儲存失敗");
       if (data.settings) applySettings(data.settings);
-      setFlash({ type: "success", text: data.message || "設定已儲存" });
+      setToast({ kind: "success", text: data.message || "設定已儲存" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "設定儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "設定儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -493,15 +486,7 @@ export default function AdminAnnouncementsPage() {
   // 內容寬度與外殼（AdminSectionShell）的 hr／按鈕／頁尾同為 max-w-4xl，左右才會對齊
   return (
     <div className="w-full max-w-4xl mb-8 space-y-6">
-      {flash && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
-          style={{ background: `var(${flash.type === "success" ? "--success" : "--danger"})` }}
-          role="status"
-        >
-          {flash.text}
-        </div>
-      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 1. 設定管理（預設收合）：收納公告原則／顯示位置／公告分類三張卡片 */}
       <SettingsCard

@@ -13,8 +13,7 @@ import {
   type FeatureModulesEnabledMap,
 } from "@/types/feature-modules";
 import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
-
-type Flash = { type: "success" | "error"; text: string } | null;
+import Toast, { type ToastMessage } from "@/components/Toast";
 
 interface FeatureModulesResponse {
   success?: boolean;
@@ -437,7 +436,7 @@ export default function ModulesPage() {
   // 處理中的鍵：總開關＝模組代碼；顯示開關＝「模組代碼:身分」
   const [saving, setSaving] = useState<string | null>(null);
   const [openDesc, setOpenDesc] = useState<string | null>(null);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   // 卸載確認視窗（modal）：null＝關閉；否則為待卸載的模組
   const [confirmUninstall, setConfirmUninstall] = useState<FeatureModuleMeta | null>(null);
   const [canUninstall, setCanUninstall] = useState(false);
@@ -447,13 +446,6 @@ export default function ModulesPage() {
   >({});
   const [marketLatestVersions, setMarketLatestVersions] = useState<Record<string, string>>({});
   const pollTimersRef = useRef<Record<string, number>>({});
-
-  // 儲存訊息：固定於畫面下方中央，約 3 秒後自動淡出（列表過長也看得到）
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
 
   useEffect(() => {
     return () => {
@@ -509,7 +501,7 @@ export default function ModulesPage() {
   async function patch(body: Record<string, unknown>, key: string) {
     if (saving) return;
     setSaving(key);
-    setFlash(null);
+    setToast(null);
     try {
       const res = await fetch("/api/admin/feature-modules", {
         method: "PATCH",
@@ -522,9 +514,9 @@ export default function ModulesPage() {
       }
       if (data.enabled) setEnabled(data.enabled);
       if (data.roles) setRoles(data.roles);
-      setFlash({ type: "success", text: data.message || "已更新" });
+      setToast({ kind: "success", text: data.message || "已更新" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "操作失敗" });
     } finally {
       setSaving(null);
     }
@@ -552,7 +544,7 @@ export default function ModulesPage() {
     setConfirmUninstall(null);
     if (saving) return;
     setSaving(`${item.value}:uninstall`);
-    setFlash(null);
+    setToast(null);
     try {
       const res = await fetch("/api/admin/feature-modules", {
         method: "DELETE",
@@ -569,17 +561,17 @@ export default function ModulesPage() {
           ...current,
           [item.value]: { branch: data.branch, commitUrl: data.commitUrl },
         }));
-        setFlash({
-          type: "success",
+        setToast({
+          kind: "success",
           text: `${data.message || "已送出卸載提交"}（部署完成後此頁會自動刷新）`,
         });
         startUninstallPolling(item.value);
       } else {
-        setFlash({ type: "success", text: data.message || "已卸載" });
+        setToast({ kind: "success", text: data.message || "已卸載" });
         window.location.reload();
       }
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "操作失敗" });
       setSaving(null);
     }
   }
@@ -609,7 +601,7 @@ export default function ModulesPage() {
         window.clearInterval(timerId);
         delete pollTimersRef.current[moduleValue];
         setSaving(null);
-        setFlash({ type: "success", text: "卸載提交已送出；部署時間較長，請稍後手動重新整理。" });
+        setToast({ kind: "success", text: "卸載提交已送出；部署時間較長，請稍後手動重新整理。" });
       }
     }, 8000);
 
@@ -637,19 +629,7 @@ export default function ModulesPage() {
         </button>
       </div>
 
-      {/* 固定位置儲存訊息（下方中央 toast，自動淡出） */}
-      {flash && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
-          style={{
-            background: `var(${flash.type === "success" ? "--success" : "--danger"})`,
-          }}
-          role="status"
-          aria-live="polite"
-        >
-          {flash.text}
-        </div>
-      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 卸載確認視窗（modal，樣式比照 IdleTimeout 對話框） */}
       {confirmUninstall && (

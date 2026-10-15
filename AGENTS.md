@@ -38,6 +38,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
    （展開時箭頭自動旋轉）。**禁止**再以 `<button>` 搭配「收合／展開」文字
    或 ▲／▼ 字元切換；`aria-expanded` 由 `<details>` 自帶，必要時以
    `aria-controls` 指向內容區 id。
+5. **儲存結果訊息一律用 Toast 浮動訊息**：儲存成功／失敗的反饋統一使用
+   `src/components/Toast.tsx` 元件，禁止使用全螢幕遮罩 modal 或 inline alert。
+   - 引入方式：`import Toast, { type ToastMessage } from "@/components/Toast";`
+   - State 定義：`const [toast, setToast] = useState<ToastMessage | null>(null);`
+   - JSX 使用：`<Toast message={toast} onClose={() => setToast(null)} />`
+   - 觸發方式：`setToast({ kind: "success", text: "已儲存" })` 或
+     `setToast({ kind: "error", text: "儲存失敗" })`
+   - Toast 元件會在 2 秒後自動消失，樣式使用 CSS 主題配色
+     （`--success` 綠底、`--danger` 紅底白字）。
+   - 儲存中的過場動畫（BlockingMask）保留不移除，僅移除儲存結果的過場動畫。
+   - **不適用於 C 選用功能模組**（examRegistration 使用自己的 FlashModal）。
 
 ## 修改完成後的流程
 

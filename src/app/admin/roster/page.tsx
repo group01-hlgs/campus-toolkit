@@ -46,6 +46,7 @@ import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import RoleEnablePanel from "@/components/RoleEnablePanel";
 import RevealListCard from "@/components/RevealListCard";
+import Toast, { type ToastMessage } from "@/components/Toast";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -303,15 +304,7 @@ export default function RosterPage() {
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
 
-  // 儲存成功提示 modal：完成時跳出，3 秒後自動消失
-  const [successModal, setSuccessModal] = useState<string | null>(null);
-  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (successTimerRef.current) clearTimeout(successTimerRef.current);
-    };
-  }, []);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   // 批次管理：上傳試算表 → 預覽 → 確認執行（卡片預設收合）
   const [batchOpen, setBatchOpen] = useState(false);
@@ -668,7 +661,7 @@ export default function RosterPage() {
       const message = data.message || "銜接完成";
       setLinkTarget(null);
       setFlash({ type: "success", text: message });
-      showSuccessModal(message);
+      setToast({ kind: "success", text: message });
       // 銜接會改動多列（含其他身分），維持一次整表重抓；
       // 先捨棄快取並採用新 epoch，確保重抓到的不是舊快取
       invalidateRosterList(data.cacheEpoch);
@@ -714,16 +707,6 @@ export default function RosterPage() {
     return null;
   }
 
-  /** 儲存完成的成功訊息：跳出 modal，3 秒後自動消失（重複呼叫會重置計時） */
-  function showSuccessModal(text: string) {
-    if (successTimerRef.current) clearTimeout(successTimerRef.current);
-    setSuccessModal(text);
-    successTimerRef.current = setTimeout(() => {
-      setSuccessModal(null);
-      successTimerRef.current = null;
-    }, 3000);
-  }
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (saving) return;
@@ -763,7 +746,7 @@ export default function RosterPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "已儲存" });
-      showSuccessModal(data.message || "已儲存");
+      setToast({ kind: "success", text: data.message || "已儲存" });
       closeForm();
       // 省流閘門仍關著時不重整列表（不因寫入而自動載入）；
       // 否則以回應自帶的該列就地更新（回應即真相，0 讀取）
@@ -802,7 +785,7 @@ export default function RosterPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "已刪除" });
-      showSuccessModal(data.message || "已刪除");
+      setToast({ kind: "success", text: data.message || "已刪除" });
       if (editingUid === member.uid) closeForm();
       // 省流閘門仍關著時不重整列表；否則就地移除該列（0 讀取）
       if (gating) adoptCacheEpoch(data.cacheEpoch);
@@ -844,7 +827,7 @@ export default function RosterPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "狀態已更新" });
-      showSuccessModal(data.message || "狀態已更新");
+      setToast({ kind: "success", text: data.message || "狀態已更新" });
       if (editingUid === member.uid) closeForm();
       // 省流閘門仍關著時不重整列表；否則以回應的該列就地更新（0 讀取）
       if (gating) adoptCacheEpoch(data.cacheEpoch);
@@ -953,7 +936,7 @@ export default function RosterPage() {
         invalidateRosterList(data.cacheEpoch);
         // 省流閘門仍關著時不重整列表（不因批次完成而自動載入）
         if (batchRole === role && !gating) await loadMembers(role);
-        showSuccessModal(data.message || "批次作業完成");
+        setToast({ kind: "success", text: data.message || "批次作業完成" });
       }
     } catch (error) {
       setBatchError(error instanceof Error ? error.message : "批次作業失敗");
@@ -1972,34 +1955,7 @@ export default function RosterPage() {
         </div>
       )}
 
-      {/* 儲存成功 modal：完成時跳出，3 秒後自動消失 */}
-      {successModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
-        >
-          <div className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in">
-            <div className="flex justify-center">
-              <svg
-                className="w-12 h-12 text-success"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-            <p className="text-lg font-semibold text-t1">{successModal}</p>
-            <p className="text-xs text-t3">視窗將自動關閉</p>
-          </div>
-        </div>
-      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

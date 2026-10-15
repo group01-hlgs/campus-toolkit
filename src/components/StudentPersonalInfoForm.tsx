@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import DisclosureArrow from "@/components/DisclosureArrow";
-import PersonalInfoResultDialog from "@/components/PersonalInfoResultDialog";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import {
   EMPTY_STUDENT_PERSONAL_IDENTITY,
   EMPTY_STUDENT_PERSONAL_INFO_TERM,
@@ -79,7 +79,7 @@ export default function StudentPersonalInfoForm({
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [sameAsHousehold, setSameAsHousehold] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const loadFields = useCallback(async () => {
     setLoading(true);
@@ -136,11 +136,11 @@ export default function StudentPersonalInfoForm({
         throw new Error(data.message || "儲存個人資料失敗");
       }
       setFields(data.fields);
-      setFeedback({ kind: "success", message: data.message || "個人資料已儲存。" });
+      setToast({ kind: "success", text: data.message || "個人資料已儲存。" });
     } catch (error) {
-      setFeedback({
+      setToast({
         kind: "error",
-        message: error instanceof Error ? error.message : "儲存個人資料失敗",
+        text: error instanceof Error ? error.message : "儲存個人資料失敗",
       });
     } finally {
       setSaving(false);
@@ -151,7 +151,7 @@ export default function StudentPersonalInfoForm({
     if (savingIdentity || !canEdit) return;
     const idValidation = validateStudentPersonalId(identity.idType, identity.nationalId);
     if (!idValidation.ok) {
-      setFeedback({ kind: "error", message: idValidation.message });
+      setToast({ kind: "error", text: idValidation.message });
       return;
     }
     setSavingIdentity(true);
@@ -166,11 +166,11 @@ export default function StudentPersonalInfoForm({
         throw new Error(data.message || "儲存固定個人資料失敗");
       }
       setIdentity(data.identity);
-      setFeedback({ kind: "success", message: data.message || "固定個人資料已儲存。" });
+      setToast({ kind: "success", text: data.message || "固定個人資料已儲存。" });
     } catch (error) {
-      setFeedback({
+      setToast({
         kind: "error",
-        message: error instanceof Error ? error.message : "儲存固定個人資料失敗",
+        text: error instanceof Error ? error.message : "儲存固定個人資料失敗",
       });
     } finally {
       setSavingIdentity(false);
@@ -180,7 +180,7 @@ export default function StudentPersonalInfoForm({
   async function uploadPhoto(kind: StudentPersonalPhotoKind, file: File) {
     if (!photoPermissions[kind] || uploadingPhoto) return;
     if (file.size <= 0 || file.size > STUDENT_PERSONAL_PHOTO_SOURCE_MAX_BYTES) {
-      setFeedback({ kind: "error", message: "照片不可為空，且原始檔不可超過 20 MB。" });
+      setToast({ kind: "error", text: "照片不可為空，且原始檔不可超過 20 MB。" });
       return;
     }
 
@@ -201,11 +201,11 @@ export default function StudentPersonalInfoForm({
         throw new Error(data.message || "上傳證件照失敗");
       }
       setPhotos((current) => ({ ...current, [kind]: data.photo! }));
-      setFeedback({ kind: "success", message: data.message || "證件照已上傳。" });
+      setToast({ kind: "success", text: data.message || "證件照已上傳。" });
     } catch (error) {
-      setFeedback({
+      setToast({
         kind: "error",
-        message: error instanceof Error ? error.message : "上傳證件照失敗",
+        text: error instanceof Error ? error.message : "上傳證件照失敗",
       });
     } finally {
       setUploadingPhoto(null);
@@ -534,11 +534,7 @@ export default function StudentPersonalInfoForm({
           )}
         </div>
       </details>
-      <PersonalInfoResultDialog
-        message={feedback?.message ?? null}
-        kind={feedback?.kind ?? "success"}
-        onClose={() => setFeedback(null)}
-      />
+      <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );
 }

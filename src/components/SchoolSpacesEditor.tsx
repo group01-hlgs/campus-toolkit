@@ -12,8 +12,7 @@ import {
 } from "@/types/school-spaces";
 import SchoolSpacesTable from "@/components/SchoolSpacesTable";
 import SpaceTree from "@/components/SpaceTree";
-
-type Flash = { type: "success" | "error"; text: string } | null;
+import Toast, { type ToastMessage } from "@/components/Toast";
 type SpacesResponse = {
   success?: boolean;
   message?: string;
@@ -34,7 +33,7 @@ export default function SchoolSpacesEditor() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   /** 層級數輸入框的暫存字串：允許清空後重打，失焦或輸入無效值時回復現值 */
   const [levelInput, setLevelInput] = useState<string | null>(null);
 
@@ -80,16 +79,16 @@ export default function SchoolSpacesEditor() {
     if (!Number.isInteger(next) || next < 1 || next > SPACE_MAX_LEVEL) return;
     const result = setSpaceLevelCount(draft, next);
     if (!result.ok) {
-      setFlash({ type: "error", text: result.message });
+      setToast({ kind: "error", text: result.message });
       return;
     }
-    setFlash(null);
+    setToast(null);
     setDraft(result.value);
   }
 
   function changeLabel(index: number, label: string) {
     if (!draft) return;
-    setFlash(null);
+    setToast(null);
     setDraft({
       ...draft,
       levelLabels: draft.levelLabels.map((item, position) => (position === index ? label : item)),
@@ -100,13 +99,13 @@ export default function SchoolSpacesEditor() {
     if (!saved) return;
     setLevelInput(null);
     setDraft(saved);
-    setFlash(null);
+    setToast(null);
   }
 
   async function save() {
     if (!draft || !validation?.ok || saving) return;
     setSaving(true);
-    setFlash(null);
+    setToast(null);
     try {
       const res = await fetch("/api/admin/school/spaces", {
         method: "PUT",
@@ -120,9 +119,9 @@ export default function SchoolSpacesEditor() {
       const setting = readSpaceStructure(data.setting ?? draft);
       setSaved(setting);
       setDraft(setting);
-      setFlash({ type: "success", text: data.message || "樓層空間設定已儲存" });
+      setToast({ kind: "success", text: data.message || "樓層空間設定已儲存" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -149,15 +148,6 @@ export default function SchoolSpacesEditor() {
   }
 
   if (!draft || !validation) return null;
-
-  const flashBlock = flash ? (
-    <p
-      role={flash.type === "error" ? "alert" : "status"}
-      className={`text-sm mb-3 ${flash.type === "success" ? "text-success" : "text-danger"}`}
-    >
-      {flash.text}
-    </p>
-  ) : null;
 
   const validationBlock = !validation.ok ? (
     <p className="text-danger text-sm mb-2" role="alert">
@@ -188,7 +178,7 @@ export default function SchoolSpacesEditor() {
 
   return (
     <div className="mt-4">
-      {flashBlock}
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 空間層級數與各層名稱 */}
       <div className="flex flex-wrap items-end gap-4 mb-3">
@@ -255,7 +245,6 @@ export default function SchoolSpacesEditor() {
       )}
       {/* 表格較長時底部也有一組，避免捲到下方找不到儲存鈕與訊息 */}
       <div className="mt-4 pt-3 border-t border-themed">
-        {flashBlock}
         {validationBlock}
         <div className="flex justify-end">{saveButtons}</div>
       </div>

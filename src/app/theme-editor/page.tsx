@@ -14,6 +14,7 @@ import {
 } from "@/lib/theme-store";
 import ThemeSubmissionForm from "@/components/ThemeSubmissionForm";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import { ThemeColors, THEME_COLOR_KEYS } from "@/types/theme";
 
 /**
@@ -93,7 +94,7 @@ export default function ThemeEditorPage() {
     copyColors(builtinThemes[0]!.colors as unknown as Record<string, string>)
   );
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [showSubmit, setShowSubmit] = useState(false);
 
   const customThemes = useMemo(
@@ -129,7 +130,7 @@ export default function ThemeEditorPage() {
     setName(base.name);
     setColors(copyColors(base.colors as unknown as Record<string, string>));
     setCurrentId(null);
-    setMessage(null);
+    setToast(null);
     setShowSubmit(false);
   }
 
@@ -139,14 +140,14 @@ export default function ThemeEditorPage() {
     setName(theme.name);
     setColors(copyColors(theme.colors as unknown as Record<string, string>));
     setCurrentId(themeId);
-    setMessage(null);
+    setToast(null);
     setShowSubmit(false);
   }
 
   function handleSave(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    setMessage(null);
+    setToast(null);
     try {
       const id = currentId ?? `custom:${crypto.randomUUID()}`;
       saveInstalledTheme(
@@ -164,9 +165,9 @@ export default function ThemeEditorPage() {
       void syncInstalledThemesToAccount({ includeColorsFor: id });
       setTheme(id);
       refreshAvailableThemes();
-      setMessage({ kind: "success", text: `已儲存並套用「${name.trim() || "我的主題"}」（僅顯示在您的帳號）` });
+      setToast({ kind: "success", text: `已儲存並套用「${name.trim() || "我的主題"}」（僅顯示在您的帳號）` });
     } catch (error) {
-      setMessage({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setBusy(false);
     }
@@ -184,7 +185,7 @@ export default function ThemeEditorPage() {
       setCurrentId(null);
     }
     refreshAvailableThemes();
-    setMessage({ kind: "success", text: `已刪除自訂主題「${label}」` });
+    setToast({ kind: "success", text: `已刪除自訂主題「${label}」` });
     setShowSubmit(false);
   }
 
@@ -408,17 +409,7 @@ export default function ThemeEditorPage() {
                 </div>
               </div>
 
-              {message && (
-                <div
-                  className={`border rounded-lg p-3 text-sm ${
-                    message.kind === "success"
-                      ? "border-success/60 bg-success/10 text-success"
-                      : "border-danger/60 bg-danger/10 text-danger"
-                  }`}
-                >
-                  {message.text}
-                </div>
-              )}
+              <Toast message={toast} onClose={() => setToast(null)} />
 
               <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-themed">
                 <button

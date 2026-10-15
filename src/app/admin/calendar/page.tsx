@@ -23,8 +23,7 @@ import { normalizeCategoryId } from "@/types/category";
 import { ROLE_LABELS, ALL_ROLES, type UserRole } from "@/types/users";
 import { useDataSaver } from "@/lib/data-saver";
 import RevealListCard from "@/components/RevealListCard";
-
-type Flash = { type: "success" | "error"; text: string } | null;
+import Toast, { type ToastMessage } from "@/components/Toast";
 
 interface AdminListResponse {
   success?: boolean;
@@ -130,7 +129,7 @@ export default function AdminCalendarPage() {
   const gating = saverOn && !listLoaded;
   const [loadingList, setLoadingList] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [categories, setCategories] = useState<CalendarCategory[]>(
@@ -194,11 +193,7 @@ export default function AdminCalendarPage() {
     });
   }
 
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
+
 
   const applySettings = useCallback((next: CalendarSettings) => {
     setSettings(next);
@@ -233,10 +228,10 @@ export default function AdminCalendarPage() {
         if (data.settings) applySettings(data.settings);
         setListLoaded(true);
       } else {
-        setFlash({ type: "error", text: data?.message || "載入行程失敗" });
+        setToast({ kind: "error", text: data?.message || "載入行程失敗" });
       }
     } catch {
-      setFlash({ type: "error", text: "載入行程失敗" });
+      setToast({ kind: "error", text: "載入行程失敗" });
     } finally {
       setLoadingList(false);
     }
@@ -277,7 +272,7 @@ export default function AdminCalendarPage() {
     event.preventDefault();
     if (saving) return;
     setSaving(true);
-    setFlash(null);
+    setToast(null);
     try {
       const classCodes = form.classCodesText
         .split(/[,、;；\s]+/)
@@ -314,9 +309,9 @@ export default function AdminCalendarPage() {
       applyListFromResponse(data);
       setForm(emptyForm);
       setFormOpen(false);
-      setFlash({ type: "success", text: data.message || "已儲存" });
+      setToast({ kind: "success", text: data.message || "已儲存" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -345,9 +340,9 @@ export default function AdminCalendarPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "操作失敗");
       applyListFromResponse(data);
-      setFlash({ type: "success", text: data.message || "已更新" });
+      setToast({ kind: "success", text: data.message || "已更新" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "操作失敗" });
     } finally {
       setSaving(false);
     }
@@ -370,9 +365,9 @@ export default function AdminCalendarPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "刪除失敗");
       applyListFromResponse(data);
-      setFlash({ type: "success", text: data.message || "已真實刪除" });
+      setToast({ kind: "success", text: data.message || "已真實刪除" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "刪除失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "刪除失敗" });
     } finally {
       setSaving(false);
     }
@@ -411,9 +406,9 @@ export default function AdminCalendarPage() {
       if (!res.ok || !data?.success) throw new Error(data?.message || "批次作業失敗");
       applyListFromResponse(data);
       setSelectedIds(new Set());
-      setFlash({ type: "success", text: data.message || "批次作業完成" });
+      setToast({ kind: "success", text: data.message || "批次作業完成" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "批次作業失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "批次作業失敗" });
     } finally {
       setSaving(false);
     }
@@ -466,9 +461,9 @@ export default function AdminCalendarPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.message || "設定儲存失敗");
       if (data.settings) applySettings(data.settings);
-      setFlash({ type: "success", text: data.message || "設定已儲存" });
+      setToast({ kind: "success", text: data.message || "設定已儲存" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "設定儲存失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "設定儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -519,15 +514,7 @@ export default function AdminCalendarPage() {
 
   return (
     <div className="w-full max-w-4xl mb-8 space-y-6">
-      {flash && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
-          style={{ background: `var(${flash.type === "success" ? "--success" : "--danger"})` }}
-          role="status"
-        >
-          {flash.text}
-        </div>
-      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 1. 設定管理（預設收合）：收納規則設定／顯示位置／行程類型三張卡片 */}
       <SettingsCard

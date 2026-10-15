@@ -10,6 +10,7 @@ import HelpTooltip from "@/components/HelpTooltip";
 import { builtinThemes } from "@/lib/themes";
 import { listInstalledThemes } from "@/lib/theme-store";
 import { adoptCacheEpoch, fetchSettings, invalidateSettings } from "@/lib/settings-client";
+import Toast, { type ToastMessage } from "@/components/Toast";
 
 interface FormField {
   id: keyof Settings;
@@ -188,8 +189,7 @@ export default function SettingsPage() {
   // 是否可設定：僅超級管理員；一般管理員與其他身分只有入口、頁內無可用設定項目
   const [manageable, setManageable] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [modalMessage, setModalMessage] = useState("");
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [, setThemeOptionsVersion] = useState(0);
 
   useEffect(() => {
@@ -225,9 +225,7 @@ export default function SettingsPage() {
     } catch (error: unknown) {
       console.error("載入設定失敗:", error);
       const errMsg = error instanceof Error ? error.message : String(error);
-      setModalMessage("載入失敗: " + errMsg);
-      setShowModal(true);
-      setTimeout(() => setShowModal(false), 3000);
+      setToast({ kind: "error", text: "載入失敗: " + errMsg });
     } finally {
       setLoading(false);
     }
@@ -258,15 +256,11 @@ export default function SettingsPage() {
         localStorage.removeItem("campusToolkitForcedTheme");
       }
 
-      setModalMessage("設定已儲存！");
-      setShowModal(true);
-      setTimeout(() => setShowModal(false), 3000);
+      setToast({ kind: "success", text: "設定已儲存！" });
     } catch (error: unknown) {
       console.error("儲存設定失敗:", error);
       const errMsg = error instanceof Error ? error.message : String(error);
-      setModalMessage("儲存失敗: " + errMsg);
-      setShowModal(true);
-      setTimeout(() => setShowModal(false), 3000);
+      setToast({ kind: "error", text: "儲存失敗: " + errMsg });
     } finally {
       setSaving(false);
     }
@@ -450,28 +444,8 @@ export default function SettingsPage() {
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
 
-      {/* Modal 訊息視窗 */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}>
-          <div className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in">
-            <div className="flex justify-center">
-              {modalMessage.includes("失敗") ? (
-                <svg className="w-12 h-12 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                </svg>
-              ) : (
-                <svg className="w-12 h-12 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              )}
-            </div>
-            <p className={`text-lg font-semibold ${modalMessage.includes("失敗") ? "text-danger" : "text-t1"}`}>
-              {modalMessage}
-            </p>
-            <p className="text-xs text-t3">視窗將自動關閉</p>
-          </div>
-        </div>
-      )}
+      {/* Toast 訊息 */}
+      <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }
