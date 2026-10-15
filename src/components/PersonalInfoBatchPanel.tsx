@@ -315,7 +315,7 @@ export default function PersonalInfoBatchPanel() {
             </p>
             <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-t2">
               {preview.rows.map((row) => (
-                <li key={row.row}>
+                <li key={row.row} className={row.action === "skip" ? "text-warning" : ""}>
                   {row.label}：{MODE_ACTION_LABELS[row.action]}{row.reason ? ` — ${row.reason}` : ""}
                 </li>
               ))}
@@ -331,7 +331,7 @@ export default function PersonalInfoBatchPanel() {
             {result.skippedRows.length > 0 && (
               <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-t2">
                 {result.skippedRows.map((row) => (
-                  <li key={row.row}>{row.label}：{row.reason || "略過"}</li>
+                  <li key={row.row} className="text-warning">{row.label}：{row.reason || "略過"}</li>
                 ))}
               </ul>
             )}
