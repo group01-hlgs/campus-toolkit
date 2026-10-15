@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import { ALL_ROLES, ROLE_LABELS, UserRole } from "@/types/users";
 import { RoleEnabledMap } from "@/types/role-settings";
 
-type Flash = { type: "success" | "error"; text: string } | null;
+
 
 interface RolesResponse {
   success?: boolean;
@@ -36,7 +37,7 @@ export default function RoleEnablePanel() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState<UserRole | null>(null);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   /** 首次展開才讀取（之後以快取內容顯示，重新整理走背景更新） */
   async function loadView(silent = false) {
@@ -65,7 +66,7 @@ export default function RoleEnablePanel() {
   async function toggle(role: UserRole, enabled: boolean) {
     if (saving || !view) return;
     setSaving(role);
-    setFlash(null);
+    setToast(null);
     try {
       const res = await fetch("/api/admin/roles", {
         method: "PATCH",
@@ -77,9 +78,9 @@ export default function RoleEnablePanel() {
         throw new Error(data?.message || `操作失敗（HTTP ${res.status}）`);
       }
       await loadView(true);
-      setFlash({ type: "success", text: data.message || "已更新" });
+      setToast({ kind: "success", text: data.message || "已更新" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "操作失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "操作失敗" });
     } finally {
       setSaving(null);
     }
@@ -104,14 +105,7 @@ export default function RoleEnablePanel() {
             全校層開關：停用後該身分無法登入、無法切換，已登入者立即失效。設定為現行狀態，學期轉換沿用。
           </p>
 
-          {flash && (
-            <p
-              className={`text-sm mb-4 ${flash.type === "success" ? "text-success" : "text-danger"}`}
-              role="status"
-            >
-              {flash.text}
-            </p>
-          )}
+          <Toast message={toast} onClose={() => setToast(null)} />
 
           {loading ? (
             <p className="text-center text-t3">身分啟用狀態載入中...</p>

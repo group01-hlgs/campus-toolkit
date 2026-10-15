@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import { fetchSession } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
 import {
@@ -15,7 +16,6 @@ import {
 import { normalizeCategoryId, resolveCategoryName } from "@/types/category";
 import { ROLE_LABELS, type UserRole } from "@/types/users";
 
-type Flash = { type: "success" | "error"; text: string } | null;
 type FontSize = "small" | "medium" | "large";
 type ViewMode = "month" | "list";
 
@@ -115,7 +115,7 @@ export default function CalendarView({
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [unitDefault, setUnitDefault] = useState("");
   const [loading, setLoading] = useState(true);
-  const [flash, setFlash] = useState<Flash>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [fontSize, setFontSize] = useState<FontSize>("small");
   const [view, setView] = useState<ViewMode>("month");
   const today = new Date();
@@ -145,12 +145,6 @@ export default function CalendarView({
   useEffect(() => setFontSize(readStoredFontSize()), []);
 
   useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
-
-  useEffect(() => {
     let cancelled = false;
     async function boot() {
       const [session, settingsData] = await Promise.all([fetchSession(true), fetchSettings()]);
@@ -162,7 +156,7 @@ export default function CalendarView({
       setDisplayName(session.displayName);
       const visible = settingsData?.visibleModules;
       if (Array.isArray(visible) && !visible.includes("calendar")) {
-        setFlash({ type: "error", text: "行事曆功能目前對此身分關閉顯示" });
+        setToast({ kind: "error", text: "行事曆功能目前對此身分關閉顯示" });
       }
     }
     void boot();
@@ -189,10 +183,10 @@ export default function CalendarView({
           );
         }
       } else if (data?.message) {
-        setFlash({ type: "error", text: data.message });
+        setToast({ kind: "error", text: data.message });
       }
     } catch {
-      setFlash({ type: "error", text: "載入行事曆失敗" });
+      setToast({ kind: "error", text: "載入行事曆失敗" });
     } finally {
       setLoading(false);
     }
@@ -310,13 +304,13 @@ export default function CalendarView({
       setItems((prev) =>
         prev.map((item) => (item.id === eventId ? { ...item, reminded } : item))
       );
-      setFlash({
-        type: "success",
+      setToast({
+        kind: "success",
         text: data.message || (reminded ? "已加入提醒" : "已取消提醒"),
       });
     } catch (error) {
-      setFlash({
-        type: "error",
+      setToast({
+        kind: "error",
         text: error instanceof Error ? error.message : "提醒設定失敗",
       });
     } finally {
@@ -328,7 +322,7 @@ export default function CalendarView({
     event.preventDefault();
     if (posting) return;
     setPosting(true);
-    setFlash(null);
+    setToast(null);
     try {
       const startAt = parseDatetimeLocal(form.startAtText);
       if (!form.allDay && !startAt) throw new Error("請填寫開始時間");
@@ -364,9 +358,9 @@ export default function CalendarView({
       setFormOpen(false);
       if (data.items) setItems(data.items);
       else await load();
-      setFlash({ type: "success", text: data.message || "行程已建立" });
+      setToast({ kind: "success", text: data.message || "行程已建立" });
     } catch (error) {
-      setFlash({ type: "error", text: error instanceof Error ? error.message : "建立失敗" });
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "建立失敗" });
     } finally {
       setPosting(false);
     }
@@ -376,15 +370,7 @@ export default function CalendarView({
 
   return (
     <div className="w-full max-w-3xl mb-8 space-y-6">
-      {flash && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
-          style={{ background: `var(${flash.type === "success" ? "--success" : "--danger"})` }}
-          role="status"
-        >
-          {flash.text}
-        </div>
-      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       <div className="content-width text-center">
         <h2 className="text-2xl font-bold text-t1">行事曆</h2>

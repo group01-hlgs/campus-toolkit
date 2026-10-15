@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import {
   CODES_MAX_DEPARTMENTS,
   CODES_MAX_GROUPS,
@@ -15,15 +16,11 @@ import {
 } from "@/types/school-codes";
 import { SCHOOL_CODES_SOURCES } from "@/data/schoolCodesSeed";
 
-type Modal = { type: "success" | "error"; text: string } | null;
 type ListKey = "schoolTypes" | "groups" | "departments";
 type CodesResponse = { success?: boolean; message?: string; setting?: unknown };
 
 /** 三份清單的呈現順序（與驗證順序一致） */
 const LIST_KEYS: ListKey[] = ["schoolTypes", "groups", "departments"];
-
-/** 儲存結果過場視窗的停留時間 */
-const MODAL_DURATION_MS = 2000;
 
 const LIST_META: Record<
   ListKey,
@@ -61,7 +58,7 @@ export default function SchoolCodesEditor() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [modal, setModal] = useState<Modal>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [filter, setFilter] = useState<Record<ListKey, string>>({
     schoolTypes: "",
     groups: "",
@@ -73,8 +70,6 @@ export default function SchoolCodesEditor() {
     groups: false,
     departments: false,
   });
-  /** 過場視窗的自動關閉計時器（重新彈出前先清掉舊的） */
-  const modalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function load() {
     setLoading(true);
@@ -105,32 +100,6 @@ export default function SchoolCodesEditor() {
     if (!saved || !draft) return false;
     return JSON.stringify(saved) !== JSON.stringify(draft);
   }, [saved, draft]);
-
-  /** 彈出儲存結果過場視窗，MODAL_DURATION_MS 後自動關閉 */
-  function showModal(type: "success" | "error", text: string) {
-    if (modalTimer.current) clearTimeout(modalTimer.current);
-    setModal({ type, text });
-    modalTimer.current = setTimeout(() => {
-      setModal(null);
-      modalTimer.current = null;
-    }, MODAL_DURATION_MS);
-  }
-
-  /** 立即關閉過場視窗（含計時器） */
-  function closeModal() {
-    if (modalTimer.current) {
-      clearTimeout(modalTimer.current);
-      modalTimer.current = null;
-    }
-    setModal(null);
-  }
-
-  // 卸載時清掉計時器，避免對已卸載元件 setState
-  useEffect(() => {
-    return () => {
-      if (modalTimer.current) clearTimeout(modalTimer.current);
-    };
-  }, []);
 
   /** 修改某一列的代碼或名稱（依清單與列索引定位） */
   const changeRow = useCallback(
@@ -166,20 +135,20 @@ export default function SchoolCodesEditor() {
   function reset() {
     if (!saved) return;
     setDraft(saved);
-    setModal(null);
+    setToast(null);
   }
 
   /** 以內建官方清單取代目前草稿（仍需按「儲存變更」才寫入資料庫） */
   function restoreOfficial() {
     if (!window.confirm("確定用官方代碼表覆蓋目前的編輯內容？（尚未儲存的修改會遺失）")) return;
     setDraft(defaultSchoolCodes());
-    setModal(null);
+    setToast(null);
   }
 
   async function save() {
     if (!draft || !validation?.ok || saving) return;
     setSaving(true);
-    setModal(null);
+    setToast(null);
     try {
       const res = await fetch("/api/admin/school/codes", {
         method: "PUT",
@@ -193,9 +162,9 @@ export default function SchoolCodesEditor() {
       const setting = readSchoolCodes(data.setting ?? draft);
       setSaved(setting);
       setDraft(setting);
-      showModal("success", data.message || "代碼表已儲存");
+      setToast({ kind: "success", text: data.message || "代碼表已儲存" });
     } catch (error) {
-      showModal("error", error instanceof Error ? error.message : "儲存失敗");
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -449,62 +418,7 @@ export default function SchoolCodesEditor() {
       {/* 儲存遮罩：儲存期間覆蓋畫面、阻擋重複操作 */}
       {saving && <BlockingMask text="儲存中，請稍候…" />}
 
-      {/* 儲存結果過場視窗：彈出後停留 2 秒自動關閉 */}
-      {modal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
-          role="presentation"
-          onClick={closeModal}
-        >
-          <div
-            className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in"
-            role={modal.type === "error" ? "alertdialog" : "dialog"}
-            aria-modal="true"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex justify-center">
-              {modal.type === "error" ? (
-                <svg
-                  className="w-12 h-12 text-danger"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                  />
-                </svg>
-              ) : (
-                <svg
-                  className="w-12 h-12 text-success"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              )}
-            </div>
-            <p
-              className={`text-lg font-semibold ${modal.type === "error" ? "text-danger" : "text-t1"}`}
-            >
-              {modal.text}
-            </p>
-            <p className="text-xs text-t3">視窗將於 2 秒後自動關閉</p>
-          </div>
-        </div>
-      )}
+      <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CLASSES_CODE_MAX,
@@ -42,11 +42,7 @@ import {
   defaultSchoolCodes,
   readSchoolCodes,
 } from "@/types/school-codes";
-
-type Modal = { type: "success" | "error"; text: string } | null;
-
-/** 儲存結果過場視窗的停留時間 */
-const MODAL_DURATION_MS = 2000;
+import Toast, { type ToastMessage } from "@/components/Toast";
 type ClassesResponse = {
   success?: boolean;
   message?: string;
@@ -70,9 +66,7 @@ export default function SchoolClassesEditor() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [modal, setModal] = useState<Modal>(null);
-  /** 過場視窗的自動關閉計時器（重新彈出前先清掉舊的） */
-  const modalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   async function load() {
     setLoading(true);
@@ -125,35 +119,11 @@ export default function SchoolClassesEditor() {
     return JSON.stringify(saved) !== JSON.stringify(draft);
   }, [saved, draft]);
 
-  /** 彈出儲存結果過場視窗，MODAL_DURATION_MS 後自動關閉 */
-  function showModal(type: "success" | "error", text: string) {
-    if (modalTimer.current) clearTimeout(modalTimer.current);
-    setModal({ type, text });
-    modalTimer.current = setTimeout(() => {
-      setModal(null);
-      modalTimer.current = null;
-    }, MODAL_DURATION_MS);
-  }
 
-  /** 立即關閉過場視窗（含計時器） */
-  function closeModal() {
-    if (modalTimer.current) {
-      clearTimeout(modalTimer.current);
-      modalTimer.current = null;
-    }
-    setModal(null);
-  }
-
-  // 卸載時清掉計時器，避免對已卸載元件 setState
-  useEffect(() => {
-    return () => {
-      if (modalTimer.current) clearTimeout(modalTimer.current);
-    };
-  }, []);
 
   function commit(grades: GradeRow[]) {
     if (!draft) return;
-    setModal(null);
+    setToast(null);
     setDraft({ ...draft, grades: [...grades].sort((a, b) => a.grade - b.grade) });
   }
 
@@ -211,29 +181,29 @@ export default function SchoolClassesEditor() {
     if (!stage) return;
     const range = gradeRangeOf(context, stage);
     if (!range || target > range.end) {
-      showModal(
-        "error",
-        `「${row.name}」已是${stageName(stage)}最後一個年級，無法複製到年級編號 ${target}`
-      );
+      setToast({
+        kind: "error",
+        text: `「${row.name}」已是${stageName(stage)}最後一個年級，無法複製到年級編號 ${target}`,
+      });
       return;
     }
     if (draft.grades.some((item) => item.grade === target)) {
-      showModal(
-        "error",
-        `年級編號 ${target} 已建立，無法複製；請改用學制右上的「新增年段」，或先刪除該年級`
-      );
+      setToast({
+        kind: "error",
+        text: `年級編號 ${target} 已建立，無法複製；請改用學制右上的「新增年段」，或先刪除該年級`,
+      });
       return;
     }
     const gradeLimit = contextYearsSum(context);
     if (draft.grades.length + 1 > gradeLimit) {
-      showModal(
-        "error",
-        `複製後年段數會超過校務基本資料的年制總和（${gradeLimit}），請先至校務基本資料調整年制`
-      );
+      setToast({
+        kind: "error",
+        text: `複製後年段數會超過校務基本資料的年制總和（${gradeLimit}），請先至校務基本資料調整年制`,
+      });
       return;
     }
     if (totalClassCount(draft) + row.classes.length > CLASSES_MAX_CLASSES) {
-      showModal("error", `複製後班級總數會超過上限（最多 ${CLASSES_MAX_CLASSES} 班）`);
+      setToast({ kind: "error", text: `複製後班級總數會超過上限（最多 ${CLASSES_MAX_CLASSES} 班）` });
       return;
     }
     if (row.classes.length > CLASSES_MAX_CLASSES_PER_GRADE) return;
@@ -372,13 +342,13 @@ export default function SchoolClassesEditor() {
   function reset() {
     if (!saved) return;
     setDraft(saved);
-    setModal(null);
+    setToast(null);
   }
 
   async function save() {
     if (!draft || !validation?.ok || saving) return;
     setSaving(true);
-    setModal(null);
+    setToast(null);
     try {
       const res = await fetch("/api/admin/school/classes", {
         method: "PUT",
@@ -394,9 +364,9 @@ export default function SchoolClassesEditor() {
       setContext(next);
       setSaved(setting);
       setDraft(setting);
-      showModal("success", data.message || "年段班級設定已儲存");
+      setToast({ kind: "success", text: data.message || "年段班級設定已儲存" });
     } catch (error) {
-      showModal("error", error instanceof Error ? error.message : "儲存失敗");
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "儲存失敗" });
     } finally {
       setSaving(false);
     }
@@ -898,62 +868,8 @@ export default function SchoolClassesEditor() {
       {/* 儲存遮罩：儲存期間覆蓋畫面、阻擋重複操作 */}
       {saving && <BlockingMask text="儲存中，請稍候…" />}
 
-      {/* 儲存結果過場視窗：彈出後停留 2 秒自動關閉 */}
-      {modal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
-          role="presentation"
-          onClick={closeModal}
-        >
-          <div
-            className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in"
-            role={modal.type === "error" ? "alertdialog" : "dialog"}
-            aria-modal="true"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex justify-center">
-              {modal.type === "error" ? (
-                <svg
-                  className="w-12 h-12 text-danger"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                  />
-                </svg>
-              ) : (
-                <svg
-                  className="w-12 h-12 text-success"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              )}
-            </div>
-            <p
-              className={`text-lg font-semibold ${modal.type === "error" ? "text-danger" : "text-t1"}`}
-            >
-              {modal.text}
-            </p>
-            <p className="text-xs text-t3">視窗將於 2 秒後自動關閉</p>
-          </div>
-        </div>
-      )}
+      {/* 儲存結果 Toast */}
+      <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

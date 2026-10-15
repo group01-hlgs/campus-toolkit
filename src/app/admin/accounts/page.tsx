@@ -44,6 +44,7 @@ import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PasswordToggleButton from "@/components/PasswordToggleButton";
 import RevealListCard from "@/components/RevealListCard";
+import Toast, { type ToastMessage } from "@/components/Toast";
 
 type Flash = { type: "success" | "error"; text: string } | null;
 
@@ -291,9 +292,8 @@ export default function AccountsPage() {
     bottom?: number;
   } | null>(null);
 
-  // 儲存成功提示 modal：完成時跳出，1 秒後自動消失
-  const [successModal, setSuccessModal] = useState<string | null>(null);
-  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 儲存成功 Toast 提示：完成時跳出，由 Toast 元件自動消失
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   // 部分完成提示 modal：帳號已建立但名冊條目失敗，須手動按「知道了」才關閉
   const [partialModal, setPartialModal] = useState<string | null>(null);
@@ -319,12 +319,6 @@ export default function AccountsPage() {
     setDeleteScope("all");
     setDeleteRequest(request);
   }
-
-  useEffect(() => {
-    return () => {
-      if (successTimerRef.current) clearTimeout(successTimerRef.current);
-    };
-  }, []);
 
   // 選單開啟時：點外部、按 Esc、捲動頁面都收合
   useEffect(() => {
@@ -468,16 +462,6 @@ export default function AccountsPage() {
     void loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsReady, gating, listLoaded]);
-
-  /** 儲存成功訊息：跳出 modal，3 秒後自動消失（重複呼叫會重置計時） */
-  function showSuccessModal(text: string) {
-    if (successTimerRef.current) clearTimeout(successTimerRef.current);
-    setSuccessModal(text);
-    successTimerRef.current = setTimeout(() => {
-      setSuccessModal(null);
-      successTimerRef.current = null;
-    }, 3000);
-  }
 
   function closeForm() {
     setFormOpen(false);
@@ -647,7 +631,7 @@ export default function AccountsPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "已儲存" });
-      showSuccessModal(data.message || "已儲存");
+      setToast({ kind: "success", text: data.message || "已儲存" });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "儲存失敗");
     } finally {
@@ -690,7 +674,7 @@ export default function AccountsPage() {
         return;
       }
       setFlash({ type: "success", text: `已重設 ${resetTarget.name} 的密碼` });
-      showSuccessModal("密碼已重設");
+      setToast({ kind: "success", text: "密碼已重設" });
       setResetTarget(null);
       setResetPassword("");
       setResetConfirm("");
@@ -732,7 +716,7 @@ export default function AccountsPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "狀態已更新" });
-      showSuccessModal(data.message || "狀態已更新");
+      setToast({ kind: "success", text: data.message || "狀態已更新" });
       if (editingUid === target.uid) closeForm();
       // 省流閘門仍關著時不重整列表；否則以回應的 summary 就地更新（0 讀取）
       if (gating) adoptCacheEpoch(data.cacheEpoch);
@@ -768,7 +752,7 @@ export default function AccountsPage() {
         return;
       }
       setFlash({ type: "success", text: data.message || "已刪除" });
-      showSuccessModal(data.message || "已刪除");
+      setToast({ kind: "success", text: data.message || "已刪除" });
       if (editingUid === target.uid) closeForm();
       // 省流閘門仍關著時不重整列表；否則就地移除該列（0 讀取）
       if (gating) adoptCacheEpoch(data.cacheEpoch);
@@ -914,7 +898,7 @@ export default function AccountsPage() {
       invalidateAccountsList(lastBatchEpoch);
       // 省流閘門仍關著時不重整列表（不因批次完成而自動載入）
       if (!gating) await loadAccounts();
-      showSuccessModal(composeBatchMessage(mode, aggregated, rosterScope));
+      setToast({ kind: "success", text: composeBatchMessage(mode, aggregated, rosterScope) });
     } catch (error) {
       const base = error instanceof Error ? error.message : "批次作業失敗";
       // 中斷時明確告知已完成範圍：已建立的資料保留，重跑已完成的列會自然略過（可原檔續傳）
@@ -1859,34 +1843,8 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* 儲存成功 modal：完成時跳出，3 秒後自動消失 */}
-      {successModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
-        >
-          <div className="bg-card rounded-2xl p-8 text-center space-y-4 shadow-lg animate-fade-in">
-            <div className="flex justify-center">
-              <svg
-                className="w-12 h-12 text-success"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-            <p className="text-lg font-semibold text-t1">{successModal}</p>
-            <p className="text-xs text-t3">視窗將自動關閉</p>
-          </div>
-        </div>
-      )}
+      {/* 儲存成功 Toast：由 Toast 元件自動消失 */}
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 部分完成 modal：帳號已建立但名冊條目失敗，須手動確認，不自動消失 */}
       {partialModal && (
