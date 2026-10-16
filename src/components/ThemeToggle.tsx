@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { defaultTheme } from "@/lib/themes";
-import { fetchSession } from "@/lib/session";
+import { fetchSession, getCachedSession, subscribeSession } from "@/lib/session";
 import { removeInstalledTheme, syncInstalledThemesToAccount } from "@/lib/theme-store";
 
 export default function ThemeToggle() {
@@ -13,7 +13,16 @@ export default function ThemeToggle() {
 
   // 未登入時隱藏編輯／投稿等進階入口（僅保留基本切換）
   useEffect(() => {
-    void fetchSession().then((session) => setLoggedIn(!!session));
+    let cancelled = false;
+    const syncSession = () => {
+      if (!cancelled) setLoggedIn(!!getCachedSession());
+    };
+    const unsubscribe = subscribeSession(syncSession);
+    void fetchSession(true).then(syncSession);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   function handleDeleteCustom(themeId: string, themeName: string) {
