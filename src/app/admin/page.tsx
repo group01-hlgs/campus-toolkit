@@ -152,6 +152,9 @@ export default function AdminPage() {
 
       {/* 功能標題 */}
       <div className="content-width mt-4 mb-2 text-center">
+        <p className="mb-2 inline-flex rounded border border-warning/60 bg-warning/10 px-3 py-1 text-xs text-warning">
+          功能建構中，陸續開放
+        </p>
         <h2 className="text-2xl font-bold text-t1">管理員功能首頁</h2>
         {(user.displayName || user.account) && (
           <p className="text-t2 mt-1">{user.displayName || user.account}，您好</p>
