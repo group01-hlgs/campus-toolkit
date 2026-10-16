@@ -1295,6 +1295,9 @@ export default function AdminExamRegistrationPage() {
                         <li>高中英語聽力測驗第二次考試</li>
                         <li>統一測驗</li>
                         <li>分科測驗</li>
+                        <li>大學術科考試音樂組</li>
+                        <li>大學術科考試美術組</li>
+                        <li>大學術科考試體育組</li>
                       </ul>
                     </div>
                   )}

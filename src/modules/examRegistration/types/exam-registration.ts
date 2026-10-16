@@ -8,6 +8,7 @@
 
 export type ExamEventType = "draft" | "open" | "closed" | "archived";
 export type ExamCategory = "mock" | "entrance" | "other";
+export type UniversityArtsExamGroup = "music" | "art" | "sports";
 /** 報名方式（單一制）：一般報名 */
 export type ExamMode = "review";
 /** 報名義務：必須報名（要嘛報、要嘛勾不報名+原因）／自由報名（不需動作即可） */
@@ -45,7 +46,7 @@ const OFFICIAL_ENTRANCE_EXAM_TITLE_PATTERNS = [
   /學科能力測驗|大學學測|學測/,
   /分科測驗|指定科目考試|指考/,
   /高中英語聽力測驗|英語聽力測驗|高中英聽|英聽/,
-  /大學術科考試|術科考試/,
+  /大學術科考試(?:音樂組|美術組|體育組)|大學術科考試|術科考試/,
   /四技二專統一入學測驗|統一入學測驗|四技二專統測|統測/,
   /國中基本學力測驗|國中基測|基測/,
 ];
@@ -55,6 +56,23 @@ export function isOfficialEntranceExamTitle(title: string): boolean {
   const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
   if (/模擬|模考|練習/.test(normalized)) return false;
   return OFFICIAL_ENTRANCE_EXAM_TITLE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/** 高中英語聽力測驗第一、二次考試使用專屬官方報名資料格式。 */
+export function isHighSchoolEnglishListeningExamTitle(title: string): boolean {
+  const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
+  if (/模擬|模考|練習/.test(normalized)) return false;
+  return /高中英語聽力測驗第(?:一|二|1|2)次考試/.test(normalized);
+}
+
+/** 取得大學術科考試的報考組別，三組共用同一份官方報名檔欄位。 */
+export function getUniversityArtsExamGroup(title: string): UniversityArtsExamGroup | null {
+  const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
+  if (/模擬|模考|練習/.test(normalized)) return null;
+  if (/大學術科考試音樂組|術科考試音樂組/.test(normalized)) return "music";
+  if (/大學術科考試美術組|術科考試美術組/.test(normalized)) return "art";
+  if (/大學術科考試體育組|術科考試體育組/.test(normalized)) return "sports";
+  return null;
 }
 
 export const EXAM_FEE_CODE_LABELS: Record<ExamFeeCode, string> = {
@@ -911,6 +929,152 @@ export const ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS = [
   ...ACADEMIC_ABILITY_EXAM_SUBJECT_COLUMNS,
   "特殊應考需求",
 ] as const;
+export const HIGH_SCHOOL_ENGLISH_LISTENING_EXAM_OFFICIAL_HEADERS = [
+  "報名序號",
+  "身分證",
+  "考試地區",
+  "特殊應考需求",
+] as const;
+export const UNIVERSITY_ARTS_EXAM_OFFICIAL_HEADERS = [
+  "報名序號",
+  "身分證",
+  "音樂組",
+  "美術組",
+  "體育組",
+  "音樂主修樂器編號",
+  "音樂副修樂器編號",
+  "樂理",
+  "聽寫",
+  "視唱",
+  "素描",
+  "彩繪技法",
+  "創意表現",
+  "水墨書畫",
+  "美術鑑賞",
+  "美術組考區",
+  "特殊應考需求",
+] as const;
+
+const OFFICIAL_MUSIC_INSTRUMENT_CODES: readonly (readonly [string, string])[] = [
+  ["單簧管（豎笛）", "0608"],
+  ["單簧管(豎笛)", "0608"],
+  ["單簧管", "0608"],
+  ["豎笛", "0608"],
+  ["古典吉他", "0502"],
+  ["低音提琴", "0404"],
+  ["上低音號", "0604"],
+  ["薩克斯管", "0606"],
+  ["法國號", "0603"],
+  ["大提琴", "0403"],
+  ["中提琴", "0402"],
+  ["小提琴", "0401"],
+  ["豎琴", "0501"],
+  ["長笛", "0607"],
+  ["長號", "0601"],
+  ["小號", "0602"],
+  ["低音號", "0605"],
+  ["雙簧管", "0609"],
+  ["低音管", "0610"],
+  ["直笛", "0611"],
+  ["理論與作曲", "0801"],
+  ["理論作曲", "0801"],
+  ["揚琴", "0906"],
+  ["鋼琴", "0101"],
+  ["聲樂", "0301"],
+  ["擊樂", "0701"],
+  ["南胡", "0901"],
+  ["琵琶", "0902"],
+  ["箏", "0903"],
+  ["笙", "0904"],
+  ["笛", "0905"],
+];
+
+/** 大學術科官方檔中，身分證後、特殊應考需求前的 14 欄。 */
+export function universityArtsExamOfficialFields(
+  group: UniversityArtsExamGroup,
+  subjects: ExamSubject[],
+  selectedKeys: string[],
+  advancedOptionCodes: Record<string, string>,
+  locationCode: string,
+  locationOptions: ExamLocationOption[] = []
+): string[] {
+  const selected = new Set(selectedKeys);
+  const selectedSubjects = subjects.filter((subject) => selected.has(subject.key));
+  const normalize = (value: string) => value.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
+  const hasSubject = (label: string) =>
+    selectedSubjects.some((subject) => normalize(subject.label).includes(normalize(label)));
+  const instrumentCode = (kind: "主修" | "副修"): string => {
+    const subject = selectedSubjects.find((item) => {
+      const label = normalize(item.label);
+      return label.includes(kind) && (kind === "主修" || !label.includes("主修"));
+    });
+    if (!subject) return "0000";
+
+    const selectedCode = advancedOptionCodes[subject.key]?.trim() ?? "";
+    const selectedOption = subject.advancedOptions?.find((option) => option.code === selectedCode);
+    const optionOrSubjectLabel = selectedOption?.label ?? subject.label;
+    const bracketedInstrument = /[（(]([^）)]+)[）)]/.exec(optionOrSubjectLabel)?.[1] ?? optionOrSubjectLabel;
+    const normalizeInstrument = (value: string) => normalize(value).replace(/主修|副修/g, "");
+    const instrumentName = normalizeInstrument(bracketedInstrument);
+    const mappedCode = OFFICIAL_MUSIC_INSTRUMENT_CODES.find(([name]) =>
+      instrumentName.includes(normalize(name))
+    )?.[1];
+
+    if (selectedCode && selectedCode !== "__selected__") {
+      if (/^\d{1,4}$/.test(selectedCode)) return selectedCode.padStart(4, "0");
+      return mappedCode ?? selectedCode;
+    }
+    return mappedCode ?? "0000";
+  };
+
+  const artRegion = (() => {
+    if (group !== "art") return "0";
+    const code = locationCode.trim();
+    if (["1", "2", "3"].includes(code)) return code;
+    const label = normalize(locationOptions.find((option) => option.code === code)?.label ?? code);
+    if (/北區|北部|臺北|台北/.test(label)) return "1";
+    if (/中區|中部|臺中|台中/.test(label)) return "2";
+    if (/南區|南部|臺南|台南|高雄/.test(label)) return "3";
+    return "0";
+  })();
+
+  return [
+    group === "music" ? "1" : "0",
+    group === "art" ? "1" : "0",
+    group === "sports" ? "1" : "0",
+    instrumentCode("主修"),
+    instrumentCode("副修"),
+    group === "music" && hasSubject("樂理") ? "1" : "0",
+    group === "music" && hasSubject("聽寫") ? "1" : "0",
+    group === "music" && hasSubject("視唱") ? "1" : "0",
+    group === "art" && hasSubject("素描") ? "1" : "0",
+    group === "art" && hasSubject("彩繪技法") ? "1" : "0",
+    group === "art" && hasSubject("創意表現") ? "1" : "0",
+    group === "art" && hasSubject("水墨書畫") ? "1" : "0",
+    group === "art" && hasSubject("美術鑑賞") ? "1" : "0",
+    artRegion,
+  ];
+}
+
+/** 將三個獨立組別的登錄欄位合併成一位考生的一列官方資料。 */
+export function combineUniversityArtsExamOfficialFields(
+  fieldsByGroup: Partial<Record<UniversityArtsExamGroup, string[]>>
+): string[] {
+  const empty = ["0", "0", "0", "0000", "0000", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+  const music = fieldsByGroup.music ?? empty;
+  const art = fieldsByGroup.art ?? empty;
+  const sports = fieldsByGroup.sports ?? empty;
+  return [
+    music[0],
+    art[1],
+    sports[2],
+    music[3],
+    music[4],
+    ...music.slice(5, 8),
+    ...art.slice(8, 13),
+    art[13],
+  ];
+}
 
 export function academicAbilityExamSubjectFlags(
   subjects: ExamSubject[],

@@ -519,9 +519,7 @@ export default function ExamRegistrationRosterPage() {
                                   >
                                     解除封存
                                   </button>
-                                ) : (
-                                  <span className="text-xs text-t3">—</span>
-                                )}
+                                ) : null}
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteClick(reg.studentUid, row.studentName)}

@@ -21,28 +21,34 @@ import {
   EXAM_EVENT_STATUS_LABELS,
   EXAM_FEE_CODE_LABELS,
   EXAM_ROSTER_EXPORT_SCOPE_LABELS,
+  HIGH_SCHOOL_ENGLISH_LISTENING_EXAM_OFFICIAL_HEADERS,
+  UNIVERSITY_ARTS_EXAM_OFFICIAL_HEADERS,
   academicAbilityExamSubjectFlags,
   buildExamRegistrationCsv,
   calcExamFee,
   canTransitionExamStatus,
+  combineUniversityArtsExamOfficialFields,
   countSubjectsByRegistrations,
   composeExamRegistrationNumber,
   effectiveExamStatus,
   examEventToDraft,
   formatExamDateRange,
   formatExamRosterDateTime,
+  getUniversityArtsExamGroup,
   isExamCategory,
   isExamEventType,
   isExamFeeCode,
   isExamOpen,
   isExamRegistrationMode,
   isExamReviewStatus,
+  isHighSchoolEnglishListeningExamTitle,
   isTargetMatch,
   parseExamEventDraft,
   parseSubjectKeys,
   pickValidSubjectKeys,
   resolveLocationLabel,
   subjectCapacity,
+  universityArtsExamOfficialFields,
   EXAM_SERVICE_NOTE_MAX,
   OPT_OUT_REASON_MAX,
 } from "../types/exam-registration";
@@ -61,6 +67,7 @@ import type {
   ExamRosterStudent,
   ExamRosterSummary,
   StudentExamEvent,
+  UniversityArtsExamGroup,
 } from "../types/exam-registration";
 
 export const EXAM_EVENTS_COLLECTION = "examEvents";
@@ -421,6 +428,46 @@ export async function listStudentExamEvents(student: StudentIdentity): Promise<S
       subjectStats,
     };
   });
+}
+
+/** 依家長名冊綁定的學號、年級、班級解析唯一有效子女；供家長唯讀查看報名資料。 */
+export async function linkedStudentIdentityForParent(
+  parentEntry: Record<string, unknown>
+): Promise<StudentIdentity | null> {
+  const studentId = typeof parentEntry.studentId === "string" ? parentEntry.studentId.trim() : "";
+  if (!studentId) return null;
+  const expectedGrade = typeof parentEntry.grade === "string" ? parentEntry.grade.trim() : "";
+  const expectedClass = typeof parentEntry.classCode === "string" ? parentEntry.classCode.trim() : "";
+  const period = await getCurrentPeriod();
+  const entries = await loadPeriodEntries(period, "student");
+  const matches: StudentIdentity[] = [];
+
+  for (const [uid, entry] of entries) {
+    if (!isActiveEntry(entry)) continue;
+    const entryStudentId = typeof entry.studentId === "string" ? entry.studentId.trim() : "";
+    const grade = typeof entry.grade === "string" ? entry.grade.trim() : "";
+    const classCode = typeof entry.classCode === "string" ? entry.classCode.trim() : "";
+    if (
+      entryStudentId !== studentId ||
+      (expectedGrade && grade !== expectedGrade) ||
+      (expectedClass && classCode !== expectedClass)
+    ) {
+      continue;
+    }
+    const seatNo = typeof entry.seatNo === "string" ? entry.seatNo : "";
+    matches.push({
+      uid,
+      name: typeof entry.name === "string" ? entry.name : "",
+      grade,
+      classCode,
+      studentId,
+      seatNo,
+      className: typeof entry.className === "string" ? entry.className : classCode,
+      rollNo: typeof entry.rollNo === "string" ? entry.rollNo : `${classCode}${seatNo}`,
+    });
+  }
+
+  return matches.length === 1 ? matches[0] : null;
 }
 
 /** 點查（不存在＝0 讀）；學生與管理端共用 */
@@ -1687,13 +1734,160 @@ async function loadStudentNationalIds(uids: string[]): Promise<Map<string, strin
   return nationalIds;
 }
 
-/** 學科能力測驗官方報名格式：一名考生一列、各選考科目以 1/0 表示。 */
-export async function buildAcademicAbilityOfficialXlsxForEvent(
+/** 依正式考試名稱產生官方報名資料檔；英聽、學測與大學術科各用專屬欄位格式。 */
+async function buildUniversityArtsOfficialXlsxForEvent(
+  anchorRoster: ExamEventRoster,
+  options: { from?: string; to?: string; schoolExamCode: string; registrationNumberField: ExamRegistrationNumberField }
+): Promise<{ filename: string; buffer: Buffer }> {
+  const anchorYear = anchorRoster.event.examDate.slice(0, 4);
+  const { events } = await listAdminExamEvents();
+  const eventById = new Map<string, ExamEvent>([[anchorRoster.event.id, anchorRoster.event]]);
+  for (const event of events) {
+    if (
+      event.examDate.slice(0, 4) === anchorYear &&
+      getUniversityArtsExamGroup(event.title) &&
+      !eventById.has(event.id)
+    ) {
+      eventById.set(event.id, event);
+    }
+  }
+  const relatedEvents = [...eventById.values()];
+  const companionEvents = relatedEvents.filter((event) => event.id !== anchorRoster.event.id);
+  const registrationSnapshots = await Promise.all(
+    companionEvents.map((event) =>
+      getAdminDb()
+        .collection(EXAM_REGISTRATIONS_COLLECTION)
+        .where("eventId", "==", event.id)
+        .limit(ROSTER_LIMIT)
+        .get()
+    )
+  );
+  const registrations = [
+    ...anchorRoster.registrations,
+    ...registrationSnapshots.flatMap((snapshot) =>
+      snapshot.docs.map((doc) => readExamRegistration(doc.id, doc.data()))
+    ),
+  ];
+
+  const from = options.from?.trim() ?? "";
+  const to = options.to?.trim() ?? "";
+  const inRange = (classCode: string): boolean =>
+    Boolean(classCode) &&
+    (!from || classCode.localeCompare(from, "zh-Hant", { numeric: true }) >= 0) &&
+    (!to || classCode.localeCompare(to, "zh-Hant", { numeric: true }) <= 0);
+  const groupByEventId = new Map(
+    relatedEvents.map((event) => [event.id, getUniversityArtsExamGroup(event.title)] as const)
+  );
+  const byStudent = new Map<
+    string,
+    Partial<Record<UniversityArtsExamGroup, { event: ExamEvent; registration: ExamRegistration }>>
+  >();
+  for (const registration of registrations) {
+    if (registration.optOut || !registration.studentUid || !inRange(registration.studentClass)) continue;
+    const event = eventById.get(registration.eventId);
+    const group = groupByEventId.get(registration.eventId);
+    if (!event || !group) continue;
+    const groups = byStudent.get(registration.studentUid) ?? {};
+    const current = groups[group];
+    if (!current || registration.updatedAt >= current.registration.updatedAt) {
+      groups[group] = { event, registration };
+    }
+    byStudent.set(registration.studentUid, groups);
+  }
+
+  const students = [...byStudent.entries()].map(([uid, groups]) => {
+    const entries = (["music", "art", "sports"] as const)
+      .map((group) => groups[group])
+      .filter((entry): entry is { event: ExamEvent; registration: ExamRegistration } => Boolean(entry));
+    const identityEntry = [...entries].sort(
+      (a, b) => b.registration.updatedAt - a.registration.updatedAt
+    )[0];
+    return { uid, groups, entries, identityEntry };
+  }).filter(
+    (student): student is typeof student & { identityEntry: { event: ExamEvent; registration: ExamRegistration } } =>
+      Boolean(student.identityEntry)
+  );
+
+  const nationalIds = await loadStudentNationalIds(students.map((student) => student.uid));
+  const missingIds = students.filter((student) => !nationalIds.get(student.uid));
+  if (missingIds.length) {
+    const sample = missingIds
+      .slice(0, 5)
+      .map(({ identityEntry }) =>
+        `${identityEntry.registration.studentClass} ${identityEntry.registration.studentName}`
+      )
+      .join("、");
+    const remainder = missingIds.length > 5 ? `等 ${missingIds.length} 人` : "";
+    throw new ExamRegistrationError(
+      400,
+      `部分已報名學生尚未填寫身分證資料，無法產生官方報名檔：${sample}${remainder}`
+    );
+  }
+
+  students.sort((a, b) => {
+    const left = a.identityEntry.registration;
+    const right = b.identityEntry.registration;
+    return (
+      left.studentClass.localeCompare(right.studentClass, "zh-Hant", { numeric: true }) ||
+      left.seatNo.localeCompare(right.seatNo, "zh-Hant", { numeric: true }) ||
+      left.studentName.localeCompare(right.studentName, "zh-Hant")
+    );
+  });
+
+  const schoolExamCode = options.schoolExamCode.trim();
+  const aoa: (string | number)[][] = [
+    [...UNIVERSITY_ARTS_EXAM_OFFICIAL_HEADERS],
+    ...students.map((student) => {
+      const { registration: identity } = student.identityEntry;
+      const exportRow = registrationExportRow(
+        identity,
+        anchorRoster.event,
+        schoolExamCode,
+        options.registrationNumberField
+      );
+      const fieldsByGroup: Partial<Record<UniversityArtsExamGroup, string[]>> = {};
+      for (const group of ["music", "art", "sports"] as const) {
+        const entry = student.groups[group];
+        if (!entry) continue;
+        fieldsByGroup[group] = universityArtsExamOfficialFields(
+          group,
+          entry.event.subjects,
+          entry.registration.subjectKeys,
+          entry.registration.subjectAdvancedOptionCodes,
+          entry.registration.locationCode,
+          entry.event.locationOptions
+        );
+      }
+      const fields = combineUniversityArtsExamOfficialFields(fieldsByGroup);
+      const specialNeeds = [...new Set(
+        student.entries.flatMap(({ registration }) => [
+          registration.nonAirConditionedRoom ? "非冷氣試場" : "",
+          registration.examServiceNote.trim(),
+        ].filter(Boolean))
+      )].join("；");
+      return [exportRow.registrationNo, nationalIds.get(student.uid) ?? "", ...fields, specialNeeds];
+    }),
+  ];
+  const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "大學術科考試");
+  const buffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+  const safeTitle = anchorRoster.event.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+  return {
+    filename: `大學術科考試報名資料_${schoolExamCode}_${safeTitle || anchorRoster.event.id}.xlsx`,
+    buffer,
+  };
+}
+
+export async function buildOfficialExamXlsxForEvent(
   eventId: string,
   options: { from?: string; to?: string; schoolExamCode: string; registrationNumberField: ExamRegistrationNumberField }
 ): Promise<{ filename: string; buffer: Buffer } | null> {
   const roster = await getExamEventRoster(eventId);
   if (!roster) return null;
+  if (getUniversityArtsExamGroup(roster.event.title)) {
+    return buildUniversityArtsOfficialXlsxForEvent(roster, options);
+  }
   const from = options.from?.trim() ?? "";
   const to = options.to?.trim() ?? "";
   const schoolExamCode = options.schoolExamCode.trim();
@@ -1702,6 +1896,7 @@ export async function buildAcademicAbilityOfficialXlsxForEvent(
     (!from || classCode.localeCompare(from, "zh-Hant", { numeric: true }) >= 0) &&
     (!to || classCode.localeCompare(to, "zh-Hant", { numeric: true }) <= 0);
   const registrations = roster.registrations.filter((row) => !row.optOut && inRange(row.studentClass));
+  const isEnglishListening = isHighSchoolEnglishListeningExamTitle(roster.event.title);
   const nationalIds = await loadStudentNationalIds(registrations.map((row) => row.studentUid));
   const missingIds = registrations.filter((row) => !nationalIds.get(row.studentUid));
   if (missingIds.length) {
@@ -1716,8 +1911,11 @@ export async function buildAcademicAbilityOfficialXlsxForEvent(
     );
   }
 
+  const headers = isEnglishListening
+    ? [...HIGH_SCHOOL_ENGLISH_LISTENING_EXAM_OFFICIAL_HEADERS]
+    : [...ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS];
   const aoa: (string | number)[][] = [
-    [...ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS],
+    headers,
     ...registrations.map((row) => {
       const exportRow = registrationExportRow(
         row,
@@ -1725,30 +1923,38 @@ export async function buildAcademicAbilityOfficialXlsxForEvent(
         schoolExamCode,
         options.registrationNumberField
       );
-      const subjects = academicAbilityExamSubjectFlags(
-        roster.event.subjects,
-        row.subjectKeys,
-        row.subjectAdvancedOptionCodes
-      );
       const specialNeeds = [
         row.nonAirConditionedRoom ? "非冷氣試場" : "",
         row.examServiceNote.trim(),
       ].filter(Boolean).join("；");
+      if (isEnglishListening) {
+        return [
+          exportRow.registrationNo,
+          nationalIds.get(row.studentUid) ?? "",
+          row.locationCode,
+          specialNeeds,
+        ];
+      }
       return [
         exportRow.registrationNo,
         nationalIds.get(row.studentUid) ?? "",
         row.locationCode,
-        ...subjects,
+        ...academicAbilityExamSubjectFlags(
+          roster.event.subjects,
+          row.subjectKeys,
+          row.subjectAdvancedOptionCodes
+        ),
         specialNeeds,
       ];
     }),
   ];
   const worksheet = XLSX.utils.aoa_to_sheet(aoa);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "學科能力測驗");
+  const officialExamName = isEnglishListening ? "高中英語聽力測驗" : "學科能力測驗";
+  XLSX.utils.book_append_sheet(workbook, worksheet, officialExamName);
   const buffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
   const safeTitle = roster.event.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
-  const filename = `學科能力測驗報名資料_${schoolExamCode}_${safeTitle || eventId}.xlsx`;
+  const filename = `${officialExamName}報名資料_${schoolExamCode}_${safeTitle || eventId}.xlsx`;
   return { filename, buffer };
 }
 

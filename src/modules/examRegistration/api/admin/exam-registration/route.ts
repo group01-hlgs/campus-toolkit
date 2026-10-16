@@ -7,7 +7,7 @@ import { getAnnouncementSettings } from "@/lib/announcements";
 import { getCalendarSettings } from "@/lib/calendar";
 import {
   ExamRegistrationError,
-  buildAcademicAbilityOfficialXlsxForEvent,
+  buildOfficialExamXlsxForEvent,
   buildExamRegistrationCsvForEvent,
   buildExamRegistrationXlsxForEvent,
   createExamEvent,
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
             { status: 400, headers: noStore }
           );
         }
-        const file = await buildAcademicAbilityOfficialXlsxForEvent(eventId, {
+        const file = await buildOfficialExamXlsxForEvent(eventId, {
           from: request.nextUrl.searchParams.get("from")?.trim() ?? "",
           to: request.nextUrl.searchParams.get("to")?.trim() ?? "",
           schoolExamCode,

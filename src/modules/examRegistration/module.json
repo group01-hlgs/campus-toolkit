@@ -3,23 +3,25 @@
   "label": "升學考試與模擬考校內報名",
   "kind": "optional",
   "status": "live",
-  "description": "校內升學考試與模擬考的選考科目登錄：承辦建立場次與科目、指定對象年級班級，學生線上登錄與修改。",
+  "description": "校內升學考試與模擬考的選考科目登錄：承辦建立場次與科目、指定對象年級班級，學生線上登錄與修改，家長可唯讀查看名冊綁定子女的報名資料。",
   "href": "/admin/exam-registration",
   "contractVersion": 1,
   "minHostVersion": "0.488",
   "author": {
     "author": "張家誠",
     "authorUrl": "",
-    "version": "0.1.19",
+    "version": "0.1.25",
     "releasedAt": "2026-10-16"
   },
-  "provides": { "student": true, "parent": false, "staff": true, "admin": true },
+  "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "routes": [
     { "kind": "page", "path": "/student/exam-registration" },
+    { "kind": "page", "path": "/parent/exam-registration" },
     { "kind": "page", "path": "/staff/exam-registration" },
     { "kind": "page", "path": "/admin/exam-registration" },
     { "kind": "page", "path": "/admin/exam-registration/roster" },
     { "kind": "api", "path": "/api/exam-registration" },
+    { "kind": "api", "path": "/api/parent/exam-registration" },
     { "kind": "api", "path": "/api/staff/exam-registration" },
     { "kind": "api", "path": "/api/admin/exam-registration" }
   ],
