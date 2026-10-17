@@ -47,7 +47,8 @@ import { ensureFallbackCategory } from "@/types/category";
  * 1. 只寫 `announcements` 集合；
  * 2. `sourceModule` 必填（公告頁自己發文＝"announcements"）；
  * 3. 受眾必須明確（roles＋必要時 classCodes），不可無界；
- * 4. 寫入成功後呼叫 `invalidateAnnouncementsCache()`（本函式已內建）。
+ * 4. 寫入成功後呼叫 `invalidateAnnouncementsCache()`（本函式已內建）；
+ * 5. 更新／撤回走 `updateFromModule`（P5，以 sourceModule+sourceRef 定位）。
  *
  * 讀取：管理端清單直讀＋排序；收件匣走 15 秒 cachedRead，
  * 寫入後以 invalidateReadCache("announcements:") 清本機（跨實例上限＝TTL）。
@@ -258,6 +259,67 @@ export async function updateAnnouncement(
 /** 封存公告。回傳 `deleted=true` 表示因下架原則被真實刪除 */
 export async function archiveAnnouncement(id: string): Promise<{ deleted: boolean }> {
   return updateAnnouncement(id, { status: "archived" });
+}
+
+export interface UpdateFromModuleInput {
+  sourceModule: string;
+  sourceRef: string;
+  title?: string;
+  body?: string;
+  categoryId?: string;
+  audience?: AnnouncementAudience;
+  isPublic?: boolean;
+  publishAt?: number;
+  expireAt?: number | null;
+  pinned?: boolean;
+  /** archived ＝ 撤回（下架但保留文件供對帳）；published ＝ （重新）上架 */
+  status?: "published" | "archived";
+}
+
+/**
+ * P5 跨模組更新／撤回公告：以 sourceModule+sourceRef 定位並更新。
+ * 查無對應公告時回 { updated: 0 }（未發佈過是合法狀態，不拋錯——
+ * 讓來源端可在「可能從未發佈」時安全呼叫）。
+ * status: "archived" 即撤回語意；若系統「下架即真實刪除」原則開啟，
+ * 由 updateAnnouncement 內建轉為硬刪除（含個人提醒）。
+ */
+export async function updateFromModule(
+  input: UpdateFromModuleInput
+): Promise<{ updated: number }> {
+  const sourceModule = typeof input.sourceModule === "string" ? input.sourceModule.trim() : "";
+  if (!sourceModule) {
+    throw new Error("updateFromModule: sourceModule 必填");
+  }
+  const sourceRef = typeof input.sourceRef === "string" ? input.sourceRef.trim() : "";
+  if (!sourceRef) {
+    throw new Error("updateFromModule: sourceRef 必填（更新／撤回需可定位來源）");
+  }
+
+  const snap = await getAdminDb()
+    .collection(ANNOUNCEMENTS_COLLECTION)
+    .where("sourceModule", "==", sourceModule)
+    .where("sourceRef", "==", sourceRef)
+    .get();
+  if (snap.empty) return { updated: 0 };
+
+  const patch = {
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.body !== undefined ? { body: input.body } : {}),
+    ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+    ...(input.audience !== undefined ? { audience: input.audience } : {}),
+    ...(input.isPublic !== undefined ? { isPublic: input.isPublic } : {}),
+    ...(input.publishAt !== undefined ? { publishAt: input.publishAt } : {}),
+    ...(input.expireAt !== undefined ? { expireAt: input.expireAt } : {}),
+    ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
+    ...(input.status !== undefined ? { status: input.status } : {}),
+  };
+
+  let updated = 0;
+  for (const doc of snap.docs) {
+    await updateAnnouncement(doc.id, patch);
+    updated += 1;
+  }
+  return { updated };
 }
 
 /**
