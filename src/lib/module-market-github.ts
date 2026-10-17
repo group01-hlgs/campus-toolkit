@@ -24,6 +24,33 @@ export interface ModuleMarketGithubConfig {
   repo: string;
 }
 
+/** 【E13/5b】查詢分支最新 commit 的部署狀態（GitHub combined status；Vercel webhook 建立） */
+export async function getBranchDeployStatus(
+  branch: string
+): Promise<{ state: "pending" | "success" | "failure" | "unknown"; description: string; targetUrl?: string }> {
+  const config = resolveModuleMarketGithubConfig();
+  if (!config) return { state: "unknown", description: "未設定 GitHub token，無法查詢部署狀態" };
+  const { token, repo } = config;
+  const [owner, repoName] = repo.split("/");
+  try {
+    const status = await githubRequest(
+      token,
+      `/repos/${owner}/${repoName}/commits/${encodeURIComponent(branch)}/status`
+    );
+    const state = typeof status?.state === "string" ? status.state : "";
+    const description = typeof status?.description === "string" ? status.description : "";
+    const statuses = Array.isArray(status?.statuses) ? (status!.statuses as Array<Record<string, unknown>>) : [];
+    const firstTarget = statuses[0]?.target_url;
+    const targetUrl = typeof firstTarget === "string" ? firstTarget : undefined;
+    if (state === "success") return { state: "success", description: description || "部署完成", targetUrl };
+    if (state === "failure" || state === "error") return { state: "failure", description: description || "部署失敗", targetUrl };
+    if (state === "pending") return { state: "pending", description: description || "部署中", targetUrl };
+    return { state: "unknown", description: description || "查無部署狀態", targetUrl };
+  } catch (e) {
+    return { state: "unknown", description: e instanceof Error ? e.message : "查詢部署狀態失敗" };
+  }
+}
+
 export interface CommitMarketplaceInstallInput {
   moduleId: string;
   moduleDir: string;

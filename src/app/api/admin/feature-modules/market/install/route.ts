@@ -221,6 +221,9 @@ export async function POST(request: NextRequest) {
     let sourcePath = "";
     let downloadUrl = "";
     let expectedSha256 = "";
+    let expectedSignature = "";
+    let expectedPublicKey = "";
+    let expectedBranch = "";
     let uploadArchive: File | null = null;
 
     if (contentType.includes("multipart/form-data")) {
@@ -229,12 +232,16 @@ export async function POST(request: NextRequest) {
       const sourceEntry = form.get("sourcePath");
       const downloadEntry = form.get("downloadUrl");
       const checksumEntry = form.get("checksumSha256");
+      const signatureEntry = form.get("signature");
+      const publicKeyEntry = form.get("publicKey");
       const archiveEntry = form.get("archive");
 
       moduleId = typeof idEntry === "string" ? idEntry.trim() : "";
       sourcePath = typeof sourceEntry === "string" ? sourceEntry.trim() : "";
       downloadUrl = typeof downloadEntry === "string" ? downloadEntry.trim() : "";
       expectedSha256 = typeof checksumEntry === "string" ? checksumEntry.trim().toLowerCase() : "";
+      expectedSignature = typeof signatureEntry === "string" ? signatureEntry.trim() : "";
+      expectedPublicKey = typeof publicKeyEntry === "string" ? publicKeyEntry.trim() : "";
       uploadArchive = archiveEntry instanceof File ? archiveEntry : null;
     } else {
       const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -242,6 +249,9 @@ export async function POST(request: NextRequest) {
       sourcePath = typeof body.sourcePath === "string" ? body.sourcePath.trim() : "";
       downloadUrl = typeof body.downloadUrl === "string" ? body.downloadUrl.trim() : "";
       expectedSha256 = typeof body.checksumSha256 === "string" ? body.checksumSha256.trim().toLowerCase() : "";
+      expectedSignature = typeof body.signature === "string" ? body.signature.trim() : "";
+      expectedPublicKey = typeof body.publicKey === "string" ? body.publicKey.trim() : "";
+      expectedBranch = typeof body.branch === "string" ? body.branch.trim() : "";
     }
 
     if (!moduleId && !uploadArchive) {
@@ -325,6 +335,31 @@ export async function POST(request: NextRequest) {
       }
       if (expectedSha256 && downloaded.sha256 !== expectedSha256) {
         throw new Error(`套件完整性校驗失敗（sha256 不符）——拒絕安裝【附錄 A #13】`);
+      }
+      // 【E17】ed25519 簽章驗證（有簽章即驗；無簽章按 sha256 流程放行，相容既有套件）
+      if (expectedSignature || expectedPublicKey) {
+        if (!expectedSignature || !expectedPublicKey) {
+          throw new Error("簽章驗證需同時提供 signature 與 publicKey【E17】");
+        }
+        let signatureValid = false;
+        try {
+          const publicKey = crypto.createPublicKey({
+            key: Buffer.from(expectedPublicKey, "base64"),
+            format: "der",
+            type: "spki",
+          });
+          signatureValid = crypto.verify(
+            null,
+            Buffer.from(downloaded.sha256, "hex"),
+            publicKey,
+            Buffer.from(expectedSignature, "base64")
+          );
+        } catch {
+          signatureValid = false;
+        }
+        if (!signatureValid) {
+          throw new Error("套件簽章驗證失敗（來源不符）——拒絕安裝【附錄 A #18】");
+        }
       }
       downloadedSha256 = downloaded.sha256;
       const extractedDir = extractArchive(downloaded.filePath, downloaded.extension);
@@ -428,6 +463,7 @@ export async function POST(request: NextRequest) {
             : `模組「${effectiveModuleId}」安裝提交已建立（branch: ${committed.branch}），請等待部署完成。`,
         branch: committed.branch,
         commitUrl: committed.commitUrl,
+        commitSha: committed.commitSha,
       });
     }
 
@@ -498,6 +534,7 @@ export async function POST(request: NextRequest) {
       moduleId: effectiveModuleId,
       installedVersion: manifestVersion || undefined,
       message: `模組「${effectiveModuleId}」已${updating ? "更新" : "安裝"}完成（含掃描器與 lint 驗證鏈）`,
+      ...(expectedBranch ? { branch: expectedBranch } : {}),
     });
   } catch (error) {
     console.error("Market install error:", error);

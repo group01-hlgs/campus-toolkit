@@ -54,6 +54,9 @@ ui-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# 模組簽章私鑰（scripts/module-sign.mjs keygen 產出，勿提交）
+.module-signing/
+
 # 模組註冊表產生物（scripts/build-module-registry.mjs，predev/prebuild/prelint 產生）
 src/types/feature-modules.generated.ts
 src/types/modules.generated.ts
