@@ -191,6 +191,23 @@ function validateManifest(relDir, dirName, m, reserved, ctx) {
     }
   }
 
+  if (m.defaultRoleEnabled !== undefined) {
+    const dre = m.defaultRoleEnabled;
+    if (!dre || typeof dre !== "object" || Array.isArray(dre)) {
+      at("defaultRoleEnabled 需為物件");
+    } else {
+      for (const [role, value] of Object.entries(dre)) {
+        if (!["student", "parent", "staff", "admin"].includes(role)) {
+          at(`defaultRoleEnabled 含未知身分「${role}」`);
+        }
+        if (typeof value !== "boolean") at(`defaultRoleEnabled.${role} 需為布林值`);
+        if (provides && provides[role] === false) {
+          at(`defaultRoleEnabled.${role} 宣告 false，但 provides.${role} 亦為 false（未提供身分不需預設）`);
+        }
+      }
+    }
+  }
+
   if (!Array.isArray(m.routes) || m.routes.length === 0) {
     at("routes 需為非空陣列");
   } else {
@@ -404,6 +421,16 @@ function renderFeatureFile(manifests) {
             "    },",
           ]
         : [];
+    const defaultRoleEnabled = m.defaultRoleEnabled && typeof m.defaultRoleEnabled === "object" ? m.defaultRoleEnabled : null;
+    const defaultRoleEnabledLines = defaultRoleEnabled
+      ? [
+          "    defaultRoleEnabled: {",
+          ...Object.entries(defaultRoleEnabled)
+            .filter(([, value]) => typeof value === "boolean")
+            .map(([role, value]) => `      ${role}: ${value},`),
+          "    },",
+        ]
+      : [];
     return [
       "  {",
       `    value: ${JSON.stringify(m.value)},`,
@@ -424,6 +451,7 @@ function renderFeatureFile(manifests) {
       `      staff: ${p.staff === true},`,
       `      admin: ${p.admin === true},`,
       "    },",
+      ...defaultRoleEnabledLines,
       ...roleHrefsLines,
       "  },",
     ].join("\n");
