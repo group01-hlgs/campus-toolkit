@@ -8,7 +8,6 @@ import type {
   CalendarSurfaceItem,
   CalendarSurfaceSetting,
 } from "@/types/calendar";
-import { ROLE_HOME } from "@/types/users";
 
 interface SurfaceResponse {
   success?: boolean;
@@ -40,8 +39,8 @@ function shortDateLabel(item: CalendarSurfaceItem): string {
  *
  * 版面：標題「行事曆」右側＝翻頁箭頭（2 則以上才出現，水平左右排列；
  * 一次只顯示 1 條，標題連到「單筆行程內容頁」`/calendar/[id]`，跳出新頁）
- * ＋「進入行事曆」入口 SVG（＝行事曆功能首頁，各身分為 `${ROLE_HOME[身分]}/calendar`，
- * 系統首頁未登入連回首頁 `/`）；翻到盡頭再按該方向箭頭時，箭頭符號不變、
+ * ＋「進入行事曆」入口 SVG（＝全站統一行事曆頁 `/calendar`，新視窗）；
+ * 翻到盡頭再按該方向箭頭時，箭頭符號不變、
  * 只改為「前往行事曆」連結（另一方向仍可折返）。
  * 行動版（<sm）日期｜類型與標題各佔一行，避免標題被截斷；
  * 沒有行程時只顯示入口，不整塊隱藏（API 異常時同樣只顯示入口）。
@@ -89,12 +88,8 @@ export default function CalendarSurface({
   if (!setting && !failed) return null;
 
   const item = items[Math.min(index, items.length - 1)];
-  // 入口：登入頁＝公開行事曆檢視頁 /calendar（未登入可瀏覽）；
-  // 學生／家長／教職員＝各自行事曆檢視專頁；
-  // 管理員也走 /calendar 檢視頁（/admin/calendar 是管理頁，不是檢視頁——避免入口誤接到管理介面）
-  const calendarHref =
-    surface === "login" || surface === "admin" ? "/calendar" : `${ROLE_HOME[surface]}/calendar`;
-  const entryHref = calendarHref;
+  // 入口：全站統一行事曆頁 /calendar（未登入＝公開行程；登入＝依 session 身分過濾）
+  const entryHref = "/calendar";
   // 2 則以上才出現翻頁箭頭（單則維持原樣，無箭頭可翻）
   const paged = items.length >= 2;
 
@@ -151,19 +146,17 @@ export default function CalendarSurface({
               </button>
             )
           )}
-          {/* 完整行事曆入口（新視窗）：登入頁→公開行事曆 /calendar；各身分→各自專頁 */}
-          {calendarHref && (
-            <Link
-              href={calendarHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="進入行事曆（新視窗）"
-              aria-label="進入行事曆（新視窗）"
-              className="p-1 text-t2 hover:text-primary transition"
-            >
-              <ModuleIcon value="calendar" className="w-5 h-5" />
-            </Link>
-          )}
+          {/* 完整行事曆入口（新視窗）：全站統一行事曆頁 /calendar */}
+          <Link
+            href={entryHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="進入行事曆（新視窗）"
+            aria-label="進入行事曆（新視窗）"
+            className="p-1 text-t2 hover:text-primary transition"
+          >
+            <ModuleIcon value="calendar" className="w-5 h-5" />
+          </Link>
         </div>
       </div>
       {item && (

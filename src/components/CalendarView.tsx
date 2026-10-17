@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import DisclosureArrow from "@/components/DisclosureArrow";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import { fetchSession } from "@/lib/session";
-import { fetchSettings } from "@/lib/settings-client";
 import {
   calendarEventEnd,
   CALENDAR_FALLBACK_CATEGORY_ID,
@@ -14,7 +12,7 @@ import {
   type CalendarEventItem,
 } from "@/types/calendar";
 import { normalizeCategoryId, resolveCategoryName } from "@/types/category";
-import { ROLE_LABELS, type UserRole } from "@/types/users";
+import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
 
 type FontSize = "small" | "medium" | "large";
 type ViewMode = "month" | "list";
@@ -64,10 +62,6 @@ function eventDayRange(item: CalendarEventItem): [string, string] {
   return [start, end];
 }
 
-function inRange(range: [string, string], key: string): boolean {
-  return key >= range[0] && key <= range[1];
-}
-
 function formatRange(item: CalendarEventItem): string {
   const s = new Date(item.startAt);
   if (item.allDayDate) return `全天（${s.getMonth() + 1}/${s.getDate()}）`;
@@ -88,7 +82,7 @@ interface CalendarResponse {
   message?: string;
   items?: CalendarEventItem[];
   classCode?: string | null;
-  displayName?: string;
+  role?: UserRole | null;
   categories?: CalendarCategory[];
   remindersEnabled?: boolean;
   /** 發佈單位預設值（教職員名冊「單位」） */
@@ -96,21 +90,16 @@ interface CalendarResponse {
 }
 
 /**
- * 各身分行事曆（學生／家長／教職員共用；教職員另可建立行程）。
+ * 全站統一行事曆檢視頁（登入頁與四種身分共用同一頁面）。
+ * 身分由 session 推導：未登入＝只見公開行程；登入＝依身分＋班級過濾行程可見性。
+ * 頁面本身無個人資訊（無問候語／班級／返回鈕）；教職員與管理員另可建立行程。
  * 功能：月曆檢視（月曆格＋當日行程列表）、列表檢視、重要性標記、
- * 個人提醒切換、字級切換（localStorage）、教職員建立行程。
+ * 個人提醒切換、字級切換（localStorage）、教職員／管理員建立行程。
  */
-export default function CalendarView({
-  role,
-  canCreate,
-}: {
-  role: UserRole;
-  canCreate?: boolean;
-}) {
-  const router = useRouter();
+export default function CalendarView() {
   const [items, setItems] = useState<CalendarEventItem[]>([]);
+  const [sessionRole, setSessionRole] = useState<UserRole | null>(null);
   const [classCode, setClassCode] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState("");
   const [categories, setCategories] = useState<CalendarCategory[]>([]);
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [unitDefault, setUnitDefault] = useState("");
@@ -144,26 +133,17 @@ export default function CalendarView({
 
   useEffect(() => setFontSize(readStoredFontSize()), []);
 
+  // 身分推導：有 session＝該身分（行程依 session 過濾由 API 負責）；無＝公開模式
   useEffect(() => {
     let cancelled = false;
-    async function boot() {
-      const [session, settingsData] = await Promise.all([fetchSession(true), fetchSettings()]);
+    void fetchSession(true).then((session) => {
       if (cancelled) return;
-      if (!session || session.role !== role) {
-        router.push("/");
-        return;
-      }
-      setDisplayName(session.displayName);
-      const visible = settingsData?.visibleModules;
-      if (Array.isArray(visible) && !visible.includes("calendar")) {
-        setToast({ kind: "error", text: "行事曆功能目前對此身分關閉顯示" });
-      }
-    }
-    void boot();
+      setSessionRole(session?.role ?? null);
+    });
     return () => {
       cancelled = true;
     };
-  }, [role, router]);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -367,6 +347,11 @@ export default function CalendarView({
   }
 
   const sizes = FONT_SIZE_CLASSES[fontSize];
+  // 建立行程權限：教職員與管理員（統一頁由 session 推導，不再由外層 prop 傳入）
+  const canCreate = sessionRole === "staff" || sessionRole === "admin";
+  // 建立表單的閱讀權限選項：管理員可選四身分；教職員限學生／家長／教職員
+  const createRoleOptions: UserRole[] =
+    sessionRole === "admin" ? ALL_ROLES : ["student", "parent", "staff"];
 
   return (
     <div className="w-full max-w-3xl mb-8 space-y-6">
@@ -374,15 +359,6 @@ export default function CalendarView({
 
       <div className="content-width text-center">
         <h2 className="text-2xl font-bold text-t1">行事曆</h2>
-        {displayName && <p className="text-t2 mt-1">{displayName}，您好</p>}
-        {classCode && <p className="text-xs text-t3 mt-0.5">班級：{classCode}</p>}
-        <button
-          type="button"
-          onClick={() => router.push(`/${role}`)}
-          className="mt-2 btn-soft rounded px-3 py-1 text-xs cursor-pointer"
-        >
-          ← 返回功能首頁
-        </button>
       </div>
 
       {canCreate && (
@@ -514,7 +490,7 @@ export default function CalendarView({
                   />
                   重要行程
                 </label>
-                {(["student", "parent", "staff"] as UserRole[]).map((r) => (
+                {createRoleOptions.map((r) => (
                   <label key={r} className="inline-flex items-center gap-1.5">
                     <input
                       type="checkbox"
@@ -714,7 +690,7 @@ export default function CalendarView({
                       onToggleExpand={() =>
                         setExpandedId((prev) => (prev === item.id ? null : item.id))
                       }
-                      remindersEnabled={remindersEnabled}
+                      remindersEnabled={remindersEnabled && sessionRole !== null}
                       toggling={togglingReminder === item.id}
                       onToggleReminder={toggleReminder}
                     />
@@ -738,7 +714,7 @@ export default function CalendarView({
                   onToggleExpand={() =>
                     setExpandedId((prev) => (prev === item.id ? null : item.id))
                   }
-                  remindersEnabled={remindersEnabled}
+                  remindersEnabled={remindersEnabled && sessionRole !== null}
                   toggling={togglingReminder === item.id}
                   onToggleReminder={toggleReminder}
                 />

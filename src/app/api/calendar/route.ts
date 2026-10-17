@@ -28,7 +28,9 @@ function entryUnit(entry: Record<string, unknown> | null | undefined): string {
 }
 
 /**
- * GET：各身分行程列表（依 session 身分＋名冊班級過濾；查詢條件下推、班級記憶體過濾）。
+ * GET：行程列表（全站統一行事曆頁資料源）。
+ * 已登入：依 session 身分＋名冊班級過濾，附個人提醒與發佈單位預設值。
+ * 未登入：回公開行程（閱讀權限「無」且不限班級），無提醒功能。
  */
 export async function GET(request: NextRequest) {
   try {
@@ -41,7 +43,24 @@ export async function GET(request: NextRequest) {
     if (limited) return limited;
 
     const session = await verifySession();
-    if (!session) return toAuthResponse({ status: 401, message: "未登入或登入已失效" });
+    if (!session) {
+      // 公開模式：未登入只回公開行程（統一行事曆頁免登入可浏览）
+      const [items, settings] = await Promise.all([
+        listCalendarEvents({ role: null }),
+        getCalendarSettings(),
+      ]);
+      return NextResponse.json(
+        {
+          success: true,
+          items,
+          role: null,
+          classCode: null,
+          categories: settings.categories,
+          remindersEnabled: false,
+        },
+        { headers: noStore }
+      );
+    }
 
     const classCode = entryClassCode(session.__entry);
     const [rawItems, settings, reminderIds] = await Promise.all([
@@ -60,7 +79,6 @@ export async function GET(request: NextRequest) {
         items,
         role: session.role,
         classCode: classCode || null,
-        displayName: session.displayName,
         categories: settings.categories,
         remindersEnabled: settings.defaultRemindersEnabled,
         reminderIds,

@@ -487,7 +487,8 @@ export async function countCalendarEventsByStatus(): Promise<{
 }
 
 export interface CalendarListQuery {
-  role: UserRole;
+  /** null＝未登入公開模式（只回閱讀權限「無」且不限班級的公開行程） */
+  role: UserRole | null;
   classCode?: string | null;
   /** 顯示起點（epoch ms）；預設今日零時 */
   from?: number;
@@ -497,6 +498,7 @@ export interface CalendarListQuery {
  * 各身分行程列表：僅下推 `startAt` 單欄位（**免複合索引**，與顯示區／管理端清單
  * 同策略——舊版下推 status＋audienceRoles 需複合索引，開發專案缺索引時整頁 500）；
  * status／受眾與班級於記憶體過濾（量級以 LIST_LIMIT 有界，鐵律 3）。
+ * `role: null`＝未登入公開模式：只回 `isCalendarEventPublicReadable` 的行程。
  * 15 秒 cachedRead，寫入後由 `invalidateCalendarCache()` 清前綴失效。
  */
 export async function listCalendarEvents(
@@ -504,7 +506,7 @@ export async function listCalendarEvents(
 ): Promise<CalendarEventItem[]> {
   const { role, classCode } = query;
   const from = typeof query.from === "number" && query.from > 0 ? query.from : startOfTodayMs();
-  const cacheKey = `${LIST_CACHE_PREFIX}${role}:${classCode || "*"}:${from}`;
+  const cacheKey = `${LIST_CACHE_PREFIX}${role ?? "public"}:${classCode || "*"}:${from}`;
   return cachedRead(cacheKey, LIST_TTL_MS, async () => {
     const settings = await getCalendarSettings();
     const snap = await getAdminDb()
@@ -519,7 +521,11 @@ export async function listCalendarEvents(
       const record = readCalendarEventRecord(doc.id, doc.data());
       if (!record) continue;
       if (!isCalendarEventActive(record, now)) continue;
-      if (!canViewCalendarEvent(record.audience, role, classCode)) continue;
+      if (role === null) {
+        if (!isCalendarEventPublicReadable(record)) continue;
+      } else if (!canViewCalendarEvent(record.audience, role, classCode)) {
+        continue;
+      }
       items.push(calendarEventToItem(record, calendarCategoryName(settings, record.categoryId)));
     }
     items.sort((a, b) => a.startAt - b.startAt || a.createdAt - b.createdAt);

@@ -1,33 +1,18 @@
-import { getCalendarSettings, listPublicCalendarEventsInRange } from "@/lib/calendar";
-import { computePublicCalendarEarliestFrom } from "@/types/calendar";
+import Copyright from "@/components/Copyright";
+import AdSense from "@/components/AdSense";
+import CalendarView from "@/components/CalendarView";
 import { readSystemDoc } from "@/lib/settings-server";
 import { defaultSettings, type Settings } from "@/types/settings";
-import AdSense from "@/components/AdSense";
-import Copyright from "@/components/Copyright";
-import PublicCalendarView from "@/components/PublicCalendarView";
 
 export const dynamic = "force-dynamic";
 
-/** 本月區間（伺服器預載給月模式，避免首次渲染空窗） */
-function currentMonthRange(): { from: number; to: number } {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return { from: from.getTime(), to: to.getTime() - 1 };
-}
-
 /**
- * 公開行事曆（未登入可瀏覽）：4 模式（月／週／日／清單，預設月）。
- * 版面骨架比照登入首頁（標題區、裝飾角、廣告與版權機制）；顯示區隨瀏覽器寬度響應。
- * 入口：登入頁行事曆區塊的入口圖示（新視窗）；各身分登入後走各自的行事曆專頁。
+ * 全站統一行事曆頁（未登入與四種身分共用）：
+ * 版面骨架比照登入首頁（標題區、裝飾角、廣告與版權機制）；
+ * 行程可見性由 API 依 session 過濾——未登入＝公開行程，登入＝依身分＋班級。
+ * 各身分舊路由（/{role}/calendar）redirect 到本頁。
  */
-export default async function PublicCalendarPage() {
-  const range = currentMonthRange();
-  const initialItems = await listPublicCalendarEventsInRange(range.from, range.to);
-  const calendarSettings = await getCalendarSettings();
-  const earliestFrom = computePublicCalendarEarliestFrom(
-    calendarSettings.policies.publicPastMonths ?? 1
-  );
+export default async function CalendarPage() {
   const raw = await readSystemDoc();
   const settings = { ...defaultSettings, ...(raw ?? {}) } as Settings;
 
@@ -42,14 +27,9 @@ export default async function PublicCalendarPage() {
         </p>
       </div>
 
-      {/* 行事曆顯示區：隨瀏覽器寬度響應（無固定最大寬） */}
+      {/* 行事曆顯示區（統一版型；隨瀏覽器寬度響應） */}
       <div className="w-full mb-8">
-        <h2 className="text-lg font-bold text-t1 mb-2">行事曆</h2>
-        <PublicCalendarView
-          initialItems={initialItems}
-          initialFrom={range.from}
-          earliestFrom={earliestFrom}
-        />
+        <CalendarView />
       </div>
 
       {/* 廣告區域（比照登入首頁：系統設定開關控制） */}
