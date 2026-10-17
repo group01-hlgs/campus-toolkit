@@ -90,6 +90,12 @@ export interface FeatureModuleMeta {
    * 該模組有沒有做給該身分用。false → 管理頁顯示「未提供」、顯示開關無效。
    */
   provides: Record<UserRole, boolean>;
+  /**
+   * 各身分「入口功能」預設值（選填，由模組作者在 manifest 宣告）：
+   * 僅 applies於 provides＝true 的身分；欄位不存在＝該身分預設顯示（fail-safe 開啟）。
+   * 明確存值於 settings 時仍以存值為準——此欄位只決定「尚未手動切換過」時的初始狀態。
+   */
+  defaultRoleEnabled?: Partial<Record<UserRole, boolean>>;
 }
 
 /** 管理端權限單位的實作狀態 → 功能模組狀態（built＝已上線、apiOnly＝開發中） */
@@ -280,8 +286,9 @@ export type FeatureModuleRolesMap = Record<string, FeatureModuleRoleSwitches>;
 /**
  * 讀回「模組 × 身分」顯示開關：以註冊表為準逐模組、逐身分解析。
  * - `provides[role] === false` → 強制 false（未提供，顯示開關無效）；
- * - `provides === true` → 只有明確存著 `false` 才視為關閉；
- *   欄位不存在、該模組未存或值毀損＝一律視為顯示（fail-safe：預設開啟）。
+ * - `provides === true` → 明確存著 `false` 才視為關閉；明確存著 `true` 視為開啟；
+ *   欄位不存在、該模組未存或值毀損＝採用註冊表 `defaultRoleEnabled[role]`
+ *   （缺省＝顯示，fail-safe：預設開啟；模組可宣告預設關閉）。
  */
 export function readFeatureModuleRoles(raw: unknown): FeatureModuleRolesMap {
   const out: FeatureModuleRolesMap = {};
@@ -295,7 +302,11 @@ export function readFeatureModuleRoles(raw: unknown): FeatureModuleRolesMap {
         switches[role] = false;
         continue;
       }
-      switches[role] = !(rowData && rowData[role] === false);
+      if (rowData && typeof rowData[role] === "boolean") {
+        switches[role] = rowData[role];
+        continue;
+      }
+      switches[role] = item.defaultRoleEnabled?.[role] ?? true;
     }
     out[item.value] = switches;
   }
