@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import RevealListCard from "@/components/RevealListCard";
 import { useDataSaver } from "@/lib/data-saver";
 import { ConfirmModal } from "../../components/exam-feedback";
@@ -87,6 +87,21 @@ interface FormState {
   status: ExamEventType;
 }
 
+function blankFormSubject(existingKeys: string[]): FormSubject {
+  return {
+    key: makeSubjectKey(new Set(existingKeys)),
+    label: "",
+    enableAdvancedOption: false,
+    advancedOptionsText: "",
+    advancedOptionCodeText: "",
+    advancedOptionLabelText: "",
+    advancedOptions: [],
+    capacityText: "",
+    feeStandardText: "",
+    feeReducedText: "",
+  };
+}
+
 interface ClassOption {
   code: string;
   name: string;
@@ -127,20 +142,7 @@ function emptyForm(): FormState {
     basicFeeReducedText: "0",
     grades: [],
     classes: [],
-    subjects: [
-      {
-        key: makeSubjectKey(new Set()),
-        label: "",
-        enableAdvancedOption: false,
-        advancedOptionsText: "",
-        advancedOptionCodeText: "",
-        advancedOptionLabelText: "",
-        advancedOptions: [],
-        capacityText: "",
-        feeStandardText: "",
-        feeReducedText: "",
-      },
-    ],
+    subjects: [blankFormSubject([])],
     examMode: "review",
     registrationMode: "optional",
     studentArchiveEnabled: false,
@@ -288,6 +290,10 @@ export default function AdminExamRegistrationPage() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const subjectNameInputsRef = useRef<Array<HTMLInputElement | null>>([]);
+  const subjectStandardFeeInputsRef = useRef<Array<HTMLInputElement | null>>([]);
+  const subjectReducedFeeInputsRef = useRef<Array<HTMLInputElement | null>>([]);
+  const [subjectFocusIndex, setSubjectFocusIndex] = useState<number | null>(null);
   const [studentArchiveHelpOpen, setStudentArchiveHelpOpen] = useState(false);
   const [announcementSyncExpanded, setAnnouncementSyncExpanded] = useState(false);
   const [calendarSyncExpanded, setCalendarSyncExpanded] = useState(false);
@@ -312,6 +318,14 @@ export default function AdminExamRegistrationPage() {
     confirmLabel: string;
     onConfirm: () => void;
   } | null>(null);
+
+  useEffect(() => {
+    if (subjectFocusIndex === null) return;
+    const input = subjectNameInputsRef.current[subjectFocusIndex];
+    if (!input) return;
+    input.focus();
+    setSubjectFocusIndex(null);
+  }, [form.subjects.length, subjectFocusIndex]);
 
   // 年級／班級選項：需「學校基本設定」權限，讀不到就退回手動輸入代碼
   useEffect(() => {
@@ -449,6 +463,39 @@ export default function AdminExamRegistrationPage() {
     if (listLoaded) setItems(data.events);
   }
 
+  function addBlankSubjectAndFocus() {
+    const nextIndex = form.subjects.length;
+    if (nextIndex >= EXAM_EVENT_LIMITS.subjectsMax) return;
+    setForm((previous) => ({
+      ...previous,
+      subjects: [
+        ...previous.subjects,
+        blankFormSubject(previous.subjects.map((subject) => subject.key)),
+      ],
+    }));
+    setSubjectFocusIndex(nextIndex);
+  }
+
+  function handleSubjectEnter(
+    event: KeyboardEvent<HTMLInputElement>,
+    index: number,
+    field: "name" | "standardFee" | "reducedFee"
+  ) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (field === "name") {
+      const input = subjectStandardFeeInputsRef.current[index];
+      input?.focus();
+      input?.select();
+    } else if (field === "standardFee") {
+      const input = subjectReducedFeeInputsRef.current[index];
+      input?.focus();
+      input?.select();
+    } else if (form.subjects.length < EXAM_EVENT_LIMITS.subjectsMax) {
+      addBlankSubjectAndFocus();
+    }
+  }
+
   function addLocationOption() {
     const code = form.locationOptionCodeText.trim();
     const label = form.locationOptionLabelText.trim();
@@ -495,6 +542,15 @@ export default function AdminExamRegistrationPage() {
     setForm((prev) => ({
       ...prev,
       locationOptions: normalizeLocationOptions(prev.locationOptions.filter((_, i) => i !== index)),
+    }));
+  }
+
+  function editLocationOption(index: number, field: "code" | "label", value: string) {
+    setForm((prev) => ({
+      ...prev,
+      locationOptions: prev.locationOptions.map((option, i) =>
+        i === index ? { ...option, [field]: value } : option
+      ),
     }));
   }
 
@@ -1395,19 +1451,21 @@ export default function AdminExamRegistrationPage() {
                       {form.locationOptions.length > 0 ? (
                         <div className="space-y-1">
                           {form.locationOptions.map((option, index) => (
-                            <div key={option.code} className="flex items-center gap-2 text-sm">
+                            <div key={index} className="flex items-center gap-2 text-sm">
                               <span className="text-t3 w-5 text-right">{index + 1}</span>
                               <input
                                 className="input-theme rounded px-2 py-1 w-24"
                                 value={option.code}
-                                readOnly
-                                aria-label={`考試地區代碼 ${option.code}`}
+                                onChange={(e) => editLocationOption(index, "code", e.target.value)}
+                                maxLength={EXAM_EVENT_LIMITS.locationCode}
+                                aria-label={`第 ${index + 1} 考區代碼`}
                               />
                               <input
                                 className="input-theme rounded px-2 py-1 flex-1"
                                 value={option.label}
-                                readOnly
-                                aria-label={`考試地區名稱 ${option.label}`}
+                                onChange={(e) => editLocationOption(index, "label", e.target.value)}
+                                maxLength={EXAM_EVENT_LIMITS.locationLabel}
+                                aria-label={`第 ${index + 1} 考區名稱`}
                               />
                               <button
                                 type="button"
@@ -1673,9 +1731,13 @@ export default function AdminExamRegistrationPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-t3 w-5 shrink-0 text-center">{index + 1}</span>
                         <input
+                          ref={(element) => {
+                            subjectNameInputsRef.current[index] = element;
+                          }}
                           className="h-8 w-[150px] min-w-0 input-theme rounded px-2 py-1"
                           value={subject.label}
                           onChange={(e) => subjectEditor(index, e.target.value)}
+                          onKeyDown={(event) => handleSubjectEnter(event, index, "name")}
                           maxLength={EXAM_EVENT_LIMITS.subjectLabel}
                           placeholder="例：國文"
                           aria-label={`第 ${index + 1} 科科目名稱`}
@@ -1696,21 +1758,29 @@ export default function AdminExamRegistrationPage() {
                           />
                         </label>
                         <input
+                          ref={(element) => {
+                            subjectStandardFeeInputsRef.current[index] = element;
+                          }}
                           type="number"
                           min={0}
                           max={EXAM_EVENT_LIMITS.fee}
                           className="h-8 input-theme rounded px-2 py-1 w-[75px] text-xs"
                           value={subject.feeStandardText || "0"}
                           onChange={(e) => subjectFeeEditor(index, "feeStandardText", e.target.value)}
+                          onKeyDown={(event) => handleSubjectEnter(event, index, "standardFee")}
                           aria-label={`第 ${index + 1} 科一般生費用`}
                         />
                         <input
+                          ref={(element) => {
+                            subjectReducedFeeInputsRef.current[index] = element;
+                          }}
                           type="number"
                           min={0}
                           max={EXAM_EVENT_LIMITS.fee}
                           className="h-8 input-theme rounded px-2 py-1 w-[75px] text-xs"
                           value={subject.feeReducedText || "0"}
                           onChange={(e) => subjectFeeEditor(index, "feeReducedText", e.target.value)}
+                          onKeyDown={(event) => handleSubjectEnter(event, index, "reducedFee")}
                           aria-label={`第 ${index + 1} 科中低收入戶費用`}
                         />
                         <button
@@ -1843,26 +1913,7 @@ export default function AdminExamRegistrationPage() {
                       type="button"
                       className="btn-soft rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
                       disabled={form.subjects.length >= EXAM_EVENT_LIMITS.subjectsMax}
-                      onClick={() =>
-                        setForm((prev) => ({
-                          ...prev,
-                          subjects: [
-                            ...prev.subjects,
-                            {
-                              key: makeSubjectKey(new Set(prev.subjects.map((s) => s.key))),
-                              label: "",
-                              enableAdvancedOption: false,
-                              advancedOptionsText: "",
-                              advancedOptionCodeText: "",
-                              advancedOptionLabelText: "",
-                              advancedOptions: [],
-                              capacityText: "",
-                              feeStandardText: "",
-                              feeReducedText: "",
-                            },
-                          ],
-                        }))
-                      }
+                      onClick={addBlankSubjectAndFocus}
                     >
                       ＋ 新增科目
                     </button>

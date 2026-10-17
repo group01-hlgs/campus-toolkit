@@ -22,8 +22,10 @@ import {
   EXAM_FEE_CODE_LABELS,
   EXAM_ROSTER_EXPORT_SCOPE_LABELS,
   HIGH_SCHOOL_ENGLISH_LISTENING_EXAM_OFFICIAL_HEADERS,
+  SUBJECT_APTITUDE_EXAM_OFFICIAL_HEADERS,
   UNIVERSITY_ARTS_EXAM_OFFICIAL_HEADERS,
   academicAbilityExamSubjectFlags,
+  subjectAptitudeExamSubjectFlags,
   buildExamRegistrationCsv,
   calcExamFee,
   canTransitionExamStatus,
@@ -42,6 +44,7 @@ import {
   isExamRegistrationMode,
   isExamReviewStatus,
   isHighSchoolEnglishListeningExamTitle,
+  isSubjectAptitudeExamTitle,
   isTargetMatch,
   parseExamEventDraft,
   parseSubjectKeys,
@@ -1897,6 +1900,7 @@ export async function buildOfficialExamXlsxForEvent(
     (!to || classCode.localeCompare(to, "zh-Hant", { numeric: true }) <= 0);
   const registrations = roster.registrations.filter((row) => !row.optOut && inRange(row.studentClass));
   const isEnglishListening = isHighSchoolEnglishListeningExamTitle(roster.event.title);
+  const isSubjectAptitude = isSubjectAptitudeExamTitle(roster.event.title);
   const nationalIds = await loadStudentNationalIds(registrations.map((row) => row.studentUid));
   const missingIds = registrations.filter((row) => !nationalIds.get(row.studentUid));
   if (missingIds.length) {
@@ -1913,7 +1917,9 @@ export async function buildOfficialExamXlsxForEvent(
 
   const headers = isEnglishListening
     ? [...HIGH_SCHOOL_ENGLISH_LISTENING_EXAM_OFFICIAL_HEADERS]
-    : [...ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS];
+    : isSubjectAptitude
+      ? [...SUBJECT_APTITUDE_EXAM_OFFICIAL_HEADERS]
+      : [...ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS];
   const aoa: (string | number)[][] = [
     headers,
     ...registrations.map((row) => {
@@ -1939,18 +1945,28 @@ export async function buildOfficialExamXlsxForEvent(
         exportRow.registrationNo,
         nationalIds.get(row.studentUid) ?? "",
         row.locationCode,
-        ...academicAbilityExamSubjectFlags(
-          roster.event.subjects,
-          row.subjectKeys,
-          row.subjectAdvancedOptionCodes
-        ),
+        ...(isSubjectAptitude
+          ? subjectAptitudeExamSubjectFlags(
+              roster.event.subjects,
+              row.subjectKeys,
+              row.subjectAdvancedOptionCodes
+            )
+          : academicAbilityExamSubjectFlags(
+              roster.event.subjects,
+              row.subjectKeys,
+              row.subjectAdvancedOptionCodes
+            )),
         specialNeeds,
       ];
     }),
   ];
   const worksheet = XLSX.utils.aoa_to_sheet(aoa);
   const workbook = XLSX.utils.book_new();
-  const officialExamName = isEnglishListening ? "高中英語聽力測驗" : "學科能力測驗";
+  const officialExamName = isEnglishListening
+    ? "高中英語聽力測驗"
+    : isSubjectAptitude
+      ? "分科測驗"
+      : "學科能力測驗";
   XLSX.utils.book_append_sheet(workbook, worksheet, officialExamName);
   const buffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
   const safeTitle = roster.event.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);

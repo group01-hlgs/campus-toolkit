@@ -65,6 +65,13 @@ export function isHighSchoolEnglishListeningExamTitle(title: string): boolean {
   return /高中英語聽力測驗第(?:一|二|1|2)次考試/.test(normalized);
 }
 
+/** 分科測驗（含舊稱指定科目考試／指考）使用專屬官方報名資料格式。 */
+export function isSubjectAptitudeExamTitle(title: string): boolean {
+  const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
+  if (/模擬|模考|練習/.test(normalized)) return false;
+  return /分科測驗|指定科目考試|指考/.test(normalized);
+}
+
 /** 取得大學術科考試的報考組別，三組共用同一份官方報名檔欄位。 */
 export function getUniversityArtsExamGroup(title: string): UniversityArtsExamGroup | null {
   const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
@@ -935,6 +942,24 @@ export const HIGH_SCHOOL_ENGLISH_LISTENING_EXAM_OFFICIAL_HEADERS = [
   "考試地區",
   "特殊應考需求",
 ] as const;
+/** 分科測驗官方科目欄（114 學年度起不含國文、英文；順序對齊集報系統報考資料檔規格）。 */
+export const SUBJECT_APTITUDE_EXAM_SUBJECT_COLUMNS = [
+  "物理",
+  "化學",
+  "數學甲",
+  "生物",
+  "歷史",
+  "地理",
+  "數學乙",
+  "公民",
+] as const;
+export const SUBJECT_APTITUDE_EXAM_OFFICIAL_HEADERS = [
+  "報名序號",
+  "身分證",
+  "考試地區",
+  ...SUBJECT_APTITUDE_EXAM_SUBJECT_COLUMNS,
+  "特殊應考需求",
+] as const;
 export const UNIVERSITY_ARTS_EXAM_OFFICIAL_HEADERS = [
   "報名序號",
   "身分證",
@@ -1129,6 +1154,70 @@ export function academicAbilityExamSubjectFlags(
   }
 
   return [chinese, english, mathA, mathB, social, natural];
+}
+
+/** 分科測驗各科選考旗標（依欄位順序：物理、化學、數學甲、生物、歷史、地理、數學乙、公民）。 */
+export function subjectAptitudeExamSubjectFlags(
+  subjects: ExamSubject[],
+  selectedKeys: string[],
+  advancedOptionCodes: Record<string, string>
+): number[] {
+  const selected = new Set(selectedKeys);
+  const flags = {
+    physics: 0,
+    chemistry: 0,
+    mathA: 0,
+    biology: 0,
+    history: 0,
+    geography: 0,
+    mathB: 0,
+    civics: 0,
+  };
+
+  const normalize = (value: string) => value.normalize("NFKC").toUpperCase().replace(/[\s_\-（）()【】]/g, "");
+  for (const subject of subjects) {
+    if (!selected.has(subject.key)) continue;
+    const label = normalize(subject.label);
+    if (label.includes("物理")) flags.physics = 1;
+    if (label.includes("化學")) flags.chemistry = 1;
+    if (label.includes("生物")) flags.biology = 1;
+    if (label.includes("歷史")) flags.history = 1;
+    if (label.includes("地理")) flags.geography = 1;
+    if (label.includes("公民")) flags.civics = 1;
+
+    if (label.includes("數學甲") || label.includes("數甲")) flags.mathA = 1;
+    if (label.includes("數學乙") || label.includes("數乙")) flags.mathB = 1;
+    if (label.includes("數學") && !label.includes("數學甲") && !label.includes("數學乙")) {
+      const code = advancedOptionCodes[subject.key] ?? "";
+      const option = (subject.advancedOptions ?? []).find((candidate) => candidate.code === code);
+      if (option) {
+        const optionLabel = normalize(option.label);
+        const optionCode = option.code.toUpperCase();
+        if (
+          optionLabel.includes("數學甲") ||
+          optionLabel.includes("數甲") ||
+          optionLabel === "甲" ||
+          optionCode === "A" ||
+          optionCode === "甲" ||
+          /(?:^|[_-])(?:A|甲)$/i.test(option.code)
+        ) {
+          flags.mathA = 1;
+        }
+        if (
+          optionLabel.includes("數學乙") ||
+          optionLabel.includes("數乙") ||
+          optionLabel === "乙" ||
+          optionCode === "B" ||
+          optionCode === "乙" ||
+          /(?:^|[_-])(?:B|乙)$/i.test(option.code)
+        ) {
+          flags.mathB = 1;
+        }
+      }
+    }
+  }
+
+  return [flags.physics, flags.chemistry, flags.mathA, flags.biology, flags.history, flags.geography, flags.mathB, flags.civics];
 }
 
 export function isExamRegistrationNumberField(value: string): value is ExamRegistrationNumberField {

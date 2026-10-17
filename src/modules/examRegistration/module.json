@@ -10,7 +10,7 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "",
-    "version": "0.1.25",
+    "version": "0.1.29",
     "releasedAt": "2026-10-16"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
