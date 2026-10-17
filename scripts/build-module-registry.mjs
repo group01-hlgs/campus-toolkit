@@ -431,6 +431,33 @@ function renderFeatureFile(manifests) {
           "    },",
         ]
       : [];
+    const changelog = Array.isArray(m.changelog)
+      ? m.changelog.filter(
+          (entry) =>
+            entry &&
+            typeof entry === "object" &&
+            typeof entry.version === "string" &&
+            typeof entry.releasedAt === "string" &&
+            Array.isArray(entry.notes) &&
+            entry.notes.every((note) => typeof note === "string")
+        )
+      : [];
+    const changelogLines = changelog.length
+      ? [
+          "    changelog: [",
+          ...changelog.map(
+            (entry) =>
+              [
+                "      {",
+                `        version: ${JSON.stringify(entry.version)},`,
+                `        releasedAt: ${JSON.stringify(entry.releasedAt)},`,
+                `        notes: ${JSON.stringify(entry.notes)},`,
+                "      },",
+              ].join("\n")
+          ),
+          "    ],",
+        ]
+      : [];
     return [
       "  {",
       `    value: ${JSON.stringify(m.value)},`,
@@ -453,6 +480,7 @@ function renderFeatureFile(manifests) {
       "    },",
       ...defaultRoleEnabledLines,
       ...roleHrefsLines,
+      ...changelogLines,
       "  },",
     ].join("\n");
   });
