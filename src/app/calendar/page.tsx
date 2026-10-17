@@ -27,8 +27,8 @@ export default async function CalendarPage() {
         </p>
       </div>
 
-      {/* 行事曆顯示區（統一版型；隨瀏覽器寬度響應） */}
-      <div className="w-full mb-8">
+      {/* 行事曆顯示區（統一版型；限寬置中，隨瀏覽器寬度響應） */}
+      <div className="w-full max-w-3xl mb-8">
         <CalendarView />
       </div>
 
