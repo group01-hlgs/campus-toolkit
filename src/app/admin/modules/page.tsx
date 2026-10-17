@@ -127,7 +127,7 @@ function HelpToggle({
 
 /**
  * 展開時插在該列下方的說明列（只在展開時渲染）：
- * 模組說明＋作者／版本資訊＋「提供功能」唯讀矩陣。
+ * 模組說明＋作者／版本資訊＋「提供功能」唯讀矩陣＋最新改版記錄。
  */
 function DescriptionRow({
   item,
@@ -139,6 +139,7 @@ function DescriptionRow({
   colSpan: number;
 }) {
   if (!open) return null;
+  const latestNote = item.changelog?.[0];
   return (
     <tr id={`module-description-${item.value}`} className="border-b border-themed last:border-0">
       <td colSpan={colSpan} className="px-3 py-2 text-xs text-t3 bg-surface space-y-1.5">
@@ -163,6 +164,18 @@ function DescriptionRow({
             </span>
           ))}
         </p>
+        {latestNote && (
+          <div className="border-t border-themed pt-1.5">
+            <p className="font-medium text-t2">
+              最新改版（v{latestNote.version}｜{latestNote.releasedAt}）
+            </p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              {latestNote.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </td>
     </tr>
   );

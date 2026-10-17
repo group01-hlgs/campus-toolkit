@@ -96,6 +96,8 @@ export interface FeatureModuleMeta {
    * 明確存值於 settings 時仍以存值為準——此欄位只決定「尚未手動切換過」時的初始狀態。
    */
   defaultRoleEnabled?: Partial<Record<UserRole, boolean>>;
+  /** 結構化改版記錄（選填，最新條目在前；純揭露，不參與安裝判定） */
+  changelog?: { version: string; releasedAt: string; notes: string[] }[];
 }
 
 /** 管理端權限單位的實作狀態 → 功能模組狀態（built＝已上線、apiOnly＝開發中） */

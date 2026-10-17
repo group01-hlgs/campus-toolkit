@@ -17,6 +17,9 @@
     "module:install": "node scripts/module-cli.mjs install",
     "module:link": "node scripts/module-cli.mjs link",
     "module:uninstall": "node scripts/module-cli.mjs uninstall",
+    "module:check": "node scripts/module-check.mjs",
+    "module:contract-test": "node scripts/test-module-contract.mjs",
+    "module:sign": "node scripts/module-sign.mjs",
     "version:bump": "node scripts/version.js"
   },
   "keywords": [],

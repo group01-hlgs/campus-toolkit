@@ -24,7 +24,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MODULES_DIR = path.join(ROOT, "src", "modules");
+/** 測試模式：MODULE_REGISTRY_DIR 覆寫模組目錄（契約測試 scripts/test-module-contract.mjs 用） */
+const MODULES_DIR = process.env.MODULE_REGISTRY_DIR
+  ? path.resolve(process.env.MODULE_REGISTRY_DIR)
+  : path.join(ROOT, "src", "modules");
+/** 測試模式：只驗證、不產生產物／不動轉接檔（附錄 A 案例驗證用） */
+const VALIDATE_ONLY = process.env.MODULE_REGISTRY_VALIDATE_ONLY === "1";
 const HAND_REGISTRY = path.join(ROOT, "src", "types", "modules.ts");
 const VERSION_FILE = path.join(ROOT, "src", "version.json");
 const LOCK_FILE = path.join(ROOT, "module.lock.json");
@@ -384,7 +389,7 @@ function validateManifest(relDir, dirName, m, reserved, ctx) {
     }
   }
 
-  const pkgFile = path.join(ROOT, "src", "modules", dirName, "package.json");
+  const pkgFile = path.join(MODULES_DIR, dirName, "package.json");
   if (fs.existsSync(pkgFile)) {
     const pkg = readJson(pkgFile);
     if (pkg.error) {
@@ -431,6 +436,33 @@ function renderFeatureFile(manifests) {
           "    },",
         ]
       : [];
+    const changelog = Array.isArray(m.changelog)
+      ? m.changelog.filter(
+          (entry) =>
+            entry &&
+            typeof entry === "object" &&
+            typeof entry.version === "string" &&
+            typeof entry.releasedAt === "string" &&
+            Array.isArray(entry.notes) &&
+            entry.notes.every((note) => typeof note === "string")
+        )
+      : [];
+    const changelogLines = changelog.length
+      ? [
+          "    changelog: [",
+          ...changelog.map(
+            (entry) =>
+              [
+                "      {",
+                `        version: ${JSON.stringify(entry.version)},`,
+                `        releasedAt: ${JSON.stringify(entry.releasedAt)},`,
+                `        notes: ${JSON.stringify(entry.notes)},`,
+                "      },",
+              ].join("\n")
+          ),
+          "    ],",
+        ]
+      : [];
     return [
       "  {",
       `    value: ${JSON.stringify(m.value)},`,
@@ -453,6 +485,7 @@ function renderFeatureFile(manifests) {
       "    },",
       ...defaultRoleEnabledLines,
       ...roleHrefsLines,
+      ...changelogLines,
       "  },",
     ].join("\n");
   });
@@ -712,8 +745,8 @@ for (const m of manifests) {
   }
 }
 
-// 【E13】module.lock.json ↔ 目錄一致性（lock 存在時雙向檢查）
-if (fs.existsSync(LOCK_FILE)) {
+// 【E13】module.lock.json ↔ 目錄一致性（lock 存在時雙向檢查；測試模式略過——fixtures 不入 lock）
+if (!VALIDATE_ONLY && fs.existsSync(LOCK_FILE)) {
   const lock = readJson(LOCK_FILE);
   if (lock.error || !Array.isArray(lock.data?.modules)) {
     fail("module.lock.json", `無法解析或缺少 modules 陣列：${lock.error ?? "格式不符"}`);
@@ -734,6 +767,12 @@ if (errors.length > 0) {
   for (const message of errors) console.error(`[module-registry] 錯誤：${message}`);
   console.error(`[module-registry] 共 ${errors.length} 個錯誤，註冊表未更新。`);
   process.exit(1);
+}
+
+// 測試模式：只驗證（含警示），不產生產物／不動轉接檔
+if (VALIDATE_ONLY) {
+  process.stdout.write(`[module-registry] validate-only：${manifests.length} 個 manifest 檢查通過\n`);
+  process.exit(0);
 }
 
 const newPermission = manifests.filter((m) => m.permission && m.permission.mode === "new");

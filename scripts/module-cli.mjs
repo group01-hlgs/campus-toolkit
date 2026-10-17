@@ -24,6 +24,7 @@ const MODULES_DIR = path.join(ROOT, "src", "modules");
 const LOCK_FILE = path.join(ROOT, "module.lock.json");
 const VERSION_FILE = path.join(ROOT, "src", "version.json");
 const SCANNER = path.join(ROOT, "scripts", "build-module-registry.mjs");
+const CHECKER = path.join(ROOT, "scripts", "module-check.mjs");
 /** 複製時排除（安裝不帶 .git／依賴／建置產物） */
 const EXCLUDE = new Set([".git", "node_modules", ".next"]);
 const VALUE_RE = /^[a-z][A-Za-z0-9]*$/;
@@ -140,6 +141,11 @@ function removeTarget(target) {
 
 function runScanner() {
   const r = spawnSync(process.execPath, [SCANNER], { cwd: ROOT, stdio: "inherit" });
+  return r.status ?? 1;
+}
+
+function runChecker(moduleDir) {
+  const r = spawnSync(process.execPath, [CHECKER, moduleDir], { cwd: ROOT, stdio: "inherit" });
   return r.status ?? 1;
 }
 
@@ -293,6 +299,10 @@ function installOrLink(mode, sourceArg, opts) {
     if (runScanner() !== 0) {
       rollback();
       fail("掃描器驗證失敗（見上方訊息）——已回復原狀");
+    }
+    if (runChecker(target) !== 0) {
+      rollback();
+      fail("靜態安全掃描失敗（module-check，見上方訊息）——已回復原狀");
     }
     if (runLint() !== 0) {
       rollback();
