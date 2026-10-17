@@ -72,6 +72,13 @@ export function isSubjectAptitudeExamTitle(title: string): boolean {
   return /分科測驗|指定科目考試|指考/.test(normalized);
 }
 
+/** 學科能力測驗（學測）使用專屬官方報名資料格式。 */
+export function isAcademicAbilityExamTitle(title: string): boolean {
+  const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
+  if (/模擬|模考|練習/.test(normalized)) return false;
+  return /學科能力測驗|大學學測|學測/.test(normalized);
+}
+
 /** 取得大學術科考試的報考組別，三組共用同一份官方報名檔欄位。 */
 export function getUniversityArtsExamGroup(title: string): UniversityArtsExamGroup | null {
   const normalized = title.normalize("NFKC").replace(/[\s　，,、：:（）()【】［］\[\]「」『』]/g, "");
@@ -1218,6 +1225,25 @@ export function subjectAptitudeExamSubjectFlags(
   }
 
   return [flags.physics, flags.chemistry, flags.mathA, flags.biology, flags.history, flags.geography, flags.mathB, flags.civics];
+}
+
+/** 通用預設官方欄位標題：報名序號、身分證、考試地區＋場次各科目名稱＋特殊應考需求。 */
+export function genericOfficialExamHeaders(subjects: ExamSubject[]): string[] {
+  return ["報名序號", "身分證", "考試地區", ...subjects.map((subject) => subject.label), "特殊應考需求"];
+}
+
+/** 通用預設欄位值：已選科目輸出 1 或進階選項代碼，未選輸出 0。 */
+export function genericOfficialExamSubjectValues(
+  subjects: ExamSubject[],
+  selectedKeys: string[],
+  advancedOptionCodes: Record<string, string>
+): (string | number)[] {
+  const selected = new Set(selectedKeys);
+  return subjects.map((subject) => {
+    if (!selected.has(subject.key)) return "0";
+    const code = advancedOptionCodes[subject.key]?.trim() ?? "";
+    return code && code !== "__selected__" ? code : "1";
+  });
 }
 
 export function isExamRegistrationNumberField(value: string): value is ExamRegistrationNumberField {

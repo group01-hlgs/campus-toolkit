@@ -7,13 +7,18 @@
   "href": "/admin/exam-registration",
   "contractVersion": 1,
   "minHostVersion": "0.488",
+  "license": "MIT",
+  "repository": "https://github.com/takan003/examRegistration",
+  "keywords": ["考試", "報名", "造冊", "家長"],
+  "firestoreIndexes": [],
   "author": {
     "author": "張家誠",
-    "authorUrl": "",
-    "version": "0.1.29",
-    "releasedAt": "2026-10-16"
+    "authorUrl": "https://github.com/takan003",
+    "version": "0.1.33",
+    "releasedAt": "2026-10-17"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
+  "defaultRoleEnabled": { "parent": false },
   "routes": [
     { "kind": "page", "path": "/student/exam-registration" },
     { "kind": "page", "path": "/parent/exam-registration" },
@@ -48,5 +53,72 @@
     "studentPersonalIdentity",
     "studentPersonalInfo"
   ],
-  "hooks": ["announcements", "calendar"]
+  "hooks": ["announcements", "calendar"],
+  "changelog": [
+    {
+      "version": "0.1.33",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "宣告家長入口功能預設關閉（defaultRoleEnabled.parent=false，需主程式 0.522+）。"
+      ]
+    },
+    {
+      "version": "0.1.32",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "補上 firestoreIndexes 宣告（空陣列＝目前查詢皆不需複合索引）。"
+      ]
+    },
+    {
+      "version": "0.1.31",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "補齊模組揭露資訊：授權（MIT）、原始碼位址、作者連結、關鍵字與改版記錄。"
+      ]
+    },
+    {
+      "version": "0.1.30",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "未對應專屬官方格式的場次改以通用預設欄位匯出（科目名稱各一欄，值為 1/0 或進階選項代碼），不再誤用學測格式。"
+      ]
+    },
+    {
+      "version": "0.1.29",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "新增分科測驗官方報名資料檔格式（12 欄：報名序號、身分證、考試地區、物理、化學、數學甲、生物、歷史、地理、數學乙、公民、特殊應考需求）。"
+      ]
+    },
+    {
+      "version": "0.1.28",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "考區清單代碼與名稱改為可直接編輯。"
+      ]
+    },
+    {
+      "version": "0.1.27",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "Enter 跳入費用欄位時自動全選數值，覆寫預設 0 更快速。"
+      ]
+    },
+    {
+      "version": "0.1.26",
+      "releasedAt": "2026-10-17",
+      "notes": [
+        "選考科目 Enter 輔助：科目名稱→一般生→中低收入戶→新增空白科目並聚焦，跳過進階選項，不再誤觸送出表單。"
+      ]
+    },
+    {
+      "version": "0.1.25",
+      "releasedAt": "2026-10-16",
+      "notes": [
+        "新增家長唯讀查看名冊綁定子女的報名資料。",
+        "大學術科考試音樂／美術／體育組三場次報名合併為單一 17 欄官方檔。",
+        "新增高中英語聽力測驗第一、二次考試官方檔格式（4 欄）。"
+      ]
+    }
+  ]
 }
