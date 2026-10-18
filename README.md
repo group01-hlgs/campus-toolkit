@@ -11,6 +11,8 @@
 
 歡迎感興趣的使用者 fork 自架。**不想打指令就按下方「一鍵部署」**；想自己動手，請先完成「環境變數」與「首次啟動」流程，缺金鑰無法運作。
 
+> **部署平台**：目前主力部署於 Vercel，同時測試 Firebase App Hosting（同 repo、同 Firestore 資料庫，雙平台並行）。Fork 者使用 Vercel 路線不受影響。
+
 ## 一鍵部署（給不想碰終端機的人）
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit&env=NEXT_PUBLIC_FIREBASE_API_KEY,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,NEXT_PUBLIC_FIREBASE_PROJECT_ID,NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,NEXT_PUBLIC_FIREBASE_APP_ID,SESSION_SECRET,FIREBASE_SERVICE_ACCOUNT_KEY,ALLOW_BOOTSTRAP_ADMIN&envDefaults=%7B%22ALLOW_BOOTSTRAP_ADMIN%22%3A%22true%22%7D&envDescription=Firebase%20%E6%AC%84%E4%BD%8D%E8%87%AA%E4%BD%A0%E7%9A%84%20Console%20%E8%A4%87%E8%A3%BD%EF%BC%9BSESSION_SECRET%20%E6%98%AF%E5%94%AF%E4%B8%80%E9%9C%80%E8%87%AA%E8%A1%8C%E7%94%A2%E7%94%9F%E7%9A%84%E6%AC%84%E4%BD%8D%EF%BC%88%E4%BA%82%E6%95%B8%EF%BC%8C%E8%87%B3%E5%B0%91%2032%20%E5%AD%97%E5%85%83%EF%BC%89%EF%BC%9BALLOW_BOOTSTRAP_ADMIN%20%E5%BB%BA%E5%AE%8C%E7%AE%A1%E7%90%86%E5%93%A1%E5%BE%8C%E6%94%B9%E7%82%BA%20false%E3%80%82%E8%A6%8F%E5%89%87%E8%A6%8B%20README%E3%80%8C%E7%92%B0%E5%A2%83%E8%AE%8A%E6%95%B8%E3%80%8D%E3%80%82&envLink=https%3A%2F%2Fgithub.com%2Ftakan003%2Fcampus-toolkit%2Fblob%2Fmain%2FREADME.md%23%E7%92%B0%E5%A2%83%E8%AE%8A%E6%95%B8&project-name=campus-toolkit&repository-name=campus-toolkit)
