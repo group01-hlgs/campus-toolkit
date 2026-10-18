@@ -275,17 +275,17 @@ export default function AdminCalendarPage() {
     };
   }, [settingsReady, saverOn]);
 
-  // 「發佈單位」下拉建議：單位層級設定的單位名稱（樹狀順序、名稱去重；仍可自由輸入）
+  // 「發佈單位」下拉選項：單位層級設定的單位（樹狀順序、名稱去重、含層級供縮排；文字欄位仍可自由輸入）
   const publishUnitOptions = useMemo(() => {
     const seen = new Set<string>();
-    const names: string[] = [];
+    const options: Array<{ name: string; level: number }> = [];
     for (const unit of orgUnits) {
       const name = unit.name.trim();
       if (!name || seen.has(name)) continue;
       seen.add(name);
-      names.push(name);
+      options.push({ name, level: unit.level });
     }
-    return names;
+    return options;
   }, [orgUnits]);
 
   function applyListFromResponse(data: AdminListResponse) {
@@ -865,20 +865,35 @@ export default function AdminCalendarPage() {
                 <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-publish-unit">
                   發佈單位（選填）
                 </label>
-                <input
-                  id="cal-publish-unit"
-                  list="cal-publish-unit-options"
-                  className="flex-1 input-theme rounded px-3 py-2"
-                  value={form.publishUnit}
-                  onChange={(e) => setForm({ ...form, publishUnit: e.target.value })}
-                  placeholder="可自行填寫，或從單位層級設定選取"
-                  maxLength={64}
-                />
-                <datalist id="cal-publish-unit-options">
-                  {publishUnitOptions.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
+                <div className="flex-1 flex flex-col sm:flex-row gap-2">
+                  {/* 常駐可見的單位下拉（含層級縮排）：選取即填入右側文字欄位 */}
+                  <select
+                    aria-label="從單位層級設定選取發佈單位"
+                    value=""
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      if (name) setForm({ ...form, publishUnit: name });
+                      e.target.value = "";
+                    }}
+                    className="input-theme rounded px-3 py-2 sm:w-60 shrink-0 cursor-pointer"
+                  >
+                    <option value="">從單位層級設定選取…</option>
+                    {publishUnitOptions.map((option) => (
+                      <option key={`${option.level}-${option.name}`} value={option.name}>
+                        {"　".repeat(Math.max(0, option.level - 1))}
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    id="cal-publish-unit"
+                    className="flex-1 min-w-0 input-theme rounded px-3 py-2"
+                    value={form.publishUnit}
+                    onChange={(e) => setForm({ ...form, publishUnit: e.target.value })}
+                    placeholder="亦可自行填寫（例如：學年會）"
+                    maxLength={64}
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">
