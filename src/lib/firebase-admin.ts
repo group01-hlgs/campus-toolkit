@@ -1,8 +1,24 @@
 import "server-only";
 import { initializeApp, getApps, cert, App, ServiceAccount } from "firebase-admin/app";
-import { getFirestore, Firestore } from "firebase-admin/firestore";
+import {
+  getFirestore,
+  Firestore,
+  DocumentReference,
+  CollectionReference,
+  Query,
+  WriteBatch,
+  Transaction,
+  DocumentSnapshot,
+  QuerySnapshot,
+} from "firebase-admin/firestore";
 import { getAuth, Auth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
+import {
+  isReadStatsEnabled,
+  recordReads,
+  recordWrites,
+  recordDeletes,
+} from "@/lib/read-stats";
 
 let adminApp: App | null = null;
 let adminDb: Firestore | null = null;
@@ -80,9 +96,242 @@ function ensureAdminApp(): App {
   );
 }
 
+// —— Firestore 讀取統計 Proxy（read-stats，開發輔助）——
+// 攔截 get/count/set/update/delete/add/batch/runTransaction/getAll 並計數；
+// 計費語意：查詢 N 筆＝N 讀（空查詢＝1）、點查存在＝1（不存在＝0）、count()＝1。
+// READ_STATS 關閉時 getAdminDb 回傳原始實例，零 Proxy 開銷。
+
+/** 會回傳新 Query 的鏈式方法（需再包一層統計 Proxy） */
+const QUERY_CHAIN_METHODS = new Set([
+  "where",
+  "orderBy",
+  "limit",
+  "limitToLast",
+  "select",
+  "startAt",
+  "startAfter",
+  "endAt",
+  "endBefore",
+  "offset",
+]);
+
+/** count() 回傳的聚合查詢（僅需 get()；型別對齊 firebase-admin 的 AggregateQuery） */
+type CountAggregate = ReturnType<Query["count"]>;
+
+function instrumentAggregate(agg: CountAggregate, collectionName: string): CountAggregate {
+  return new Proxy(agg, {
+    get(target, prop, receiver) {
+      if (prop === "get") {
+        const original = target.get.bind(target);
+        return async () => {
+          const snap = await original();
+          recordReads(collectionName, 1);
+          return snap;
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as CountAggregate;
+}
+
+function instrumentDoc(ref: DocumentReference, collectionName: string): DocumentReference {
+  return new Proxy(ref, {
+    get(target, prop, receiver) {
+      if (prop === "get") {
+        const original = target.get.bind(target);
+        return async () => {
+          const snap = await original();
+          if (snap.exists) recordReads(collectionName, 1);
+          return snap;
+        };
+      }
+      if (prop === "set" || prop === "update" || prop === "create") {
+        const original = (target[prop] as (...args: unknown[]) => Promise<unknown>).bind(target);
+        return async (...args: unknown[]) => {
+          const result = await original(...args);
+          recordWrites(1);
+          return result;
+        };
+      }
+      if (prop === "delete") {
+        const original = Reflect.get(target, "delete") as (...args: unknown[]) => Promise<unknown>;
+        const bound = original.bind(target);
+        return async (...args: unknown[]) => {
+          const result = await bound(...args);
+          recordDeletes(1);
+          return result;
+        };
+      }
+      if (prop === "collection") {
+        const original = target.collection.bind(target);
+        return (name: string) => instrumentCollection(original(name), name);
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as DocumentReference;
+}
+
+function instrumentQueryLike<T extends Query | CollectionReference>(
+  target: T,
+  collectionName: string
+): T {
+  return new Proxy(target, {
+    get(t, prop, receiver) {
+      if (prop === "get") {
+        const original = (t as Query).get.bind(t as Query);
+        return async () => {
+          const snap = (await original()) as QuerySnapshot;
+          // 計費語意：查詢回 N 筆＝N 讀；空查詢仍計 1 讀
+          recordReads(collectionName, snap.size === 0 ? 1 : snap.size);
+          return snap;
+        };
+      }
+      if (prop === "count") {
+        const original = (t as Query).count.bind(t as Query);
+        return () => instrumentAggregate(original(), collectionName);
+      }
+      if (prop === "doc" && t instanceof Object && "doc" in t) {
+        const original = (t as CollectionReference).doc.bind(t as CollectionReference);
+        return (id: string) => instrumentDoc(original(id), collectionName);
+      }
+      if (prop === "add") {
+        const original = (t as CollectionReference).add.bind(t as CollectionReference);
+        return async (data: unknown) => {
+          const ref = await original(data as never);
+          recordWrites(1);
+          return instrumentDoc(ref, collectionName);
+        };
+      }
+      if (typeof prop === "string" && QUERY_CHAIN_METHODS.has(prop)) {
+        const original = Reflect.get(t, prop) as (...args: unknown[]) => Query;
+        const bound = original.bind(t);
+        return (...args: unknown[]) => instrumentQueryLike(bound(...args) as T, collectionName);
+      }
+      const value = Reflect.get(t, prop, receiver);
+      return typeof value === "function" ? value.bind(t) : value;
+    },
+  }) as T;
+}
+
+function instrumentCollection(col: CollectionReference, collectionName: string): CollectionReference {
+  return instrumentQueryLike(col, collectionName);
+}
+
+function instrumentBatch(batch: WriteBatch): WriteBatch {
+  let writes = 0;
+  let deletes = 0;
+  return new Proxy(batch, {
+    get(target, prop, receiver) {
+      if (prop === "set" || prop === "update" || prop === "create") {
+        const original = (target[prop] as (...args: unknown[]) => WriteBatch).bind(target);
+        return (...args: unknown[]) => {
+          writes += 1;
+          return original(...args);
+        };
+      }
+      if (prop === "delete") {
+        const original = Reflect.get(target, "delete") as (...args: unknown[]) => WriteBatch;
+        const bound = original.bind(target);
+        return (...args: unknown[]) => {
+          deletes += 1;
+          return bound(...args);
+        };
+      }
+      if (prop === "commit") {
+        const original = target.commit.bind(target);
+        return async () => {
+          const result = await original();
+          recordWrites(writes);
+          recordDeletes(deletes);
+          return result;
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as WriteBatch;
+}
+
+function instrumentTransaction(tx: Transaction): Transaction {
+  return new Proxy(tx, {
+    get(target, prop, receiver) {
+      if (prop === "get") {
+        const original = target.get.bind(target);
+        return async (ref: DocumentReference) => {
+          const snap = (await original(ref)) as DocumentSnapshot;
+          if (snap.exists) recordReads(ref.parent?.path ?? "(transaction)", 1);
+          return snap;
+        };
+      }
+      if (prop === "getAll") {
+        const original = target.getAll.bind(target);
+        return async (...refs: DocumentReference[]) => {
+          const snaps = await original(...refs);
+          recordReads(refs[0]?.parent?.path ?? "(transaction)", refs.length);
+          return snaps;
+        };
+      }
+      if (prop === "set" || prop === "update" || prop === "create") {
+        const original = (target[prop] as (...args: unknown[]) => Transaction).bind(target);
+        return (...args: unknown[]) => {
+          recordWrites(1);
+          return original(...args);
+        };
+      }
+      if (prop === "delete") {
+        const original = Reflect.get(target, "delete") as (...args: unknown[]) => Transaction;
+        const bound = original.bind(target);
+        return (...args: unknown[]) => {
+          recordDeletes(1);
+          return bound(...args);
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as Transaction;
+}
+
+function instrumentDb(db: Firestore): Firestore {
+  return new Proxy(db, {
+    get(target, prop, receiver) {
+      if (prop === "collection") {
+        const original = target.collection.bind(target);
+        return (name: string) => instrumentCollection(original(name), name);
+      }
+      if (prop === "collectionGroup") {
+        const original = target.collectionGroup.bind(target);
+        return (id: string) => instrumentQueryLike(original(id), `${id}（群組）`);
+      }
+      if (prop === "getAll") {
+        const original = target.getAll.bind(target);
+        return async (...refs: DocumentReference[]) => {
+          const snaps = await original(...refs);
+          recordReads(refs[0]?.parent?.path ?? "(getAll)", refs.length);
+          return snaps;
+        };
+      }
+      if (prop === "batch") {
+        const original = target.batch.bind(target);
+        return () => instrumentBatch(original());
+      }
+      if (prop === "runTransaction") {
+        const original = target.runTransaction.bind(target);
+        return (fn: (tx: Transaction) => Promise<unknown>, ...rest: unknown[]) =>
+          original((tx: Transaction) => fn(instrumentTransaction(tx)), ...(rest as []));
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as Firestore;
+}
+
 export function getAdminDb(): Firestore {
   if (adminDb) return adminDb;
-  adminDb = getFirestore(ensureAdminApp());
+  const raw = getFirestore(ensureAdminApp());
+  adminDb = isReadStatsEnabled() ? instrumentDb(raw) : raw;
   return adminDb;
 }
 

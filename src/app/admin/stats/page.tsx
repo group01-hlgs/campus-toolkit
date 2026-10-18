@@ -6,6 +6,7 @@ import {
   type FirestoreDayUsage,
   type FirebaseUsage,
   type QuotaMetric,
+  type ReadStatsSection,
   type StatsResponse,
   type UsageLink,
 } from "@/types/usage";
@@ -244,6 +245,100 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   );
 }
 
+/** 端點級讀取統計（read-stats：本實例進程內累計，不寫 Firestore） */
+function ReadStatsPanel({
+  stats,
+  onReset,
+  resetting,
+}: {
+  stats: ReadStatsSection;
+  onReset: () => void;
+  resetting: boolean;
+}) {
+  const startedAt = new Date(stats.startedAt);
+  const startedLabel = Number.isNaN(startedAt.getTime())
+    ? ""
+    : startedAt.toLocaleString("zh-TW", { hour12: false });
+  return (
+    <section>
+      <SectionHeader
+        title="端點讀取統計（本機實例）"
+        subtitle={`由應用層旁路計數（read-stats），精確到端點與集合；不寫 Firestore、統計本身零讀寫成本。各伺服器實例分開累計，冷啟動歸零。${startedLabel ? `・本實例啟動：${startedLabel}` : ""}`}
+      />
+      {!stats.enabled ? (
+        <div className="p-4 text-sm alert-info text-t2 whitespace-pre-wrap">
+          {`read-stats 未啟用。development 預設啟用；production 請於環境變數設定 READ_STATS=1 後重新部署。\n附加 READ_STATS_LOG=1 可同時將每筆讀寫以結構化 log 輸出（App Hosting 日誌可留存，零 Firestore 成本）。`}
+        </div>
+      ) : (
+        <div className="border border-themed rounded-lg bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-themed flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-t2">
+              總計：請求 {stats.totals.requests.toLocaleString("zh-TW")}・讀取{" "}
+              {stats.totals.reads.toLocaleString("zh-TW")}・寫入{" "}
+              {stats.totals.writes.toLocaleString("zh-TW")}・刪除{" "}
+              {stats.totals.deletes.toLocaleString("zh-TW")}
+              <span className="ml-2 text-xs text-t3">實例 {stats.instanceId.slice(0, 8)}</span>
+            </p>
+            <button
+              type="button"
+              onClick={onReset}
+              disabled={resetting}
+              className="border border-themed rounded-lg px-3 py-1.5 text-xs text-t2 hover:text-t1 cursor-pointer disabled:opacity-50"
+            >
+              {resetting ? "重設中…" : "重設本實例統計"}
+            </button>
+          </div>
+          {stats.byEndpoint.length === 0 ? (
+            <p className="p-6 text-center text-sm text-t3">
+              尚無統計資料——瀏覽任一頁面或 API 後再回來查看。
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[36rem] text-sm text-left">
+                <thead className="border-b border-themed bg-surface text-t2">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">端點</th>
+                    <th className="px-4 py-2 font-medium text-right">請求</th>
+                    <th className="px-4 py-2 font-medium text-right">讀取</th>
+                    <th className="px-4 py-2 font-medium text-right">寫入</th>
+                    <th className="px-4 py-2 font-medium text-right">刪除</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byEndpoint.map((row) => (
+                    <tr key={row.label} className="border-b border-themed last:border-0 text-t1">
+                      <td className="px-4 py-2 font-mono text-xs break-all">{row.label}</td>
+                      <td className="px-4 py-2 text-right text-t2">{row.requests.toLocaleString("zh-TW")}</td>
+                      <td className="px-4 py-2 text-right font-medium">{row.reads.toLocaleString("zh-TW")}</td>
+                      <td className="px-4 py-2 text-right text-t2">{row.writes.toLocaleString("zh-TW")}</td>
+                      <td className="px-4 py-2 text-right text-t2">{row.deletes.toLocaleString("zh-TW")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {stats.byCollection.length > 0 && (
+            <div className="border-t border-themed px-4 py-3">
+              <p className="text-xs font-medium text-t2 mb-2">集合讀取排行（本實例）</p>
+              <div className="flex flex-wrap gap-2">
+                {stats.byCollection.map((item) => (
+                  <span
+                    key={item.name}
+                    className="rounded border border-themed px-2 py-0.5 text-xs text-t2"
+                  >
+                    {item.name}　{item.reads.toLocaleString("zh-TW")} 讀
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const date = new Date(iso);
@@ -255,6 +350,7 @@ export default function StatsPage() {
   const [data, setData] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -276,6 +372,26 @@ export default function StatsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  function resetReadStats() {
+    if (resetting) return;
+    setResetting(true);
+    fetch("/api/admin/stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reset-read-stats" }),
+    })
+      .then((res) => res.json())
+      .then((body: { success?: boolean; readStats?: ReadStatsSection; message?: string }) => {
+        if (body?.success && data && body.readStats) {
+          setData({ ...data, readStats: body.readStats });
+        }
+      })
+      .catch(() => {
+        // 重設失敗不打擾頁面；重新整理即可
+      })
+      .finally(() => setResetting(false));
+  }
 
   const appHosting: AppHostingUsage | undefined = data?.appHosting;
   const firebase: FirebaseUsage | undefined = data?.firebase;
@@ -405,6 +521,11 @@ export default function StatsPage() {
         <section>
           <TrendChart daily={firebase.daily} />
         </section>
+      )}
+
+      {/* 端點級讀取統計（read-stats，本實例進程內） */}
+      {data?.readStats && (
+        <ReadStatsPanel stats={data.readStats} onReset={resetReadStats} resetting={resetting} />
       )}
     </div>
   );

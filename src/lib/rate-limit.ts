@@ -2,6 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/audit";
 import { GENERATED_RATE } from "@/lib/rate.generated";
+import { ensureReadScope } from "@/lib/read-stats";
 
 /**
  * 進程內 sliding-window rate limiter。
@@ -101,6 +102,8 @@ export function enforceRateLimit(
   windowMs: number,
   suffix = ""
 ): NextResponse | null {
+  // 讀取統計範圍：API 路由幾乎都以本函式開頭，於此建立端點歸屬（read-stats）
+  ensureReadScope(request.nextUrl.pathname);
   const result = checkRateLimit(
     `${bucketName}:${clientKey(request, suffix)}`,
     limit,

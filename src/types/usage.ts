@@ -74,9 +74,33 @@ export interface FirebaseUsage extends UsageSection {
   daily: FirestoreDayUsage[];
 }
 
+/** 端點級讀取統計（read-stats，本實例進程內累計；不寫 Firestore） */
+export interface ReadStatsEndpoint {
+  label: string;
+  requests: number;
+  reads: number;
+  writes: number;
+  deletes: number;
+}
+
+export interface ReadStatsSection {
+  /** READ_STATS 開關是否啟用（dev 預設開；production 需 READ_STATS=1） */
+  enabled: boolean;
+  /** 本實例識別碼（serverless 各實例分開累計；冷啟動歸零） */
+  instanceId: string;
+  /** 本實例啟動時間（epoch ms） */
+  startedAt: number;
+  totals: { requests: number; reads: number; writes: number; deletes: number };
+  /** 端點排行（依讀取數、上限 50） */
+  byEndpoint: ReadStatsEndpoint[];
+  /** 集合排行（依讀取數、上限 50） */
+  byCollection: Array<{ name: string; reads: number }>;
+}
+
 /** `GET /api/admin/stats` 回應 */
 export interface StatsResponse {
   success: boolean;
   appHosting: AppHostingUsage;
   firebase: FirebaseUsage;
+  readStats?: ReadStatsSection;
 }

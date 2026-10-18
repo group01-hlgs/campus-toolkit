@@ -5,6 +5,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { getSession, SessionPayload } from "@/lib/server-session";
 import { isJtiRevoked } from "@/lib/revocation";
 import { getClientIp } from "@/lib/audit";
+import { ensureReadScope } from "@/lib/read-stats";
 import {
   getSessionTimeoutMinutes,
   getCurrentPeriod,
@@ -70,6 +71,9 @@ async function adminEntryOf(session: SessionPayload): Promise<Record<string, unk
 }
 
 export async function verifySession(): Promise<VerifiedSession | null> {
+  // 讀取統計範圍：頁面（RSC）請求多半先經本函式；API 路由若已由
+  // enforceRateLimit 建立更精確的端點標籤，ensureReadScope 會沿用不覆蓋
+  ensureReadScope("(頁面)");
   const session = await getSession();
   if (!session) return null;
 
