@@ -9,6 +9,7 @@ import { cachedSettingDoc } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { getCalendarSettings, saveCalendarSettings } from "@/lib/calendar";
 import { ORG_DOC_ID, readOrgStructure } from "@/types/org";
+import { SPACES_DOC_ID, readSpaceStructure } from "@/types/school-spaces";
 import type { CalendarCategory, CalendarPolicies, CalendarSurfaces } from "@/types/calendar";
 import {
   CALENDAR_SURFACES,
@@ -19,7 +20,7 @@ import {
 
 const noStore = { "Cache-Control": "no-store" };
 
-/** GET：讀取行事曆模組設定（含單位層級設定選項，供「發佈單位」下拉建議） */
+/** GET：讀取行事曆模組設定（含單位層級、樓層空間選項，供「發佈單位」「地點」下拉） */
 export async function GET(request: NextRequest) {
   try {
     const limited = enforceRateLimit(
@@ -33,17 +34,25 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("calendar");
     if (denial) return toAuthResponse(denial);
 
-    const [settings, orgSnap] = await Promise.all([
+    const [settings, orgSnap, spacesSnap] = await Promise.all([
       getCalendarSettings(),
-      // 單位層級設定 30 秒快取（setting-doc key，與樓層空間等同源失效）
+      // 單位層級／樓層空間設定 30 秒快取（setting-doc key，同源失效）
       cachedSettingDoc(ORG_DOC_ID, () =>
         getAdminDb().collection(SETTINGS_COLLECTION).doc(ORG_DOC_ID).get()
+      ),
+      cachedSettingDoc(SPACES_DOC_ID, () =>
+        getAdminDb().collection(SETTINGS_COLLECTION).doc(SPACES_DOC_ID).get()
       ),
     ]);
     const orgUnits = readOrgStructure(orgSnap.exists ? orgSnap.data() : null).units.map(
       ({ code, name, level, parent }) => ({ code, name, level, parent })
     );
-    return NextResponse.json({ success: true, settings, orgUnits }, { headers: noStore });
+    const spaceOptions = readSpaceStructure(spacesSnap.exists ? spacesSnap.data() : null).units.map(
+      ({ code, name, parent }) => ({ code, name, parent })
+    );
+    return NextResponse.json({ success: true, settings, orgUnits, spaceOptions }, {
+      headers: noStore,
+    });
   } catch (error) {
     console.error("Get calendar settings error:", error);
     return NextResponse.json(

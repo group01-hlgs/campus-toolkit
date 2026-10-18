@@ -33,12 +33,20 @@ interface OrgUnitOption {
   parent: string | null;
 }
 
+/** 樓層空間設定選項（settings GET 一併回傳，供「地點」下拉建議） */
+interface SpaceOption {
+  code: string;
+  name: string;
+  parent: string | null;
+}
+
 interface AdminListResponse {
   success?: boolean;
   message?: string;
   events?: AdminCalendarEventRow[];
   settings?: CalendarSettings;
   orgUnits?: OrgUnitOption[];
+  spaceOptions?: SpaceOption[];
 }
 
 interface FormState {
@@ -153,6 +161,8 @@ export default function AdminCalendarPage() {
   const [policies, setPolicies] = useState<CalendarPolicies>(DEFAULT_CALENDAR_POLICIES);
   // 單位層級設定選項（settings GET 一併回傳，供「發佈單位」下拉建議）
   const [orgUnits, setOrgUnits] = useState<OrgUnitOption[]>([]);
+  // 樓層空間設定選項（settings GET 一併回傳，供「地點」下拉建議）
+  const [spaceOptions, setSpaceOptions] = useState<SpaceOption[]>([]);
   // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次）
   const [counts, setCounts] = useState<{ active: number; cancelled: number } | null>(null);
   const [cardOpen, setCardOpen] = useState({
@@ -220,6 +230,7 @@ export default function AdminCalendarPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (data?.success && data.settings) applySettings(data.settings);
       if (data?.success && Array.isArray(data.orgUnits)) setOrgUnits(data.orgUnits);
+      if (data?.success && Array.isArray(data.spaceOptions)) setSpaceOptions(data.spaceOptions);
     } catch {
       // 設定讀失敗不擋頁面：表單分類退回預設
     }
@@ -302,6 +313,31 @@ export default function AdminCalendarPage() {
     return options;
   }, [orgUnits]);
 
+  // 「地點」下拉選項：樓層空間以 parent 建樹走訪（depth 縮排），做法同發佈單位
+  const locationOptions = useMemo(() => {
+    const byParent = new Map<string | null, SpaceOption[]>();
+    for (const unit of spaceOptions) {
+      const key = unit.parent ?? null;
+      const bucket = byParent.get(key);
+      if (bucket) bucket.push(unit);
+      else byParent.set(key, [unit]);
+    }
+    const options: Array<{ code: string; name: string; depth: number }> = [];
+    const seenNames = new Set<string>();
+    const walk = (parentCode: string | null, depth: number) => {
+      for (const unit of byParent.get(parentCode) ?? []) {
+        const name = unit.name.trim();
+        if (name && !seenNames.has(name)) {
+          seenNames.add(name);
+          options.push({ code: unit.code, name, depth });
+        }
+        walk(unit.code, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return options;
+  }, [spaceOptions]);
+
   function applyListFromResponse(data: AdminListResponse) {
     if (listLoaded && data.events) setItems(data.events);
     if (data.settings) applySettings(data.settings);
@@ -324,7 +360,7 @@ export default function AdminCalendarPage() {
       const payload = {
         title: form.title,
         description: form.description,
-        location: form.location,
+        location: form.location.trim(),
         allDay: form.allDay,
         allDayDate: form.allDay ? form.allDayDate : undefined,
         startAt: form.allDay ? undefined : startAt,
@@ -867,13 +903,37 @@ export default function AdminCalendarPage() {
                 <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-location">
                   地點（選填）
                 </label>
-                <input
-                  id="cal-location"
-                  className="flex-1 input-theme rounded px-3 py-2"
-                  value={form.location}
-                  onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  maxLength={120}
-                />
+                <div className="flex-1 flex flex-col sm:flex-row gap-2">
+                  {/* 常駐可見的空間下拉（含層級縮排）：選取即填入右側文字欄位 */}
+                  {locationOptions.length > 0 && (
+                    <select
+                      aria-label="從樓層空間設定選取地點"
+                      value=""
+                      onChange={(e) => {
+                        const name = e.target.value;
+                        if (name) setForm({ ...form, location: name });
+                        e.target.value = "";
+                      }}
+                      className="input-theme rounded px-3 py-2 sm:w-60 shrink-0 cursor-pointer"
+                    >
+                      <option value="">從樓層空間設定選取…</option>
+                      {locationOptions.map((option) => (
+                        <option key={option.code} value={option.name}>
+                          {option.depth > 0 ? "　".repeat(option.depth) : ""}
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <input
+                    id="cal-location"
+                    className="flex-1 min-w-0 input-theme rounded px-3 py-2"
+                    value={form.location}
+                    onChange={(e) => setForm({ ...form, location: e.target.value })}
+                    placeholder="亦可自行填寫（例如：禮堂）"
+                    maxLength={120}
+                  />
+                </div>
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-publish-unit">
