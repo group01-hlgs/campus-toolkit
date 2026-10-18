@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DisclosureArrow from "@/components/DisclosureArrow";
 import {
   CALENDAR_FALLBACK_CATEGORY_ID,
@@ -38,6 +38,29 @@ interface SpaceOption {
   code: string;
   name: string;
   parent: string | null;
+}
+
+/** 批次匯入預覽列（伺服器 dryRun 回應） */
+interface CalendarImportRow {
+  row: number;
+  title: string;
+  timeText: string;
+  action: "create" | "skip";
+  reason?: string;
+  categoryName?: string;
+}
+
+interface CalendarImportPreview {
+  total: number;
+  creatable: number;
+  skipped: number;
+  rows: CalendarImportRow[];
+}
+
+interface CalendarImportResult {
+  message: string;
+  created: number;
+  skipped: Array<{ row: number; reason: string }>;
 }
 
 interface AdminListResponse {
@@ -181,6 +204,14 @@ export default function AdminCalendarPage() {
   } | null>(null);
   // 批次勾選：目前選取的行程 id（批次完成後清空）
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // 批次新增（xlsx/xls 匯入）：預覽 → 確認
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchBusy, setBatchBusy] = useState<"" | "preview" | "execute">("");
+  const [batchError, setBatchError] = useState("");
+  const [batchPreview, setBatchPreview] = useState<CalendarImportPreview | null>(null);
+  const [batchResult, setBatchResult] = useState<CalendarImportResult | null>(null);
+  const batchFileRef = useRef<HTMLInputElement>(null);
 
   function askConfirm(message: string, onConfirm: () => void) {
     setConfirmRequest({ message, onConfirm });
@@ -421,6 +452,75 @@ export default function AdminCalendarPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // —— 批次新增（xlsx/xls）：預覽 → 確認 ——
+
+  async function runImport(dryRun: boolean) {
+    if (!batchFile || batchBusy) return;
+    setBatchBusy(dryRun ? "preview" : "execute");
+    setBatchError("");
+    if (dryRun) {
+      setBatchResult(null);
+    }
+    try {
+      const formData = new FormData();
+      formData.set("dryRun", dryRun ? "true" : "false");
+      formData.set("file", batchFile);
+      const res = await fetch("/api/admin/calendar/import", {
+        method: "POST",
+        body: formData,
+      });
+      const data = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        message?: string;
+        dryRun?: boolean;
+        total?: number;
+        creatable?: number;
+        skipped?: number | Array<{ row: number; reason: string }>;
+        rows?: CalendarImportRow[];
+        created?: number;
+        events?: AdminCalendarEventRow[];
+        settings?: CalendarSettings;
+      } | null;
+      if (dryRun) {
+        if (!res.ok || !data?.success || !Array.isArray(data.rows)) {
+          throw new Error(data?.message || "解析檔案失敗");
+        }
+        setBatchPreview({
+          total: data.total ?? 0,
+          creatable: data.creatable ?? 0,
+          skipped: typeof data.skipped === "number" ? data.skipped : 0,
+          rows: data.rows,
+        });
+      } else {
+        if (!res.ok || !data?.success) {
+          throw new Error(data?.message || "批次新增失敗");
+        }
+        applyListFromResponse({ events: data.events, settings: data.settings });
+        setBatchResult({
+          message: data.message || "批次新增完成",
+          created: data.created ?? 0,
+          skipped: Array.isArray(data.skipped) ? data.skipped : [],
+        });
+        setBatchPreview(null);
+        setBatchFile(null);
+        if (batchFileRef.current) batchFileRef.current.value = "";
+        setToast({ kind: "success", text: data.message || "批次新增完成" });
+      }
+    } catch (error) {
+      setBatchError(error instanceof Error ? error.message : "批次新增失敗");
+    } finally {
+      setBatchBusy("");
+    }
+  }
+
+  function confirmImport() {
+    if (!batchPreview || batchPreview.creatable === 0) return;
+    askConfirm(
+      `確定要依預覽新增 ${batchPreview.creatable} 筆行程嗎？`,
+      () => void runImport(false)
+    );
   }
 
   /** 真實刪除（硬刪除）：連同個人提醒一併從資料庫刪除，不可恢復 */
@@ -1139,6 +1239,140 @@ export default function AdminCalendarPage() {
                 )}
               </div>
             </form>
+          </div>
+        )}
+      </details>
+
+      {/* 2-5. 批次新增（xlsx/xls 匯入：下載範例 → 上傳預覽 → 確認建立） */}
+      <details
+        open={batchOpen}
+        onToggle={(e) => setBatchOpen(e.currentTarget.open)}
+        className="border border-themed rounded-lg bg-card"
+      >
+        <summary className="flex list-none cursor-pointer items-center justify-between gap-3 px-5 py-3.5 text-left">
+          <div>
+            <h3 className="text-base font-bold text-t1">批次新增行程</h3>
+            <p className="text-xs text-t3 mt-0.5">
+              上傳試算表（xlsx／xls）批次建立行程；含全天、時段、跨日日期與跨日日期時間範例。
+            </p>
+          </div>
+          <DisclosureArrow />
+        </summary>
+        {batchOpen && (
+          <div className="px-5 pb-5 space-y-4">
+            <div className="rounded-lg border border-themed bg-surface px-4 py-3 text-xs text-t2 space-y-1">
+              <p>
+                1. 先下載範例檔，照格式填寫行程；
+                <span className="font-semibold text-t1">上傳前請刪除所有「【範例】」列</span>
+                。
+              </p>
+              <p>
+                2.
+                <a
+                  href="/api/admin/calendar/import"
+                  className="mx-1 underline underline-offset-2 text-primary"
+                  download
+                >
+                  下載範例檔（xlsx）
+                </a>
+                ・全天＝僅單日；跨日請用日期／日期時間區間（結束不帶時間＝補到當日結束）。
+              </p>
+              <p>3. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={batchFileRef}
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                onChange={(e) => {
+                  setBatchFile(e.target.files?.[0] ?? null);
+                  setBatchPreview(null);
+                  setBatchResult(null);
+                  setBatchError("");
+                }}
+                className="text-sm text-t2 file:mr-3 file:rounded file:border-0 file:bg-surface file:px-3 file:py-1.5 file:text-sm file:cursor-pointer"
+              />
+              <button
+                type="button"
+                disabled={!batchFile || batchBusy !== ""}
+                onClick={() => void runImport(true)}
+                className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+              >
+                {batchBusy === "preview" ? "解析中…" : "解析預覽"}
+              </button>
+              {batchPreview && batchPreview.creatable > 0 && (
+                <button
+                  type="button"
+                  disabled={batchBusy !== ""}
+                  onClick={confirmImport}
+                  className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {batchBusy === "execute" ? "新增中…" : `確認新增（${batchPreview.creatable} 筆）`}
+                </button>
+              )}
+            </div>
+
+            {batchError && (
+              <p className="text-sm text-danger" role="alert">
+                {batchError}
+              </p>
+            )}
+
+            {batchResult && (
+              <div className="rounded-lg border border-themed bg-surface px-4 py-3 text-sm text-t2 space-y-1">
+                <p className="font-medium text-t1">{batchResult.message}</p>
+                {batchResult.skipped.length > 0 && (
+                  <ul className="text-xs text-t3 space-y-0.5">
+                    {batchResult.skipped.map((item) => (
+                      <li key={item.row}>
+                        第 {item.row} 列：{item.reason}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {batchPreview && (
+              <div className="border border-themed rounded-lg overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-themed text-sm text-t2">
+                  預覽：共 {batchPreview.total} 列，可新增 {batchPreview.creatable} 筆
+                  {batchPreview.skipped > 0 ? `、略過 ${batchPreview.skipped} 列` : ""}
+                  {batchPreview.creatable === 0 ? "（無可新增列，請修正錯誤後重新預覽）" : ""}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[36rem] text-sm text-left">
+                    <thead className="border-b border-themed bg-surface text-t2">
+                      <tr>
+                        <th className="px-4 py-2 font-medium">列</th>
+                        <th className="px-4 py-2 font-medium">標題</th>
+                        <th className="px-4 py-2 font-medium">類型</th>
+                        <th className="px-4 py-2 font-medium">時間</th>
+                        <th className="px-4 py-2 font-medium">結果</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batchPreview.rows.map((row) => (
+                        <tr key={row.row} className="border-b border-themed last:border-0 text-t1">
+                          <td className="px-4 py-2 text-t3">{row.row}</td>
+                          <td className="px-4 py-2">{row.title || "—"}</td>
+                          <td className="px-4 py-2 text-t2">{row.categoryName ?? "—"}</td>
+                          <td className="px-4 py-2 text-t2">{row.timeText}</td>
+                          <td className="px-4 py-2">
+                            {row.action === "create" ? (
+                              <span className="text-success">可新增</span>
+                            ) : (
+                              <span className="text-danger">略過：{row.reason}</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </details>

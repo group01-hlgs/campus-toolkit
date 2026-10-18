@@ -242,6 +242,8 @@ const HAND_RATE = {
   CALENDAR_ADMIN_GET: { limit: 60, windowMs: 60_000 },
   /** 行事曆：管理端建立／更新／取消／儲存設定 */
   CALENDAR_ADMIN_MUTATE: { limit: 40, windowMs: 60_000 },
+  /** 行事曆：管理端批次匯入（預覽＋確認各計一次） */
+  CALENDAR_BATCH: { limit: 12, windowMs: 60 * 60_000 },
   /** 行事曆：各身分行程列表與單筆讀取 */
   CALENDAR_LIST: { limit: 60, windowMs: 60_000 },
   /** 行事曆：教職員建立行程 */
