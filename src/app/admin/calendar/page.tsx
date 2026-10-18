@@ -275,16 +275,30 @@ export default function AdminCalendarPage() {
     };
   }, [settingsReady, saverOn]);
 
-  // 「發佈單位」下拉選項：單位層級設定的單位（樹狀順序、名稱去重、含層級供縮排；文字欄位仍可自由輸入）
+  // 「發佈單位」下拉選項：以 parent 爲鍵建樹、由最上層走訪（depth 縮排），
+  // 對齊樓層空間設定的既有做法——不用 unit.level（層級欄位可能與實際上下級不符）
   const publishUnitOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const options: Array<{ name: string; level: number }> = [];
+    const byParent = new Map<string | null, OrgUnitOption[]>();
     for (const unit of orgUnits) {
-      const name = unit.name.trim();
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
-      options.push({ name, level: unit.level });
+      // 空名稱單位仍入樹（其下一層要走訪得到），只是不出現在選項
+      const key = unit.parent ?? null;
+      const bucket = byParent.get(key);
+      if (bucket) bucket.push(unit);
+      else byParent.set(key, [unit]);
     }
+    const options: Array<{ code: string; name: string; depth: number }> = [];
+    const seenNames = new Set<string>();
+    const walk = (parentCode: string | null, depth: number) => {
+      for (const unit of byParent.get(parentCode) ?? []) {
+        const name = unit.name.trim();
+        if (name && !seenNames.has(name)) {
+          seenNames.add(name);
+          options.push({ code: unit.code, name, depth });
+        }
+        walk(unit.code, depth + 1);
+      }
+    };
+    walk(null, 0);
     return options;
   }, [orgUnits]);
 
@@ -879,8 +893,8 @@ export default function AdminCalendarPage() {
                   >
                     <option value="">從單位層級設定選取…</option>
                     {publishUnitOptions.map((option) => (
-                      <option key={`${option.level}-${option.name}`} value={option.name}>
-                        {"　".repeat(Math.max(0, option.level - 1))}
+                      <option key={option.code} value={option.name}>
+                        {option.depth > 0 ? "　".repeat(option.depth) : ""}
                         {option.name}
                       </option>
                     ))}
