@@ -1260,24 +1260,39 @@ export default function AdminCalendarPage() {
         </summary>
         {batchOpen && (
           <div className="px-5 pb-5 space-y-4">
-            <div className="rounded-lg border border-themed bg-surface px-4 py-3 text-xs text-t2 space-y-1">
-              <p>
-                1. 先下載範例檔，照格式填寫行程；
+            {/* 第一步：明顯的範例檔下載按鈕 */}
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href="/api/admin/calendar/import"
+                download
+                className="btn-theme inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                  />
+                </svg>
+                下載範例檔（xlsx）
+              </a>
+              <p className="text-xs text-t3">
+                範例含全天、單日時段、跨日日期、跨日日期時間4種格式；
                 <span className="font-semibold text-t1">上傳前請刪除所有「【範例】」列</span>
                 。
               </p>
-              <p>
-                2.
-                <a
-                  href="/api/admin/calendar/import"
-                  className="mx-1 underline underline-offset-2 text-primary"
-                  download
-                >
-                  下載範例檔（xlsx）
-                </a>
-                ・全天＝僅單日；跨日請用日期／日期時間區間（結束不帶時間＝補到當日結束）。
-              </p>
-              <p>3. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
+            </div>
+
+            <div className="rounded-lg border border-themed bg-surface px-4 py-3 text-xs text-t2 space-y-1">
+              <p>1. 下載範例檔，照格式填寫行程（全天＝僅單日；跨日請用日期／日期時間區間，結束不帶時間＝補到當日結束）。</p>
+              <p>2. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
