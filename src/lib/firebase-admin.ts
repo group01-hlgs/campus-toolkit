@@ -60,19 +60,24 @@ function ensureAdminApp(): App {
     return adminApp;
   }
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!raw) {
-    throw new Error(
-      "FIREBASE_SERVICE_ACCOUNT_KEY 未設定，無法存取 Firestore（請加入 .env / Vercel 環境變數）"
-    );
+  if (raw) {
+    try {
+      const serviceAccount = parseServiceAccount(raw);
+      adminApp = initializeApp({ credential: cert(serviceAccount) });
+      return adminApp;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Firebase Admin SDK 初始化失敗: ${msg}`);
+    }
   }
-  try {
-    const serviceAccount = parseServiceAccount(raw);
-    adminApp = initializeApp({ credential: cert(serviceAccount) });
+  // GCP 環境（Firebase App Hosting / Cloud Run）：自動使用內建服務帳號（Application Default Credentials）
+  if (process.env.K_SERVICE || process.env.GOOGLE_CLOUD_PROJECT) {
+    adminApp = initializeApp();
     return adminApp;
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Firebase Admin SDK 初始化失敗: ${msg}`);
   }
+  throw new Error(
+    "FIREBASE_SERVICE_ACCOUNT_KEY 未設定，無法存取 Firestore（請加入 .env / 部署平台環境變數）"
+  );
 }
 
 export function getAdminDb(): Firestore {

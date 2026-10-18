@@ -1,0 +1,13 @@
+# Firebase App Hosting 配置
+# 文件：https://firebase.google.com/docs/app-hosting
+
+runConfig:
+  # 伸縮：閒置縮至 0（省費用），上限依學校規模調整
+  minInstances: 0
+  maxInstances: 10
+  # 資源配置
+  cpu: 1
+  memoryMiB: 512
+  # 逾時：批次匯入路由（accounts/roster/personal-info batch）設計為 300 秒內完成
+  # （比照原 Vercel maxDuration = 300）
+  timeoutSeconds: 300

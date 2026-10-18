@@ -5,7 +5,7 @@ interface CopyrightProps {
 }
 
 // 資訊安全：頁尾一律不揭露版本號與建置日期（避免幫攻擊者辨識版本）
-const POWERED_BY = "Powered by Next.js on Vercel";
+const POWERED_BY = "Powered by Next.js";
 
 export default function Copyright({ mode }: CopyrightProps) {
   if (mode === "關閉") {

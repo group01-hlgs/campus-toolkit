@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawnSync } from "node:child_process";
+import AdmZip from "adm-zip";
 import { readSystemDoc } from "@/lib/settings-server";
 import { THEME_COLOR_KEYS, REQUIRED_MARKET_THEME_KEYS } from "@/types/theme";
 import { parseThemeMarketIndex, ThemeMarketIndex } from "@/types/theme-market";
@@ -424,26 +424,12 @@ export function extractThemeZip(filePath: string): string {
   const dir = path.join(path.dirname(filePath), "extracted");
   fs.mkdirSync(dir, { recursive: true });
 
-  if (process.platform === "win32") {
-    const result = spawnSync(
-      "powershell",
-      [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        `Expand-Archive -Path '${filePath}' -DestinationPath '${dir}' -Force`,
-      ],
-      { encoding: "utf-8" }
-    );
-    if (result.status !== 0) {
-      throw new Error(result.stderr?.toString() || "ZIP 解壓失敗");
-    }
-  } else {
-    const result = spawnSync("unzip", ["-q", filePath, "-d", dir], { encoding: "utf-8" });
-    if (result.status !== 0) {
-      throw new Error(result.stderr?.toString() || "ZIP 解壓失敗");
-    }
+  try {
+    const zip = new AdmZip(filePath);
+    zip.extractAllTo(dir, true);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`ZIP 解壓失敗（adm-zip）：${detail}`);
   }
 
   walkExtracted(dir);
