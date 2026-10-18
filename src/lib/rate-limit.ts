@@ -225,7 +225,7 @@ const HAND_RATE = {
   THEME_MARKET_PUBLISH: { limit: 10, windowMs: 60_000 },
   /** 主題市集：使用者投稿（draft PR） */
   THEME_MARKET_SUBMIT: { limit: 5, windowMs: 60 * 60_000 },
-  /** 統計儀表板：讀取 Vercel／Firebase 用量（伺服器端另有 5 分鐘快取） */
+  /** 統計儀表板：讀取 App Hosting／Firestore 用量（伺服器端另有 5 分鐘快取） */
   ADMIN_USAGE_GET: { limit: 30, windowMs: 60_000 },
   /** 公告：管理端清單／設定讀取 */
   ANNOUNCEMENTS_ADMIN_GET: { limit: 60, windowMs: 60_000 },

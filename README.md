@@ -278,15 +278,7 @@ npm run dev
 
 ### 統計儀表板（`/admin/stats`，僅超級管理員）
 
-不設定也能使用，只是儀表板會改顯示「設定指引」卡而非實際用量。
-
-| 變數 | 必填 | 說明 |
-|------|------|------|
-| `VERCEL_TOKEN` | 否 | Vercel Personal Access Token，用來讀取本月用量（`GET /v1/billing/charges`）。建立路徑：帳號設定的**齒輪圖示**（畫面右上角帳號選單 → Settings，**帳號層級**，不是全站設定、也不是專案的 Settings）→ 左側 **Tokens** → Create Token（**Scope 選 Full Account**——用量屬帳號／團隊層級，選單一專案讀不到） |
-| `VERCEL_TEAM_ID` | 否 | 團隊首頁網址 `team_xxx`；可留空——首次查詢失敗時程式會自動用 `/v2/user` 與 `/v2/teams` 探索帳號底下的團隊並逐個重試（含個人 Hobby 團隊） |
-| `VERCEL_PLAN` | 否 | 對照的免費額度表：`hobby`（預設）或 `pro` |
-
-Firestore 用量走 Cloud Monitoring，**服務帳號需具 `roles/monitoring.viewer`**，否則儀表板會顯示授予指令：
+不設定也能使用，只是儀表板會改顯示「設定指引」卡而非實際用量。App Hosting（Cloud Run／Cloud Build）與 Firestore 用量皆走 Cloud Monitoring，共用同一個服務帳號，**需具 `roles/monitoring.viewer`**，否則儀表板會顯示授予指令：
 
 ```bash
 gcloud projects add-iam-policy-binding <專案ID> \

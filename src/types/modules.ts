@@ -178,7 +178,7 @@ const HAND_MODULES = [
     value: "stats",
     label: "統計儀表板",
     category: "系統與紀錄",
-    description: "檢視 Vercel 與 Firebase（Firestore）的用量，對照免費額度與近期趨勢。",
+    description: "檢視 App Hosting（Cloud Run／Cloud Build）與 Firestore 的用量，對照免費額度與近期趨勢。",
     scope: "superOnly",
     status: "built",
     href: "/admin/stats",

@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  type AppHostingUsage,
   type FirestoreDayUsage,
   type FirebaseUsage,
   type QuotaMetric,
   type StatsResponse,
   type UsageLink,
-  type VercelUsage,
 } from "@/types/usage";
 
 /** 額度進度顏色：未達 80% 正常、80% 以上警示、超過額度危險 */
@@ -18,11 +18,9 @@ function barColor(ratio: number | null): string {
   return "var(--primary)";
 }
 
-/** 數量依單位格式化（bytes 以 GB 顯示） */
-function formatAmount(value: number, unit: QuotaMetric["unit"], rawUnit?: string): string {
+/** 數量依單位格式化 */
+function formatAmount(value: number, unit: QuotaMetric["unit"]): string {
   switch (unit) {
-    case "bytes":
-      return `${(value / 1e9).toLocaleString("zh-TW", { maximumFractionDigits: 1 })} GB`;
     case "count":
       return Math.round(value).toLocaleString("zh-TW");
     case "hours":
@@ -30,7 +28,7 @@ function formatAmount(value: number, unit: QuotaMetric["unit"], rawUnit?: string
     case "gbHours":
       return `${value.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} GB-hrs`;
     default:
-      return `${value.toLocaleString("zh-TW", { maximumFractionDigits: 2 })}${rawUnit ? ` ${rawUnit}` : ""}`;
+      return value.toLocaleString("zh-TW", { maximumFractionDigits: 2 });
   }
 }
 
@@ -58,9 +56,9 @@ function QuotaBar({ metric, hint }: { metric: QuotaMetric; hint?: string }) {
         )}
       </div>
       <p className="mt-1 text-lg font-bold text-t1">
-        {formatAmount(metric.used, metric.unit, metric.rawUnit)}
+        {formatAmount(metric.used, metric.unit)}
         <span className="ml-1 text-xs font-normal text-t3">
-          / {metric.limit !== null ? formatAmount(metric.limit, metric.unit, metric.rawUnit) : "額度未知"}
+          / {metric.limit !== null ? formatAmount(metric.limit, metric.unit) : "額度未知"}
         </span>
       </p>
       <div
@@ -279,7 +277,7 @@ export default function StatsPage() {
     load();
   }, [load]);
 
-  const vercel: VercelUsage | undefined = data?.vercel;
+  const appHosting: AppHostingUsage | undefined = data?.appHosting;
   const firebase: FirebaseUsage | undefined = data?.firebase;
 
   return (
@@ -287,8 +285,8 @@ export default function StatsPage() {
       {/* 工具列：更新時間、重新整理、整頁錯誤 */}
       <section className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-t3">
-          {vercel?.fetchedAt || firebase?.fetchedAt
-            ? `資料更新時間：${formatTime(vercel?.fetchedAt || firebase?.fetchedAt)}（伺服器端每 5 分鐘快取）`
+          {appHosting?.fetchedAt || firebase?.fetchedAt
+            ? `資料更新時間：${formatTime(appHosting?.fetchedAt || firebase?.fetchedAt)}（伺服器端每 5 分鐘快取）`
             : "外部用量資料由伺服器取得，金鑰不會出現在瀏覽器。"}
         </p>
         <button onClick={load} disabled={loading} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50">
@@ -301,33 +299,35 @@ export default function StatsPage() {
         <p className="border border-themed rounded-lg bg-card p-8 text-center text-t3">用量資料載入中...</p>
       )}
 
-      {/* Vercel：本月用量 */}
-      {vercel && (
+      {/* App Hosting：本月用量（Cloud Run／Cloud Build，對照每月免費額度） */}
+      {appHosting && (
         <section>
           <SectionHeader
-            title="Vercel 用量（本月）"
+            title="App Hosting 用量（本月）"
             subtitle={
-              vercel.period.from
-                ? `方案 ${vercel.plan === "pro" ? "Pro" : "Hobby"}・區間 ${
-                    vercel.period.from.slice(0, 10)
-                  } ~ ${vercel.period.to.slice(0, 10)}（UTC，每月重置）`
-                : `方案 ${vercel.plan === "pro" ? "Pro" : "Hobby"}・每月重置`
+              appHosting.period.from
+                ? `Cloud Run／Cloud Build・區間 ${appHosting.period.from.slice(0, 10)} ~ ${appHosting.period.to.slice(0, 10)}（UTC，每月重置）・超出免費額度後按量計費`
+                : "Cloud Run／Cloud Build・每月重置・超出免費額度後按量計費"
             }
           />
-          {vercel.ok ? (
+          {appHosting.ok ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2">
-                {vercel.metrics.map((metric) => (
-                  <QuotaBar key={metric.key} metric={metric} hint={metric.limit === null ? "此項目無免費額度或按量計費" : undefined} />
+                {appHosting.metrics.map((metric) => (
+                  <QuotaBar
+                    key={metric.key}
+                    metric={metric}
+                    hint={metric.limit === null ? "免費額度以建置分鐘計（2,500 分鐘／月），次數無額度" : undefined}
+                  />
                 ))}
               </div>
-              {vercel.note && (
-                <div className="mt-3 p-3 text-xs whitespace-pre-wrap alert-info text-t2">{vercel.note}</div>
+              {appHosting.note && (
+                <div className="mt-3 p-3 text-xs whitespace-pre-wrap alert-info text-t2">{appHosting.note}</div>
               )}
-              {!!vercel.links?.length && (
+              {!!appHosting.links?.length && (
                 <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-t3">
                   <span>官方用量頁：</span>
-                  {vercel.links.map((link) => (
+                  {appHosting.links.map((link) => (
                     <a
                       key={link.url}
                       href={link.url}
@@ -343,10 +343,10 @@ export default function StatsPage() {
             </>
           ) : (
             <NoticeBox
-              tone={vercel.configured ? "danger" : "info"}
-              message={vercel.message}
-              hint={vercel.hint}
-              links={vercel.links}
+              tone={appHosting.configured ? "danger" : "info"}
+              message={appHosting.message}
+              hint={appHosting.hint}
+              links={appHosting.links}
             />
           )}
         </section>

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { serverErrorMessage } from "@/lib/api-error";
-import { getVercelUsage } from "@/lib/usage-vercel";
+import { getAppHostingUsage } from "@/lib/usage-apphosting";
 import { getFirebaseUsage } from "@/lib/usage-firebase";
 import type { StatsResponse } from "@/types/usage";
 
 /**
- * 統計儀表板：Vercel 與 Firebase（Firestore）用量。
+ * 統計儀表板：App Hosting（Cloud Run／Cloud Build）與 Firebase（Firestore）用量。
  *
  * 權限：`stats` 是 superOnly 權限模組（`adminModulesOf` 只會把它給超級管理員），
  * 因此 `requireAdminModule("stats")` 即等同僅超級管理員可讀。
@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const [vercel, firebase] = await Promise.all([getVercelUsage(), getFirebaseUsage()]);
+    const [appHosting, firebase] = await Promise.all([getAppHostingUsage(), getFirebaseUsage()]);
 
-    const body: StatsResponse = { success: true, vercel, firebase };
+    const body: StatsResponse = { success: true, appHosting, firebase };
     return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Stats usage error:", error);

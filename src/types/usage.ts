@@ -2,7 +2,8 @@
  * 「統計儀表板」（`/admin/stats`）的用量資料型別——前端頁面與 API 共用。
  *
  * 資料來源（皆由伺服器端取得，金鑰不外流）：
- * - Vercel：REST API `GET /v1/billing/charges`（FOCUS JSONL），回本月各資源消耗量；
+ * - App Hosting：Cloud Monitoring `projects.timeSeries.list`，取 Cloud Run 請求／CPU／記憶體
+ *   與 Cloud Build 建置次數的本月累計（App Hosting＝Cloud Run＋Cloud CDN＋Cloud Build）；
  * - Firebase：Cloud Monitoring `projects.timeSeries.list`，回 Firestore 讀／寫／刪除次數。
  *
  * 約定：
@@ -12,20 +13,18 @@
  * - 額度 `limit=null` 代表該方案無免費額度或單位無法換算，前端顯示「額度未知」。
  */
 
-/** 額度計量單位（`raw`＝無法辨識的原始單位，值與單位一起顯示） */
-export type QuotaUnit = "bytes" | "count" | "hours" | "gbHours" | "raw";
+/** 額度計量單位 */
+export type QuotaUnit = "count" | "hours" | "gbHours";
 
 /** 一項資源的「已用 vs 額度」 */
 export interface QuotaMetric {
   /** 資源代碼（頁面 keys 用） */
   key: string;
   label: string;
-  /** 已用量（`unit` 為 `raw` 時此值為 Vercel 原始數值） */
+  /** 已用量 */
   used: number;
   limit: number | null;
   unit: QuotaUnit;
-  /** `unit === "raw"` 時的原始單位字串 */
-  rawUnit?: string;
 }
 
 /** 官方用量頁連結（失敗／未設定時提供給管理人員自行查看） */
@@ -51,11 +50,9 @@ export interface UsageSection {
   links?: UsageLink[];
 }
 
-/** Vercel 本月（計費週期）用量 */
-export interface VercelUsage extends UsageSection {
-  /** 方案（hobby／pro） */
-  plan: string;
-  /** 查詢區間（UTC ISO） */
+/** App Hosting 本月（UTC 計費週期）用量 */
+export interface AppHostingUsage extends UsageSection {
+  /** 查詢區間（UTC ISO，本月 1 日 ~ 目前） */
   period: { from: string; to: string };
   metrics: QuotaMetric[];
 }
@@ -80,6 +77,6 @@ export interface FirebaseUsage extends UsageSection {
 /** `GET /api/admin/stats` 回應 */
 export interface StatsResponse {
   success: boolean;
-  vercel: VercelUsage;
+  appHosting: AppHostingUsage;
   firebase: FirebaseUsage;
 }
