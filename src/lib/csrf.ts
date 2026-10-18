@@ -11,7 +11,11 @@ export function assertSameOrigin(request: NextRequest): NextResponse | null {
   if (!MUTATING.has(request.method)) return null;
 
   const url = new URL(request.url);
-  const host = request.headers.get("host");
+  // 反向代理（Vercel／Firebase App Hosting）可能改寫 Host，
+  // X-Forwarded-Host 保留瀏覽器原始請求的網域，優先採用。
+  const host =
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ||
+    request.headers.get("host");
   if (!host) {
     return NextResponse.json(
       { success: false, message: "請求來源無效" },
