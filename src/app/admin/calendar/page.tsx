@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DisclosureArrow from "@/components/DisclosureArrow";
 import {
   CALENDAR_FALLBACK_CATEGORY_ID,
@@ -25,11 +25,20 @@ import { useDataSaver } from "@/lib/data-saver";
 import RevealListCard from "@/components/RevealListCard";
 import Toast, { type ToastMessage } from "@/components/Toast";
 
+/** 單位層級設定選項（settings GET 一併回傳，供「發佈單位」下拉建議） */
+interface OrgUnitOption {
+  code: string;
+  name: string;
+  level: number;
+  parent: string | null;
+}
+
 interface AdminListResponse {
   success?: boolean;
   message?: string;
   events?: AdminCalendarEventRow[];
   settings?: CalendarSettings;
+  orgUnits?: OrgUnitOption[];
 }
 
 interface FormState {
@@ -142,6 +151,8 @@ export default function AdminCalendarPage() {
   );
   // 行程原則（下架行程真實刪除）
   const [policies, setPolicies] = useState<CalendarPolicies>(DEFAULT_CALENDAR_POLICIES);
+  // 單位層級設定選項（settings GET 一併回傳，供「發佈單位」下拉建議）
+  const [orgUnits, setOrgUnits] = useState<OrgUnitOption[]>([]);
   // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次）
   const [counts, setCounts] = useState<{ active: number; cancelled: number } | null>(null);
   const [cardOpen, setCardOpen] = useState({
@@ -208,6 +219,7 @@ export default function AdminCalendarPage() {
       const res = await fetch("/api/admin/calendar/settings", { cache: "no-store" });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (data?.success && data.settings) applySettings(data.settings);
+      if (data?.success && Array.isArray(data.orgUnits)) setOrgUnits(data.orgUnits);
     } catch {
       // 設定讀失敗不擋頁面：表單分類退回預設
     }
@@ -263,6 +275,19 @@ export default function AdminCalendarPage() {
     };
   }, [settingsReady, saverOn]);
 
+  // 「發佈單位」下拉建議：單位層級設定的單位名稱（樹狀順序、名稱去重；仍可自由輸入）
+  const publishUnitOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const unit of orgUnits) {
+      const name = unit.name.trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+    return names;
+  }, [orgUnits]);
+
   function applyListFromResponse(data: AdminListResponse) {
     if (listLoaded && data.events) setItems(data.events);
     if (data.settings) applySettings(data.settings);
@@ -292,7 +317,7 @@ export default function AdminCalendarPage() {
         endAt: form.allDay ? null : (parseDatetimeLocal(form.endAtText) ?? null),
         important: form.important,
         categoryId: formCategoryId,
-        publishUnit: form.publishUnit,
+        publishUnit: form.publishUnit.trim(),
         audience: {
           roles: form.isPublic ? [] : form.roles,
           classCodes: form.isPublic ? [] : classCodes,
@@ -842,12 +867,18 @@ export default function AdminCalendarPage() {
                 </label>
                 <input
                   id="cal-publish-unit"
+                  list="cal-publish-unit-options"
                   className="flex-1 input-theme rounded px-3 py-2"
                   value={form.publishUnit}
                   onChange={(e) => setForm({ ...form, publishUnit: e.target.value })}
-                  placeholder="例如：教務處"
+                  placeholder="可自行填寫，或從單位層級設定選取"
                   maxLength={64}
                 />
+                <datalist id="cal-publish-unit-options">
+                  {publishUnitOptions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">

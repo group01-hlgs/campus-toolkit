@@ -4,7 +4,11 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
+import { getAdminDb } from "@/lib/firebase-admin";
+import { cachedSettingDoc } from "@/lib/read-cache";
+import { SETTINGS_COLLECTION } from "@/lib/settings-server";
 import { getCalendarSettings, saveCalendarSettings } from "@/lib/calendar";
+import { ORG_DOC_ID, readOrgStructure } from "@/types/org";
 import type { CalendarCategory, CalendarPolicies, CalendarSurfaces } from "@/types/calendar";
 import {
   CALENDAR_SURFACES,
@@ -15,7 +19,7 @@ import {
 
 const noStore = { "Cache-Control": "no-store" };
 
-/** GET：讀取行事曆模組設定 */
+/** GET：讀取行事曆模組設定（含單位層級設定選項，供「發佈單位」下拉建議） */
 export async function GET(request: NextRequest) {
   try {
     const limited = enforceRateLimit(
@@ -29,8 +33,17 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("calendar");
     if (denial) return toAuthResponse(denial);
 
-    const settings = await getCalendarSettings();
-    return NextResponse.json({ success: true, settings }, { headers: noStore });
+    const [settings, orgSnap] = await Promise.all([
+      getCalendarSettings(),
+      // 單位層級設定 30 秒快取（setting-doc key，與樓層空間等同源失效）
+      cachedSettingDoc(ORG_DOC_ID, () =>
+        getAdminDb().collection(SETTINGS_COLLECTION).doc(ORG_DOC_ID).get()
+      ),
+    ]);
+    const orgUnits = readOrgStructure(orgSnap.exists ? orgSnap.data() : null).units.map(
+      ({ code, name, level, parent }) => ({ code, name, level, parent })
+    );
+    return NextResponse.json({ success: true, settings, orgUnits }, { headers: noStore });
   } catch (error) {
     console.error("Get calendar settings error:", error);
     return NextResponse.json(
