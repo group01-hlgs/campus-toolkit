@@ -240,6 +240,8 @@ export default function AccountsPage() {
   const [listLoaded, setListLoaded] = useState(false);
   // 寫入後僅在列表已顯示時才重整；閘門仍關著時不自動載入
   const gating = saverOn && !listLoaded;
+  // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次）
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
 
   // 目前帳號的功能模組（同時建立身分需「身分名冊管理」；讀不到＝不提供，fail-closed）
@@ -455,6 +457,25 @@ export default function AccountsPage() {
       cancelled = true;
     };
   }, []);
+
+  // 省流統計：僅在省流啟用時取一次（count 聚合 1 讀，供「顯示帳號列表」按鈕顯示總數）
+  useEffect(() => {
+    if (!settingsReady || !saverOn) return;
+    let cancelled = false;
+    void fetch("/api/admin/accounts/count", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { success?: boolean; count?: number } | null) => {
+        if (!cancelled && data?.success && typeof data.count === "number") {
+          setTotalCount(data.count);
+        }
+      })
+      .catch(() => {
+        // 統計取不到就不出現，不影響省流閘門運作
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsReady, saverOn]);
 
   // 列表載入：設定判定前不發請求；省流開關啟用時須先由按鈕解除（已載入則不再重複請求）
   useEffect(() => {
@@ -1405,7 +1426,11 @@ export default function AccountsPage() {
       {/* 帳號工作表（依每頁筆數分頁顯示）；省流開關啟用時改為按鈕手動顯示 */}
       <div className="w-full max-w-6xl border border-themed rounded-lg bg-card mb-4 overflow-x-auto">
         {gating ? (
-          <RevealListCard label="帳號" onReveal={() => void loadAccounts()} />
+          <RevealListCard
+            label="帳號"
+            onReveal={() => void loadAccounts()}
+            summary={totalCount !== null ? `目前共 ${totalCount} 個帳號` : undefined}
+          />
         ) : loading ? (
           <p className="p-6 text-center text-t3">帳號清單載入中...</p>
         ) : listError ? (

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ListPagination, { paginate } from "@/components/ListPagination";
+import RevealListCard from "@/components/RevealListCard";
 import Toast, { type ToastMessage } from "@/components/Toast";
+import { useDataSaver } from "@/lib/data-saver";
 import {
   POSTAL_CODE_MAX_LENGTH,
   POSTAL_DISTRICT_MAX_LENGTH,
@@ -21,6 +23,7 @@ interface DeleteTarget {
 }
 
 export default function PostalCodesPage() {
+  const { ready: saverReady, saverOn } = useDataSaver();
   const [options, setOptions] = useState<PostalCodeOption[]>([]);
   const [savedOptions, setSavedOptions] = useState<PostalCodeOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,8 +39,16 @@ export default function PostalCodesPage() {
   const [editDistrict, setEditDistrict] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留）
+  const [listLoaded, setListLoaded] = useState(false);
+  // 閘門關著時不得編輯（整份清單才是可編輯單位，未載入就寫入會覆蓋既有資料）
+  const gating = saverReady && saverOn && !listLoaded;
+  // 省流模式的輕量統計（選項存於單一設定文件，走 setting-doc 快取，僅在省流啟用時取一次）
+  const [totalCount, setTotalCount] = useState<number | null>(null);
 
   const loadOptions = useCallback(async () => {
+    // 先解除省流閘門（載入失敗時改顯示錯誤與重試鈕，不卡回按鈕畫面）
+    setListLoaded(true);
     setLoading(true);
     setLoadError("");
     try {
@@ -56,9 +67,30 @@ export default function PostalCodesPage() {
     }
   }, []);
 
+  // 省流統計：僅在省流啟用時取一次（setting-doc 快取，供「顯示列表」按鈕顯示總數）
   useEffect(() => {
+    if (!saverReady || !saverOn) return;
+    let cancelled = false;
+    void fetch("/api/admin/misc-settings/postal-codes/count", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { success?: boolean; count?: number } | null) => {
+        if (!cancelled && data?.success && typeof data.count === "number") {
+          setTotalCount(data.count);
+        }
+      })
+      .catch(() => {
+        // 統計取不到就不出現，不影響省流閘門運作
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [saverReady, saverOn]);
+
+  // 列表載入：省流開關啟用時須先由按鈕解除（已載入則不再重複請求）
+  useEffect(() => {
+    if (!saverReady || gating || listLoaded) return;
     void loadOptions();
-  }, [loadOptions]);
+  }, [saverReady, gating, listLoaded, loadOptions]);
 
   const filteredOptions = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
@@ -177,7 +209,9 @@ export default function PostalCodesPage() {
               維護台灣常用郵遞區號與鄉鎮市區選項；相同區號可對應多個地區。
             </p>
           </div>
-          <div className="text-sm text-t2">目前 {options.length} 筆</div>
+          <div className="text-sm text-t2">
+            目前 {gating && totalCount !== null ? totalCount : options.length} 筆
+          </div>
         </header>
 
         <section className="border border-themed rounded-lg bg-card p-4 sm:p-5 space-y-4">
@@ -205,7 +239,7 @@ export default function PostalCodesPage() {
                 maxLength={POSTAL_CODE_MAX_LENGTH}
                 inputMode="numeric"
                 placeholder="例如：100"
-                disabled={loading || !!loadError || saving}
+                disabled={loading || !!loadError || saving || gating}
                 className="w-full input-theme rounded px-3 py-2 text-sm"
               />
             </label>
@@ -220,14 +254,14 @@ export default function PostalCodesPage() {
                 }
                 maxLength={POSTAL_DISTRICT_MAX_LENGTH}
                 placeholder="例如：臺北市中正區"
-                disabled={loading || !!loadError || saving}
+                disabled={loading || !!loadError || saving || gating}
                 className="w-full input-theme rounded px-3 py-2 text-sm"
               />
             </label>
             {editingIndex === null ? (
               <button
                 type="submit"
-                disabled={loading || !!loadError || saving}
+                disabled={loading || !!loadError || saving || gating}
                 className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
               >
                 新增
@@ -236,7 +270,7 @@ export default function PostalCodesPage() {
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  disabled={loading || !!loadError || saving}
+                  disabled={loading || !!loadError || saving || gating}
                   className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
                 >
                   完成編輯
@@ -266,20 +300,26 @@ export default function PostalCodesPage() {
                 setPage(1);
               }}
               placeholder="搜尋區號或鄉鎮市區"
-              disabled={loading || !!loadError}
+              disabled={loading || !!loadError || gating}
               className="w-full sm:max-w-sm input-theme rounded px-3 py-2 text-sm"
             />
             <button
               type="button"
               onClick={() => void saveOptions()}
-              disabled={!isDirty || saving || loading || !!loadError}
+              disabled={!isDirty || saving || loading || !!loadError || gating}
               className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer disabled:opacity-50"
             >
               {saving ? "儲存中…" : isDirty ? "儲存設定" : "已儲存"}
             </button>
           </div>
 
-          {loading ? (
+          {gating ? (
+            <RevealListCard
+              label="郵遞區號"
+              onReveal={() => void loadOptions()}
+              summary={totalCount !== null ? `目前共 ${totalCount} 筆郵遞區號選項` : undefined}
+            />
+          ) : loading ? (
             <p className="p-6 text-center text-sm text-t3" role="status">載入郵遞區號中…</p>
           ) : loadError ? (
             <div className="p-6 text-center space-y-3">

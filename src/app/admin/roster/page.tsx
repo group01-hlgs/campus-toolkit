@@ -282,6 +282,8 @@ export default function RosterPage() {
   // members 目前對應的名冊：避免同一身分重複請求
   const [loadedRole, setLoadedRole] = useState<RosterRole | null>(null);
   const gating = saverOn && !revealedRoles.includes(role);
+  // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次；四種名冊本期筆數）
+  const [rosterCounts, setRosterCounts] = useState<Record<RosterRole, number> | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
 
   // 新增／編輯表單
@@ -490,6 +492,27 @@ export default function RosterPage() {
       cancelled = true;
     };
   }, []);
+
+  // 省流統計：僅在省流啟用時取一次（四張名冊各 1 次 count 聚合，供「顯示列表」按鈕顯示本期筆數）
+  useEffect(() => {
+    if (!settingsReady || !saverOn) return;
+    let cancelled = false;
+    void fetch("/api/admin/roster/count", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(
+        (data: { success?: boolean; counts?: Partial<Record<RosterRole, number>> } | null) => {
+          if (!cancelled && data?.success && data.counts) {
+            setRosterCounts(data.counts as Record<RosterRole, number>);
+          }
+        }
+      )
+      .catch(() => {
+        // 統計取不到就不出現，不影響省流閘門運作
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsReady, saverOn]);
 
   // 切換身分：重置搜尋與表單（與省流狀態無關，不因閘門變動而重跑）
   useEffect(() => {
@@ -1537,6 +1560,11 @@ export default function RosterPage() {
           <RevealListCard
             label={ROSTER_ROLES.find((item) => item.value === role)?.label ?? "身分"}
             onReveal={() => void loadMembers(role)}
+            summary={
+              rosterCounts
+                ? `本期共 ${rosterCounts[role]} 筆${ROSTER_ROLES.find((item) => item.value === role)?.label ?? ""}名冊資料`
+                : undefined
+            }
           />
         ) : loading ? (
           <p className="p-6 text-center text-t3">帳號清單載入中...</p>
