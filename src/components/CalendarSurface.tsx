@@ -40,8 +40,7 @@ function shortDateLabel(item: CalendarSurfaceItem): string {
  * 版面：標題「行事曆」右側＝翻頁箭頭（2 則以上才出現，水平左右排列；
  * 一次只顯示 1 條，標題連到「單筆行程內容頁」`/calendar/[id]`，跳出新頁）
  * ＋「進入行事曆」入口 SVG（＝全站統一行事曆頁 `/calendar`，新視窗）；
- * 翻到盡頭再按該方向箭頭時，箭頭符號不變、
- * 只改為「前往行事曆」連結（另一方向仍可折返）。
+ * 翻到盡頭時該方向箭頭停用（不改為連結——入口圖示就在旁邊）。
  * 行動版（<sm）日期｜類型與標題各佔一行，避免標題被截斷；
  * 沒有行程時只顯示入口，不整塊隱藏（API 異常時同樣只顯示入口）。
  */
@@ -55,9 +54,8 @@ export default function CalendarSurface({
   const [setting, setSetting] = useState<CalendarSurfaceSetting | null>(null);
   const [failed, setFailed] = useState(false);
   const [items, setItems] = useState<CalendarSurfaceItem[]>([]);
-  // 目前顯示第幾則（0＝最近）；entryDir＝已按到盡頭、該方向箭頭改為行事曆連結
+  // 目前顯示第幾則（0＝最近）
   const [index, setIndex] = useState(0);
-  const [entryDir, setEntryDir] = useState<"prev" | "next" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +70,6 @@ export default function CalendarSurface({
         setSetting(data.surface ?? null);
         setItems(Array.isArray(data.items) ? data.items : []);
         setIndex(0);
-        setEntryDir(null);
       })
       .catch(() => {
         // 讀取失敗＝只顯示入口，不打擾登入／首頁
@@ -92,23 +89,15 @@ export default function CalendarSurface({
   const entryHref = "/calendar";
   // 2 則以上才出現翻頁箭頭（單則維持原樣，無箭頭可翻）
   const paged = items.length >= 2;
+  const atPrev = index <= 0;
+  const atNext = index >= items.length - 1;
 
   function goPrev() {
-    if (index > 0) {
-      setIndex(index - 1);
-      setEntryDir(null);
-    } else {
-      setEntryDir("prev");
-    }
+    setIndex((current) => Math.max(0, current - 1));
   }
 
   function goNext() {
-    if (index < items.length - 1) {
-      setIndex(index + 1);
-      setEntryDir(null);
-    } else {
-      setEntryDir("next");
-    }
+    setIndex((current) => Math.min(items.length - 1, current + 1));
   }
 
   return (
@@ -117,34 +106,28 @@ export default function CalendarSurface({
         <h3 className="text-base font-bold text-t1">行事曆</h3>
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
           {paged && (
-            entryDir === "prev" ? (
-              <EntryLink href={entryHref} direction="prev" />
-            ) : (
-              <button
-                type="button"
-                onClick={goPrev}
-                title="上一則行程"
-                aria-label="上一則行程"
-                className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer"
-              >
-                <ArrowIcon direction="prev" />
-              </button>
-            )
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={atPrev}
+              title="上一則行程"
+              aria-label="上一則行程"
+              className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer disabled:opacity-40 disabled:cursor-default disabled:hover:text-t2 disabled:hover:bg-transparent"
+            >
+              <ArrowIcon direction="prev" />
+            </button>
           )}
           {paged && (
-            entryDir === "next" ? (
-              <EntryLink href={entryHref} direction="next" />
-            ) : (
-              <button
-                type="button"
-                onClick={goNext}
-                title="下一則行程"
-                aria-label="下一則行程"
-                className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer"
-              >
-                <ArrowIcon direction="next" />
-              </button>
-            )
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={atNext}
+              title="下一則行程"
+              aria-label="下一則行程"
+              className="p-1 rounded text-t2 hover:text-primary hover:bg-surface cursor-pointer disabled:opacity-40 disabled:cursor-default disabled:hover:text-t2 disabled:hover:bg-transparent"
+            >
+              <ArrowIcon direction="next" />
+            </button>
           )}
           {/* 完整行事曆入口（新視窗）：全站統一行事曆頁 /calendar */}
           <Link
@@ -194,7 +177,7 @@ export default function CalendarSurface({
   );
 }
 
-/** 左／右翻頁箭頭 SVG（盡頭時符號不變，僅改為行事曆連結） */
+/** 左／右翻頁箭頭 SVG（盡頭時箭頭停用，符號不變） */
 function ArrowIcon({ direction }: { direction: "prev" | "next" }) {
   return (
     <svg
@@ -211,23 +194,6 @@ function ArrowIcon({ direction }: { direction: "prev" | "next" }) {
         d={direction === "prev" ? "M15 18l-6-6 6-6" : "M9 18l6-6-6-6"}
       />
     </svg>
-  );
-}
-
-/**
- * 翻到盡頭後，該方向箭頭改為「前往行事曆」連結——
- * 圖示與一般箭頭完全相同（符號一致），僅容器由 button 換成 Link。
- */
-function EntryLink({ href, direction }: { href: string; direction: "prev" | "next" }) {
-  return (
-    <Link
-      href={href}
-      title="前往行事曆（查看更多行程）"
-      aria-label="前往行事曆（查看更多行程）"
-      className="p-1 rounded text-primary hover:bg-surface"
-    >
-      <ArrowIcon direction={direction} />
-    </Link>
   );
 }
 
