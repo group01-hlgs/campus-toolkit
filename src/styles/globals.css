@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+/* 語意色名註冊（Tailwind v4 @theme inline）：讓 bg-danger／hover:text-t1／border-t1／
+   bg-themed／bg-card/80 等工具類別（含 hover: 等變體與透明度修飾）能真正生成——
+   未註冊前 Tailwind 視這些名稱為未知類別直接略過，樣式靜默失效。
+   值一律 inline 指向 :root 主題 token：工具類別直接內嵌 var(--danger)，
+   ThemeContext 切換主題寫入 <html> 時即時跟隨；手寫主題類別（.text-danger/.bg-card 等）
+   保留不動——未加 @layer、cascade 優先且值相同。 */
+@theme inline {
+  --color-page: var(--bg);
+  --color-surface: var(--bg2);
+  --color-hover: var(--bg2);
+  --color-muted: var(--bg2);
+  --color-card: var(--card);
+  --color-t1: var(--t1);
+  --color-t2: var(--t2);
+  --color-t3: var(--t3);
+  --color-themed: var(--bd);
+  --color-primary: var(--primary);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+}
+
 :root {
   /* 預設主題變數（純潔白） */
   --bg: #ffffff;
