@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
@@ -26,7 +26,7 @@ import {
 } from "@/types/feature-modules";
 import { isUserRole, ROLE_LABELS } from "@/types/users";
 
-/** GET：讀取功能模組的總開關與「模組 × 身分」開關（僅超級管理員，頁面顯示用） */
+/** GET：讀取功能模組的總開關與「模組 × 身分」開關（全體管理員，頁面顯示用） */
 export async function GET(request: NextRequest) {
   try {
     const limited = enforceRateLimit(
@@ -55,9 +55,10 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * PATCH：更新功能模組設定（僅超級管理員），兩種操作：
+ * PATCH：更新功能模組設定（全體管理員，政策修改書決議二），兩種操作：
  * - `{ value, enabled }` → 選用模組總開關（任何已安裝的選用模組皆可切換，預設未啟用）；
- * - `{ value, role, enabled }` → 該模組對單一身分的**顯示與否**（提供功能＝否時不可打開）。
+ * - `{ value, role, enabled }` → 該模組對單一身分的**顯示與否**（提供功能＝否時不可打開；
+ *   管理員欄已退役——role 為 admin 一律拒絕）。
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -75,14 +76,6 @@ export async function PATCH(request: NextRequest) {
     const { session, denial } = await requireAdminModule("modules");
     if (denial) return toAuthResponse(denial);
 
-    // 啟用功能模組等同開放全校功能，只有超級管理員可以決定
-    if (!(await isSuperAdmin(session))) {
-      return NextResponse.json(
-        { success: false, message: "僅超級管理員可啟用／停用功能模組" },
-        { status: 403 }
-      );
-    }
-
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const value = typeof body.value === "string" ? body.value : "";
     const enabled = typeof body.enabled === "boolean" ? body.enabled : null;
@@ -97,6 +90,13 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ success: false, message: "身分無效" }, { status: 400 });
       }
       const role = body.role;
+      // 管理員欄已退役：管理員恆可見所有已啟用模組，不接受逐模組入口開關
+      if (role === "admin") {
+        return NextResponse.json(
+          { success: false, message: "管理員對所有功能模組恆為全權，無需設定入口功能" },
+          { status: 400 }
+        );
+      }
       // 提供功能＝否的身分：顯示強制為關，不接受打開（由模組作者決定，管理端唯讀）
       if (!meta.provides[role] && enabled) {
         return NextResponse.json(
@@ -169,7 +169,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
- * DELETE：卸載選用模組（僅超級管理員）。
+ * DELETE：卸載選用模組（全體管理員，政策修改書決議二）。
  * 執行 `scripts/module-cli.mjs uninstall <value>`（刪資料夾＋lock＋重產生註冊表與轉接檔）。
  * 部署環境走 GitHub 提交管線（刪 src/modules/<value> 與 lock 該列）。
  */
@@ -188,12 +188,6 @@ export async function DELETE(request: NextRequest) {
 
     const { session, denial } = await requireAdminModule("modules");
     if (denial) return toAuthResponse(denial);
-    if (!(await isSuperAdmin(session))) {
-      return NextResponse.json(
-        { success: false, message: "僅超級管理員可卸載功能模組" },
-        { status: 403 }
-      );
-    }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const value = typeof body.value === "string" ? body.value : "";

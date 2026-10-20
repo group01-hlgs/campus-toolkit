@@ -92,8 +92,8 @@ export async function GET(request: NextRequest) {
 
     const noStore = { "Cache-Control": "no-store" };
     const session = await verifySession();
-    // 完整設定（含聯絡人等僅管理可見欄位）僅超級管理員可讀；
-    // manageable 供「系統設定」頁判斷是否顯示設定表單（一般管理員＝只有入口、頁內無可用項目）
+    // 完整設定（含聯絡人等欄位）對全體管理員可讀（屬性分級已退役，政策修改書決議二）；
+    // manageable 供「系統設定」頁判斷是否顯示設定表單
     const manageable = session ? await hasSettingsManage(session) : false;
 
     // 讀全站共用的 settings/system 快取（同文件已由 verifySession 的設定檢查等讀過，
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     const data = (await readSystemDoc()) ?? {};
     const settings = pickSettings(data);
     // 目前身分可見的功能模組：首頁卡片過濾用
-    // 超級管理員完全不受限制（提供功能／顯示與否皆不套用），回傳註冊表全部代碼
+    // 管理員恆全權（isSuperAdmin＝有管理員條目即 true），回傳註冊表全部代碼
     const visibleModules = session
       ? session.role === "admin" && (await isSuperAdmin(session))
         ? FEATURE_MODULES.map((item) => item.value)

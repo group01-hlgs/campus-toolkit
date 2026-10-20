@@ -22,10 +22,10 @@
  *   （`Record<模組代碼, Record<身分, boolean>>`）——有提供但暫時不開放進入／顯示。
  *   規則：`provides[role] === false` → 顯示強制為否（「未提供」）；
  *   `provides === true` → 顯示開關生效，**缺省＝顯示**（欄位不存在＝啟用，fail-safe）。
- * - **超級管理員完全不受限制**：`role === "admin"` 且超級屬性時，
- *   所有模組一律可見（不看 provides、不看顯示開關）。
+ * - **管理員不受入口開關限制**（政策修改書 G1）：`role === "admin"` 一律可見
+ *   （不看 provides.admin、顯示開關；`featureModuleRoles.admin` 鍵已退役）。
  * 本頁目前只維護設定資料，各身分端的實際攔截隨模組上線進度接上
- * （首頁卡片已依顯示與否過濾；API 維持「指定功能模組」守門，不因顯示關閉而額外阻擋）。
+ * （首頁卡片已依顯示與否過濾；API 維持權限守門，不因顯示關閉而額外阻擋）。
  * 變更歷史另記錄於稽核紀錄（`feature_module_updated`／`feature_module_role_updated`）。
  */
 
@@ -96,8 +96,20 @@ export interface FeatureModuleMeta {
    * 明確存值於 settings 時仍以存值為準——此欄位只決定「尚未手動切換過」時的初始狀態。
    */
   defaultRoleEnabled?: Partial<Record<UserRole, boolean>>;
+  /**
+   * 非管理員管理者之子權限宣告（選填，manifest `managerPermissions`，政策修改書 §6）：
+   * 未宣告＝該模組不開放非管理員指派（僅管理員可完整管理）。
+   * 管理員不受子權限限制（恆全開）；子權限只約束被指定的教職員／家長／學生。
+   */
+  managerPermissions?: ModuleManagerPermission[];
   /** 結構化改版記錄（選填，最新條目在前；純揭露，不參與安裝判定） */
   changelog?: { version: string; releasedAt: string; notes: string[] }[];
+}
+
+/** 模組宣告的管理子權限項（value 為權限碼，供 requireModulePermission 比對） */
+export interface ModuleManagerPermission {
+  value: string;
+  label: string;
 }
 
 /** 管理端權限單位的實作狀態 → 功能模組狀態（built＝已上線、apiOnly＝開發中） */
@@ -116,8 +128,8 @@ const PROVIDES_STAFF_ADMIN = {
 } as const satisfies Record<UserRole, boolean>;
 
 /**
- * 超級專屬功能模組代碼（由 `types/modules.ts` 的 superOnly 派生）。
- * 超級管理員對**所有**模組完全不受「提供功能／顯示與否」限制（見 isFeatureModuleVisible）；
+ * 超級專屬功能模組代碼（由 `types/modules.ts` 的 superOnly 派生）——
+ * 屬性分級已退役（政策修改書決議二）：全體管理員皆可用。
  * 此清單僅供文件與管理頁說明引用。
  */
 export const SUPER_ONLY_FEATURE_MODULE_VALUES: readonly string[] = SUPER_ONLY_ADMIN_MODULES;

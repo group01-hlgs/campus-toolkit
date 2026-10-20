@@ -15,7 +15,12 @@ export default function AdminLayout({
     let cancelled = false;
     fetchSession(true).then((session) => {
       if (cancelled) return;
-      if (!session || session.role !== "admin") {
+      // 管理員，或被指定管理任一模組的非管理員身分（政策修改書 G3）可進入 /admin
+      const canEnter =
+        session &&
+        (session.role === "admin" ||
+          (Array.isArray(session.delegatedModules) && session.delegatedModules.length > 0));
+      if (!canEnter) {
         router.push("/");
       }
     });

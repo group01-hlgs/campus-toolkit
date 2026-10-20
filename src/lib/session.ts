@@ -9,10 +9,10 @@ export interface UserSession {
   role: UserRole;
   /** 本次登入可用的身分（多身分切換選單用；單一時僅含目前身分） */
   roles?: UserRole[];
-  /** 管理員被指派的功能模組（首頁卡片顯示用；超級管理員＝全部） */
+  /** 管理員可用的功能模組（管理員恆全權＝全部；首頁卡片顯示用） */
   adminModules?: string[];
-  /** 管理員屬性（超級／一般）：僅超級管理員可指派「超級」屬性 */
-  adminAttribute?: string;
+  /** 非管理員身分被指定管理的模組（導覽入口顯示用；政策修改書 G3） */
+  delegatedModules?: Array<{ module: string; permissions: string[] }>;
   /** 首次登入須先修改密碼（管理員代設的預設密碼）：全螢幕強制改密碼遮罩用 */
   mustChangePassword?: boolean;
 }
@@ -43,6 +43,22 @@ function toUserSession(user: unknown): UserSession | null {
   const roles = Array.isArray(u.roles)
     ? u.roles.filter(isUserRole).slice(0, 4)
     : [];
+  const delegated = Array.isArray(u.delegatedModules)
+    ? u.delegatedModules
+        .filter(
+          (item): item is { module: string; permissions: string[] } =>
+            !!item &&
+            typeof item === "object" &&
+            typeof (item as { module?: unknown }).module === "string" &&
+            Array.isArray((item as { permissions?: unknown }).permissions)
+        )
+        .map((item) => ({
+          module: item.module,
+          permissions: item.permissions.filter(
+            (perm): perm is string => typeof perm === "string"
+          ),
+        }))
+    : [];
   return {
     uid: u.uid,
     email: typeof u.email === "string" ? u.email : "",
@@ -53,8 +69,7 @@ function toUserSession(user: unknown): UserSession | null {
     adminModules: Array.isArray(u.adminModules)
       ? u.adminModules.filter((item): item is string => typeof item === "string")
       : undefined,
-    adminAttribute:
-      typeof u.adminAttribute === "string" && u.adminAttribute ? u.adminAttribute : undefined,
+    delegatedModules: delegated.length > 0 ? delegated : undefined,
     mustChangePassword: u.mustChangePassword === true,
   };
 }
