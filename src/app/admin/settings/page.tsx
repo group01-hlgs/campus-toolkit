@@ -242,10 +242,15 @@ export default function SettingsPage() {
     if (!manageable || saving) return;
     setSaving(true);
     try {
+      // 儲存前才夾到合法範圍（輸入過程不 clamp，避免打「50」途中被強制變 30）
+      const payload = {
+        ...settings,
+        cacheTtlSeconds: clampCacheTtlSeconds(settings.cacheTtlSeconds),
+      };
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
@@ -302,7 +307,7 @@ export default function SettingsPage() {
     } else if (numberFields.includes(id)) {
       let numVal = Number(value);
       if (id === "sessionTimeout") numVal = Math.max(1, numVal);
-      if (id === "cacheTtlSeconds") numVal = clampCacheTtlSeconds(numVal);
+      // cacheTtlSeconds 輸入過程不 clamp（避免打「50」途中變 30）；儲存時才夾到 30–300
       setSettings({ ...settings, [id]: numVal });
     } else {
       setSettings({ ...settings, [id]: value });
