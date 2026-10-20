@@ -16,6 +16,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## UI 約定
 
+0. **響應式設計＋CSS 主題（必讀）**：此系統適用於電腦、平板、手機等行動裝置，
+   瀏覽器視窗寬度差異大。所有頁面與元件一律採用響應式設計
+   （Tailwind 斷點：`sm:` 640px／`md:` 768px／`lg:` 1024px／`xl:` 1280px），
+   禁止寫死寬度（如 `w-[800px]`）；表格過寬時以外層
+   `overflow-x-auto` 橫向捲動處理，不裁切內容。
+   並隨時注意 CSS 主題套用機制（詳見 `docs/主程式模組與功能模組.md` §3.5）：
+   色彩一律使用語意 token（`bg-card`、`text-t1/t2/t3`、`text-danger`、
+   `border-themed`、`btn-theme`／`btn-danger` 等），
+   **禁止寫死色票**（如 `bg-white`、`text-gray-500`、`#333`）、
+   **禁止模組自帶 CSS 檔**、CSS 變數取用**不得加 fallback**
+   （宿主保證 token 必有值，fallback 會掩蓋缺漏）。
 1. **跳出訊息一律用主題化 modal**：禁止使用 `window.confirm`／`window.alert`／
    `window.prompt`。確認、成功、錯誤訊息一律以 `role="dialog"`／`role="alertdialog"`
    ＋`aria-modal="true"` 的 React modal 呈現，樣式套用目前 CSS 主題
