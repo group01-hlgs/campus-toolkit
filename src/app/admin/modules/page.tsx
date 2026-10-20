@@ -314,7 +314,7 @@ function BuiltinRow({
   );
 }
 
-/** 選用功能模組列表列：總開關＋四種身分入口功能＋操作（卸載），僅超級管理員可操作 */
+/** 選用功能模組列表列：總開關＋四種身分入口功能＋操作（前往／卸載），僅超級管理員可操作 */
 function OptionalRow({
   item,
   open,
@@ -329,6 +329,7 @@ function OptionalRow({
   onToggleMaster,
   onToggleRole,
   onUninstall,
+  onOpen,
   marketLatestVersion,
 }: {
   item: FeatureModuleMeta;
@@ -345,6 +346,7 @@ function OptionalRow({
   onToggleMaster: (item: FeatureModuleMeta, next: boolean) => void;
   onToggleRole: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
   onUninstall: (item: FeatureModuleMeta) => void;
+  onOpen: (href: string) => void;
   marketLatestVersion?: string;
 }) {
   const stateText = enabled ? "已啟用" : "未啟用";
@@ -362,6 +364,7 @@ function OptionalRow({
   const uninstallDisabledReason = !canUninstall
     ? "目前環境尚未完成卸載管線設定"
     : disabledReason ?? "移除模組程式碼；資料庫資料預設保留";
+  const enterable = enabled && item.href !== "";
   return (
     <>
       <tr className="border-b border-themed last:border-0 text-t1">
@@ -383,9 +386,6 @@ function OptionalRow({
               有新版：v{marketLatestVersion}
             </span>
           )}
-        </td>
-        <td className="px-3 py-2 whitespace-nowrap">
-          <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
           <span className="flex flex-col items-center gap-1">
@@ -423,36 +423,45 @@ function OptionalRow({
           onToggle={onToggleRole}
         />
         <td className="px-3 py-2 whitespace-nowrap text-right">
-          {pendingUninstall ? (
-            <span className="text-xs text-warning inline-flex items-center gap-2">
-              部署中…
-              {pendingUninstall.commitUrl ? (
-                <a
-                  href={pendingUninstall.commitUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:text-warning"
-                >
-                  查看提交
-                </a>
-              ) : null}
-            </span>
-          ) : canUninstall ? (
-            <button
-              type="button"
-              onClick={() => onUninstall(item)}
-              disabled={!isSuper || saving || !canUninstall}
-              title={uninstallDisabledReason}
-              className="btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-            >
-              卸載
-            </button>
-          ) : (
-            <span className="text-xs text-t3">—</span>
-          )}
+          <span className="inline-flex items-center gap-2">
+            {enterable ? (
+              <button
+                type="button"
+                onClick={() => onOpen(item.href)}
+                className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
+              >
+                前往 →
+              </button>
+            ) : null}
+            {pendingUninstall ? (
+              <span className="text-xs text-warning inline-flex items-center gap-2">
+                部署中…
+                {pendingUninstall.commitUrl ? (
+                  <a
+                    href={pendingUninstall.commitUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-warning"
+                  >
+                    查看提交
+                  </a>
+                ) : null}
+              </span>
+            ) : canUninstall ? (
+              <button
+                type="button"
+                onClick={() => onUninstall(item)}
+                disabled={!isSuper || saving || !canUninstall}
+                title={uninstallDisabledReason}
+                className="btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+              >
+                卸載
+              </button>
+            ) : null}
+          </span>
         </td>
       </tr>
-      <DescriptionRow item={item} open={open} colSpan={9} />
+      <DescriptionRow item={item} open={open} colSpan={8} />
     </>
   );
 }
@@ -836,10 +845,9 @@ export default function ModulesPage() {
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">選用功能模組</h3>
           <p className="text-xs text-t3">
-            已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用；
-            「狀態」為模組作者宣告的進度資訊，不影響開關。
+            已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用。
             四種身分欄上下排列：綠勾「提供」與「入口功能」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
-            操作欄「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
+            操作欄「前往」在總開關開啟時可直接進入該模組管理頁面；「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
@@ -850,7 +858,6 @@ export default function ModulesPage() {
               <tr className="text-t2">
                 <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">版本</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">總開關</th>
                 {ALL_ROLES.map((role) => (
                   <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
@@ -863,13 +870,13 @@ export default function ModulesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
                     {loadingText}
                   </td>
                 </tr>
               ) : optionals.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
                     沒有選用功能模組
                   </td>
                 </tr>
@@ -894,6 +901,7 @@ export default function ModulesPage() {
                     onToggleMaster={toggleMaster}
                     onToggleRole={toggleRole}
                     onUninstall={uninstallModule}
+                    onOpen={(href) => router.push(href)}
                     marketLatestVersion={marketLatestVersions[item.value]}
                   />
                 ))
