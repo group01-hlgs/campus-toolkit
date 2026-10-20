@@ -8,6 +8,39 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
+## 工作環境與流程協議（必讀）
+
+收到「工作環境檢查」指令時，重溫本節並確認三個專案路徑與 git 狀態。
+
+### 專案角色
+
+| 代號 | 路徑 | 角色 |
+|------|------|------|
+| **A** | `D:\workspace\campus-toolkit` | 主程式（本機測試用）。用來掛載安裝 C。**沒有明確指令請勿修改與 push** |
+| **B** | `D:\workspace\campus-toolkit-marketplace` | 模組市集。C 打包後上架到這裡 |
+| **C** | `D:\workspace\(自訂模組程式名稱)` | 正在開發的選用功能模組（如 `examRegistration`） |
+
+### 指令對應流程
+
+收到 **「修改C選用模組程式」**：
+1. 只在 C 專案中修改
+2. 修改後同步到 A 已掛載的模組（重新 `module:link --copy`）測試
+3. 將 C push 至遠端
+
+收到 **「打包」**：
+1. 將 C 打包並上架到 B 市集，完成後 B push
+2. **絕不更動或 push 到 A**
+
+收到 **「修改A主程式」**：
+1. 針對 A 進行修改
+2. push A，**請勿將本機掛載安裝的選用功能模組 push 上去**（模組產物已列入 `.gitignore`，正常 commit 不會帶入）
+
+### 標準配置流程（新環境或重啟時）
+
+1. 三個專案 `git pull`（必要時 `reset --hard origin/main` 強制覆蓋）
+2. 啟動 A 本機伺服器（`npm run dev`）
+3. 將 C 掛載安裝進入 A（`npm run module:link -- <C路徑> --copy`）
+
 ## 資料庫讀取規範（必讀）
 
 新增或修改任何 Firestore 讀取的程式碼前，先讀 `docs/資料庫讀取規範.md`
