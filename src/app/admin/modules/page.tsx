@@ -1095,62 +1095,66 @@ export default function ModulesPage() {
         </div>
       )}
 
-      {/* 內建功能模組 */}
-      <section>
-        <div className="mb-3">
+      {/* 內建功能模組（可收合／展開，預設收合） */}
+      <details className="group border border-themed rounded-lg bg-card">
+        <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 group-open:border-b group-open:border-themed hover:bg-surface">
+          <DisclosureArrow />
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
+          <span className="text-xs text-t3">共 {builtins.length} 個模組，點擊展開／收合</span>
+        </summary>
+        <div className="p-3 space-y-3">
           <p className="text-xs text-t3">
             隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的箭頭可展開說明與作者版本資訊；
             使用者端三身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
             （關閉＝首頁不顯示入口、禁止進入）。管理員對所有模組恆為全權，不設入口勾選。
           </p>
-        </div>
-        <div className="border border-themed rounded-lg bg-card overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="border-b border-themed">
-              <tr className="text-t2">
-                <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
-                {ENTRY_ROLES.map((role) => (
-                  <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
-                    {ROLE_LABELS[role]}
-                  </th>
-                ))}
-                <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-t3">
-                    {loadingText}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="border-b border-themed">
+                <tr className="text-t2">
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
+                  {ENTRY_ROLES.map((role) => (
+                    <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
+                      {ROLE_LABELS[role]}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 font-medium whitespace-nowrap text-right">操作</th>
                 </tr>
-              ) : builtins.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-t3">
-                    沒有內建功能模組
-                  </td>
-                </tr>
-              ) : (
-                builtins.map((item) => (
-                  <BuiltinRow
-                    key={item.value}
-                    item={item}
-                    open={openDesc === item.value}
-                    onToggleHelp={toggleHelp}
-                    switches={roles[item.value]}
-                    disabled={saving !== null || loadError !== ""}
-                    disabledTitle={loadError ? "開關狀態載入失敗，請重新整理頁面" : undefined}
-                    onToggleRole={toggleRole}
-                    onOpen={(href) => router.push(href)}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
+                      {loadingText}
+                    </td>
+                  </tr>
+                ) : builtins.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
+                      沒有內建功能模組
+                    </td>
+                  </tr>
+                ) : (
+                  builtins.map((item) => (
+                    <BuiltinRow
+                      key={item.value}
+                      item={item}
+                      open={openDesc === item.value}
+                      onToggleHelp={toggleHelp}
+                      switches={roles[item.value]}
+                      disabled={saving !== null || loadError !== ""}
+                      disabledTitle={loadError ? "開關狀態載入失敗，請重新整理頁面" : undefined}
+                      onToggleRole={toggleRole}
+                      onOpen={(href) => router.push(href)}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </section>
+      </details>
 
       {/* 選用功能模組 */}
       <section>
