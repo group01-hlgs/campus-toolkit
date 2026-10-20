@@ -213,6 +213,34 @@ function validateManifest(relDir, dirName, m, reserved, ctx) {
     }
   }
 
+  // managerPermissions（政策修改書 §6）：非管理員管理者之子權限宣告
+  // 未宣告＝該模組不開放非管理員指派；有宣告時每項需有 value（camelCase）與 label
+  if (m.managerPermissions !== undefined) {
+    if (!Array.isArray(m.managerPermissions)) {
+      at("managerPermissions 需為陣列");
+    } else {
+      const seen = new Set();
+      m.managerPermissions.forEach((perm, i) => {
+        if (!perm || typeof perm !== "object") {
+          at(`managerPermissions[${i}] 需為物件`);
+          return;
+        }
+        const value = perm.value;
+        const label = perm.label;
+        if (!isNonEmptyString(value) || !/^[a-z][A-Za-z0-9]*$/.test(value)) {
+          at(`managerPermissions[${i}].value 需為 camelCase（小寫字母起頭）`);
+          return;
+        }
+        if (seen.has(value)) {
+          at(`managerPermissions 重複：${value}`);
+        } else {
+          seen.add(value);
+        }
+        if (!isNonEmptyString(label)) at(`managerPermissions[${i}].label 缺少或為空`);
+      });
+    }
+  }
+
   if (!Array.isArray(m.routes) || m.routes.length === 0) {
     at("routes 需為非空陣列");
   } else {
@@ -436,6 +464,27 @@ function renderFeatureFile(manifests) {
           "    },",
         ]
       : [];
+    const managerPermissions = Array.isArray(m.managerPermissions)
+      ? m.managerPermissions.filter(
+          (perm) =>
+            perm &&
+            typeof perm === "object" &&
+            typeof perm.value === "string" &&
+            perm.value &&
+            typeof perm.label === "string" &&
+            perm.label
+        )
+      : [];
+    const managerPermissionsLines = managerPermissions.length
+      ? [
+          "    managerPermissions: [",
+          ...managerPermissions.map(
+            (perm) =>
+              `      { value: ${JSON.stringify(perm.value)}, label: ${JSON.stringify(perm.label)} },`
+          ),
+          "    ],",
+        ]
+      : [];
     const changelog = Array.isArray(m.changelog)
       ? m.changelog.filter(
           (entry) =>
@@ -484,6 +533,7 @@ function renderFeatureFile(manifests) {
       `      admin: ${p.admin === true},`,
       "    },",
       ...defaultRoleEnabledLines,
+      ...managerPermissionsLines,
       ...roleHrefsLines,
       ...changelogLines,
       "  },",

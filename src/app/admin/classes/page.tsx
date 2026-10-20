@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchSession } from "@/lib/session";
 import { useDataSaver } from "@/lib/data-saver";
 import { readList, writeList } from "@/lib/list-store";
 import { adoptCacheEpoch, getCacheEpoch } from "@/lib/settings-client";
@@ -72,23 +71,11 @@ export default function ClassesPage() {
   const router = useRouter();
   const { settings, ready: settingsReady, saverOn } = useDataSaver();
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [isSuper, setIsSuper] = useState(false);
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
   // 省流開關：啟用時列表改為按鈕手動顯示（狀態僅維持本次頁面停留）
   const [listLoaded, setListLoaded] = useState(false);
   const gating = saverOn && !listLoaded;
-
-  // 管理員屬性（session 快取，與列表無關，不受省流閘門影響）
-  useEffect(() => {
-    let cancelled = false;
-    fetchSession().then((session) => {
-      if (!cancelled) setIsSuper(session?.adminAttribute === "超級");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   /**
    * 總覽快取鍵：一律併入學年度／學期（與伺服端 key 同構）。
@@ -165,15 +152,13 @@ export default function ClassesPage() {
             班級結構的新增與調整請至「學校基本設定 → 年段班級設定」。
           </p>
         </div>
-        {isSuper && (
-          <button
-            type="button"
-            onClick={() => router.push("/admin/school-settings/classes")}
-            className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
-          >
-            維護班級結構 →
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => router.push("/admin/school-settings/classes")}
+          className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+        >
+          維護班級結構 →
+        </button>
       </section>
 
       {/* 統計 */}

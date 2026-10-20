@@ -13,9 +13,15 @@ import {
   isSystemEnabled,
 } from "@/lib/settings-server";
 import { cachedAuthzDocs, AuthzDocs } from "@/lib/read-cache";
-import { adminAttributeGuard, adminModulesOf, getRosterEntry, isActiveEntry } from "@/lib/roster";
+import {
+  adminModulesOf,
+  getRosterEntry,
+  isActiveEntry,
+  managedModulesOf,
+} from "@/lib/roster";
 import { isRoleEnabled } from "@/lib/role-settings";
 import { AdminModule, isAccountActive, USER_COLLECTION, UserRole } from "@/types/users";
+import { ManagedModuleGrant } from "@/types/roster";
 
 /**
  * verifySession 回傳的 session 會掛上「同請求內已讀取」的資料：
@@ -185,8 +191,8 @@ export async function requireRole(role: UserRole): Promise<
 }
 
 /**
- * 管理功能模組權限：超級管理員全開；一般管理員須被指派該模組。
- * 模組指派存於「當期管理員身分名冊」（attribute、modules）。
+ * 管理功能模組權限（政策修改書決議二）：
+ * 有當期管理員名冊條目＝全體模組全開；無條目或非管理員＝無權限。
  */
 export async function hasAdminModule(
   session: SessionPayload,
@@ -214,60 +220,47 @@ export async function requireAdminModule(module: AdminModule): Promise<
 }
 
 /**
- * 超級管理員判定：當期管理員名冊條目 `attribute === "超級"`。
- * 屬性指派、新增管理員、系統設定等高風險操作都以本函式把關。
+ * 「完整管理員」判定（政策修改書決議二）：屬性已退役，全體管理員平等。
+ * 有當期管理員名冊條目即為 true。保留函式名稱相容既有呼叫點。
  */
 export async function isSuperAdmin(session: SessionPayload): Promise<boolean> {
   if (session.role !== "admin") return false;
   try {
     const entry = await adminEntryOf(session);
-    const attribute = entry && typeof entry.attribute === "string" ? entry.attribute : "";
-    return attribute === "超級";
+    return entry !== null && isActiveEntry(entry);
   } catch {
-    // fail-closed：讀不到屬性一律視為非超級
+    // fail-closed：讀不到條目一律視為非管理員
     return false;
   }
 }
 
-/** 僅超級管理員可執行的操作（升級超級、新增管理員等） */
+/** 【語意已變更】全體管理員皆可執行（屬性已退役）；保留名稱相容既有呼叫點 */
 export async function requireSuperAdmin(
-  message = "僅超級管理員可執行此操作"
+  _message = "僅管理員可執行此操作"
 ): Promise<
   { session: SessionPayload; denial: null } | { session: null; denial: AuthDenial }
 > {
-  const result = await requireRole("admin");
-  if (result.denial) return result;
-  if (!(await isSuperAdmin(result.session))) {
-    return { session: null, denial: { status: 403, message } };
-  }
-  return result;
+  return requireRole("admin");
 }
 
 /**
- * 「系統設定」的可設定判定：**僅超級管理員**。
- * 「系統設定」是每位管理員的基本入口（首頁固定顯示），但實際可讀寫的設定項目僅超級可用；
- * 一般管理員與其他身分只有入口、頁內顯示「尚無可用設定項目」。
+ * 「系統設定」的可設定判定（政策修改書決議二）：全體管理員皆可
+ * （屬性已退役；「系統設定」原為每位管理員的基本入口，現讀寫一併開放）。
  */
 export async function hasSettingsManage(session: SessionPayload): Promise<boolean> {
   return isSuperAdmin(session);
 }
 
 /**
- * 管理員名冊的屬性寫入守門（建立／修改／停用／刪除管理員條目都應先過這關）：
- * 非超級管理員不得指定「超級」屬性，也不得變更既有的超級條目。
- * 通過回 null；否則回 403 denial（呼叫端以 `toAuthResponse` 回覆）。
+ * 【已退役】管理員名冊的屬性寫入守門——屬性已取消，固定放行。
+ * 「最後一位管理員不可停用」由 accountStatusGuard 守門。
  */
 export async function checkAdminAttribute(
-  session: SessionPayload,
-  nextAttribute: string | null,
-  currentAttribute: string | null
+  _session: SessionPayload,
+  _nextAttribute: string | null,
+  _currentAttribute: string | null
 ): Promise<AuthDenial | null> {
-  const message = adminAttributeGuard({
-    isSuper: await isSuperAdmin(session),
-    nextAttribute,
-    currentAttribute,
-  });
-  return message ? { status: 403, message } : null;
+  return null;
 }
 
 export async function requireSettingsManage(): Promise<
@@ -276,7 +269,90 @@ export async function requireSettingsManage(): Promise<
   const result = await requireRole("admin");
   if (result.denial) return result;
   if (!(await hasSettingsManage(result.session))) {
-    return { session: null, denial: { status: 403, message: "僅超級管理員可修改系統設定" } };
+    return { session: null, denial: { status: 403, message: "僅管理員可修改系統設定" } };
   }
   return result;
+}
+
+/** requireModulePermission 回傳的權限上下文 */
+export type ModulePermissionContext =
+  | { kind: "admin"; session: SessionPayload }
+  | { kind: "delegated"; session: SessionPayload; permissions: string[] };
+
+/**
+ * 取得「當前非管理員身分」對模組的指派清單（管理員恆全權、不看此欄）。
+ * 優先復用 verifySession 已讀的 `__entry`；無條目回空陣列。
+ */
+async function delegatedModulesOf(session: SessionPayload): Promise<ManagedModuleGrant[]> {
+  const verified = session as VerifiedSession;
+  const cached = verified.__entry;
+  if (cached !== undefined && cached !== null) return managedModulesOf(cached);
+  if (cached === null) return [];
+  try {
+    const docs = await loadAuthzDocs(session);
+    verified.__user = docs.user;
+    verified.__entry = docs.entry;
+    return managedModulesOf(docs.entry);
+  } catch {
+    // fail-closed：讀不到指派資訊一律視為未被指定
+    return [];
+  }
+}
+
+/**
+ * 模組管理權守門（政策修改書決議一／G3）：
+ * 1. `role === "admin"` → 管理員恆全權（kind: "admin"）；
+ * 2. 否則查當期身分名冊條目 `managedModules`：
+ *    - 指定 `permission` 時需含該子權限碼；
+ *    - 未指定任何模組或子權限不符 → 403。
+ * 模組端 API 以本函式取代 requireAdminModule（可帶子權限逐動作把關）。
+ */
+export async function requireModulePermission(
+  module: string,
+  permission?: string
+): Promise<
+  { context: ModulePermissionContext; denial: null } | { context: null; denial: AuthDenial }
+> {
+  const session = await verifySession();
+  if (!session) {
+    return { context: null, denial: { status: 401, message: "未登入或登入已失效" } };
+  }
+  if (session.role === "admin") {
+    const entry = await adminEntryOf(session);
+    if (!entry || !isActiveEntry(entry)) {
+      return { context: null, denial: { status: 403, message: "權限不足" } };
+    }
+    return { context: { kind: "admin", session }, denial: null };
+  }
+  try {
+    const grants = await delegatedModulesOf(session);
+    const grant = grants.find((item) => item.module === module);
+    if (!grant) {
+      return {
+        context: null,
+        denial: { status: 403, message: "此帳號未被指派管理該功能模組" },
+      };
+    }
+    if (permission !== undefined && !grant.permissions.includes(permission)) {
+      return {
+        context: null,
+        denial: { status: 403, message: "此帳號未被指派該項操作權限" },
+      };
+    }
+    return {
+      context: { kind: "delegated", session, permissions: grant.permissions },
+      denial: null,
+    };
+  } catch {
+    return { context: null, denial: { status: 403, message: "權限不足" } };
+  }
+}
+
+/**
+ * 非管理員身分的被指派模組清單（session 顯示用；管理員回空陣列——管理員恆全權，
+ * 首頁卡片走 adminModules）。優先復用 `__entry`，不另發讀取。
+ */
+export async function delegatedModuleGrants(session: SessionPayload): Promise<ManagedModuleGrant[]> {
+  if (session.role === "admin") return [];
+  return delegatedModulesOf(session);
 }

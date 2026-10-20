@@ -17,9 +17,7 @@ import {
   ACTIVE_STATUS,
   AdminModule,
   ADMIN_MODULE_VALUES,
-  BASE_ADMIN_MODULES,
   resolveAdminModule,
-  SUPER_ONLY_ADMIN_MODULES,
   USER_COLLECTION,
   UserRole,
   isAccountActive,
@@ -37,6 +35,8 @@ import {
   ACCOUNT_FIELD_KEYS,
   AccountInput,
   ENTRY_DEFAULT_STATUS,
+  ManagedModuleGrant,
+  managedModuleKeys,
   ROSTER_ENTRY_FIELDS,
   RosterEntry,
   RosterFieldKey,
@@ -75,35 +75,10 @@ export function rosterEntryId(uid: string, period: SchoolPeriod): string {
 }
 
 /**
- * 「指定功能模組」正規化：接受逗號／頓號分隔的代碼或標籤，
- * 回傳合法代碼去重清單（輸入無效時回空陣列，由驗證決定是否報錯）。
- */
-function normalizeModules(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    const resolved = value
-      .filter((item): item is string => typeof item === "string")
-      .map((item) => resolveAdminModule(item))
-      .filter((item): item is AdminModule => Boolean(item));
-    return ADMIN_MODULE_VALUES.filter((module) => resolved.includes(module));
-  }
-  if (typeof value !== "string") return [];
-  const tokens = value
-    .split(/[,、;；\s]+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-  const modules: string[] = [];
-  for (const token of tokens) {
-    const module = resolveAdminModule(token);
-    if (module && !modules.includes(module)) modules.push(module);
-  }
-  return ADMIN_MODULE_VALUES.filter((module) => modules.includes(module));
-}
-
-/**
  * 驗證並正規化一列資料，拆成「使用者帳號」與「名冊專屬欄位」兩段。
  * 帳號規則：電子郵件與帳號至少填一個（登入識別，另一欄可留空）、姓名必填；
  * 密碼與帳號管理屬「使用者帳號管理」，名冊不處理。
- * 名冊規則：學生學號必填；管理員屬性必填、指定功能模組選填（未指定＝無可用功能模組）。
+ * 名冊規則：學生學號必填；管理員條目無屬性／模組欄位（管理員恆全權）。
  */
 export function validateRosterInput(role: RosterRole, input: RosterInput): RosterValidation {
   const name = text(input.name, MAX_TEXT);
@@ -125,26 +100,11 @@ export function validateRosterInput(role: RosterRole, input: RosterInput): Roste
   const roster: Record<string, unknown> = {};
 
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
-    if (key === "modules") {
-      roster.modules = normalizeModules(input.modules);
-      continue;
-    }
     roster[key] = text(input[key], MAX_TEXT);
   }
 
   if (role === "student" && !roster.studentId) {
     return { ok: false, message: "請填寫學號" };
-  }
-
-  if (role === "admin") {
-    const attribute = text(input.attribute, MAX_SHORT);
-    if (attribute !== "一般" && attribute !== "超級") {
-      return { ok: false, message: "請選擇管理員屬性（一般／超級）" };
-    }
-    roster.attribute = attribute;
-    // 指定功能模組選填：只存使用者實際提供的內容，不自動補值；
-    // 超級管理員的「全開」由屬性決定，與此欄位存什麼無關
-    roster.modules = normalizeModules(input.modules);
   }
 
   if (role === "staff") {
@@ -157,6 +117,9 @@ export function validateRosterInput(role: RosterRole, input: RosterInput): Roste
     }
     roster.attribute = attribute;
   }
+
+  // 管理員條目：無屬性／指定功能模組欄位（管理員恆全權；政策修改書決議二）
+  // 舊輸入殘留的 attribute／modules 欄位一律不寫入
 
   return { ok: true, account: accountFields, roster: roster as RosterData };
 }
@@ -742,16 +705,18 @@ export function toRosterMember(
 
   const target = member as unknown as Record<string, string | string[] | undefined>;
   for (const key of ROSTER_ENTRY_FIELDS[role]) {
-    if (key === "modules") {
-      // 舊代碼（如 `roles`）一併對應到現行模組，清單顯示與表單預勾才會正確
-      const resolved = storedAdminModules(ent);
-      if (resolved.length > 0) target.modules = resolved as string[];
-      continue;
-    }
     const value = key === "attribute" && role === "staff"
       ? resolveStaffAttribute(str(ent, key))
       : str(ent, key);
     if (value) target[key] = value;
+  }
+  // 被指定管理的功能模組（僅非管理員身分；管理員恆全權不用此欄）
+  if (role !== "admin") {
+    const grants = managedModulesOf(ent);
+    if (grants.length > 0) {
+      member.managedModules = grants;
+      (member as unknown as Record<string, unknown>).managedModuleKeys = managedModuleKeys(grants);
+    }
   }
   return member;
 }
@@ -810,7 +775,7 @@ export async function loadAdminGuardContext(): Promise<AdminGuardContext> {
       if (!snap.exists || !isAccountActive(snap.data())) return;
       const uid = chunk[index];
       activeAdminUids.add(uid);
-      if (isSuperEntry(entries.get(uid))) activeSuperUids.add(uid);
+      // 超級屬性已退役：不再有超級管理員集合（維持欄位相容舊呼叫點）
     });
   }
 
@@ -824,18 +789,21 @@ export function countOtherActiveAdminsFrom(ctx: AdminGuardContext, excludeUid: s
   return count;
 }
 
-/** 除本人外的有效超級管理員數（由上下文純計算） */
-export function countOtherActiveSupersFrom(ctx: AdminGuardContext, excludeUid: string): number {
-  let count = 0;
-  for (const uid of ctx.activeSuperUids) if (uid !== excludeUid) count += 1;
-  return count;
+/** 【已退役】除本人外的有效超級管理員數——超級概念已取消，固定回 0 */
+export function countOtherActiveSupersFrom(_ctx: AdminGuardContext, _excludeUid: string): number {
+  return 0;
 }
 
-/** 最後一位超級守門（由上下文純計算；訊息與 lastSuperGuard 一致） */
-export function lastSuperGuardFrom(ctx: AdminGuardContext, uid: string): string | null {
-  if (countOtherActiveSupersFrom(ctx, uid) === 0) {
-    return "無法動最後一位超級管理員，請先新增另一位超級管理員";
-  }
+/**
+ * 【已退役】最後一位超級守門——超級概念已取消，固定放行（null）。
+ * 「最後一位管理員不可停用」由 accountStatusGuardFrom 保留。
+ */
+export function lastSuperGuardFrom(_ctx: AdminGuardContext, _uid: string): string | null {
+  return null;
+}
+
+/** 【已退役】同 lastSuperGuardFrom（整批上下文版）；保留供批次路徑相容 */
+export async function lastSuperGuard(_uid: string): Promise<string | null> {
   return null;
 }
 
@@ -848,11 +816,8 @@ export function accountStatusGuardFrom(
   if (uid === sessionUid) return "無法停用自己使用的帳號";
   const entry = ctx.entries.get(uid) ?? null;
   if (!isActiveEntry(entry)) return null;
+  // 最後一位有效管理員不可停用（保留：沒管理員就沒人能進管理端）
   if (countOtherActiveAdminsFrom(ctx, uid) === 0) return "無法停用最後一位有效管理員";
-  // 最後一位超級管理員也留著：沒有超級就無法再指派超級（系統設定、學校基本設定將無人可改）
-  if (isSuperEntry(entry) && countOtherActiveSupersFrom(ctx, uid) === 0) {
-    return "無法停用最後一位超級管理員，請先新增另一位超級管理員";
-  }
   return null;
 }
 
@@ -870,43 +835,29 @@ export async function accountStatusGuard(uid: string, sessionUid: string): Promi
   return accountStatusGuardFrom(await loadAdminGuardContext(), uid, sessionUid);
 }
 
-/** 條目是否為超級管理員（`attribute === "超級"`） */
-export function isSuperEntry(entry: Record<string, unknown> | null | undefined): boolean {
-  if (!entry) return false;
-  return typeof entry.attribute === "string" && entry.attribute === "超級";
+/**
+ * 【已退役】超級管理員條目判定——管理員屬性已取消（政策修改書決議二）：
+ * 全體管理員平等，不再有「超級」特殊條目。固定回 false，舊呼叫點自然失效。
+ */
+export function isSuperEntry(_entry: Record<string, unknown> | null | undefined): boolean {
+  return false;
 }
 
 /**
- * 管理員屬性的層級守門（純規則，不查資料）：
- * 只有超級管理員可以指定「超級」屬性，也只有超級管理員可以修改、停用、刪除既有的超級條目，
- * 避免一般管理員自行升級或掏空超級管理員。回傳擋下訊息，null＝放行。
+ * 【已退役】管理員屬性層級守門——屬性已取消，固定放行（null）。
+ * 保留函式相容既有呼叫點；「最後一位管理員不可停用」另由 accountStatusGuard 守門。
  */
-export function adminAttributeGuard(options: {
-  /** 目前操作者是否為超級管理員 */
+export function adminAttributeGuard(_options: {
   isSuper: boolean;
-  /** 即將寫入的屬性（建立／修改） */
   nextAttribute?: string | null;
-  /** 既有條目屬性（修改／停用／刪除；無既有條目＝null） */
   currentAttribute?: string | null;
 }): string | null {
-  if (options.isSuper) return null;
-  if (options.nextAttribute === "超級") return "僅超級管理員可以指定「超級」屬性";
-  if (options.currentAttribute === "超級") return "僅超級管理員可以變更超級管理員的資料";
   return null;
 }
 
 /**
- * 降級／停用／刪除超級管理員前的守門：還得留著最後一位超級管理員。
- * 回傳擋下訊息，null＝放行。
- * 批次作業請改用 loadAdminGuardContext＋lastSuperGuardFrom（整批只讀一次）。
- */
-export async function lastSuperGuard(uid: string): Promise<string | null> {
-  return lastSuperGuardFrom(await loadAdminGuardContext(), uid);
-}
-
-/**
- * 名冊條目「實際存的」功能模組代碼（只回條目內容，不做超級＝全開的推導；
- * 舊代碼如 `roles` 一併對應到現行模組）。
+ * 名冊條目「實際存的」功能模組代碼（僅舊資料相容顯示用；
+ * 新政策下管理員恆全權，本函式不再參與授予判定）。
  */
 export function storedAdminModules(
   entry: Record<string, unknown> | null | undefined
@@ -920,19 +871,60 @@ export function storedAdminModules(
 }
 
 /**
- * 帳號可用的模組權限（超級＝全開；含改版前 `roles` 等舊值的相容對應）。
- * 基本模組（系統設定）不需指派、一律授予；超級專屬模組（學校基本設定）僅超級可得；
- * 無名冊條目＝無權限。
+ * 管理員可用的功能模組權限（政策修改書決議二）：
+ * 有當期管理員名冊條目＝全體模組全開（含原 superOnly）；無條目＝無權限。
+ * 「屬性／指定功能模組」欄位已退役，不再逐模組判定。
  */
 export function adminModulesOf(entry: Record<string, unknown> | null | undefined): AdminModule[] {
   if (!entry) return [];
-  const granted = new Set<AdminModule>(BASE_ADMIN_MODULES);
-  if (entry.attribute === "超級") {
-    for (const module of ADMIN_MODULE_VALUES) granted.add(module);
-  } else {
-    for (const module of storedAdminModules(entry)) granted.add(module);
-    // 超級專屬模組（學校基本設定）：舊資料／批次匯入存了也不授予
-    for (const module of SUPER_ONLY_ADMIN_MODULES) granted.delete(module);
+  return [...ADMIN_MODULE_VALUES];
+}
+
+/** managedModules 欄位正規化：僅承認 { module: string, permissions: string[] } 形狀 */
+function normalizeManagedModules(value: unknown): ManagedModuleGrant[] {
+  if (!Array.isArray(value)) return [];
+  const out: ManagedModuleGrant[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const module = typeof (item as { module?: unknown }).module === "string"
+      ? (item as { module: string }).module.trim()
+      : "";
+    if (!module) continue;
+    const rawPerms = (item as { permissions?: unknown }).permissions;
+    const permissions = Array.isArray(rawPerms)
+      ? rawPerms.filter((perm): perm is string => typeof perm === "string" && perm.trim() !== "")
+      : [];
+    if (!out.some((grant) => grant.module === module)) {
+      out.push({ module, permissions });
+    }
   }
-  return ADMIN_MODULE_VALUES.filter((module) => granted.has(module));
+  return out;
+}
+
+/**
+ * 非管理員身分條目被指定管理的功能模組（政策修改書 §6）。
+ * 無條目或無欄位＝空陣列（未被指定）。
+ */
+export function managedModulesOf(
+  entry: Record<string, unknown> | null | undefined
+): ManagedModuleGrant[] {
+  if (!entry) return [];
+  return normalizeManagedModules(entry.managedModules);
+}
+
+/**
+ * 守門判定用：該條目對模組是否被指定管理，及是否含指定子權限。
+ * - `permission` 省略＝只要被指定（不論子權限）即為 true；
+ * - `permission` 有值＝permissions 需含該碼；被指定但 permissions 為空陣列＝false。
+ */
+export function hasManagedModule(
+  entry: Record<string, unknown> | null | undefined,
+  module: string,
+  permission?: string
+): boolean {
+  const grants = managedModulesOf(entry);
+  const grant = grants.find((item) => item.module === module);
+  if (!grant) return false;
+  if (permission === undefined) return true;
+  return grant.permissions.includes(permission);
 }

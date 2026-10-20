@@ -27,17 +27,14 @@ import {
   rosterBatchFieldHints,
 } from "@/types/roster";
 import {
-  ADMIN_MODULES,
-  BASE_ADMIN_MODULES,
   ROLE_LABELS,
   STAFF_ATTRIBUTES,
   statusLabel,
-  SUPER_ONLY_ADMIN_MODULES,
   type AccountStatus,
   type StaffAttribute,
   type UserRole,
 } from "@/types/users";
-import { fetchSession, getCachedSession, logout } from "@/lib/session";
+import { logout } from "@/lib/session";
 import { readJsonResponse } from "@/lib/fetch-json";
 import { useDataSaver } from "@/lib/data-saver";
 import { dropList, readList, writeList } from "@/lib/list-store";
@@ -158,7 +155,7 @@ const BATCH_SAMPLE_FILES: {
     href: "/api/admin/downloads/範例_身分名冊管理_管理員批次新增.xlsx",
     label: "管理員批次新增範例",
     caption:
-      "表頭為電子郵件地址或帳號、姓名與該身分的名冊欄位；屬性限一般／超級（必填），指定功能模組選填、超級管理員不需填",
+      "表頭為電子郵件地址或帳號與姓名（管理員條目無屬性／指定功能模組欄位——管理員恆全權）",
   },
   {
     mode: "update",
@@ -222,16 +219,6 @@ function cellValue(member: RosterMember, key: RosterColumnKey): string {
     if (!member.preferredRole) return "—";
     return ROLE_LABELS[member.preferredRole] || member.preferredRole;
   }
-  if (key === "modules") {
-    // 超級＝全開由屬性決定，與欄位內容無關（欄位可能為空值）
-    if (member.attribute === "超級") return "超級（全部）";
-    const modules = member.modules ?? [];
-    if (modules.length === 0) return "—";
-    const labels = ADMIN_MODULES.filter((item) => modules.includes(item.value)).map(
-      (item) => item.label
-    );
-    return labels.join("、") || "—";
-  }
   const record = member as unknown as Record<string, string | undefined>;
   return record[key] || "—";
 }
@@ -263,10 +250,6 @@ function BlockingMask({ text }: { text: string }) {
 export default function RosterPage() {
   const router = useRouter();
   const { settings, ready: settingsReady, saverOn } = useDataSaver();
-  // 目前操作者的管理員屬性（超級／一般）：決定能否指派「超級」屬性
-  const [adminAttribute, setAdminAttribute] = useState(
-    () => getCachedSession()?.adminAttribute ?? ""
-  );
   const [role, setRole] = useState<RosterRole>("student");
   const [members, setMembers] = useState<RosterMember[]>([]);
   const [keyword, setKeyword] = useState("");
@@ -476,23 +459,6 @@ export default function RosterPage() {
     adoptCacheEpoch(epoch);
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    // force＝每次進頁重取（權限提示即時），進行中請求由 session 模組去重
-    fetchSession(true)
-      .then((session) => {
-        if (cancelled) return;
-        const attribute = session?.adminAttribute;
-        if (typeof attribute === "string") setAdminAttribute(attribute);
-      })
-      .catch(() => {
-        // 讀取失敗沿用快取值（權限最終由伺服器端判定）
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // 省流統計：僅在省流啟用時取一次（四張名冊各 1 次 count 聚合，供「顯示列表」按鈕顯示本期筆數）
   useEffect(() => {
     if (!settingsReady || !saverOn) return;
@@ -553,12 +519,6 @@ export default function RosterPage() {
     const next = { ...EMPTY_FORM };
     const record = member as unknown as Record<string, unknown>;
     for (const field of ROSTER_FIELDS[role]) {
-      if (field.key === "modules") {
-        // 超級＝全開，儲存值多為系統預設（非使用者勾選），不帶入表單；
-        // 使用者未重新勾選即視為未提供，儲存為空值
-        next.modules = record.attribute === "超級" ? "" : (member.modules ?? []).join(",");
-        continue;
-      }
       const value = record[field.key];
       next[field.key] = typeof value === "string" ? value : "";
     }
@@ -701,32 +661,10 @@ export default function RosterPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function toggleModule(value: string) {
-    setForm((prev) => {
-      const list = prev.modules
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      const next = list.includes(value)
-        ? list.filter((item) => item !== value)
-        : [...list, value];
-      return { ...prev, modules: next.join(",") };
-    });
-  }
-
   /** 名冊專屬欄位驗證（建立／綁定／編輯都會檢查），與伺服器規則一致 */
   function validateRosterFields(): string | null {
     if (role === "student" && !form.studentId.trim()) return "請填寫學號";
-    if (role === "admin") {
-      if (form.attribute !== "一般" && form.attribute !== "超級") {
-        return "請選擇管理員屬性（一般／超級）";
-      }
-      // 屬性層級守門（與伺服器一致）：非超級管理員不得指派超級、不得變更超級條目
-      if (adminAttribute !== "超級" && form.attribute === "超級") {
-        return "僅超級管理員可以指定或變更「超級」管理員";
-      }
-      // 指定功能模組為可選欄位，未指定＝該一般管理員暫無可用功能模組
-    }
+    // 管理員條目已無屬性／指定功能模組欄位（管理員恆全權，政策修改書決議二）
     return null;
   }
 
@@ -968,38 +906,24 @@ export default function RosterPage() {
     }
   }
 
-  /** 屬性欄位：教職員＝教師／兼導師／兼行政／職員；管理員＝一般／超級 */
+  /** 屬性欄位（僅教職員；管理員條目已無屬性欄位——政策修改書決議二） */
   function renderAttributeSelect(field: RosterFieldDef) {
-    const isSuperOperator = adminAttribute === "超級";
-    const options =
-      role === "admin"
-        ? [
-            { value: "", label: "請選擇屬性" },
-            { value: "一般", label: "一般（指定功能模組）" },
-            // 「超級」只有超級管理員可以指派；編輯既有超級條目時保留原值供顯示
-            ...(isSuperOperator || form.attribute === "超級"
-              ? [{ value: "超級", label: "超級（全開）" }]
-              : []),
-          ]
-        : [
-            { value: "", label: "請選擇屬性" },
-            ...STAFF_ATTRIBUTES.map((value) => ({ value, label: value })),
-            // 資料庫殘留的非標準值照原樣顯示，避免選單變成空白
-            ...(!STAFF_ATTRIBUTES.includes(form.attribute as StaffAttribute) &&
-            form.attribute
-              ? [{ value: form.attribute, label: form.attribute }]
-              : []),
-          ];
+    const options = [
+      { value: "", label: "請選擇屬性" },
+      ...STAFF_ATTRIBUTES.map((value) => ({ value, label: value })),
+      // 資料庫殘留的非標準值照原樣顯示，避免選單變成空白
+      ...(!STAFF_ATTRIBUTES.includes(form.attribute as StaffAttribute) && form.attribute
+        ? [{ value: form.attribute, label: form.attribute }]
+        : []),
+    ];
     return (
       <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
         <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
           {field.label}
-          {role === "admin" && <span className="text-t1">*</span>}
         </label>
         <select
           value={form.attribute}
           onChange={(e) => handleField("attribute", e.target.value)}
-          disabled={role === "admin" && form.attribute === "超級" && !isSuperOperator}
           className="flex-1 input-theme rounded px-3 py-2"
         >
           {options.map((option) => (
@@ -1008,11 +932,6 @@ export default function RosterPage() {
             </option>
           ))}
         </select>
-        {role === "admin" && form.attribute === "超級" && !isSuperOperator && (
-          <span className="text-xs text-t3 sm:max-w-64">
-            僅超級管理員可以變更超級管理員的資料。
-          </span>
-        )}
         {role === "staff" && (
           <span className="text-xs text-t3 sm:max-w-64">
             教師＝純教學；兼導師＝任導師；兼行政＝組長／主任等行政職或職員編制；職員＝專任行政人員。
@@ -1022,49 +941,9 @@ export default function RosterPage() {
     );
   }
 
-  /** 指定功能模組（可選）：一般管理員勾選可使用的功能；超級管理員全開、不需勾選 */
-  function renderModules() {
-    const isSuper = form.attribute === "超級";
-    const selected = form.modules
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-    // 基本模組（系統設定）不列入指派：入口對每位管理員顯示，可用功能僅超級管理員
-    // 超級專屬模組（學校基本設定、功能模組管理）不列入指派：僅超級管理員可用，由屬性判定
-    const assignable = ADMIN_MODULES.filter(
-      (module) =>
-        !(BASE_ADMIN_MODULES as readonly string[]).includes(module.value) &&
-        !(SUPER_ONLY_ADMIN_MODULES as readonly string[]).includes(module.value)
-    );
-    return (
-      <div className="flex flex-col sm:flex-row sm:items-start gap-2">
-        <label className="text-t2 sm:w-40 shrink-0">指定功能模組</label>
-        <div className="flex-1 flex flex-wrap gap-x-4 gap-y-2">
-          {assignable.map((module) => (
-            <label key={module.value} className="flex items-center gap-1.5 text-sm text-t1">
-              <input
-                type="checkbox"
-                checked={isSuper || selected.includes(module.value)}
-                disabled={isSuper}
-                onChange={() => toggleModule(module.value)}
-                className="accent-current"
-              />
-              {module.label}
-            </label>
-          ))}
-          <span className="w-full text-xs text-t3">
-            可選欄位：只記錄您實際勾選的內容，未勾選也能儲存；「系統設定」入口一律顯示、但可用功能僅超級管理員，故不列入指派；
-            「學校基本設定」「功能模組管理」僅超級管理員可用，同樣不列入指派；超級管理員＝全開，由屬性判定、不看此欄位。
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  /** 單一表單欄位：屬性／模組為特殊控制項，其餘為文字／電子郵件輸入 */
+  /** 單一表單欄位：屬性為特殊控制項，其餘為文字／電子郵件輸入 */
   function renderField(field: RosterFieldDef) {
     if (field.key === "attribute") return renderAttributeSelect(field);
-    if (field.key === "modules") return renderModules();
     // 編輯時帳號欄位唯讀：姓名／信箱／帳號屬帳號層
     const readOnly = Boolean(editingUid) && isAccountField(field.key);
     return (
@@ -1532,7 +1411,7 @@ export default function RosterPage() {
 
           <p className="text-sm text-t3 mt-3">
             {role === "admin"
-              ? "管理員另可指定屬性與功能模組（超級＝全開）。"
+              ? "管理員對所有功能模組恆為全權；非管理員身分的功能模組指派請至「功能模組管理」頁設定。"
               : "名冊欄位屬於本學年度學期，切換學期後需重新維護。"}
           </p>
 

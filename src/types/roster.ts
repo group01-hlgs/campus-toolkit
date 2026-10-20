@@ -85,8 +85,32 @@ export const ROSTER_ENTRY_FIELDS: Record<UserRole, EntryFieldKey[]> = {
     "relation",
   ],
   staff: ["attribute", "unit", "title", "classCode", "className"],
-  admin: ["attribute", "modules"],
+  // 管理員不再有「屬性／指定功能模組」欄位（管理員恆全權；屬性退役，見政策修改書）
+  admin: [],
 };
+
+/**
+ * 非管理員身分被指定管理的功能模組與子權限（政策修改書 §6）。
+ * 存於學生／家長／教職員名冊條目 `managedModules`；管理員條目不使用（恆全權）。
+ */
+export interface ManagedModuleGrant {
+  /** 權限單位代碼（同 ModuleMeta.value，如 "examRegistration"） */
+  module: string;
+  /** 子權限碼陣列（來源模組 manifest 之 managerPermissions；空陣列＝僅入口無操作） */
+  permissions: string[];
+}
+
+/** 查詢用輔助鍵（Firestore array-contains）：managedModules 各項的 module 代碼去重 */
+export function managedModuleKeys(grants: ManagedModuleGrant[] | undefined): string[] {
+  if (!Array.isArray(grants)) return [];
+  const keys: string[] = [];
+  for (const grant of grants) {
+    if (grant && typeof grant.module === "string" && grant.module && !keys.includes(grant.module)) {
+      keys.push(grant.module);
+    }
+  }
+  return keys;
+}
 
 /**
  * 身分名冊一條（四張表共用的文件形狀）。
@@ -121,6 +145,13 @@ export interface RosterEntry {
   unit?: string;
   title?: string;
   modules?: string[];
+  /**
+   * 被指定管理的功能模組（僅學生／家長／教職員條目使用；管理員恆全權不用此欄）。
+   * 學期綁定＝條目所屬學期；人被移出名冊或學期結束即自動失效。
+   */
+  managedModules?: ManagedModuleGrant[];
+  /** managedModules 各項 module 代碼的查詢用輔助陣列（Firestore array-contains） */
+  managedModuleKeys?: string[];
   createdAt?: number;
   updatedAt?: number;
 }
@@ -187,12 +218,6 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "email", label: "電子郵件地址", aliases: EMAIL_ALIASES },
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
-    { key: "attribute", label: "屬性", aliases: ["屬性", "attribute"] },
-    {
-      key: "modules",
-      label: "指定功能模組",
-      aliases: ["指定功能模組", "功能模組", "模組", "modules"],
-    },
   ],
 };
 
@@ -272,10 +297,8 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "classCode", label: "班級代碼" },
     { key: "className", label: "班級名稱" },
   ],
-  admin: [
-    { key: "attribute", label: "屬性" },
-    { key: "modules", label: "指定功能模組" },
-  ],
+  // 管理員清單不再顯示屬性／指定功能模組（管理員恆全權）
+  admin: [],
 };
 
 /** 匯入時每一列的原始輸入（欄位值一律是字串，空白代表未填） */
@@ -317,6 +340,8 @@ export interface RosterMember {
   unit?: string;
   title?: string;
   modules?: string[];
+  /** 被指定管理的功能模組（僅非管理員身分；管理員恆全權） */
+  managedModules?: ManagedModuleGrant[];
 }
 
 /** 可匯入 Excel 的身分（家長只提供表單建立，不提供檔案匯入） */
@@ -393,8 +418,8 @@ export function rosterImportHint(role: RosterRole): string {
 
 /**
  * 批次新增提示用：辨識鍵、必填與可選欄位名稱。
- * 電子郵件與帳號為辨識鍵（至少填一個）；姓名必填（未填＝該列略過，不沿用既有帳號姓名）；
- * 管理員屬性必填、指定功能模組選填。
+ * 電子郵件與帳號為辨識鍵（至少填一個）；姓名必填（未填＝該列略過，不沿用既有帳號姓名）。
+ * 管理員條目已無「屬性／指定功能模組」欄位（管理員恆全權）。
  */
 export function rosterBatchFieldHints(role: RosterRole): {
   identify: string;
@@ -405,9 +430,6 @@ export function rosterBatchFieldHints(role: RosterRole): {
   const required = new Set<RosterFieldKey>();
   for (const field of rosterImportFields(role)) {
     if (field.required && !identity.has(field.key)) required.add(field.key);
-  }
-  if (role === "admin") {
-    required.add("attribute");
   }
 
   const requiredLabels = rosterImportFields(role)

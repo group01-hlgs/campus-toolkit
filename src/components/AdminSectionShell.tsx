@@ -40,7 +40,11 @@ export default function AdminSectionShell({
   const [loading, setLoading] = useState(true);
   // 可用模組清單（同「使用者帳號管理」的 fail-closed：讀不到＝視為無權限）
   const [adminModules, setAdminModules] = useState<string[] | null>(null);
-  const allowed = adminModules !== null && adminModules.includes(moduleKey);
+  // 非管理員身分被指定管理的模組（政策修改書 G3；管理員不看此欄）
+  const [delegatedModules, setDelegatedModules] = useState<string[]>([]);
+  const allowed =
+    (adminModules !== null && adminModules.includes(moduleKey)) ||
+    delegatedModules.includes(moduleKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +53,9 @@ export default function AdminSectionShell({
       .then((session) => {
         if (cancelled) return;
         setAdminModules(session?.adminModules ?? []);
+        setDelegatedModules(
+          (session?.delegatedModules ?? []).map((grant) => grant.module)
+        );
       })
       .catch(() => {
         if (!cancelled) setAdminModules([]);

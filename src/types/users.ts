@@ -123,13 +123,14 @@ export function lastLoginOf(data: Record<string, unknown> | null | undefined): n
 }
 
 /**
- * 管理員可指定的功能模組（超級＝全開；一般＝僅被指定的模組）。
+ * 管理員可指定的功能模組（**指定機制已退役**，政策修改書決議二）：
+ * 有當期管理員名冊條目＝全體模組全開；不再看 attribute／modules。
  * 模組決定：首頁卡片是否顯示、對應 API 是否放行（requireAdminModule）。
  * 清單由功能模組註冊表（`types/modules.ts` 的 `MODULES`）派生——
  * 新增／調整模組請改註冊表，此處只做投影，不要另立清單。
- * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示；
- * 另見 BASE_ADMIN_MODULES（scope＝core：系統設定）＝不需指派的基本模組，每位管理員皆有；
- * SUPER_ONLY_ADMIN_MODULES（scope＝superOnly：學校基本設定、功能模組管理、統計儀表板）＝僅超級管理員可用，不開放指派。
+ * 注意：個人頁「帳號、身分與安全管理」不是模組——每個帳號都用得到，管理員首頁固定顯示。
+ * 非管理員身分（教職員／家長／學生）的功能模組指派改存名冊條目 `managedModules`
+ * （含子權限），由 requireModulePermission 判定。
  */
 export type AdminModule = ModuleValue;
 
@@ -150,9 +151,8 @@ export const BASE_ADMIN_MODULES: AdminModule[] = MODULES.filter(
 ).map((item) => item.value);
 
 /**
- * 「僅超級管理員」的功能模組（註冊表 scope＝superOnly）：不列入一般管理員的可指派清單
- * （名冊表單不顯示勾選），即使名冊存有該代碼也不授予（adminModulesOf 一律剝除）。
- * 超級管理員由 `attribute` 判定、本來就全開，故此清單只影響一般管理員。
+ * 【已退役語意】scope＝superOnly 的模組代碼——屬性分級取消後（政策修改書決議二），
+ * 全體管理員皆可用；本清單僅供文件與 UI 分組參考，adminModulesOf 不再剝除。
  */
 export const SUPER_ONLY_ADMIN_MODULES: AdminModule[] = MODULES.filter(
   (item) => item.scope === "superOnly"
@@ -183,7 +183,10 @@ export function resolveAdminModule(token: string): AdminModule | undefined {
   return LEGACY_ADMIN_MODULES[token];
 }
 
-/** 管理員屬性：超級＝全開；一般＝僅指定功能模組 */
+/**
+ * 【已退役】管理員屬性：超級／一般——政策修改書決議二取消，全體管理員平等。
+ * 型別保留一個版本週期供舊資料相容（isAdminAttribute 不再參與授予判定）。
+ */
 export type AdminAttribute = "超級" | "一般";
 export const ADMIN_ATTRIBUTES: AdminAttribute[] = ["超級", "一般"];
 

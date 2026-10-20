@@ -16,8 +16,9 @@
  * 欄位約定（每個模組的鍵都要齊，聯合型別才能安全取值）：
  * - `href`：入口路由，空字串＝尚未建頁（如僅 API 已上線的稽核紀錄）；
  * - `children`：子功能入口，空陣列＝無子功能；
- * - `scope`：core＝核心（不需指派、每位管理員皆有）；assignable＝可指派；superOnly＝僅超級管理員
- *   （含學校基本設定、功能模組管理與統計儀表板——入口卡片、頁面與 API 皆只對超級開放）；
+ * - `scope`：core／assignable／superOnly——**屬性分級已退役**（政策修改書決議二）：
+ *   管員恆全權，adminModulesOf 對任何管理員條目回全量；scope 僅供文件與 UI 分組參考，
+ *   不再剝除授予；
  * - `status`：built＝已上線；apiOnly＝API 已上線、頁面未建；planned＝規劃中。
  *
  * 選用（外掛）功能模組的權限單位由 `src/modules/<value>/module.json` 的

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { verifySession } from "@/lib/dal";
-import { getCurrentPeriod } from "@/lib/settings-server";
+import { delegatedModuleGrants, verifySession } from "@/lib/dal";
 import { adminModulesOf, getRosterEntry } from "@/lib/roster";
+import { getCurrentPeriod } from "@/lib/settings-server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { USER_COLLECTION } from "@/types/users";
 
@@ -17,10 +17,10 @@ export async function GET() {
   const roles = (candidates?.length ? candidates : [{ role: session.role }]).map(
     (candidate) => candidate.role
   );
-  // 管理員功能模組（首頁卡片顯示用）：讀不到時為 undefined，前端視為全部隱藏
+  // 管理員功能模組（首頁卡片顯示用）：管理員恆全權＝全部；讀不到時為 undefined，前端視為全部隱藏
   let adminModules: string[] | undefined;
-  // 管理員屬性（超級／一般）：供管理端表單決定能否指派「超級」屬性
-  let adminAttribute: string | undefined;
+  // 非管理員身分被指定管理的模組（導覽入口顯示用；政策修改書 G3）
+  let delegatedModules: Array<{ module: string; permissions: string[] }> | undefined;
   if (session.role === "admin") {
     try {
       // 優先復用 verifySession 已讀的當期管理員條目，避免同請求重複讀取
@@ -28,11 +28,15 @@ export async function GET() {
         session.__entry ??
         (await getRosterEntry(session.uid, "admin", await getCurrentPeriod()));
       adminModules = adminModulesOf(entry);
-      const attribute = entry && typeof entry.attribute === "string" ? entry.attribute : "";
-      adminAttribute = attribute === "超級" ? "超級" : "一般";
     } catch {
       adminModules = [];
-      adminAttribute = "一般";
+    }
+  } else {
+    try {
+      const grants = await delegatedModuleGrants(session);
+      if (grants.length > 0) delegatedModules = grants;
+    } catch {
+      delegatedModules = undefined;
     }
   }
   // 首次登入須先改密碼（管理員代設的預設密碼）：供全螢幕強制改密碼遮罩判斷
@@ -56,7 +60,7 @@ export async function GET() {
       roles,
       mustChangePassword,
       ...(adminModules ? { adminModules } : {}),
-      ...(adminAttribute ? { adminAttribute } : {}),
+      ...(delegatedModules ? { delegatedModules } : {}),
     },
   });
 }

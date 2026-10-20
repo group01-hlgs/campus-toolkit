@@ -111,24 +111,26 @@ export default function AdminPage() {
     );
   }
 
-  // 超級管理員完全不受限制：直接顯示全部模組卡片（不看 adminModules／visibleModules）
-  const isSuper = user.adminAttribute === "超級";
-  // 管理模組卡片：一般管理員僅顯示被指派的模組（讀不到權限＝不顯示），
-  // 再依「顯示與否」過濾（visibleModules 尚未載入時先不過濾，避免首頁閃空）
-  const gatedModules = isSuper
-    ? moduleCards
-    : user.adminModules == null
+  // 管理員恆全權（政策修改書決議二）：adminModules 載入後即為全量清單；
+  // 讀不到權限＝不顯示管理模組卡（fail-closed）。個人卡對已登入管理員一律顯示。
+  const gatedModules =
+    user.adminModules == null
       ? []
-      : moduleCards.filter((item) => {
-          if (!user.adminModules!.includes(item.id)) return false;
-          if (visibleModules === null) return true;
-          return visibleModules.includes(item.id);
-        });
-  // 個人卡片（帳號、身分與安全管理）不需指派權限；超級一律顯示，
-  // 其他人在 visibleModules 明確關閉時才隱藏
-  const personalVisible = isSuper || visibleModules === null || visibleModules.includes("account");
+      : user.role === "admin"
+        ? // 有管理員條目（adminModules 非空）＝全開；空陣列＝無條目，fail-closed 不顯示
+          user.adminModules.length > 0
+          ? moduleCards
+          : []
+        : moduleCards.filter((item) => {
+            if (!user.adminModules!.includes(item.id)) return false;
+            if (visibleModules === null) return true;
+            return visibleModules.includes(item.id);
+          });
+  const personalVisible = true;
   const personalInfoVisible =
-    isSuper || visibleModules === null || visibleModules.includes("personalInfo");
+    user.adminModules == null || user.adminModules.length === 0
+      ? visibleModules === null || visibleModules.includes("personalInfo")
+      : true;
   const visibleModulesCards = [
     ...gatedModules,
     ...(personalVisible ? [personalCard] : []),

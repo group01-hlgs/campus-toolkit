@@ -3,17 +3,24 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DisclosureArrow from "@/components/DisclosureArrow";
-import { fetchSession } from "@/lib/session";
 import {
   FEATURE_MODULES,
   FEATURE_MODULE_STATUS_LABELS,
+  ModuleManagerPermission,
   type FeatureModuleMeta,
   type FeatureModuleRoleSwitches,
   type FeatureModuleRolesMap,
   type FeatureModulesEnabledMap,
 } from "@/types/feature-modules";
 import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
+import { ROSTER_ROLES, type RosterRole } from "@/types/roster";
 import Toast, { type ToastMessage } from "@/components/Toast";
+
+/** 入口功能欄對應的身分（管理員欄已退役——管理員恆全權，見政策修改書 G1） */
+const ENTRY_ROLES: UserRole[] = ALL_ROLES.filter((role) => role !== "admin");
+
+/** 可被指派管理的身分（管理員恆全權、不列入指派） */
+const DELEGATABLE_ROLES = ROSTER_ROLES.filter((roster) => roster.value !== "admin");
 
 interface FeatureModulesResponse {
   success?: boolean;
@@ -29,6 +36,15 @@ interface MarketInstalledResponse {
   success?: boolean;
   modules?: Array<{ id: string; version: string; latestVersion?: string }>;
   installedModules?: Record<string, string>;
+}
+
+interface ManagerRow {
+  uid: string;
+  role: RosterRole;
+  name: string;
+  email: string;
+  account: string;
+  permissions: string[];
 }
 
 function parseComparableVersion(value: string): { parts: number[]; prerelease: string[] } | null {
@@ -158,7 +174,7 @@ function DescriptionRow({
         </p>
         <p>
           提供功能（由模組作者決定，僅供檢視）：
-          {ALL_ROLES.map((role) => (
+          {ENTRY_ROLES.map((role) => (
             <span key={role} className="mr-2">
               {ROLE_LABELS[role]}＝{item.provides[role] ? "是" : "否"}
             </span>
@@ -182,8 +198,9 @@ function DescriptionRow({
 }
 
 /**
- * 四種身分欄：同時顯示「提供功能」圖示＋「入口功能」勾選。
+ * 使用者端三身分欄：同時顯示「提供功能」圖示＋「入口功能」勾選。
  * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」與「入口功能」勾選上下排列。
+ * 管理員欄已退役——管理員對所有模組恆為全權，不再逐模組勾選入口（政策修改書 G1）。
  */
 function RoleCells({
   item,
@@ -195,13 +212,13 @@ function RoleCells({
   item: FeatureModuleMeta;
   switches: FeatureModuleRoleSwitches | undefined;
   disabled: boolean;
-  /** 禁用原因覆寫（如狀態載入失敗）；缺省＝超級管理員／處理中 */
+  /** 禁用原因覆寫（如狀態載入失敗）；缺省＝處理中 */
   disabledTitle?: string;
   onToggle: (item: FeatureModuleMeta, role: UserRole, next: boolean) => void;
 }) {
   return (
     <>
-      {ALL_ROLES.map((role) => {
+      {ENTRY_ROLES.map((role) => {
         const provided = item.provides[role] === true;
         if (!provided) {
           return (
@@ -242,7 +259,7 @@ function RoleCells({
                   aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的入口功能`}
                   title={
                     disabled
-                      ? (disabledTitle ?? "僅超級管理員可調整，且同一時間只能處理一筆變更")
+                      ? (disabledTitle ?? "同一時間只能處理一筆變更")
                       : "入口功能（關閉＝首頁不顯示入口、禁止進入）"
                   }
                   className="accent-current cursor-pointer disabled:opacity-50"
@@ -309,19 +326,18 @@ function BuiltinRow({
           )}
         </td>
       </tr>
-      <DescriptionRow item={item} open={open} colSpan={7} />
+      <DescriptionRow item={item} open={open} colSpan={6} />
     </>
   );
 }
 
-/** 選用功能模組列表列：總開關＋四種身分入口功能＋操作（前往／卸載），僅超級管理員可操作 */
+/** 選用功能模組列表列：總開關＋使用者端三身分入口功能＋操作（前往／卸載），全體管理員可操作 */
 function OptionalRow({
   item,
   open,
   onToggleHelp,
   enabled,
   switches,
-  isSuper,
   loadFailed,
   canUninstall,
   pendingUninstall,
@@ -337,7 +353,6 @@ function OptionalRow({
   onToggleHelp: (value: string) => void;
   enabled: boolean;
   switches: FeatureModuleRoleSwitches | undefined;
-  isSuper: boolean;
   /** 開關狀態載入失敗：勾選／總開關不可信，一律禁用 */
   loadFailed?: boolean;
   canUninstall: boolean;
@@ -355,12 +370,10 @@ function OptionalRow({
   const loadFailedReason = "開關狀態載入失敗，請重新整理頁面";
   const disabledReason = loadFailed
     ? loadFailedReason
-    : !isSuper
-      ? "僅超級管理員可操作"
-      : saving
-        ? "處理中..."
-        : undefined;
-  const switchesDisabled = !isSuper || saving || loadFailed === true;
+    : saving
+      ? "處理中..."
+      : undefined;
+  const switchesDisabled = saving || loadFailed === true;
   const uninstallDisabledReason = !canUninstall
     ? "目前環境尚未完成卸載管線設定"
     : disabledReason ?? "移除模組程式碼；資料庫資料預設保留";
@@ -451,7 +464,7 @@ function OptionalRow({
               <button
                 type="button"
                 onClick={() => onUninstall(item)}
-                disabled={!isSuper || saving || !canUninstall}
+                disabled={saving || !canUninstall}
                 title={uninstallDisabledReason}
                 className="btn-danger rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
               >
@@ -461,22 +474,325 @@ function OptionalRow({
           </span>
         </td>
       </tr>
-      <DescriptionRow item={item} open={open} colSpan={8} />
+      <DescriptionRow item={item} open={open} colSpan={7} />
     </>
   );
 }
 
 /**
- * 「功能模組管理」入口（僅超級管理員）：
+ * 管理人員指派區（選用模組展開列，僅模組有 managerPermissions 時顯示）：
+ * 搜尋當期名冊帳號 → 勾選子權限 → 指派；列表顯示已指派者，可改權限或移除。
+ * 資料落於各身分名冊條目 managedModules（政策修改書 §6）。
+ */
+function ManagerSection({ item }: { item: FeatureModuleMeta }) {
+  const permissionDefs: ModuleManagerPermission[] = item.managerPermissions ?? [];
+  const [managers, setManagers] = useState<ManagerRow[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [searchRole, setSearchRole] = useState<RosterRole>("staff");
+  const [searchQ, setSearchQ] = useState("");
+  const [candidates, setCandidates] = useState<ManagerRow[] | null>(null);
+  const [draftPerms, setDraftPerms] = useState<Record<string, boolean>>({});
+
+  function permsFromList(list: string[]): Record<string, boolean> {
+    const map: Record<string, boolean> = {};
+    for (const def of permissionDefs) map[def.value] = list.includes(def.value);
+    return map;
+  }
+
+  async function loadManagers() {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/admin/feature-modules/managers?module=${encodeURIComponent(item.value)}`,
+        { cache: "no-store" }
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `載入失敗（HTTP ${res.status}）`);
+      }
+      setManagers(Array.isArray(data.managers) ? data.managers : []);
+    } catch (e) {
+      setManagers([]);
+      setError(e instanceof Error ? e.message : "載入失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    setManagers(null);
+    setCandidates(null);
+    setError("");
+    void loadManagers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.value]);
+
+  async function search() {
+    const q = searchQ.trim();
+    if (!q) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/admin/feature-modules/managers?module=${encodeURIComponent(item.value)}&role=${searchRole}&q=${encodeURIComponent(q)}`,
+        { cache: "no-store" }
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `搜尋失敗（HTTP ${res.status}）`);
+      }
+      setCandidates(Array.isArray(data.people) ? data.people : []);
+    } catch (e) {
+      setCandidates([]);
+      setError(e instanceof Error ? e.message : "搜尋失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function assign(person: ManagerRow) {
+    const permissions = permissionDefs
+      .filter((def) => draftPerms[def.value])
+      .map((def) => def.value);
+    if (permissions.length === 0) {
+      setError("請至少勾選一項子權限");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/feature-modules/managers", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          module: item.value,
+          uid: person.uid,
+          role: person.role,
+          permissions,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `指派失敗（HTTP ${res.status}）`);
+      }
+      setCandidates(null);
+      setSearchQ("");
+      setDraftPerms({});
+      await loadManagers();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "指派失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(person: ManagerRow) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/admin/feature-modules/managers?module=${encodeURIComponent(item.value)}&uid=${encodeURIComponent(person.uid)}&role=${person.role}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `移除失敗（HTTP ${res.status}）`);
+      }
+      await loadManagers();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "移除失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const roleLabel = (role: RosterRole) =>
+    ROSTER_ROLES.find((item) => item.value === role)?.label || role;
+
+  return (
+    <div className="border-t border-themed px-3 py-3 bg-surface space-y-3">
+      <p className="text-xs text-t2 font-medium">
+        管理人員（指定非管理員身分管理本模組；管理員本身恆為全權、不需指派）
+      </p>
+      {error && (
+        <p className="text-xs text-danger" role="alert">
+          {error}
+        </p>
+      )}
+      {managers === null ? (
+        <p className="text-xs text-t3">管理人員載入中...</p>
+      ) : managers.length === 0 ? (
+        <p className="text-xs text-t3">目前無被指定的管理人員。</p>
+      ) : (
+        <ul className="space-y-2">
+          {managers.map((person) => (
+            <li
+              key={`${person.role}:${person.uid}`}
+              className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm"
+            >
+              <span className="text-t1 whitespace-nowrap">
+                [{roleLabel(person.role)}] {person.name}
+                <span className="text-t3 ml-1 text-xs">
+                  {person.account || person.email}
+                </span>
+              </span>
+              <span className="flex flex-wrap gap-x-3 gap-y-1">
+                {permissionDefs.map((def) => (
+                  <label key={def.value} className="inline-flex items-center gap-1 text-xs text-t2">
+                    <input
+                      type="checkbox"
+                      checked={person.permissions.includes(def.value)}
+                      disabled={busy}
+                      onChange={(event) => {
+                        const next = event.target.checked
+                          ? [...person.permissions, def.value]
+                          : person.permissions.filter((code) => code !== def.value);
+                        void assign({ ...person, permissions: next });
+                      }}
+                      className="accent-current"
+                    />
+                    {def.label}
+                  </label>
+                ))}
+              </span>
+              <button
+                type="button"
+                onClick={() => void remove(person)}
+                disabled={busy}
+                className="btn-danger rounded px-2 py-1 text-xs cursor-pointer disabled:opacity-50 sm:ml-auto"
+              >
+                移除
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <details className="group">
+        <summary className="cursor-pointer text-xs text-t2 inline-flex items-center gap-1">
+          <DisclosureArrow className="h-3 w-3" />
+          新增管理人員
+        </summary>
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <select
+              value={searchRole}
+              onChange={(event) => setSearchRole(event.target.value as RosterRole)}
+              className="input-theme rounded px-2 py-1 text-sm"
+              disabled={busy}
+            >
+              {DELEGATABLE_ROLES.map((roster) => (
+                <option key={roster.value} value={roster.value}>
+                  {roster.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={searchQ}
+              onChange={(event) => setSearchQ(event.target.value)}
+              placeholder="輸入帳號或姓名（精確比對）"
+              className="input-theme rounded px-2 py-1 text-sm flex-1"
+              disabled={busy}
+            />
+            <button
+              type="button"
+              onClick={() => void search()}
+              disabled={busy || !searchQ.trim()}
+              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+            >
+              搜尋
+            </button>
+          </div>
+          {candidates !== null &&
+            (candidates.length === 0 ? (
+              <p className="text-xs text-t3">查無符合的當期名冊條目。</p>
+            ) : (
+              <ul className="space-y-2">
+                {candidates.map((person) => {
+                  const existing = managers?.find(
+                    (m) => m.uid === person.uid && m.role === person.role
+                  );
+                  return (
+                    <li
+                      key={`${person.role}:${person.uid}`}
+                      className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm border border-themed rounded p-2"
+                    >
+                      <span className="text-t1">
+                        [{roleLabel(person.role)}] {person.name}
+                        <span className="text-t3 ml-1 text-xs">
+                          {person.account || person.email}
+                        </span>
+                        {existing && <span className="text-warning ml-1 text-xs">已指派</span>}
+                      </span>
+                      <span className="flex flex-wrap gap-x-3 gap-y-1">
+                        {permissionDefs.map((def) => (
+                          <label
+                            key={def.value}
+                            className="inline-flex items-center gap-1 text-xs text-t2"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                draftPerms[`${person.uid}:${def.value}`] ??
+                                existing?.permissions.includes(def.value) ??
+                                false
+                              }
+                              disabled={busy}
+                              onChange={(event) =>
+                                setDraftPerms((current) => ({
+                                  ...current,
+                                  [`${person.uid}:${def.value}`]: event.target.checked,
+                                }))
+                              }
+                              className="accent-current"
+                            />
+                            {def.label}
+                          </label>
+                        ))}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const permissions = permissionDefs
+                            .filter(
+                              (def) =>
+                                draftPerms[`${person.uid}:${def.value}`] ??
+                                existing?.permissions.includes(def.value) ??
+                                false
+                            )
+                            .map((def) => def.value);
+                          void assign({ ...person, permissions });
+                        }}
+                        disabled={busy}
+                        className="btn-theme rounded px-2 py-1 text-xs cursor-pointer disabled:opacity-50 sm:ml-auto"
+                      >
+                        {existing ? "更新" : "指派"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+/**
+ * 「功能模組管理」入口（全體管理員，政策修改書決議二）：
  * 內建／選用兩份功能模組列表，說明與作者／版本／提供功能由名稱旁箭頭就地展開；
- * 選用模組有總開關；四種身分欄＝**入口功能**（提供功能＝否顯示「未提供」）。
+ * 選用模組有總開關；使用者端三身分欄＝**入口功能**（提供功能＝否顯示「未提供」）。
+ * 管理員欄已退役（恆全權）；選用模組可另指派非管理員身分之管理人員（含子權限）。
  */
 export default function ModulesPage() {
   const router = useRouter();
   // 總開關與入口功能開關：null＝載入中（fail-closed，先當全部未啟用）
   const [enabled, setEnabled] = useState<FeatureModulesEnabledMap | null>(null);
   const [roles, setRoles] = useState<FeatureModuleRolesMap | null>(null);
-  const [isSuper, setIsSuper] = useState(false);
   // 處理中的鍵：總開關＝模組代碼；入口功能開關＝「模組代碼:身分」
   const [saving, setSaving] = useState<string | null>(null);
   // 開關狀態載入失敗訊息：非空＝頁面勾選／總開關不可信（禁止默默呈現全未勾選）
@@ -528,10 +844,6 @@ export default function ModulesPage() {
         setCanUninstall(false);
         setLoadError("開關狀態載入失敗（網路錯誤）");
       });
-
-    fetchSession().then((session) => {
-      if (!cancelled) setIsSuper(session?.adminAttribute === "超級");
-    });
 
     fetch("/api/admin/feature-modules/market", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
@@ -789,8 +1101,8 @@ export default function ModulesPage() {
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
           <p className="text-xs text-t3">
             隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的箭頭可展開說明與作者版本資訊；
-            四種身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
-            （關閉＝首頁不顯示入口、禁止進入）。
+            使用者端三身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
+            （關閉＝首頁不顯示入口、禁止進入）。管理員對所有模組恆為全權，不設入口勾選。
           </p>
         </div>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
@@ -799,7 +1111,7 @@ export default function ModulesPage() {
               <tr className="text-t2">
                 <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
-                {ALL_ROLES.map((role) => (
+                {ENTRY_ROLES.map((role) => (
                   <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
                     {ROLE_LABELS[role]}
                   </th>
@@ -810,13 +1122,13 @@ export default function ModulesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={6} className="px-3 py-6 text-center text-t3">
                     {loadingText}
                   </td>
                 </tr>
               ) : builtins.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={6} className="px-3 py-6 text-center text-t3">
                     沒有內建功能模組
                   </td>
                 </tr>
@@ -828,7 +1140,7 @@ export default function ModulesPage() {
                     open={openDesc === item.value}
                     onToggleHelp={toggleHelp}
                     switches={roles[item.value]}
-                    disabled={!isSuper || saving !== null || loadError !== ""}
+                    disabled={saving !== null || loadError !== ""}
                     disabledTitle={loadError ? "開關狀態載入失敗，請重新整理頁面" : undefined}
                     onToggleRole={toggleRole}
                     onOpen={(href) => router.push(href)}
@@ -845,9 +1157,10 @@ export default function ModulesPage() {
         <div className="mb-3">
           <h3 className="text-lg font-bold text-t1">選用功能模組</h3>
           <p className="text-xs text-t3">
-            已安裝的模組各有一個總開關（預設未啟用），由超級管理員啟用／停用。
-            四種身分欄上下排列：綠勾「提供」與「入口功能」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
+            已安裝的模組各有一個總開關（預設未啟用），由全體管理員啟用／停用。
+            使用者端三身分欄上下排列：綠勾「提供」與「入口功能」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
             操作欄「前往」在總開關開啟時可直接進入該模組管理頁面；「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
+            模組有宣告子權限時，可於下方「管理人員」指派非管理員身分帳號（管理員恆全權、不需指派）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
@@ -859,7 +1172,7 @@ export default function ModulesPage() {
                 <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">版本</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">總開關</th>
-                {ALL_ROLES.map((role) => (
+                {ENTRY_ROLES.map((role) => (
                   <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
                     {ROLE_LABELS[role]}
                   </th>
@@ -870,13 +1183,13 @@ export default function ModulesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
                     {loadingText}
                   </td>
                 </tr>
               ) : optionals.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-t3">
+                  <td colSpan={7} className="px-3 py-6 text-center text-t3">
                     沒有選用功能模組
                   </td>
                 </tr>
@@ -889,7 +1202,6 @@ export default function ModulesPage() {
                     onToggleHelp={toggleHelp}
                     enabled={enabled[item.value] === true}
                     switches={roles[item.value]}
-                    isSuper={isSuper}
                     loadFailed={loadError !== ""}
                     canUninstall={canUninstall}
                     pendingUninstall={pendingUninstalls[item.value]}
@@ -909,34 +1221,51 @@ export default function ModulesPage() {
             </tbody>
           </table>
         </div>
+        {/* 管理人員指派（有 managerPermissions 宣告的選用模組） */}
+        {!loading &&
+          optionals
+            .filter(
+              (item) =>
+                Array.isArray(item.managerPermissions) && item.managerPermissions.length > 0
+            )
+            .map((item) => (
+              <div
+                key={`managers-${item.value}`}
+                className="mt-3 border border-themed rounded-lg bg-card"
+              >
+                <div className="px-3 py-2 border-b border-themed">
+                  <span className="font-medium text-t1 text-sm">{item.label}｜管理人員</span>
+                </div>
+                <ManagerSection item={item} />
+              </div>
+            ))}
       </section>
 
-      {/* 管理端權限（指定功能模組）說明：屬主程式模組的子功能權限 */}
+      {/* 管理權限說明（不同身分管理政策） */}
       <section className="border border-themed rounded-lg bg-card p-5">
-        <h3 className="text-lg font-bold text-t1 mb-2">管理端權限（指定功能模組）說明</h3>
+        <h3 className="text-lg font-bold text-t1 mb-2">管理權限說明（不同身分管理政策）</h3>
         <p className="text-xs text-t3 mb-2">
-          內建的管理端模組（帳號、身分與安全管理、使用者帳號管理…）另有管理權限層，
-          由超級管理員在名冊或帳號頁以「指定功能模組」指派：
+          依「不同身分管理政策修改書」：管理員對所有功能模組恆為全權，不再區分超級／一般，
+          也不再逐模組指派；其他三身分（教職員／家長／學生）由管理員按學期指定帳號管理特定模組：
         </p>
         <ul className="text-sm text-t2 space-y-1.5 list-disc pl-5">
           <li>
-            <span className="font-bold text-t1">核心</span>
-            ：不需指派、每位管理員皆具備（系統設定）。
+            <span className="font-bold text-t1">管理員</span>
+            ：有當期管理員名冊條目即全權（含系統設定、功能模組管理、主題市集、統計）；
+            僅保留「最後一位管理員不可停用」守門。
           </li>
           <li>
-            <span className="font-bold text-t1">可指派</span>
-            ：由超級管理員在「身分名冊管理」或「使用者帳號管理」勾選授予。
-          </li>
-          <li>
-            <span className="font-bold text-t1">僅超級管理員</span>
-            ：不開放指派，只有超級屬性可用（學校基本設定、功能模組管理、統計儀表板）。
-          </li>
-          <li>
-            此層權限決定管理員首頁是否有對應入口功能，以及對應 API 是否放行（未具備一律 403）。
+            <span className="font-bold text-t1">指定管理人員</span>
+            ：於選用模組列下「管理人員」指派教職員／家長／學生帳號，
+            並勾選該模組宣告之子權限；指派綁定當期名冊條目，學期切換需重新指定。
           </li>
           <li>
             「入口功能」關閉時，該身分首頁不顯示此模組入口；
-            API 仍以「指定功能模組」權限把關（不因入口功能關閉而額外阻擋）。
+            管理權另由「管理人員」指派決定（兩者獨立）。
+          </li>
+          <li>
+            被指定者以原身分登入，直接進入該模組管理頁；
+            子權限逐 API 攔截（由各模組以 requireModulePermission 守門）。
           </li>
         </ul>
       </section>
