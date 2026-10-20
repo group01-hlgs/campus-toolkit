@@ -1095,16 +1095,17 @@ export default function ModulesPage() {
         </div>
       )}
 
-      {/* 內建功能模組 */}
-      <section>
-        <div className="mb-3">
+      {/* 內建功能模組（可收合／展開，預設收合） */}
+      <details>
+        <summary className="mb-3 flex cursor-pointer items-center gap-2">
+          <DisclosureArrow />
           <h3 className="text-lg font-bold text-t1">內建功能模組</h3>
-          <p className="text-xs text-t3">
-            隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的箭頭可展開說明與作者版本資訊；
-            使用者端三身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
-            （關閉＝首頁不顯示入口、禁止進入）。管理員對所有模組恆為全權，不設入口勾選。
-          </p>
-        </div>
+        </summary>
+        <p className="text-xs text-t3 mb-3">
+          隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的箭頭可展開說明與作者版本資訊；
+          使用者端三身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
+          （關閉＝首頁不顯示入口、禁止進入）。管理員對所有模組恆為全權，不設入口勾選。
+        </p>
         <div className="border border-themed rounded-lg bg-card overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="border-b border-themed">
@@ -1150,7 +1151,7 @@ export default function ModulesPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </details>
 
       {/* 選用功能模組 */}
       <section>
