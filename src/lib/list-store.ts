@@ -13,7 +13,7 @@
  * - 這裡省的是網路往返與渲染，並讓「變更後就地 patch」有可寫入的存放處。
  */
 
-/** 與伺服端 LIST_CACHE_TTL_MS 一致的防呆上限 */
+/** 前端防呆硬上限（與系統設定 cacheTtlSeconds 上限 300 秒無關；此值僅防前端快取永不終） */
 const TTL_MS = 600_000;
 
 interface ListEntry {

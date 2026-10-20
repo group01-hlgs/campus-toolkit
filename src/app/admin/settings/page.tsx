@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, defaultSettings, STUDENT_PERSONAL_PHOTO_STORAGE_OPTIONS } from "@/types/settings";
+import { Settings, clampCacheTtlSeconds, defaultSettings, STUDENT_PERSONAL_PHOTO_STORAGE_OPTIONS } from "@/types/settings";
 import { logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
@@ -143,6 +143,13 @@ const settingGroups: SettingGroup[] = [
         })),
         help:
           "Firestore 可在免費（Spark）方案使用，檔案上限 900 KB；Firebase Storage 自 2026/02 起一律要求綁定 Blaze，且免費額度僅存在於美國的 us-central1／us-east1／us-west1。切換只影響新上傳的照片，舊照片仍依其原儲存位置讀取。",
+      },
+      {
+        id: "cacheTtlSeconds",
+        label: "清單快取壽命（秒）",
+        type: "number",
+        help:
+          "伺服器暫存清單資料的時間（30–300 秒），主程式與所有功能模組統一適用。數值越大，資料庫讀取越少、越省費用；但學生新報名後，管理端人數統計最久要等同樣秒數才會更新。管理員新增或修改場次時快取會立即失效，不受此設定影響。",
       },
     ],
   },
@@ -287,7 +294,7 @@ export default function SettingsPage() {
       "copyrightNotice", "sponsorAdEnabled", "dataSaverEnabled",
     ];
     const numberFields: (keyof Settings)[] = [
-      "academicYear", "semester", "sessionTimeout",
+      "academicYear", "semester", "sessionTimeout", "cacheTtlSeconds",
     ];
 
     if (booleanFields.includes(id)) {
@@ -295,6 +302,7 @@ export default function SettingsPage() {
     } else if (numberFields.includes(id)) {
       let numVal = Number(value);
       if (id === "sessionTimeout") numVal = Math.max(1, numVal);
+      if (id === "cacheTtlSeconds") numVal = clampCacheTtlSeconds(numVal);
       setSettings({ ...settings, [id]: numVal });
     } else {
       setSettings({ ...settings, [id]: value });

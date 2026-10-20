@@ -1,6 +1,12 @@
 import "server-only";
 import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
-import { defaultSettings, DEFAULT_SYSTEM_NAME, detectPeriod, SchoolPeriod } from "@/types/settings";
+import {
+  clampCacheTtlSeconds,
+  defaultSettings,
+  DEFAULT_SYSTEM_NAME,
+  detectPeriod,
+  SchoolPeriod,
+} from "@/types/settings";
 
 export const SETTINGS_COLLECTION = "settings";
 export const SETTINGS_DOC_ID = "system";
@@ -102,6 +108,16 @@ export async function getSessionTimeoutMinutes(): Promise<number> {
   const raw = await readSystemDoc();
   const minutes = Number(raw?.sessionTimeout);
   return Number.isFinite(minutes) && minutes >= 1 ? minutes : defaultSettings.sessionTimeout;
+}
+
+/**
+ * 讀取 settings.cacheTtlSeconds（清單類快取壽命，秒）。
+ * 主程式與所有功能模組統一使用：`cachedListRead` 預設 TTL 與模組名單快取皆由此取得。
+ * 讀同一份 settings/system 快取；欄位缺漏、非有限數或超出 30–300 範圍時自動夾到合法值。
+ */
+export async function getCacheTtlSeconds(): Promise<number> {
+  const raw = await readSystemDoc();
+  return clampCacheTtlSeconds(raw?.cacheTtlSeconds ?? defaultSettings.cacheTtlSeconds);
 }
 
 /**

@@ -20,6 +20,13 @@ export interface Settings {
   /** 省流開關：啟用後「使用者帳號管理」「身分名冊管理」「班級總覽」改為按鈕手動顯示列表 */
   dataSaverEnabled: boolean;
   /**
+   * 清單類快取壽命（秒）。主程式與所有功能模組統一適用：
+   * 延長＝資料庫讀取更少、更省費用，但非管理端寫入（如學生報名）後
+   * 管理端看到最新資料的延遲上限變長；縮短＝資料較即時，但讀取次數增加。
+   * 範圍 30–300。管理端增修刪會 bump cacheEpoch 立即失效，不受此值影響。
+   */
+  cacheTtlSeconds: number;
+  /**
    * 學生證件照的儲存後端。
    * `firestore`＝存在 Firestore，免費（Spark）方案即可用；
    * `firebase-storage`＝存在 Firebase Storage bucket，需專案綁定 Blaze 並建立 bucket。
@@ -46,6 +53,18 @@ export function isStudentPersonalPhotoStorage(
 
 /** 讀不到設定時的預設值：免費方案也能運作 */
 export const DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE: StudentPersonalPhotoStorage = "firestore";
+
+/** 清單類快取壽命上下限（秒）與預設值 */
+export const CACHE_TTL_SECONDS_MIN = 30;
+export const CACHE_TTL_SECONDS_MAX = 300;
+export const DEFAULT_CACHE_TTL_SECONDS = 30;
+
+/** 將任意輸入夾到合法的快取壽命秒數（非有限數回預設值） */
+export function clampCacheTtlSeconds(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_CACHE_TTL_SECONDS;
+  return Math.min(CACHE_TTL_SECONDS_MAX, Math.max(CACHE_TTL_SECONDS_MIN, Math.floor(n)));
+}
 
 /** 系統（程式）名稱未自命名時的預設值，信件抬頭與頁首共用 */
 export const DEFAULT_SYSTEM_NAME = "數位校園工具箱";
@@ -94,5 +113,6 @@ export const defaultSettings: Settings = {
   copyrightNotice: true,
   sponsorAdEnabled: false,
   dataSaverEnabled: false,
+  cacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
   studentPersonalPhotoStorage: DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE,
 };

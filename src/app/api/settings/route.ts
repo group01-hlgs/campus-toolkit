@@ -12,6 +12,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import {
   Settings,
+  clampCacheTtlSeconds,
   defaultSettings,
   DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE,
   isStudentPersonalPhotoStorage,
@@ -160,6 +161,7 @@ export async function PUT(request: NextRequest) {
 
     const settings = pickSettings(body);
     if (settings.sessionTimeout < 1) settings.sessionTimeout = 1;
+    settings.cacheTtlSeconds = clampCacheTtlSeconds(settings.cacheTtlSeconds);
     if (!isStudentPersonalPhotoStorage(settings.studentPersonalPhotoStorage)) {
       settings.studentPersonalPhotoStorage = DEFAULT_STUDENT_PERSONAL_PHOTO_STORAGE;
     }

@@ -1,6 +1,6 @@
 import "server-only";
 import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
-import { bumpCacheEpoch, getCacheEpoch } from "@/lib/settings-server";
+import { bumpCacheEpoch, getCacheEpoch, getCacheTtlSeconds } from "@/lib/settings-server";
 
 /**
  * 管理端大清單的快取（docs/資料庫讀取規範.md 鐵律 6）：
@@ -9,17 +9,16 @@ import { bumpCacheEpoch, getCacheEpoch } from "@/lib/settings-server";
  *   任何管理端資料變更呼叫 `invalidateAdminListCache()` 遞增該旗標，
  *   所有實例（含 serverless 冷啟動）的下一次讀取自動改 key＝自動失效，
  *   延遲上限＝設定快取 TTL（30 秒）。
- * - **TTL 只是硬上限**：防 bump 失敗／旗標被清掉時快取永久不終，
- *   故取 10 分鐘；「每次變更立即失效」由 epoch 負責，不受 TTL 限制。
+ * - **TTL 由系統設定統一控管**：預設 TTL 讀 `settings.cacheTtlSeconds`
+ *   （系統設定→省錢專區，30–300 秒）。管理端寫入由 epoch 立即失效；
+ *   非管理端寫入（學生報名等）不 bump epoch，此 TTL 即為跨實例新鮮度上限。
  * - 讀 epoch 走 readSystemDoc 共用快取，驗證路徑已讀過時為 0 次額外讀取。
  */
-
-/** 清單 payload 的 TTL 硬上限（正確性由 epoch 保證，此值僅防呆） */
-export const LIST_CACHE_TTL_MS = 600_000;
 
 /**
  * 以 epoch 綁定 key 的清單快取。
  * epoch 變動 → key 變動 → 舊 payload 自動作廢（跨實例生效）。
+ * `ttlMs` 省略時採系統設定的清單快取壽命（cacheTtlSeconds）。
  * 回傳值連同「用於 key 的那個 epoch」一起交給呼叫端：
  * 快取 key 與回應的 cacheEpoch 必須同源，否則並發寫入時可能把
  * 舊 payload 誤掛在新 epoch 上（內容過期卻永遠命中）。
@@ -27,10 +26,11 @@ export const LIST_CACHE_TTL_MS = 600_000;
 export async function cachedListRead<T>(
   key: string,
   load: () => Promise<T>,
-  ttlMs: number = LIST_CACHE_TTL_MS
+  ttlMs?: number
 ): Promise<{ data: T; epoch: number }> {
   const epoch = await getCacheEpoch();
-  const data = await cachedRead(`${key}#${epoch}`, ttlMs, load);
+  const effectiveTtl = ttlMs ?? (await getCacheTtlSeconds()) * 1000;
+  const data = await cachedRead(`${key}#${epoch}`, effectiveTtl, load);
   return { data, epoch };
 }
 
