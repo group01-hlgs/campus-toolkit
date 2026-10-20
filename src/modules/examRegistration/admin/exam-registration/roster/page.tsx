@@ -452,7 +452,9 @@ export default function ExamRegistrationRosterPage() {
                         colSpan={8 + (event.locationOptions?.length ? 1 : 0)}
                         className="px-3 py-6 text-center text-t3"
                       >
-                        此班級尚無學生
+                        {event.registrationMode === "optional"
+                          ? "此班級尚無完成報名的學生"
+                          : "此班級尚無學生"}
                       </td>
                     </tr>
                   ) : (

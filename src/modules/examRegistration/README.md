@@ -1,6 +1,6 @@
 # 升學考試與模擬考校內報名模組（examRegistration）
 
-> 狀態：M1 完成（期 7 驗收通過）；M2 ①名額②CSV③統計已實作，⑤公告撤回卡宿主 P5；M3（報名義務/不報名/繳費/封存）已實作
+> 狀態：M1 完成（期 7 驗收通過）；M2 ②CSV③統計已實作（①名額上限已廢止，v0.1.43），⑤公告撤回卡宿主 P5；M3（報名義務/不報名/繳費/封存）已實作
 > 宿主要求：`campus-toolkit` ≥ 0.488（官方報名檔會讀取主程式的學生固定身分資料）
 
 ## 定位
@@ -35,7 +35,7 @@
 - `title` / `examType`（mock|entrance|other）/ `examDate`（**YYYY-MM-DD 字串**，日期僅日、不涉時區）/ `location` / `note`
 - 畫面日期統一顯示為 **`yyyy/mm/dd`**；日期時間顯示為 **`yyyy/mm/dd HH:mm`**（24 小時制），Firestore/API 維持 ISO 日期格式。
 - `deadline`：timestamp（之後唯讀；`open` 且過期一律收斂為 `closed`，承辦忘記關也不會誤放行）
-- `subjects`：`[{ key, label, capacity? }]` 內嵌陣列（1～15 項；`key` 在改名／排序時保留，登錄鍵才不失效）；`capacity` 省略或 0＝不限，上限 999（M2 ①）
+- `subjects`：`[{ key, label }]` 內嵌陣列（1～15 項；`key` 在改名／排序時保留，登錄鍵才不失效）；舊資料的 `capacity` 欄位已廢止、一律忽略
 - `target`：`{ grades: string[], classes: string[] }`（年級必填、班級選填——兩者都要）
 - `fee`：number
 - `examMode`：固定 `review`（系統內部保留欄位，前台不再區分報名子模式）
@@ -54,8 +54,10 @@
 **未來**若加 `where(status==)+orderBy(examDate)` 類組合查詢，記得在 manifest 補 `firestoreIndexes` 宣告（驗收觀察項）。
 
 **快取與失效**：學生場次清單 `cachedRead` 30 秒（前綴 `exam-registration:`，寫後 `invalidateReadCache`
-前綴清除、不 bump epoch）；管理清單與名單 `cachedListRead`（寫後 `invalidateAdminListCache` bump `cacheEpoch`）。
-同一次寫入兩者都失效——名單即時反映登錄、場次變更 30 秒內全站可見。
+前綴清除、不 bump epoch）；管理清單 `cachedListRead`（管理端場次增修刪 bump `cacheEpoch` 跨實例失效）。
+**管理端名單／統計（roster/tabs/class）快取 TTL 30 秒**：學生寫入（登錄／取消／封存）只清本程序
+模組前綴（`exam-registration:`＋`admin:exam-registration:roster:`）、**不 bump epoch**（鐵律 6——
+高頻報名不得打爆全站清單快取）；同實例立即失效、跨實例延遲上限 30 秒。export（CSV/xlsx）一律即時查詢不吃快取。
 
 **伺服端把關**：對象過濾（年級/班級）→ 截止鎖（deadline/status）→ 決定論 id upsert/刪除 →
 寫後快取失效 → 全部寫操作 `logActivity` 稽核。掛勾（發公告／寫行事曆）在場次 `open` 時觸發，
@@ -75,13 +77,10 @@
 
 ## M2 實作狀態
 
-### ① 每科名額上限（一般報名）— 已實作
+### ① 每科名額上限 — 已廢止（v0.1.43）
 
-- `subjects` 項目 `{ key, label, capacity? }`——`capacity` 省略或 0＝不限（M1 資料向後相容），上限 999。
-- 登錄時 transaction 讀該場次全部登錄（排除本人），統計各科現有人數；任一勾選科目額滿即整筆拒絕
-  （409「『XX科』已額滿（名額 n 名）」）。取消即釋放名額（無候補佇列）。
-- UI：學生頁科目旁顯示「n/m」（額滿「n/m 額滿」並 disable，本人已選者保留可取消）；
-  承辦名單面板各科提供純數字統計（每科 n 人）。
+- 名額上限（capacity）機制早已停止使用，v0.1.43 起完整移除：學生端不再顯示 n/m、不再有額滿鎖定與 409 拒絕，管理表單無名額欄位；舊資料的 `capacity` 欄位一律忽略不讀。
+- 附帶移除 0.1.42 的 `examEventCounters` 計數器——各科人數聚合隨之廢除，學生端 GET 不再有任何人數讀取。
 
 ### ② 造冊 CSV 匯出 — 已實作
 
@@ -95,7 +94,7 @@
 - 場次清單中的統計面板顯示應報名人數（符合目標對象）與完成報名人數。
 - 場次清單中的選考科目僅顯示每科報名數字（`n 人`），採表格格線呈現。
 - 學生名單改為「查看名單」專頁顯示，並以班級分頁切換。
-- 資料用名單 API 的 `summary.bySubject`（含 `capacity`/`full`），不加查詢。
+- 資料用名單 API 的 `summary.bySubject`（含各科人數），不加查詢。
 
 ### ④ 報名模式收斂（單一一般報名）— 已實作
 
@@ -129,8 +128,8 @@
 ### 不報名登錄（optOut）— 已實作
 
 - 登錄文件 `optOut: boolean`（缺省 false）＋`optOutReason: string`（上限 200 字，必填）。
-- `optOut=true` 為合法狀態：不算已報名、不佔名額、不計費用；名單「報名情形」欄顯示「不報名」。
-- 額滿統計、`bySubject`、容量 transaction 一律排除 optOut。
+- `optOut=true` 為合法狀態：不算已報名、不計費用；名單「報名情形」欄顯示「不報名」。
+- `bySubject` 統計一律排除 optOut。
 - 稽核 `details` 含 `optOut`/`optOutReason`。
 
 ### 繳費身分與費用試算 — 已實作
@@ -154,7 +153,8 @@
 ### 列印版面（另存 PDF）— 已實作
 
 - 學生頁「下載為PDF」→ `RegistrationPrintSheet`（`hidden print:block`＋`print:hidden` 包螢幕 UI）＋`window.print()`，由瀏覽器另存 PDF——不引函式庫（【E10】）。
-- 未封存時先 ConfirmModal 提醒「封存後較不易誤改」。
+- 列印版面以 `afterprint` 事件卸載（＋2 分鐘兜底）——手機列印為非同步，`print()` 後立即卸版面會印成空白。
+- 未封存**且場次開放學生自行封存**時才先 ConfirmModal 提醒；承辦關閉自行封存時直接列印（學生無封存鈕可按，提醒反造成困擾）。
 
 ### 稽核動作（7 個）
 
@@ -185,8 +185,8 @@
 
 | # | 問題 | 目前實作 |
 |---|---|---|
-| 1 | 名額上限要「每科」還是「場次總額」？ | 每科（考場座位語意）；總額另議 |
-| 2 | 額滿時是否保留「候補佇列」？ | 不做，取消即釋放 |
+| 1 | 名額上限要「每科」還是「場次總額」？ | 已廢止（v0.1.43），不再適用 |
+| 2 | 額滿時是否保留「候補佇列」？ | 已廢止（v0.1.43），不再適用 |
 | 3 | 高峰期是否需要更細的名單篩選（例如班級／是否封存）？ | 目前先用關鍵字搜尋 |
 | 4 | CSV 要不要含家長聯絡資料？ | 不含（M1 名冊未存，需另接，另立需求） |
 | 5 | CSV 要不要額外加註進階選項代碼？ | 目前輸出顯示名稱（不含代碼） |

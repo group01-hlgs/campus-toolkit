@@ -117,8 +117,6 @@ export const EXAM_EVENT_LIMITS = {
   subjectLabel: 40,
   subjectsMin: 1,
   subjectsMax: 15,
-  /** 每科名額上限最大值（0/省略＝不限） */
-  subjectCapacityMax: 999,
   gradesMax: 10,
   classesMax: 60,
   fee: 100000,
@@ -131,8 +129,6 @@ export interface ExamSubject {
   enableAdvancedOption?: boolean;
   /** 該科可選進階選項（啟用時至少一項） */
   advancedOptions?: ExamAdvancedOption[];
-  /** 每科名額上限（考場座位）；省略或 0＝不限 */
-  capacity?: number;
   /** 一般生應繳（元）；省略或 0＝免收 */
   feeStandard?: number;
   /** 中低收入戶應繳（元）；省略或 0＝免收 */
@@ -255,12 +251,6 @@ export interface ExamRegistration {
   updatedAt: number;
 }
 
-/** 科目即時統計（學生端額滿顯示用）；capacity 0＝不限 */
-export interface SubjectStat {
-  count: number;
-  capacity: number;
-}
-
 /** 學生端場次視圖：status 已依報名期間收斂（upcoming 未開放／open 開放中／closed 已截止） */
 export interface StudentExamEvent extends Omit<ExamEvent, "status" | "announcementSync" | "calendarSync"> {
   status: "upcoming" | "open" | "closed";
@@ -286,8 +276,6 @@ export interface StudentExamEvent extends Omit<ExamEvent, "status" | "announceme
   myFeeAmount: number | null;
   /** 本人是否已封存（凍結唯讀） */
   myArchived: boolean;
-  /** 各科即時人數（額滿判斷；optOut 者不計入） */
-  subjectStats: Record<string, SubjectStat>;
 }
 
 export interface ExamRosterSummary {
@@ -300,7 +288,7 @@ export interface ExamRosterSummary {
   optOutCount: number;
   /** 已封存筆數 */
   archivedCount: number;
-  bySubject: Record<string, { label: string; count: number; capacity: number; full: boolean }>;
+  bySubject: Record<string, { label: string; count: number }>;
   byClass: Record<string, number>;
 }
 
@@ -403,33 +391,6 @@ export function isExamFeeCode(value: unknown): value is ExamFeeCode {
 
 export function isExamReviewStatus(value: unknown): value is ExamReviewStatus {
   return value === "pending" || value === "admitted" || value === "waitlist" || value === "rejected";
-}
-
-/** 科目有效名額（0＝不限） */
-export function subjectCapacity(subject: ExamSubject): number {
-  return typeof subject.capacity === "number" && Number.isFinite(subject.capacity) && subject.capacity > 0
-    ? Math.floor(subject.capacity)
-    : 0;
-}
-
-export function isSubjectFull(subject: ExamSubject, count: number): boolean {
-  const capacity = subjectCapacity(subject);
-  return capacity > 0 && count >= capacity;
-}
-
-/** 各科即時人數統計（給學生額滿顯示與管理端摘要共用） */
-export function countSubjectsByRegistrations(
-  subjectKeysList: string[][],
-  subjects: ExamSubject[]
-): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const subject of subjects) counts[subject.key] = 0;
-  for (const keys of subjectKeysList) {
-    for (const key of pickValidSubjectKeys(keys, subjects)) {
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
-  }
-  return counts;
 }
 
 /**
@@ -553,7 +514,6 @@ export function parseExamSubjects(raw: unknown): ParseResult<ExamSubject[]> {
     let key = "";
     let enableAdvancedOption = false;
     let advancedOptions: ExamAdvancedOption[] = [];
-    let parsedCapacity = 0;
     let feeStandard = 0;
     let feeReduced = 0;
     if (typeof item === "string") {
@@ -577,16 +537,6 @@ export function parseExamSubjects(raw: unknown): ParseResult<ExamSubject[]> {
           message: `科目「${label || "（未命名）"}」啟用進階選項時，請至少新增一個進階選項`,
         };
       }
-      if (record.capacity !== undefined && record.capacity !== null && record.capacity !== "") {
-        const capacity = typeof record.capacity === "number" ? record.capacity : Number(record.capacity);
-        if (!Number.isInteger(capacity) || capacity < 0 || capacity > EXAM_EVENT_LIMITS.subjectCapacityMax) {
-          return {
-            ok: false,
-            message: `科目「${label || "（未命名）"}」的名額上限無效（需 ${1}～${EXAM_EVENT_LIMITS.subjectCapacityMax} 的整數，或留空＝不限）`,
-          };
-        }
-        if (capacity > 0) parsedCapacity = capacity;
-      }
       const feeN = parseFeeField(record.feeStandard);
       const feeR = parseFeeField(record.feeReduced);
       if (!feeN.ok) return { ok: false, message: `科目「${label || "（未命名）"}」的一般生費用${feeN.message}` };
@@ -607,7 +557,6 @@ export function parseExamSubjects(raw: unknown): ParseResult<ExamSubject[]> {
     const entry: ExamSubject = { key, label };
     if (enableAdvancedOption) entry.enableAdvancedOption = true;
     if (enableAdvancedOption && advancedOptions.length) entry.advancedOptions = advancedOptions;
-    if (parsedCapacity > 0) entry.capacity = parsedCapacity;
     if (feeStandard > 0) entry.feeStandard = feeStandard;
     if (feeReduced > 0) entry.feeReduced = feeReduced;
     list.push(entry);

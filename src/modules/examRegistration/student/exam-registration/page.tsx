@@ -86,11 +86,21 @@ export default function ExamRegistrationStudentPage() {
 
   useEffect(() => {
     if (!printId) return;
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    const clear = () => setPrintId(null);
     const timer = setTimeout(() => {
+      // 行動裝置（iOS/Android）的列印為非同步：print() 立即返回、頁面快照稍後才取，
+      // 若此時卸下列印版面會印成空白——改以 afterprint 事件再卸載。
+      window.addEventListener("afterprint", clear, { once: true });
       window.print();
-      setPrintId(null);
-    }, 100);
-    return () => clearTimeout(timer);
+      // 兜底：部分瀏覽器可能不觸發 afterprint，2 分鐘後自動卸載
+      fallbackTimer = setTimeout(clear, 120000);
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      window.removeEventListener("afterprint", clear);
+    };
   }, [printId]);
 
   useEffect(() => {
@@ -287,7 +297,9 @@ export default function ExamRegistrationStudentPage() {
   }
 
   function printForm(item: StudentExamEvent) {
-    if (!item.myArchived) {
+    // 僅在學生「可自行封存」且尚未封存時才提醒——承辦關閉自行封存時
+    // 學生無封存鈕可按，跳此訊息只會造成困擾，直接列印。
+    if (!item.myArchived && item.studentArchiveEnabled) {
       setConfirm({
         text: "資料尚未封存，下載內容將以目前資料為準。\n建議先行封存後再下載保存。",
         confirmLabel: "仍要下載",
@@ -360,6 +372,20 @@ export default function ExamRegistrationStudentPage() {
       <hr className="w-full max-w-2xl border-themed mb-4 print:hidden" />
 
       <main className="w-full max-w-2xl mb-6 space-y-4">
+        <div
+          role="note"
+          className="border border-danger rounded-lg bg-card p-4 text-sm text-danger space-y-1 print:hidden"
+        >
+          <p className="font-bold">下載報名表說明（已修正）</p>
+          <p className="flex gap-1">
+            <span className="shrink-0">1.</span>
+            <span>手機版下載空白：已修正，手機、電腦皆可正常下載。</span>
+          </p>
+          <p className="flex gap-1">
+            <span className="shrink-0">2.</span>
+            <span>封存提醒：僅開放自行封存且未封存時出現，其餘直接下載。</span>
+          </p>
+        </div>
         <div className="print:hidden">
           {loading ? (
             <p className="p-6 text-center text-t3">場次載入中...</p>
@@ -529,16 +555,6 @@ function ExamEventCard({
         ? "完成報名"
         : "未報名";
 
-  /** 該科是否已額滿（本人已在名單內則不鎖——可維持或移出） */
-  const isFull = useMemo(() => {
-    const full = new Set<string>();
-    for (const subject of item.subjects) {
-      const stat = item.subjectStats[subject.key];
-      if (stat && stat.capacity > 0 && stat.count >= stat.capacity) full.add(subject.key);
-    }
-    return full;
-  }, [item]);
-
   const feeAmount = useMemo(() => {
     if (optOut) return 0;
     return calcExamFee(item, selected, feeCode);
@@ -642,7 +658,7 @@ function ExamEventCard({
       {item.note && <p className="text-sm text-t2 whitespace-pre-line">{item.note}</p>}
 
       {isRequired && !hasRegistration && !readOnly && (
-        <p className="text-sm rounded border px-3 py-2" style={{ borderColor: "var(--warning,#f59e0b)", color: "var(--warning,#b45309)" }}>
+        <p className="text-sm rounded border px-3 py-2" style={{ borderColor: "var(--warning)", color: "var(--warning)" }}>
           本場次為「必須報名」——請完成科目登錄，或勾選不報名並說明原因。
         </p>
       )}
@@ -709,13 +725,9 @@ function ExamEventCard({
             <p className="text-sm text-t2 sm:w-20 shrink-0">科目名稱</p>
             <div className="flex-1 space-y-2">
               {item.subjects.map((subject) => {
-                const stat = item.subjectStats[subject.key];
-                const capacity = stat?.capacity ?? 0;
-                const count = stat?.count ?? 0;
-                const full = isFull.has(subject.key);
                 const mine = selected.includes(subject.key);
                 const subjFee = feeCode === "1" ? subject.feeStandard ?? 0 : feeCode === "3" ? subject.feeReduced ?? 0 : 0;
-                const lockedSubj = readOnly || saving || (full && !mine);
+                const lockedSubj = readOnly || saving;
                 const hasAdvancedOptions =
                   subject.enableAdvancedOption === true && (subject.advancedOptions?.length ?? 0) > 0;
                 const selectedValue = selectedOptionCodes[subject.key] ?? "";
@@ -729,12 +741,6 @@ function ExamEventCard({
                     <div className="text-sm sm:w-48">
                       <span>{subject.label}</span>
                       {subjFee > 0 && <span className="text-xs text-t3">（{subjFee} 元）</span>}
-                      {capacity > 0 && (
-                        <span className={`text-xs ml-1 ${full && !mine ? "text-danger" : "text-t3"}`}>
-                          （{count}/{capacity}
-                          {full && !mine ? " 額滿" : ""}）
-                        </span>
-                      )}
                     </div>
                     {hasAdvancedOptions ? (
                       <select
@@ -742,7 +748,6 @@ function ExamEventCard({
                         value={selectedValue}
                         disabled={lockedSubj}
                         onChange={(e) => onSubjectOptionCodeChange(subject.key, e.target.value)}
-                        title={full && !mine ? "已額滿" : undefined}
                       >
                         <option value="">不報考</option>
                         {(subject.advancedOptions ?? []).map((option) => (
@@ -756,7 +761,6 @@ function ExamEventCard({
                         className={`inline-flex items-center gap-1.5 text-sm ${
                           lockedSubj ? "text-t3 cursor-not-allowed" : "text-t1 cursor-pointer"
                         }`}
-                        title={full && !mine ? "已額滿" : undefined}
                       >
                         <input
                           type="checkbox"

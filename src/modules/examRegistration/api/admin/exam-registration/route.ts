@@ -32,7 +32,7 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** GET：場次清單；`?eventId=` 時改回該場次名單與統計；`?summary=count` 僅回傳總筆數 */
+/** GET：場次清單；`?eventId=` 回班級分頁；`?eventId=&classCode=` 回單班名冊；`?eventId=&stats=1` 回完整名單統計；`?summary=count` 僅回傳總筆數 */
 export async function GET(request: NextRequest) {
   try {
     const limited = enforceRateLimit(
@@ -167,6 +167,14 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });
         }
         return NextResponse.json({ success: true, ...classRoster }, { headers: noStore });
+      }
+      // 場次清單「統計」面板：`?eventId=&stats=1` 回傳完整名單與統計（含登錄明細）
+      if (request.nextUrl.searchParams.get("stats") === "1") {
+        const roster = await getExamEventRoster(eventId);
+        if (!roster) {
+          return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });
+        }
+        return NextResponse.json({ success: true, roster }, { headers: noStore });
       }
       // 延遲載入：`?eventId=` 回傳班級分頁（不含登錄明細）
       const tabs = await getExamEventClassTabs(eventId);

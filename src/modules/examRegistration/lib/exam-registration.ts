@@ -3,8 +3,9 @@ import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 import { cachedListRead, invalidateAdminListCache } from "@/lib/list-cache";
-import { getCurrentPeriod } from "@/lib/settings-server";
+import { getCurrentPeriod, getCacheTtlSeconds } from "@/lib/settings-server";
 import { isActiveEntry, loadPeriodEntries } from "@/lib/roster";
+import type { SchoolPeriod } from "@/types/settings";
 import { logActivity } from "@/lib/audit";
 import { publishFromModule } from "@/lib/announcements";
 import { publishScheduleFromModule } from "@/lib/calendar";
@@ -30,7 +31,6 @@ import {
   calcExamFee,
   canTransitionExamStatus,
   combineUniversityArtsExamOfficialFields,
-  countSubjectsByRegistrations,
   composeExamRegistrationNumber,
   effectiveExamStatus,
   examEventToDraft,
@@ -53,7 +53,6 @@ import {
   parseSubjectKeys,
   pickValidSubjectKeys,
   resolveLocationLabel,
-  subjectCapacity,
   universityArtsExamOfficialFields,
   EXAM_SERVICE_NOTE_MAX,
   OPT_OUT_REASON_MAX,
@@ -83,8 +82,14 @@ const ADMIN_EVENT_LIST_KEY = "admin:exam-registration:events";
 const ADMIN_ROSTER_KEY_PREFIX = "admin:exam-registration:roster:";
 const STUDENT_CACHE_PREFIX = "exam-registration:";
 const STUDENT_EVENT_CACHE_KEY = `${STUDENT_CACHE_PREFIX}events:visible`;
-const STUDENT_COUNTS_CACHE_PREFIX = `${STUDENT_CACHE_PREFIX}counts:`;
-const STUDENT_EVENT_CACHE_TTL_MS = 30_000;
+/**
+ * 快取壽命統一讀系統設定（settings.cacheTtlSeconds，30–300 秒）：
+ * 學生寫入只清本程序模組前綴（不 bump epoch），跨實例新鮮度以設定 TTL 為上限。
+ * 取代過去寫死 30 秒——管理端可於「系統設定→省錢專區」調整。
+ */
+async function cacheTtlMs(): Promise<number> {
+  return (await getCacheTtlSeconds()) * 1000;
+}
 const ADMIN_EVENT_LIST_LIMIT = 200;
 const ROSTER_LIMIT = 1000;
 
@@ -160,16 +165,12 @@ export function readExamEvent(id: string, raw: Record<string, unknown>): ExamEve
               : enableAdvancedOption
                 ? legacyAdvancedOptions
                 : [];
-          const capacity =
-            typeof record.capacity === "number" && Number.isFinite(record.capacity) && record.capacity > 0
-              ? Math.floor(record.capacity)
-              : 0;
+          // 名額上限機制已廢止：舊資料的 capacity 欄位忽略不讀
           const feeStandard = readFee(record.feeStandard);
           const feeReduced = readFee(record.feeReduced);
           const entry: ExamEvent["subjects"][number] = { key, label };
           if (enableAdvancedOption) entry.enableAdvancedOption = true;
           if (enableAdvancedOption && advancedOptions.length) entry.advancedOptions = advancedOptions;
-          if (capacity > 0) entry.capacity = capacity;
           if (feeStandard > 0) entry.feeStandard = feeStandard;
           if (feeReduced > 0) entry.feeReduced = feeReduced;
           return [entry];
@@ -327,19 +328,31 @@ function readExamEventDraft(raw: unknown): ExamEventDraft {
   return parsed.value;
 }
 
+/** 管理端寫入（場次增修刪、解除封存、硬刪登錄）：清全站讀取快取＋bump epoch（跨實例失效） */
 async function invalidateExamRegistrationCaches(): Promise<void> {
   invalidateReadCache(STUDENT_CACHE_PREFIX);
   await invalidateAdminListCache();
 }
 
+/**
+ * 學生端寫入（登錄／取消／封存，高頻）：只清本程序的模組前綴快取，
+ * 不 bump epoch、不清全站（鐵律 6——高頻寫入不得打爆全站清單快取）。
+ * 管理端名單快取 TTL 30 秒，跨實例延遲上限 30 秒。
+ */
+function invalidateStudentRegistrationCaches(): void {
+  invalidateReadCache(STUDENT_CACHE_PREFIX);
+  invalidateReadCache(ADMIN_ROSTER_KEY_PREFIX);
+  invalidateReadCache(APPLICABLE_STUDENTS_KEY_PREFIX);
+}
+
 // —— 學生端 ——
 
 /**
- * 學生可見場次（status ∈ open/closed）：30 秒快取。
+ * 學生可見場次（status ∈ open/closed）：快取壽命讀系統設定（預設 30 秒）。
  * 鐵律 6：非管理端寫入的快取，只 invalidateReadCache(前綴)、不 bump epoch。
  */
 export async function listVisibleExamEvents(): Promise<ExamEvent[]> {
-  return cachedRead(STUDENT_EVENT_CACHE_KEY, STUDENT_EVENT_CACHE_TTL_MS, async () => {
+  return cachedRead(STUDENT_EVENT_CACHE_KEY, await cacheTtlMs(), async () => {
     const snap = await getAdminDb()
       .collection(EXAM_EVENTS_COLLECTION)
       .where("status", "in", ["open", "closed"])
@@ -350,39 +363,7 @@ export async function listVisibleExamEvents(): Promise<ExamEvent[]> {
   });
 }
 
-/** 各場次即時科目人數（30 秒快取；optOut 不佔名額） */
-async function listSubjectCountMap(
-  eventIds: string[]
-): Promise<Record<string, Record<string, number>>> {
-  if (!eventIds.length) return {};
-  const key = `${STUDENT_COUNTS_CACHE_PREFIX}${[...eventIds].sort().join(",")}`;
-  return cachedRead(key, STUDENT_EVENT_CACHE_TTL_MS, async () => {
-    const snap = await getAdminDb()
-      .collection(EXAM_REGISTRATIONS_COLLECTION)
-      .where("eventId", "in", eventIds)
-      .get();
-    const perEventKeys = new Map<string, string[][]>();
-    for (const doc of snap.docs) {
-      const raw = doc.data();
-      const eventId = typeof raw.eventId === "string" ? raw.eventId : "";
-      if (!eventId) continue;
-      if (raw.optOut === true) continue;
-      const list = perEventKeys.get(eventId) ?? [];
-      list.push(parseSubjectKeys(raw.subjectKeys));
-      perEventKeys.set(eventId, list);
-    }
-    const result: Record<string, Record<string, number>> = {};
-    for (const [eventId, keysList] of perEventKeys) {
-      result[eventId] = {};
-      for (const keys of keysList) {
-        for (const key of keys) result[eventId][key] = (result[eventId][key] ?? 0) + 1;
-      }
-    }
-    return result;
-  });
-}
-
-/** 場次快取＋本人登錄＋各科人數 → 對象過濾在記憶體內完成（場次數量為個位數） */
+/** 場次快取＋本人登錄 → 對象過濾在記憶體內完成（場次數量為個位數）。名額上限機制已廢止，不再聚合各科人數。 */
 export async function listStudentExamEvents(student: StudentIdentity): Promise<StudentExamEvent[]> {
   const events = await listVisibleExamEvents();
   const visible = events.filter((event) => isTargetMatch(event.target, student));
@@ -395,19 +376,10 @@ export async function listStudentExamEvents(student: StudentIdentity): Promise<S
     const registration = readExamRegistration(doc.id, doc.data());
     mine.set(registration.eventId, registration);
   }
-  const counts = await listSubjectCountMap(visible.map((event) => event.id));
   const now = Date.now();
   return visible.map((event) => {
     const registration = mine.get(event.id);
     const effective = effectiveExamStatus(event, now);
-    const eventCounts = counts[event.id] ?? {};
-    const subjectStats: StudentExamEvent["subjectStats"] = {};
-    for (const subject of event.subjects) {
-      subjectStats[subject.key] = {
-        count: eventCounts[subject.key] ?? 0,
-        capacity: subjectCapacity(subject),
-      };
-    }
     const { announcementSync: _announcementSync, calendarSync: _calendarSync, ...studentEvent } = event;
     void _announcementSync;
     void _calendarSync;
@@ -431,7 +403,6 @@ export async function listStudentExamEvents(student: StudentIdentity): Promise<S
       myFeeCode: registration ? registration.feeCode : null,
       myFeeAmount: registration ? (registration.optOut ? 0 : registration.feeAmount) : null,
       myArchived: registration?.archived ?? false,
-      subjectStats,
     };
   });
 }
@@ -445,16 +416,24 @@ export async function linkedStudentIdentityForParent(
   const expectedGrade = typeof parentEntry.grade === "string" ? parentEntry.grade.trim() : "";
   const expectedClass = typeof parentEntry.classCode === "string" ? parentEntry.classCode.trim() : "";
   const period = await getCurrentPeriod();
-  const entries = await loadPeriodEntries(period, "student");
+  // 嚴格省流：以學號＋學期等值條件下推（1 筆查詢、≈1 讀），
+  // 取代原先整期全校學生名冊全量讀取（≈全校人數讀/請求）。
+  const snapshot = await getAdminDb()
+    .collection(rosterCollection("student"))
+    .where("studentId", "==", studentId)
+    .where("academicYear", "==", period.academicYear)
+    .where("semester", "==", period.semester)
+    .get();
   const matches: StudentIdentity[] = [];
 
-  for (const [uid, entry] of entries) {
+  for (const doc of snapshot.docs) {
+    const entry = doc.data();
     if (!isActiveEntry(entry)) continue;
-    const entryStudentId = typeof entry.studentId === "string" ? entry.studentId.trim() : "";
+    const uid = typeof entry.uid === "string" ? entry.uid : "";
     const grade = typeof entry.grade === "string" ? entry.grade.trim() : "";
     const classCode = typeof entry.classCode === "string" ? entry.classCode.trim() : "";
     if (
-      entryStudentId !== studentId ||
+      !uid ||
       (expectedGrade && grade !== expectedGrade) ||
       (expectedClass && classCode !== expectedClass)
     ) {
@@ -487,7 +466,6 @@ export async function getExamEvent(eventId: string): Promise<ExamEvent | null> {
  * 文件 id ＝ `eventId__studentUid`（決定論），唯一性由文件 id 直接保證。
  * - optOut=true（僅 required 場次）：不報名，optOutReason 必填，subjectKeys 恆空、費用 0
  * - archived=true：凍結唯讀，upsert／取消一律 409（解除封存走管理端）
- * - 額滿統計排除 optOut（不報名不佔名額）
  */
 export async function upsertExamRegistration(input: {
   eventId: string;
@@ -598,41 +576,8 @@ export async function upsertExamRegistration(input: {
     studentRollNo: input.student.rollNo ?? "",
     seatNo: input.student.seatNo ?? "",
   };
-  /** 先到先得且有科設名額上限 → transaction 內讀全场次統計（排除 optOut），額滿即拒 */
-  const needsCapacityCheck =
-    !optOut &&
-    event.subjects.some((subject) => subjectCapacity(subject) > 0);
-
   const result = await db.runTransaction(async (tx) => {
-    const [snap, all] = await Promise.all([
-      tx.get(ref),
-      needsCapacityCheck
-        ? tx.get(db.collection(EXAM_REGISTRATIONS_COLLECTION).where("eventId", "==", event.id))
-        : Promise.resolve(null),
-    ]);
-    if (snap.exists) {
-      const previous = readExamRegistration(snap.id, snap.data() ?? {});
-      if (previous.archived) {
-        throw new ExamRegistrationError(409, "資料已封存，無法修改——請聯繫承辦解除封存");
-      }
-    }
-    if (all) {
-      const others = all.docs
-        .filter((doc) => doc.id !== ref.id)
-        .flatMap((doc) => {
-          if (doc.data().optOut === true) return [];
-          return [parseSubjectKeys(doc.data().subjectKeys)];
-        });
-      const counts = countSubjectsByRegistrations(others, event.subjects);
-      for (const key of subjectKeys) {
-        const subject = event.subjects.find((item) => item.key === key);
-        if (!subject) continue;
-        const capacity = subjectCapacity(subject);
-        if (capacity > 0 && (counts[key] ?? 0) >= capacity) {
-          throw new ExamRegistrationError(409, `「${subject.label}」已額滿（名額 ${capacity} 名）`);
-        }
-      }
-    }
+    const snap = await tx.get(ref);
     const record = {
       ...base,
       subjectKeys,
@@ -649,6 +594,9 @@ export async function upsertExamRegistration(input: {
     };
     if (snap.exists) {
       const previous = readExamRegistration(snap.id, snap.data() ?? {});
+      if (previous.archived) {
+        throw new ExamRegistrationError(409, "資料已封存，無法修改——請聯繫承辦解除封存");
+      }
       tx.update(ref, { ...record, updatedAt: now });
       return {
         created: false,
@@ -663,7 +611,7 @@ export async function upsertExamRegistration(input: {
     };
   });
 
-  await invalidateExamRegistrationCaches();
+  invalidateStudentRegistrationCaches();
   await logActivity({
     userId: input.student.uid,
     role: "student",
@@ -696,7 +644,7 @@ export async function withdrawExamRegistration(input: {
     tx.delete(ref);
   });
 
-  await invalidateExamRegistrationCaches();
+  invalidateStudentRegistrationCaches();
   await logActivity({
     userId: input.studentUid,
     role: "student",
@@ -736,7 +684,7 @@ export async function archiveExamRegistration(input: {
     return { ...previous, archived: true, archivedAt: now, updatedAt: now };
   });
 
-  await invalidateExamRegistrationCaches();
+  invalidateStudentRegistrationCaches();
   await logActivity({
     userId: input.studentUid,
     role: "student",
@@ -956,25 +904,29 @@ export async function deleteExamEvent(
 export async function getExamEventRoster(eventId: string): Promise<ExamEventRoster | null> {
   const event = await getExamEvent(eventId);
   if (!event) return null;
-  const { data, epoch } = await cachedListRead(`${ADMIN_ROSTER_KEY_PREFIX}${eventId}`, async () => {
-    const [snap, applicableStudents] = await Promise.all([
-      getAdminDb()
-        .collection(EXAM_REGISTRATIONS_COLLECTION)
-        .where("eventId", "==", eventId)
-        .limit(ROSTER_LIMIT)
-        .get(),
-      loadApplicableStudents(event),
-    ]);
-    const rows = snap.docs.map((doc) => readExamRegistration(doc.id, doc.data()));
-    rows.sort(
-      (a, b) =>
-        a.studentClass.localeCompare(b.studentClass, "zh-Hant") ||
-        a.seatNo.localeCompare(b.seatNo) ||
-        a.studentName.localeCompare(b.studentName, "zh-Hant")
-    );
-    const students = buildRosterStudents(rows, applicableStudents);
-    return { registrations: rows, students, summary: summarizeRoster(rows, event, applicableStudents.length, students) };
-  });
+  const { data, epoch } = await cachedListRead(
+    `${ADMIN_ROSTER_KEY_PREFIX}${eventId}`,
+    async () => {
+      const [snap, applicableStudents] = await Promise.all([
+        getAdminDb()
+          .collection(EXAM_REGISTRATIONS_COLLECTION)
+          .where("eventId", "==", eventId)
+          .limit(ROSTER_LIMIT)
+          .get(),
+        loadApplicableStudentsCached(event),
+      ]);
+      const rows = snap.docs.map((doc) => readExamRegistration(doc.id, doc.data()));
+      rows.sort(
+        (a, b) =>
+          a.studentClass.localeCompare(b.studentClass, "zh-Hant") ||
+          a.seatNo.localeCompare(b.seatNo) ||
+          a.studentName.localeCompare(b.studentName, "zh-Hant")
+      );
+      const students = buildRosterStudents(rows, applicableStudents);
+      return { registrations: rows, students, summary: summarizeRoster(rows, event, applicableStudents.length, students) };
+    },
+    await cacheTtlMs()
+  );
   return { eventId, event, ...data, epoch };
 }
 
@@ -989,27 +941,85 @@ interface ApplicableStudent {
   rollNo: string;
 }
 
-async function loadApplicableStudents(event: ExamEvent): Promise<ApplicableStudent[]> {
+/** 以 `in` 查詢分塊讀取當期名冊條目（每批 10 值，Firestore `in` 上限） */
+async function loadPeriodEntriesByInFilter(
+  period: SchoolPeriod,
+  role: Parameters<typeof rosterCollection>[0],
+  field: "classCode" | "grade",
+  values: string[]
+): Promise<Map<string, Record<string, unknown>>> {
+  const base = getAdminDb()
+    .collection(rosterCollection(role))
+    .where("academicYear", "==", period.academicYear)
+    .where("semester", "==", period.semester);
+  const chunks: string[][] = [];
+  for (let i = 0; i < values.length; i += 10) {
+    chunks.push(values.slice(i, i + 10));
+  }
+  const snapshots = await Promise.all(
+    chunks.map((chunk) => base.where(field, "in", chunk).get())
+  );
+  const map = new Map<string, Record<string, unknown>>();
+  for (const snapshot of snapshots) {
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      const uid = typeof data.uid === "string" ? data.uid : "";
+      if (uid) map.set(uid, data);
+    }
+  }
+  return map;
+}
+
+async function loadApplicableStudents(event: ExamEvent, classCode?: string): Promise<ApplicableStudent[]> {
   const period = await getCurrentPeriod();
-  const entries = await loadPeriodEntries(period, "student");
+  // 嚴格省流（過濾下推）：
+  // - 指定單班 → classCode in [該班]
+  // - 場次有指定班級 → classCode in [班級清單]
+  // - 僅指定年級（無班級）→ grade in [年級清單]（回傳≈該年級人數，非全校）
+  // - 年級與班級皆空 → 理論上不會發生（manifest 要求至少一個年級），退回整期讀取
+  let entries: Map<string, Record<string, unknown>>;
+  if (classCode !== undefined) {
+    entries = await loadPeriodEntriesByInFilter(period, "student", "classCode", [classCode]);
+  } else if (event.target.classes.length) {
+    entries = await loadPeriodEntriesByInFilter(period, "student", "classCode", event.target.classes);
+  } else if (event.target.grades.length) {
+    entries = await loadPeriodEntriesByInFilter(period, "student", "grade", event.target.grades);
+  } else {
+    entries = await loadPeriodEntries(period, "student");
+  }
   const students: ApplicableStudent[] = [];
   for (const [uid, entry] of entries) {
     if (!isActiveEntry(entry)) continue;
     const grade = typeof entry.grade === "string" ? entry.grade : "";
-    const classCode = typeof entry.classCode === "string" ? entry.classCode : "";
-    if (!isTargetMatch(event.target, { grade, classCode })) continue;
+    const entryClassCode = typeof entry.classCode === "string" ? entry.classCode : "";
+    if (!isTargetMatch(event.target, { grade, classCode: entryClassCode })) continue;
     students.push({
       uid,
       name: typeof entry.name === "string" ? entry.name : "",
       grade,
-      classCode,
+      classCode: entryClassCode,
       studentId: typeof entry.studentId === "string" ? entry.studentId : "",
-      className: typeof entry.className === "string" ? entry.className : classCode,
+      className: typeof entry.className === "string" ? entry.className : entryClassCode,
       seatNo: typeof entry.seatNo === "string" ? entry.seatNo : "",
       rollNo: typeof entry.rollNo === "string" ? entry.rollNo : "",
     });
   }
   return students;
+}
+
+const APPLICABLE_STUDENTS_KEY_PREFIX = "admin:exam-registration:applicable:";
+
+/**
+ * 場次應對象學生（含年級／班級下推）＋短 TTL 快取：
+ * 班級分頁、統計面板、單班名冊共用同一份（同 TTL 內各端點只讀一次 Firestore）。
+ * 學生寫入只清本前綴（不 bump epoch）——跨實例延遲上限＝TTL（系統設定 cacheTtlSeconds）。
+ */
+async function loadApplicableStudentsCached(event: ExamEvent): Promise<ApplicableStudent[]> {
+  const { data } = await cachedListRead(
+    `${APPLICABLE_STUDENTS_KEY_PREFIX}${event.id}`,
+    () => loadApplicableStudents(event)
+  );
+  return data;
 }
 
 function buildRosterStudents(
@@ -1061,39 +1071,37 @@ function buildRosterStudents(
 
 // —— 延遲載入：班級分頁 / 單班名冊 ——
 
-let _applicableStudentsCache: { eventId: string; students: ApplicableStudent[] } | null = null;
-
-async function loadApplicableStudentsCached(event: ExamEvent): Promise<ApplicableStudent[]> {
-  if (_applicableStudentsCache?.eventId === event.id) return _applicableStudentsCache.students;
-  const students = await loadApplicableStudents(event);
-  _applicableStudentsCache = { eventId: event.id, students };
-  return students;
-}
-
-/** 班級分頁清單（不含登錄明細，僅讀名冊） */
+/** 班級分頁清單（不含登錄明細；應對象學生與統計面板共用快取） */
 export async function getExamEventClassTabs(eventId: string): Promise<ExamClassTabs | null> {
   const event = await getExamEvent(eventId);
   if (!event) return null;
-  const { data, epoch } = await cachedListRead(`${ADMIN_ROSTER_KEY_PREFIX}${eventId}:tabs`, async () => {
-    const students = await loadApplicableStudentsCached(event);
-    const byClass = new Map<string, number>();
-    for (const student of students) {
-      const code = student.classCode || "__no_class__";
-      byClass.set(code, (byClass.get(code) ?? 0) + 1);
+  const { data, epoch } = await cachedListRead(
+    `${ADMIN_ROSTER_KEY_PREFIX}${eventId}:tabs`,
+    async () => {
+      const students = await loadApplicableStudentsCached(event);
+      const byClass = new Map<string, number>();
+      for (const student of students) {
+        const code = student.classCode || "__no_class__";
+        byClass.set(code, (byClass.get(code) ?? 0) + 1);
+      }
+      const classTabs = [...byClass.entries()]
+        .map(([code, count]) => ({
+          key: code,
+          label: code === "__no_class__" ? "未填班級" : code,
+          count,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant", { numeric: true }));
+      return { classTabs, applicableCount: students.length };
     }
-    const classTabs = [...byClass.entries()]
-      .map(([code, count]) => ({
-        key: code,
-        label: code === "__no_class__" ? "未填班級" : code,
-        count,
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant", { numeric: true }));
-    return { classTabs, applicableCount: students.length };
-  });
+  );
   return { eventId, event, ...data, epoch };
 }
 
-/** 單班名冊（點選班級時才讀該班登錄） */
+/**
+ * 單班名冊（點選班級時才讀該班）——
+ * 嚴格省流：名冊條目以 classCode 下推、登錄以 studentClass 下推，
+ * 都只讀該班（各自 1 筆查詢），不載入其他班級資料。
+ */
 export async function getExamEventClassRoster(
   eventId: string,
   classCode: string
@@ -1102,32 +1110,41 @@ export async function getExamEventClassRoster(
   if (!event) return null;
   const key = classCode || "__no_class__";
   const normalizedClass = key === "__no_class__" ? "" : key;
-  const { data, epoch } = await cachedListRead(`${ADMIN_ROSTER_KEY_PREFIX}${eventId}:class:${key}`, async () => {
-    const [allStudents, snap] = await Promise.all([
-      loadApplicableStudentsCached(event),
-      getAdminDb()
-        .collection(EXAM_REGISTRATIONS_COLLECTION)
-        .where("eventId", "==", eventId)
-        .where("studentClass", "==", normalizedClass)
-        .limit(ROSTER_LIMIT)
-        .get(),
-    ]);
-    const classStudents = allStudents.filter((s) => (s.classCode || "__no_class__") === key);
-    const regs = snap.docs.map((doc) => readExamRegistration(doc.id, doc.data()));
-    const students = buildRosterStudents(regs, classStudents);
-    let registeredCount = 0;
-    let optOutCount = 0;
-    let archivedCount = 0;
-    for (const reg of regs) {
-      if (reg.archived) archivedCount += 1;
-      if (reg.optOut) optOutCount += 1;
-      else registeredCount += 1;
+  const { data, epoch } = await cachedListRead(
+    `${ADMIN_ROSTER_KEY_PREFIX}${eventId}:class:${key}`,
+    async () => {
+      const [classStudents, snap] = await Promise.all([
+        loadApplicableStudents(event, normalizedClass),
+        getAdminDb()
+          .collection(EXAM_REGISTRATIONS_COLLECTION)
+          .where("eventId", "==", eventId)
+          .where("studentClass", "==", normalizedClass)
+          .limit(ROSTER_LIMIT)
+          .get(),
+      ]);
+      const regs = snap.docs.map((doc) => readExamRegistration(doc.id, doc.data()));
+      const students = buildRosterStudents(regs, classStudents);
+      // 報名方式決定名單提供方式：
+      // - 自由報名：只列出「完成報名」者（未完成／不報名不出現在名單）
+      // - 必須報名：整班全部列出（含未完成／不報名，供對帳催辦）
+      const visibleStudents =
+        event.registrationMode === "optional"
+          ? students.filter((student) => student.status === "registered")
+          : students;
+      let registeredCount = 0;
+      let optOutCount = 0;
+      let archivedCount = 0;
+      for (const reg of regs) {
+        if (reg.archived) archivedCount += 1;
+        if (reg.optOut) optOutCount += 1;
+        else registeredCount += 1;
+      }
+      return {
+        students: visibleStudents,
+        classSummary: { total: classStudents.length, registeredCount, optOutCount, archivedCount },
+      };
     }
-    return {
-      students,
-      classSummary: { total: classStudents.length, registeredCount, optOutCount, archivedCount },
-    };
-  });
+  );
   return { classCode: key, ...data, epoch };
 }
 
@@ -1400,8 +1417,6 @@ function summarizeRoster(
     bySubject[subject.key] = {
       label: subject.label,
       count: 0,
-      capacity: subjectCapacity(subject),
-      full: false,
     };
   }
   const byClass: Record<string, number> = {};
@@ -1423,9 +1438,6 @@ function summarizeRoster(
   for (const student of students) {
     const code = student.studentClass || "__no_class__";
     byClass[code] = (byClass[code] ?? 0) + 1;
-  }
-  for (const entry of Object.values(bySubject)) {
-    entry.full = entry.capacity > 0 && entry.count >= entry.capacity;
   }
   return { applicableCount, total: rows.length, registeredCount, optOutCount, archivedCount, bySubject, byClass };
 }
@@ -1578,44 +1590,47 @@ export async function buildExamRegistrationXlsxForEvent(
       .filter((row) => !row.optOut && inRange(row.studentClass))
       .map((row) => registrationExportRow(row, roster.event, schoolExamCode, registrationNumberField));
   } else {
-    const period = await getCurrentPeriod();
-    const entries = await loadPeriodEntries(period, "student");
+    // 嚴格省流：應對象學生走共用快取＋年級/班級下推（不整期讀全校名冊）
+    const applicableStudents = await loadApplicableStudentsCached(roster.event);
     const regByUid = new Map(roster.registrations.map((row) => [row.studentUid, row]));
     const seenUids = new Set<string>();
     rows = [];
-    for (const [uid, entry] of entries) {
-      if (!isActiveEntry(entry)) continue;
-      const grade = typeof entry.grade === "string" ? entry.grade : "";
-      const classCode = typeof entry.classCode === "string" ? entry.classCode : "";
+    for (const student of applicableStudents) {
+      const { uid, classCode, grade } = student;
       if (!inRange(classCode)) continue;
-      if (!isTargetMatch(roster.event.target, { grade, classCode })) continue;
       seenUids.add(uid);
       const reg = regByUid.get(uid);
       if (reg) {
         if (scope === "pending" && !reg.optOut) continue;
-        rows.push(registrationExportRow(reg, roster.event, schoolExamCode, registrationNumberField, entry));
+        rows.push(
+          registrationExportRow(reg, roster.event, schoolExamCode, registrationNumberField, {
+            classCode,
+            grade,
+            studentId: student.studentId,
+            className: student.className,
+            seatNo: student.seatNo,
+            rollNo: student.rollNo,
+          })
+        );
       } else {
         // 無登錄文件：all 與 pending 皆列入（狀態「未完成報名」）
-        const studentId = typeof entry.studentId === "string" ? entry.studentId : "";
-        const studentClassName = typeof entry.className === "string" ? entry.className : classCode;
-        const seatNo = typeof entry.seatNo === "string" ? entry.seatNo : "";
-        const studentRollNo = typeof entry.rollNo === "string" ? entry.rollNo : `${classCode}${seatNo}`;
+        const studentRollNo = student.rollNo || `${classCode}${student.seatNo}`;
         const fieldValue = registrationNumberFieldValue(registrationNumberField, {
           studentClass: classCode,
           studentGrade: grade,
-          studentId,
-          studentClassName,
+          studentId: student.studentId,
+          studentClassName: student.className || classCode,
           studentRollNo,
-          seatNo,
+          seatNo: student.seatNo,
         });
         rows.push({
           studentClass: classCode,
           studentGrade: grade,
-          studentId,
-          studentClassName,
+          studentId: student.studentId,
+          studentClassName: student.className || classCode,
           studentRollNo,
-          seatNo,
-          studentName: typeof entry.name === "string" ? entry.name : "",
+          seatNo: student.seatNo,
+          studentName: student.name,
           registrationNo: composeExamRegistrationNumber(schoolExamCode, fieldValue),
           statusLabel: "未完成報名",
           subjectsLabel: "",

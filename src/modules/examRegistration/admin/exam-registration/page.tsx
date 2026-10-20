@@ -49,7 +49,6 @@ interface FormSubject {
   advancedOptionCodeText: string;
   advancedOptionLabelText: string;
   advancedOptions: ExamAdvancedOption[];
-  capacityText: string;
   feeStandardText: string;
   feeReducedText: string;
 }
@@ -96,7 +95,6 @@ function blankFormSubject(existingKeys: string[]): FormSubject {
     advancedOptionCodeText: "",
     advancedOptionLabelText: "",
     advancedOptions: [],
-    capacityText: "",
     feeStandardText: "",
     feeReducedText: "",
   };
@@ -306,6 +304,9 @@ export default function AdminExamRegistrationPage() {
   const hookOptionsRequestRef = useRef(false);
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ExamEventType>("all");
+  // 場次清單排序（純前端排序，不增加任何 Firestore 讀取）：預設考試日期由舊到新
+  const [sortKey, setSortKey] = useState<"title" | "examDate" | "registrationDate">("examDate");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // 清單分頁（純前端切片，不增加任何 Firestore 讀取；同帳號／名冊清單）
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -652,7 +653,6 @@ export default function AdminExamRegistrationPage() {
     for (const subject of form.subjects) {
       const label = subject.label.trim();
       if (!label) continue;
-      const capacity = Number(subject.capacityText);
       const feeStandard = Number(subject.feeStandardText);
       const feeReduced = Number(subject.feeReducedText);
       const entry: ExamEvent["subjects"][number] = {
@@ -672,9 +672,6 @@ export default function AdminExamRegistrationPage() {
         entry.enableAdvancedOption = true;
         entry.advancedOptions = parsedAdvancedOptions.value;
       }
-      if (subject.capacityText.trim() !== "" && Number.isInteger(capacity) && capacity > 0) {
-        entry.capacity = capacity;
-      }
       if (subject.feeStandardText.trim() !== "" && Number.isInteger(feeStandard) && feeStandard > 0) {
         entry.feeStandard = feeStandard;
       }
@@ -682,15 +679,6 @@ export default function AdminExamRegistrationPage() {
         entry.feeReduced = feeReduced;
       }
       subjects.push(entry);
-    }
-    for (const subject of subjects) {
-      if (subject.capacity !== undefined && subject.capacity > EXAM_EVENT_LIMITS.subjectCapacityMax) {
-        setToast({
-          kind: "error",
-          text: `科目「${subject.label}」名額上限過大（最多 ${EXAM_EVENT_LIMITS.subjectCapacityMax}）`,
-        });
-        return;
-      }
     }
     if (subjects.length < EXAM_EVENT_LIMITS.subjectsMin) {
       setToast({ kind: "error", text: "請至少輸入一個科目名稱" });
@@ -900,7 +888,6 @@ export default function AdminExamRegistrationPage() {
         advancedOptionCodeText: "",
         advancedOptionLabelText: "",
         advancedOptions: subject.advancedOptions ?? [],
-        capacityText: subject.capacity ? String(subject.capacity) : "",
         feeStandardText: subject.feeStandard ? String(subject.feeStandard) : "",
         feeReducedText: subject.feeReduced ? String(subject.feeReduced) : "",
       })),
@@ -929,8 +916,9 @@ export default function AdminExamRegistrationPage() {
     if (loadingRoster) return;
     setLoadingRoster(true);
     try {
+      // stats=1：統計面板需要完整名單與統計（延遲載入改為分頁後，?eventId= 只回班級分頁）
       const res = await fetch(
-        `/api/admin/exam-registration?eventId=${encodeURIComponent(eventId)}`,
+        `/api/admin/exam-registration?eventId=${encodeURIComponent(eventId)}&stats=1`,
         { cache: "no-store" }
       );
       const data: AdminListResponse | null = await res.json().catch(() => null);
@@ -956,13 +944,6 @@ export default function AdminExamRegistrationPage() {
     }));
   }
 
-  function capacityEditor(index: number, capacityText: string) {
-    setForm((prev) => ({
-      ...prev,
-      subjects: prev.subjects.map((item, i) => (i === index ? { ...item, capacityText } : item)),
-    }));
-  }
-
   function subjectFeeEditor(index: number, field: "feeStandardText" | "feeReducedText", value: string) {
     const sanitized = sanitizeNonNegativeIntegerInput(value);
     setForm((prev) => ({
@@ -982,17 +963,36 @@ export default function AdminExamRegistrationPage() {
     });
   }, [items, statusFilter, searchKeyword]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  // 排序（純前端）：title 用中文 locale 比較；examDate 為 YYYY-MM-DD 字串，字串序即時間序；
+  // 報名日期以開放時間為準（未設開放時間者以截止時間計）。Array.sort 穩定，同值保留伺服器原序。
+  const sortedItems = useMemo(() => {
+    const factor = sortDir === "asc" ? 1 : -1;
+    const keyOf = (item: ExamEvent): string | number => {
+      if (sortKey === "title") return item.title;
+      if (sortKey === "examDate") return item.examDate;
+      return item.registrationOpenAt > 0 ? item.registrationOpenAt : item.deadline;
+    };
+    return [...filteredItems].sort((a, b) => {
+      const ka = keyOf(a);
+      const kb = keyOf(b);
+      if (typeof ka === "string" && typeof kb === "string") {
+        return factor * ka.localeCompare(kb, "zh-Hant");
+      }
+      return factor * ((ka as number) - (kb as number));
+    });
+  }, [filteredItems, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedItems = useMemo(
-    () => filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize),
-    [filteredItems, currentPage, pageSize]
+    () => sortedItems.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [sortedItems, currentPage, pageSize]
   );
 
-  // 篩選條件變動時回到第一頁
+  // 篩選／排序條件變動時回到第一頁
   useEffect(() => {
     setPage(1);
-  }, [keyword, statusFilter]);
+  }, [keyword, statusFilter, sortKey, sortDir]);
 
   const targetText = (item: ExamEvent) =>
     `${item.target.grades.join("、") || "—"} 年級${
@@ -2025,6 +2025,31 @@ export default function AdminExamRegistrationPage() {
             ))}
           </select>
         </div>
+
+        {/* 排序列：省流閘門解除後才顯示（列表已載入才有排序意義） */}
+        {!gating && (
+          <div className="px-5 py-3 border-b border-themed flex flex-wrap items-center gap-3">
+            <span className="text-sm text-t2">排序</span>
+            <select
+              className="input-theme rounded px-2 py-1 text-sm"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as "title" | "examDate" | "registrationDate")}
+              aria-label="排序欄位"
+            >
+              <option value="examDate">考試日期</option>
+              <option value="registrationDate">報名日期</option>
+              <option value="title">場次</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setSortDir((prev) => (prev === "asc" ? "desc" : "asc"))}
+              aria-label={sortDir === "asc" ? "切換為由新到舊" : "切換為由舊到新"}
+              className="btn-theme rounded px-2 py-1 text-sm shrink-0"
+            >
+              {sortDir === "asc" ? "↑ 舊到新" : "↓ 新到舊"}
+            </button>
+          </div>
+        )}
 
         <div className="border-t border-themed overflow-x-auto">
           {gating ? (
