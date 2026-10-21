@@ -678,10 +678,11 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
     }
   }
 
+  /** 指派／更新一個人的子權限：以呼叫端算好的 permissions 為準（候選區草稿已含 uid 前綴） */
   async function assign(person: ManagerRow) {
-    const permissions = permissionDefs
-      .filter((def) => draftPerms[def.value])
-      .map((def) => def.value);
+    const permissions = person.permissions.filter((code) =>
+      permissionDefs.some((def) => def.value === code)
+    );
     if (permissions.length === 0) {
       setError("請至少勾選一項子權限");
       return;
