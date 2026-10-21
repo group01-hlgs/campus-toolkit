@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/audit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { getAnnouncementSettings } from "@/lib/announcements";
 import { getCalendarSettings } from "@/lib/calendar";
 import {
@@ -25,6 +25,15 @@ import { isExamRegistrationNumberField, isExamRosterExportScope } from "../../..
 
 const noStore = { "Cache-Control": "no-store" };
 
+/**
+ * 管理端守門（managerPermissions，政策修改書 §6）：
+ * 管理員恆全權；非管理員看名冊條目 managedModules 子權限。
+ * 子權限碼：viewRoster（檢視）／configure（場次維護）／approve（審核）／export（匯出）。
+ */
+async function requireExamPermission(permission?: string) {
+  return requireModulePermission("examRegistration", permission);
+}
+
 /** 主程式的 serverErrorMessage 等價小工具（模組不得依賴非公開面檔案） */
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof ExamRegistrationError) return error.message;
@@ -32,7 +41,12 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** GET：場次清單；`?eventId=` 回班級分頁；`?eventId=&classCode=` 回單班名冊；`?eventId=&stats=1` 回完整名單統計；`?summary=count` 僅回傳總筆數 */
+/**
+ * GET：場次清單；`?eventId=` 回班級分頁；`?eventId=&classCode=` 回單班名冊；
+ * `?eventId=&stats=1` 回完整名單統計；`?summary=count` 僅回傳總筆數。
+ * 檢視類需 viewRoster；匯出（format=csv／xlsx／official-xlsx）另需 export；
+ * hookOptions（編輯表單掛勾選項）需 configure。
+ */
 export async function GET(request: NextRequest) {
   try {
     const limited = enforceRateLimit(
@@ -43,10 +57,17 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("examRegistration");
+    const isExport =
+      request.nextUrl.searchParams.get("format") === "csv" ||
+      request.nextUrl.searchParams.get("format") === "xlsx" ||
+      request.nextUrl.searchParams.get("format") === "official-xlsx";
+    const permission = isExport ? "export" : "viewRoster";
+    const { denial } = await requireExamPermission(permission);
     if (denial) return toAuthResponse(denial);
 
     if (request.nextUrl.searchParams.get("hookOptions") === "1") {
+      const hookDenied = await requireExamPermission("configure");
+      if (hookDenied.denial) return toAuthResponse(hookDenied.denial);
       const scope = request.nextUrl.searchParams.get("scope");
       const [announcementSettings, calendarSettings] = await Promise.all([
         scope === "calendar" ? Promise.resolve(null) : getAnnouncementSettings(),
@@ -200,7 +221,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST：建立場次 */
+/** POST：建立場次（需 configure） */
 export async function POST(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -214,8 +235,9 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("examRegistration");
+    const { context, denial } = await requireExamPermission("configure");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) {
@@ -225,7 +247,7 @@ export async function POST(request: NextRequest) {
     const actor = {
       uid: session.uid,
       name: session.displayName || session.account,
-      role: "admin" as const,
+      role: session.role,
     };
     const { events, epoch } = await createExamEvent(body, actor, getClientIp(request));
     return NextResponse.json(
@@ -241,7 +263,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** PATCH：編輯場次與狀態轉換（`{ id, ...patch }`） */
+/**
+ * PATCH：編輯場次與狀態轉換（`{ id, ...patch }`，需 configure）；
+ * 解除封存（`{ id, registrationId, unarchive: true }`，需 approve）。
+ */
 export async function PATCH(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -255,10 +280,15 @@ export async function PATCH(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("examRegistration");
+    const peek = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const isUnarchive = Boolean(
+      peek && typeof peek.registrationId === "string" && peek.registrationId && peek.unarchive === true
+    );
+    const { context, denial } = await requireExamPermission(isUnarchive ? "approve" : "configure");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const body = peek;
     const id = body && typeof body.id === "string" ? body.id : "";
     if (!id) {
       return NextResponse.json({ success: false, message: "缺少場次 id" }, { status: 400, headers: noStore });
@@ -267,7 +297,7 @@ export async function PATCH(request: NextRequest) {
     const actor = {
       uid: session.uid,
       name: session.displayName || session.account,
-      role: "admin" as const,
+      role: session.role,
     };
     // 解除封存分支：`{ id, registrationId, unarchive: true }`（學生可重新修改）
     const registrationId = body && typeof body.registrationId === "string" ? body.registrationId : "";
@@ -303,7 +333,10 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-/** DELETE：硬刪除場次（`?id=`；連同該場次全部登錄名單一併刪除）或單筆登錄（`?id=&registrationId=`） */
+/**
+ * DELETE：硬刪除場次（`?id=`，需 configure；連同該場次全部登錄名單一併刪除）
+ * 或單筆登錄（`?id=&registrationId=`，需 approve）。
+ */
 export async function DELETE(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -317,8 +350,12 @@ export async function DELETE(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("examRegistration");
+    const registrationIdPeek = request.nextUrl.searchParams.get("registrationId");
+    const { context, denial } = await requireExamPermission(
+      registrationIdPeek ? "approve" : "configure"
+    );
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
     const id = request.nextUrl.searchParams.get("id");
     if (!id) {
@@ -328,11 +365,11 @@ export async function DELETE(request: NextRequest) {
     const actor = {
       uid: session.uid,
       name: session.displayName || session.account,
-      role: "admin" as const,
+      role: session.role,
     };
 
     // 單筆登錄硬刪除：`?id=&registrationId=`
-    const registrationId = request.nextUrl.searchParams.get("registrationId");
+    const registrationId = registrationIdPeek;
     if (registrationId) {
       const { studentName } = await deleteExamRegistration({
         eventId: id,

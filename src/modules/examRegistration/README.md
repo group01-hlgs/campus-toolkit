@@ -65,7 +65,10 @@
 
 ## 權限與掛勾
 
-- 權限單位：`mode:"new"`、`category:"校務資料"`；管理頁/API 走 `requireAdminModule("examRegistration")`
+- 權限單位：`mode:"new"`、`category:"校務資料"`；管理頁/API 走 `requireModulePermission("examRegistration", <子權限>)`
+  （主程式 0.558+；管理員恆全權，非管理員由管理員於功能模組管理頁按學期指派）
+- 子權限（`managerPermissions`）：`viewRoster`（查看場次與名冊）／`configure`（建立編輯刪除場次）／
+  `approve`（審核報名：解除封存、刪除登錄）／`export`（匯出名單）
 - 限流：`EXAM_REGISTRATION_LIST`（120/分鐘）、`EXAM_REGISTRATION_MUTATE`（20/分鐘）、`EXAM_REGISTRATION_ADMIN`（60/分鐘）、`EXAM_REGISTRATION_STAFF`（60/分鐘）
 - 稽核：`exam_registration_event_created`／`event_updated`／`recorded`／`withdrawn`／`archived`／`unarchived`
 - **回寫主程式（掛勾）**：`hooks: ["announcements", "calendar"]`——每場次可分別啟用公告與行事曆同步；

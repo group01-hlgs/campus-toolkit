@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { fetchSession } from "@/lib/session";
 import OfficialExamLabel from "../../../components/official-exam-label";
 import { ConfirmModal } from "../../../components/exam-feedback";
 import Toast, { type ToastMessage } from "../../../components/toast";
@@ -53,6 +54,10 @@ export default function ExamRegistrationRosterPage() {
   const searchParams = useSearchParams();
   const eventId = searchParams.get("eventId") ?? "";
 
+  // 子權限（managerPermissions）：管理員恆全權；非管理員看 delegatedModules
+  const [canExport, setCanExport] = useState(true);
+  const [canApprove, setCanApprove] = useState(true);
+
   const [loading, setLoading] = useState(false);
   const [classLoading, setClassLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,6 +73,39 @@ export default function ExamRegistrationRosterPage() {
   const [exportScope, setExportScope] = useState("");
   const [schoolExamCode, setSchoolExamCode] = useState("");
   const [registrationNumberField, setRegistrationNumberField] = useState<ExamRegistrationNumberField>("rollNo");
+
+  // 子權限載入：管理員＝全開；非管理員＝delegatedModules 中 examRegistration 的 permissions
+  useEffect(() => {
+    let cancelled = false;
+    fetchSession(true)
+      .then((session) => {
+        if (cancelled) return;
+        if (!session) {
+          setCanExport(false);
+          setCanApprove(false);
+          return;
+        }
+        if (session.role === "admin") {
+          setCanExport(true);
+          setCanApprove(true);
+          return;
+        }
+        const grant = (session.delegatedModules ?? []).find(
+          (item) => item.module === "examRegistration"
+        );
+        setCanExport(Boolean(grant?.permissions.includes("export")));
+        setCanApprove(Boolean(grant?.permissions.includes("approve")));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCanExport(false);
+          setCanApprove(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadClassTabs = useCallback(async () => {
     if (!eventId) {
@@ -214,6 +252,10 @@ export default function ExamRegistrationRosterPage() {
   }, [currentClassData]);
 
   async function unarchiveRegistration(studentUid: string) {
+    if (!canApprove) {
+      setToast({ kind: "error", text: "此帳號無審核報名（解除封存）的權限" });
+      return;
+    }
     if (!eventId || saving) return;
     setSaving(true);
     try {
@@ -241,6 +283,10 @@ export default function ExamRegistrationRosterPage() {
   }
 
   function handleDeleteClick(studentUid: string, studentName: string) {
+    if (!canApprove) {
+      setToast({ kind: "error", text: "此帳號無審核報名（刪除登錄）的權限" });
+      return;
+    }
     if (saving) return;
     setConfirmDelete({ uid: studentUid, name: studentName });
   }
@@ -306,6 +352,7 @@ export default function ExamRegistrationRosterPage() {
               </div>
             </div>
 
+            {canExport && (
             <div className="border border-themed rounded-lg p-4 space-y-3">
               <div>
                 <h4 className="text-sm font-bold text-t1">資料整理</h4>
@@ -407,6 +454,7 @@ export default function ExamRegistrationRosterPage() {
                 官方報名序號＝學校升學代碼＋所選學生名冊欄位；例如 931＋班號 30101＝93130101。
               </p>
             </div>
+            )}
 
             <div className="flex flex-wrap gap-2">
               {classTabs.map((item) => (
@@ -510,7 +558,7 @@ export default function ExamRegistrationRosterPage() {
                             {reg ? formatListDateTime(reg.updatedAt) : "—"}
                           </td>
                           <td className="px-3 py-2 text-right whitespace-nowrap">
-                            {reg ? (
+                            {reg && canApprove ? (
                               <span className="inline-flex items-center gap-1">
                                 {reg.archived ? (
                                   <button

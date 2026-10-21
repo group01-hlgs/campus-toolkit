@@ -6,7 +6,7 @@
   "description": "校內升學考試與模擬考的選考科目登錄：承辦建立場次與科目、指定對象年級班級，學生線上登錄與修改，家長可唯讀查看名冊綁定子女的報名資料。",
   "href": "/admin/exam-registration",
   "contractVersion": 1,
-  "minHostVersion": "0.551",
+  "minHostVersion": "0.558",
   "license": "MIT",
   "repository": "https://github.com/takan003/examRegistration",
   "keywords": ["考試", "報名", "造冊", "家長"],
@@ -17,11 +17,17 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.1.46",
+    "version": "0.1.47",
     "releasedAt": "2026-10-20"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "defaultRoleEnabled": { "parent": false },
+  "managerPermissions": [
+    { "value": "viewRoster", "label": "查看場次與名冊" },
+    { "value": "configure", "label": "建立／編輯／刪除場次" },
+    { "value": "approve", "label": "審核報名（解除封存／刪除登錄）" },
+    { "value": "export", "label": "匯出名單" }
+  ],
   "routes": [
     { "kind": "page", "path": "/student/exam-registration" },
     { "kind": "page", "path": "/parent/exam-registration" },
@@ -58,6 +64,14 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.1.47",
+      "releasedAt": "2026-10-20",
+      "notes": [
+        "配合主程式「不同身分管理政策」（需主程式 0.558+）：宣告 managerPermissions 子權限（查看場次與名冊／建立編輯刪除場次／審核報名／匯出名單），管理員 API 改以 requireModulePermission 逐動作守門——管理員恆全權；教職員／家長／學生由管理員於功能模組管理頁按學期指派，僅能執行被勾選的子權限。",
+        "管理端頁面依 session 權限上下文隱藏無權限操作（建立／編輯／刪除／解除封存／匯出）。"
+      ]
+    },
     {
       "version": "0.1.46",
       "releasedAt": "2026-10-20",

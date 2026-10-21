@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import RevealListCard from "@/components/RevealListCard";
 import { useDataSaver } from "@/lib/data-saver";
+import { fetchSession } from "@/lib/session";
 import { ConfirmModal } from "../../components/exam-feedback";
 import Toast, { type ToastMessage } from "../../components/toast";
 import OfficialExamLabel from "../../components/official-exam-label";
@@ -278,6 +279,9 @@ function nextStatusOf(status: ExamEventType): ExamEventType | null {
  */
 export default function AdminExamRegistrationPage() {
   const { ready: settingsReady, saverOn } = useDataSaver();
+  // 子權限（managerPermissions）：管理員恆全權；非管理員看 delegatedModules（政策修改書 G3）
+  const [canConfigure, setCanConfigure] = useState(true);
+  const [permsLoaded, setPermsLoaded] = useState(false);
   const [items, setItems] = useState<ExamEvent[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
   const gating = saverOn && !listLoaded;
@@ -319,6 +323,38 @@ export default function AdminExamRegistrationPage() {
     confirmLabel: string;
     onConfirm: () => void;
   } | null>(null);
+
+  // 子權限載入：管理員＝全開；非管理員＝delegatedModules 中 examRegistration 的 permissions
+  useEffect(() => {
+    let cancelled = false;
+    fetchSession(true)
+      .then((session) => {
+        if (cancelled) return;
+        if (!session) {
+          setCanConfigure(false);
+          setPermsLoaded(true);
+          return;
+        }
+        if (session.role === "admin") {
+          setCanConfigure(true);
+        } else {
+          const grant = (session.delegatedModules ?? []).find(
+            (item) => item.module === "examRegistration"
+          );
+          setCanConfigure(Boolean(grant?.permissions.includes("configure")));
+        }
+        setPermsLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCanConfigure(false);
+          setPermsLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (subjectFocusIndex === null) return;
@@ -648,6 +684,10 @@ export default function AdminExamRegistrationPage() {
 
   async function submitForm(event: React.FormEvent) {
     event.preventDefault();
+    if (!canConfigure) {
+      setToast({ kind: "error", text: "此帳號無建立／編輯場次的權限" });
+      return;
+    }
     if (saving) return;
     const subjects: ExamEvent["subjects"] = [];
     for (const subject of form.subjects) {
@@ -786,6 +826,10 @@ export default function AdminExamRegistrationPage() {
   }
 
   async function patchStatus(item: ExamEvent, status: ExamEventType) {
+    if (!canConfigure) {
+      setToast({ kind: "error", text: "此帳號無變更場次狀態的權限" });
+      return;
+    }
     if (saving) return;
     const label = EXAM_EVENT_STATUS_LABELS[status];
     const confirmText =
@@ -824,6 +868,10 @@ export default function AdminExamRegistrationPage() {
 
   /** 硬刪除場次與該場次所有學生登錄資料（需先確認不可復原） */
   function deleteEvent(item: ExamEvent) {
+    if (!canConfigure) {
+      setToast({ kind: "error", text: "此帳號無刪除場次的權限" });
+      return;
+    }
     if (saving) return;
     setConfirm({
       text:
@@ -1022,7 +1070,8 @@ export default function AdminExamRegistrationPage() {
         />
       )}
 
-      {/* 1. 建立／編輯場次（預設收合） */}
+      {/* 1. 建立／編輯場次（預設收合；無 configure 權限不顯示——政策修改書 G3） */}
+      {canConfigure && (
       <section className="border border-themed rounded-lg bg-card">
         <button
           type="button"
@@ -1995,6 +2044,7 @@ export default function AdminExamRegistrationPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* 2. 場次清單 */}
       <section className="border border-themed rounded-lg bg-card">
@@ -2152,15 +2202,17 @@ export default function AdminExamRegistrationPage() {
                         <td className="px-3 py-2 align-top">
                           <div className="flex justify-end">
                             <div className="grid grid-cols-2 gap-1 min-w-[170px]">
-                              <button
-                                type="button"
-                                onClick={() => edit(item)}
-                                className="btn-theme rounded px-2.5 py-1 text-[10px] cursor-pointer"
-                                aria-label={`編輯 ${item.title}`}
-                                title="編輯"
-                              >
-                                編輯
-                              </button>
+                              {canConfigure && (
+                                <button
+                                  type="button"
+                                  onClick={() => edit(item)}
+                                  className="btn-theme rounded px-2.5 py-1 text-[10px] cursor-pointer"
+                                  aria-label={`編輯 ${item.title}`}
+                                  title="編輯"
+                                >
+                                  編輯
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => void loadRoster(item.id)}
@@ -2171,7 +2223,7 @@ export default function AdminExamRegistrationPage() {
                               >
                                 {roster?.eventId === item.id ? "統計 ✓" : "統計"}
                               </button>
-                              {nextStatus ? (
+                              {canConfigure && nextStatus ? (
                                 <button
                                   type="button"
                                   onClick={() => void patchStatus(item, nextStatus)}
@@ -2185,16 +2237,18 @@ export default function AdminExamRegistrationPage() {
                               ) : (
                                 <span />
                               )}
-                              <button
-                                type="button"
-                                onClick={() => void deleteEvent(item)}
-                                disabled={saving}
-                                className="rounded px-2.5 py-1 text-[10px] cursor-pointer disabled:opacity-50 border border-themed text-t3 hover:text-danger hover:border-danger"
-                                aria-label={`刪除 ${item.title}`}
-                                title="刪除場次（連同全部登錄名單一併刪除）"
-                              >
-                                刪除
-                              </button>
+                              {canConfigure && (
+                                <button
+                                  type="button"
+                                  onClick={() => void deleteEvent(item)}
+                                  disabled={saving}
+                                  className="rounded px-2.5 py-1 text-[10px] cursor-pointer disabled:opacity-50 border border-themed text-t3 hover:text-danger hover:border-danger"
+                                  aria-label={`刪除 ${item.title}`}
+                                  title="刪除場次（連同全部登錄名單一併刪除）"
+                                >
+                                  刪除
+                                </button>
+                              )}
                               <a
                                 href={`/admin/exam-registration/roster?eventId=${encodeURIComponent(item.id)}`}
                                 className="btn-soft rounded px-2.5 py-1 text-[10px] cursor-pointer text-center"
