@@ -796,12 +796,9 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
         </ul>
       )}
 
-      <details className="group">
-        <summary className="cursor-pointer text-xs text-t2 inline-flex items-center gap-1">
-          <DisclosureArrow className="h-3 w-3" />
-          新增管理人員
-        </summary>
-        <div className="mt-2 space-y-2">
+      <div className="space-y-2 border-t border-themed pt-3">
+        <p className="text-xs text-t2 font-medium">新增管理人員</p>
+        <div className="space-y-2">
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <select
               value={searchRole}
@@ -903,7 +900,7 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
               </ul>
             ))}
         </div>
-      </details>
+      </div>
     </div>
   );
 }
