@@ -286,6 +286,8 @@ gcloud projects add-iam-policy-binding <專案ID> \
   --role="roles/monitoring.viewer"
 ```
 
+上述指令**不必安裝 gcloud**：在瀏覽器開 [Google Cloud Console](https://console.cloud.google.com/home/dashboard?project=<專案ID>)（不是 Firebase Console）→ 點右上角「**>_**」圖示啟動 **Cloud Shell** → 貼上指令按 Enter 即可。若指令要求選擇條件（`Please specify a condition`），輸入 `2`（＝None，無條件）後按 Enter。
+
 也可在 **Google Cloud Console**（不是 Firebase Console 的服務帳號頁）→ 左側「IAM」→ 找到該服務帳號 → 編輯 → 新增角色 → 搜尋 **Monitoring Viewer**（角色 ID `roles/monitoring.viewer`，位於 Monitoring／Cloud Monitoring 分類；Console 顯示名稱不是「Cloud Monitoring Viewer」）→ 儲存。授予角色需專案 **Owner**。
 
 ## Firebase 專案設定

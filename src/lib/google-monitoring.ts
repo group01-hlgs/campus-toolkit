@@ -192,19 +192,31 @@ export function monitoringPermissionHint(projectId: string, clientEmail: string)
    Console 顯示名稱是 Monitoring Viewer，不是「Cloud Monitoring Viewer」）→ 選取 → 儲存
 4. 若搜尋不到或無法儲存，代表你的帳號不是專案 Owner（授予角色需 Owner），請找專案 Owner 代為授予
 
-【方式二·gcloud】
-gcloud projects add-iam-policy-binding ${projectId} \\
-  --member="serviceAccount:${clientEmail}" \\
-  --role="roles/monitoring.viewer"
+【方式二·用瀏覽器內建的 Cloud Shell 貼指令（不需本機安裝 gcloud）】
+1. 用 Google 帳號開 Google Cloud Console（不是 Firebase Console）：
+   https://console.cloud.google.com/home/dashboard?project=${projectId}
+2. 點右上角圖示「>_」（啟動 Cloud Shell）→ 等約 10 秒開機（若跳出授權視窗按「授權」）
+3. 在下方出現的終端機貼上整行指令，按 Enter：
+   gcloud projects add-iam-policy-binding ${projectId} --member="serviceAccount:${clientEmail}" --role="roles/monitoring.viewer"
+4. 若出現「The policy contains bindings with conditions...」並要求選擇條件：輸入 2（＝None，無條件）後按 Enter
+5. 看到 "Updated IAM policy for project [...]" 即成功，可關閉 Cloud Shell
 
 授予後約 1～2 分鐘生效，再重新整理本頁。`;
 }
 
 /** Cloud Monitoring API 未啟用的指引 */
 export function monitoringApiDisabledHint(projectId: string): string {
-  return `Cloud Monitoring API 未啟用。請執行：
-gcloud services enable monitoring.googleapis.com --project=${projectId}
+  return `Cloud Monitoring API 未啟用。兩種啟用方式（任選其一）：
 
-或在 Console 開啟 https://console.cloud.google.com/apis/library/monitoring.googleapis.com?project=${projectId} 按「啟用」。
+【方式一·瀏覽器直接啟用】
+開啟 https://console.cloud.google.com/apis/library/monitoring.googleapis.com?project=${projectId} 按「啟用」。
+
+【方式二·用瀏覽器內建的 Cloud Shell 貼指令（不需本機安裝 gcloud）】
+1. 開 Google Cloud Console：https://console.cloud.google.com/home/dashboard?project=${projectId}
+2. 點右上角圖示「>_」（啟動 Cloud Shell）→ 等約 10 秒開機（若跳出授權視窗按「授權」）
+3. 貼上整行指令，按 Enter：
+   gcloud services enable monitoring.googleapis.com --project=${projectId}
+4. 看到 "Operation ... finished successfully" 或類似完成訊息即可關閉
+
 啟用後約 1～2 分鐘生效，再重新整理本頁。`;
 }
