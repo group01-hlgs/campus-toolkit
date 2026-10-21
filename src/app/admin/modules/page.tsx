@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import ModuleIcon from "@/components/ModuleIcon";
 import {
   FEATURE_MODULES,
   FEATURE_MODULE_STATUS_LABELS,
@@ -138,6 +139,101 @@ function HelpToggle({
       </summary>
       <span className="sr-only">說明內容顯示於模組列下方</span>
     </details>
+  );
+}
+
+/**
+ * 管理員意象圖示（人像＋齒輪）：代表「以管理員身分指派／設定本模組的管理人員」，
+ * 只做語意呈現，收合指示一律交給 DisclosureArrow。
+ */
+function AdminGrantIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="9" cy="7" r="4" />
+      <path d="M10 15H6a4 4 0 0 0-4 4v2" />
+      <circle cx="18" cy="15" r="3" />
+      <path d="m21.7 16.4-.9-.3" />
+      <path d="m15.2 13.9-.9-.3" />
+      <path d="m16.6 18.7.3-.9" />
+      <path d="m19.1 12.2.3-.9" />
+      <path d="m19.6 18.7-.4-1" />
+      <path d="m16.8 12.3-.4-1" />
+      <path d="m14.3 16.6 1-.4" />
+      <path d="m20.7 13.8 1-.4" />
+    </svg>
+  );
+}
+
+/** 模組列的管理人員開關（管理員圖示＋展開箭頭），控制該列下方的管理人員指派列 */
+function ManagerToggle({
+  id,
+  label,
+  open,
+  onToggle,
+}: {
+  id: string;
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <details
+      open={open}
+      onToggle={(event) => {
+        if (event.currentTarget.open !== open) onToggle();
+      }}
+      className="inline-flex align-middle"
+    >
+      <summary
+        aria-label={`設定「${label}」的管理人員`}
+        aria-controls={`module-managers-${id}`}
+        title="設定管理人員"
+        className="flex items-center gap-1 list-none cursor-pointer rounded border border-themed px-1.5 py-1 hover:bg-surface"
+      >
+        <AdminGrantIcon className="h-5 w-5 text-t2" />
+        <DisclosureArrow className="h-3 w-3" />
+      </summary>
+      <span className="sr-only">管理人員設定內容顯示於模組列下方</span>
+    </details>
+  );
+}
+
+/**
+ * 展開時插在該列下方的管理人員指派列（只在展開時渲染）：
+ * 有 managerPermissions 宣告者放指派區；未宣告者說明為何不需指派。
+ */
+function ManagerPanelRow({
+  item,
+  open,
+  colSpan,
+}: {
+  item: FeatureModuleMeta;
+  open: boolean;
+  colSpan: number;
+}) {
+  if (!open) return null;
+  const delegatable = Array.isArray(item.managerPermissions) && item.managerPermissions.length > 0;
+  return (
+    <tr id={`module-managers-${item.value}`} className="border-b border-themed last:border-0">
+      <td colSpan={colSpan} className="p-0">
+        {delegatable ? (
+          <ManagerSection item={item} />
+        ) : (
+          <p className="px-3 py-3 text-xs text-t3 bg-surface">
+            本模組未宣告可指派的子權限，不需指派管理人員（管理員對所有功能模組恆為全權）。
+          </p>
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -278,6 +374,8 @@ function BuiltinRow({
   item,
   open,
   onToggleHelp,
+  managersOpen,
+  onToggleManagers,
   switches,
   disabled,
   disabledTitle,
@@ -287,6 +385,9 @@ function BuiltinRow({
   item: FeatureModuleMeta;
   open: boolean;
   onToggleHelp: (value: string) => void;
+  /** 管理人員指派列是否展開（該列下方） */
+  managersOpen: boolean;
+  onToggleManagers: (value: string) => void;
   switches: FeatureModuleRoleSwitches | undefined;
   disabled: boolean;
   disabledTitle?: string;
@@ -313,29 +414,42 @@ function BuiltinRow({
         </td>
         <RoleCells item={item} switches={switches} disabled={disabled} disabledTitle={disabledTitle} onToggle={onToggleRole} />
         <td className="px-3 py-2 whitespace-nowrap text-right">
-          {enterable ? (
-            <button
-              type="button"
-              onClick={() => onOpen(item.href)}
-              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
-            >
-              前往 →
-            </button>
-          ) : (
-            <span className="text-xs text-t3">尚未提供，敬請期待</span>
-          )}
+          <span className="inline-flex items-center justify-end gap-1.5">
+            {enterable ? (
+              <button
+                type="button"
+                onClick={() => onOpen(item.href)}
+                aria-label={`前往「${item.label}」`}
+                title="前往該模組功能頁"
+                className="btn-theme rounded p-1.5 cursor-pointer"
+              >
+                <ModuleIcon value="settings" className="h-4 w-4" />
+              </button>
+            ) : (
+              <span className="text-xs text-t3">尚未提供，敬請期待</span>
+            )}
+            <ManagerToggle
+              id={item.value}
+              label={item.label}
+              open={managersOpen}
+              onToggle={() => onToggleManagers(item.value)}
+            />
+          </span>
         </td>
       </tr>
       <DescriptionRow item={item} open={open} colSpan={6} />
+      <ManagerPanelRow item={item} open={managersOpen} colSpan={6} />
     </>
   );
 }
 
-/** 選用功能模組列表列：總開關＋使用者端三身分入口功能＋操作（前往／卸載），全體管理員可操作 */
+/** 選用功能模組列表列：總開關＋使用者端三身分入口功能＋操作（齒輪前往／管理人員／卸載），全體管理員可操作 */
 function OptionalRow({
   item,
   open,
   onToggleHelp,
+  managersOpen,
+  onToggleManagers,
   enabled,
   switches,
   loadFailed,
@@ -351,6 +465,9 @@ function OptionalRow({
   item: FeatureModuleMeta;
   open: boolean;
   onToggleHelp: (value: string) => void;
+  /** 管理人員指派列是否展開（該列下方） */
+  managersOpen: boolean;
+  onToggleManagers: (value: string) => void;
   enabled: boolean;
   switches: FeatureModuleRoleSwitches | undefined;
   /** 開關狀態載入失敗：勾選／總開關不可信，一律禁用 */
@@ -436,16 +553,24 @@ function OptionalRow({
           onToggle={onToggleRole}
         />
         <td className="px-3 py-2 whitespace-nowrap text-right">
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center justify-end gap-1.5">
             {enterable ? (
               <button
                 type="button"
                 onClick={() => onOpen(item.href)}
-                className="btn-theme rounded px-3 py-1 text-xs cursor-pointer"
+                aria-label={`前往「${item.label}」`}
+                title="前往該模組管理頁"
+                className="btn-theme rounded p-1.5 cursor-pointer"
               >
-                前往 →
+                <ModuleIcon value="settings" className="h-4 w-4" />
               </button>
             ) : null}
+            <ManagerToggle
+              id={item.value}
+              label={item.label}
+              open={managersOpen}
+              onToggle={() => onToggleManagers(item.value)}
+            />
             {pendingUninstall ? (
               <span className="text-xs text-warning inline-flex items-center gap-2">
                 部署中…
@@ -475,6 +600,7 @@ function OptionalRow({
         </td>
       </tr>
       <DescriptionRow item={item} open={open} colSpan={7} />
+      <ManagerPanelRow item={item} open={managersOpen} colSpan={7} />
     </>
   );
 }
@@ -552,10 +678,11 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
     }
   }
 
+  /** 指派／更新一個人的子權限：以呼叫端算好的 permissions 為準（候選區草稿已含 uid 前綴） */
   async function assign(person: ManagerRow) {
-    const permissions = permissionDefs
-      .filter((def) => draftPerms[def.value])
-      .map((def) => def.value);
+    const permissions = person.permissions.filter((code) =>
+      permissionDefs.some((def) => def.value === code)
+    );
     if (permissions.length === 0) {
       setError("請至少勾選一項子權限");
       return;
@@ -670,12 +797,9 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
         </ul>
       )}
 
-      <details className="group">
-        <summary className="cursor-pointer text-xs text-t2 inline-flex items-center gap-1">
-          <DisclosureArrow className="h-3 w-3" />
-          新增管理人員
-        </summary>
-        <div className="mt-2 space-y-2">
+      <div className="space-y-2 border-t border-themed pt-3">
+        <p className="text-xs text-t2 font-medium">新增管理人員</p>
+        <div className="space-y-2">
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <select
               value={searchRole}
@@ -777,7 +901,7 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
               </ul>
             ))}
         </div>
-      </details>
+      </div>
     </div>
   );
 }
@@ -786,7 +910,7 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
  * 「功能模組管理」入口（全體管理員，政策修改書決議二）：
  * 內建／選用兩份功能模組列表，說明與作者／版本／提供功能由名稱旁箭頭就地展開；
  * 選用模組有總開關；使用者端三身分欄＝**入口功能**（提供功能＝否顯示「未提供」）。
- * 管理員欄已退役（恆全權）；選用模組可另指派非管理員身分之管理人員（含子權限）。
+ * 管理員欄已退役（恆全權）；操作欄＝齒輪（前往）＋管理員圖示（就地展開「管理人員」指派列）＋卸載。
  */
 export default function ModulesPage() {
   const router = useRouter();
@@ -798,6 +922,8 @@ export default function ModulesPage() {
   // 開關狀態載入失敗訊息：非空＝頁面勾選／總開關不可信（禁止默默呈現全未勾選）
   const [loadError, setLoadError] = useState("");
   const [openDesc, setOpenDesc] = useState<string | null>(null);
+  // 管理人員指派列：目前展開的模組代碼（null＝全收合）
+  const [openManagers, setOpenManagers] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   // 卸載確認視窗（modal）：null＝關閉；否則為待卸載的模組
   const [confirmUninstall, setConfirmUninstall] = useState<FeatureModuleMeta | null>(null);
@@ -980,6 +1106,11 @@ export default function ModulesPage() {
     setOpenDesc((current) => (current === value ? null : value));
   }
 
+  /** 展開／收合該列下方的管理人員指派列（同一時間一列） */
+  function toggleManagers(value: string) {
+    setOpenManagers((current) => (current === value ? null : value));
+  }
+
   const builtins = FEATURE_MODULES.filter((item) => item.kind === "builtin");
   const optionals = FEATURE_MODULES.filter((item) => item.kind === "optional");
   const loading = enabled === null || roles === null;
@@ -1104,9 +1235,10 @@ export default function ModulesPage() {
         </summary>
         <div className="p-3 space-y-3">
           <p className="text-xs text-t3">
-            隨主程式提供、一律啟用；已上線的模組可直接進入。名稱旁的箭頭可展開說明與作者版本資訊；
+            隨主程式提供、一律啟用；已上線的模組可直接進入（操作欄「齒輪」）。名稱旁的箭頭可展開說明與作者版本資訊；
             使用者端三身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
-            （關閉＝首頁不顯示入口、禁止進入）。管理員對所有模組恆為全權，不設入口勾選。
+            （關閉＝首頁不顯示入口、禁止進入）。管理員對所有模組恆為全權，不設入口勾選；
+            操作欄「管理員圖示」可就地展開該列下方的「管理人員」指派區。
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -1142,6 +1274,8 @@ export default function ModulesPage() {
                       item={item}
                       open={openDesc === item.value}
                       onToggleHelp={toggleHelp}
+                      managersOpen={openManagers === item.value}
+                      onToggleManagers={toggleManagers}
                       switches={roles[item.value]}
                       disabled={saving !== null || loadError !== ""}
                       disabledTitle={loadError ? "開關狀態載入失敗，請重新整理頁面" : undefined}
@@ -1163,8 +1297,8 @@ export default function ModulesPage() {
           <p className="text-xs text-t3">
             已安裝的模組各有一個總開關（預設未啟用），由全體管理員啟用／停用。
             使用者端三身分欄上下排列：綠勾「提供」與「入口功能」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
-            操作欄「前往」在總開關開啟時可直接進入該模組管理頁面；「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
-            模組有宣告子權限時，可於下方「管理人員」指派非管理員身分帳號（管理員恆全權、不需指派）。
+            操作欄「齒輪」在總開關開啟時可直接進入該模組管理頁面；「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
+            操作欄「管理員圖示」可就地展開該列下方的「管理人員」區，指派非管理員身分帳號（管理員恆全權、不需指派）。
             設定為現行狀態，變更會記錄於稽核紀錄。
           </p>
         </div>
@@ -1204,6 +1338,8 @@ export default function ModulesPage() {
                     item={item}
                     open={openDesc === item.value}
                     onToggleHelp={toggleHelp}
+                    managersOpen={openManagers === item.value}
+                    onToggleManagers={toggleManagers}
                     enabled={enabled[item.value] === true}
                     switches={roles[item.value]}
                     loadFailed={loadError !== ""}
@@ -1225,24 +1361,7 @@ export default function ModulesPage() {
             </tbody>
           </table>
         </div>
-        {/* 管理人員指派（有 managerPermissions 宣告的選用模組） */}
-        {!loading &&
-          optionals
-            .filter(
-              (item) =>
-                Array.isArray(item.managerPermissions) && item.managerPermissions.length > 0
-            )
-            .map((item) => (
-              <div
-                key={`managers-${item.value}`}
-                className="mt-3 border border-themed rounded-lg bg-card"
-              >
-                <div className="px-3 py-2 border-b border-themed">
-                  <span className="font-medium text-t1 text-sm">{item.label}｜管理人員</span>
-                </div>
-                <ManagerSection item={item} />
-              </div>
-            ))}
+        {/* 管理人員指派已改為各列「管理員圖示」就地展開（ManagerPanelRow），不再另置整卡 */}
       </section>
 
       {/* 管理權限說明（不同身分管理政策） */}
@@ -1260,7 +1379,7 @@ export default function ModulesPage() {
           </li>
           <li>
             <span className="font-bold text-t1">指定管理人員</span>
-            ：於選用模組列下「管理人員」指派教職員／家長／學生帳號，
+            ：按模組列的「管理員圖示」展開該列下方的「管理人員」區，指派教職員／家長／學生帳號，
             並勾選該模組宣告之子權限；指派綁定當期名冊條目，學期切換需重新指定。
           </li>
           <li>
