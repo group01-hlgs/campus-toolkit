@@ -250,6 +250,29 @@ function presenceLabel(value: { set: boolean; len: number }): string {
   return value.set ? `已設定（${value.len} 字元）` : "未設定";
 }
 
+/** 成功載入時仍顯示的官方用量連結（提醒：正式額度與帳單數字以官方頁面為準） */
+function OfficialLinks({ links }: { links?: UsageLink[] }) {
+  if (!links?.length) return null;
+  return (
+    <div className="mt-3 text-xs text-t3">
+      <p className="mb-1">本區數字為 Cloud Monitoring 查詢結果；正式額度、用量與帳單請以官方頁面為準：</p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {links.map((link) => (
+          <a
+            key={link.url}
+            href={link.url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2"
+          >
+            {link.label} ↗
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 執行環境診斷一行字：讓使用者對照「環境變數保存了，但有沒有真的注入到這個實例」 */
 function diagLine(diag: ReadStatsSection["diag"]): string {
   return `本實例實際環境：NODE_ENV=${diag.nodeEnv}・READ_STATS=${presenceLabel(diag.readStats)}・READ_STATS_LOG=${presenceLabel(diag.readStatsLog)}・FIREBASE_SERVICE_ACCOUNT_KEY=${presenceLabel(diag.serviceAccountKey)}${diag.kService ? "・App Hosting 執行環境" : ""}`;
@@ -456,22 +479,7 @@ export default function StatsPage() {
               {appHosting.note && (
                 <div className="mt-3 p-3 text-xs whitespace-pre-wrap alert-info text-t2">{appHosting.note}</div>
               )}
-              {!!appHosting.links?.length && (
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-t3">
-                  <span>官方用量頁：</span>
-                  {appHosting.links.map((link) => (
-                    <a
-                      key={link.url}
-                      href={link.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline underline-offset-2"
-                    >
-                      {link.label} ↗
-                    </a>
-                  ))}
-                </div>
-              )}
+              <OfficialLinks links={appHosting.links} />
             </>
           ) : (
             <NoticeBox
@@ -492,35 +500,38 @@ export default function StatsPage() {
             subtitle="免費額度：讀取 50,000、寫入 20,000、刪除 20,000（每日，太平洋時間午夜重置）"
           />
           {firebase.ok ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <QuotaBar
-                metric={{
-                  key: "reads",
-                  label: "文件讀取（今日）",
-                  used: firebase.today.reads,
-                  limit: firebase.limits.reads,
-                  unit: "count",
-                }}
-              />
-              <QuotaBar
-                metric={{
-                  key: "writes",
-                  label: "文件寫入（今日）",
-                  used: firebase.today.writes,
-                  limit: firebase.limits.writes,
-                  unit: "count",
-                }}
-              />
-              <QuotaBar
-                metric={{
-                  key: "deletes",
-                  label: "文件刪除（今日）",
-                  used: firebase.today.deletes,
-                  limit: firebase.limits.deletes,
-                  unit: "count",
-                }}
-              />
-            </div>
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <QuotaBar
+                  metric={{
+                    key: "reads",
+                    label: "文件讀取（今日）",
+                    used: firebase.today.reads,
+                    limit: firebase.limits.reads,
+                    unit: "count",
+                  }}
+                />
+                <QuotaBar
+                  metric={{
+                    key: "writes",
+                    label: "文件寫入（今日）",
+                    used: firebase.today.writes,
+                    limit: firebase.limits.writes,
+                    unit: "count",
+                  }}
+                />
+                <QuotaBar
+                  metric={{
+                    key: "deletes",
+                    label: "文件刪除（今日）",
+                    used: firebase.today.deletes,
+                    limit: firebase.limits.deletes,
+                    unit: "count",
+                  }}
+                />
+              </div>
+              <OfficialLinks links={firebase.links} />
+            </>
           ) : (
             <NoticeBox
               tone={firebase.configured ? "danger" : "info"}
