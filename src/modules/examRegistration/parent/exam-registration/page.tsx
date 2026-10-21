@@ -8,6 +8,7 @@ import { fetchSettings } from "@/lib/settings-client";
 import { logout } from "@/lib/session";
 import { defaultSettings } from "@/types/settings";
 import OfficialExamLabel from "../../components/official-exam-label";
+import ExamManagerPanel from "../../components/manager-panel";
 import {
   EXAM_FEE_CODE_LABELS,
   EXAM_REGISTRATION_MODE_LABELS,
@@ -235,6 +236,9 @@ export default function ParentExamRegistrationPage() {
           </div>
         )}
       </main>
+
+      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示） */}
+      <ExamManagerPanel pageHref="/parent/exam-registration" />
 
       <hr className="w-full max-w-3xl border-themed mb-4" />
       <div className="w-full max-w-3xl flex justify-start gap-2 mb-4">{actionButtons}</div>

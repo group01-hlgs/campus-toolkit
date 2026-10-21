@@ -50,7 +50,12 @@ function formatListDateTime(value: number): string {
   return formatExamDateTime(value);
 }
 
-export default function ExamRegistrationRosterPage() {
+export default function ExamRegistrationRosterPage({
+  listHref = "/admin/exam-registration",
+}: {
+  /** 「返回場次清單」連結；身分功能頁內嵌管理面板時改傳該頁路徑 */
+  listHref?: string;
+}) {
   const searchParams = useSearchParams();
   const eventId = searchParams.get("eventId") ?? "";
 
@@ -326,7 +331,7 @@ export default function ExamRegistrationRosterPage() {
             <h2 className="text-lg font-bold text-t1">查看名單</h2>
             <p className="text-xs text-t3">點選班級分頁載入該班名冊，匯出檔案請使用下方「資料整理」。</p>
           </div>
-          <a href="/admin/exam-registration" className="btn-soft rounded px-3 py-1 text-xs cursor-pointer">
+          <a href={listHref} className="btn-soft rounded px-3 py-1 text-xs cursor-pointer">
             返回場次清單
           </a>
         </div>

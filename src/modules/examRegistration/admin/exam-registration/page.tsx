@@ -277,7 +277,12 @@ function nextStatusOf(status: ExamEventType): ExamEventType | null {
  * 版面：建立／編輯場次（預設收合）→ 場次清單（狀態篩選、狀態轉換、名單）→ 名單與統計。
  * 場次清單依系統「省流開關」：啟用時進頁不載入，按鈕才載入（同公告／行事曆）。
  */
-export default function AdminExamRegistrationPage() {
+export default function AdminExamRegistrationPage({
+  rosterHrefBase = "/admin/exam-registration/roster",
+}: {
+  /** 「查看名單」連結前綴；身分功能頁內嵌管理面板時改傳該頁路徑，名單留在同一頁檢視 */
+  rosterHrefBase?: string;
+}) {
   const { ready: settingsReady, saverOn } = useDataSaver();
   // 子權限（managerPermissions）：管理員恆全權；非管理員看 delegatedModules（政策修改書 G3）
   const [canConfigure, setCanConfigure] = useState(true);
@@ -2250,7 +2255,7 @@ export default function AdminExamRegistrationPage() {
                                 </button>
                               )}
                               <a
-                                href={`/admin/exam-registration/roster?eventId=${encodeURIComponent(item.id)}`}
+                                href={`${rosterHrefBase}?eventId=${encodeURIComponent(item.id)}`}
                                 className="btn-soft rounded px-2.5 py-1 text-[10px] cursor-pointer text-center"
                                 aria-label={`查看 ${item.title} 名單`}
                                 title="查看名單"
@@ -2280,7 +2285,7 @@ export default function AdminExamRegistrationPage() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <a
-                                    href={`/admin/exam-registration/roster?eventId=${encodeURIComponent(roster.eventId)}`}
+                                    href={`${rosterHrefBase}?eventId=${encodeURIComponent(roster.eventId)}`}
                                     className="btn-soft rounded px-3 py-1 text-xs cursor-pointer"
                                   >
                                     查看名單

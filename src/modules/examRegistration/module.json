@@ -17,8 +17,8 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.1.47",
-    "releasedAt": "2026-10-20"
+    "version": "0.1.48",
+    "releasedAt": "2026-10-21"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "defaultRoleEnabled": { "parent": false },
@@ -64,6 +64,14 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.1.48",
+      "releasedAt": "2026-10-21",
+      "notes": [
+        "被指派的管理者改在自己的身分功能頁（學生／家長／教職員）直接使用被授權的管理功能：新增管理面板（components/manager-panel.tsx），依 session.delegatedModules 渲染、未被指派者不顯示——預設內嵌場次列表與建立／編輯／刪除（configure），帶 ?eventId= 時改顯示名單／審核／匯出（viewRoster／approve／export），不必再前往 /admin。",
+        "管理頁「查看名單」與名單頁「返回場次清單」連結改為可參數化（rosterHrefBase／listHref，預設 /admin 路徑），/admin 使用行為不變。"
+      ]
+    },
     {
       "version": "0.1.47",
       "releasedAt": "2026-10-20",

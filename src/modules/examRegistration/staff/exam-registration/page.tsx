@@ -9,6 +9,7 @@ import RevealListCard from "@/components/RevealListCard";
 import { logout } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
 import { defaultSettings, type Settings } from "@/types/settings";
+import ExamManagerPanel from "../../components/manager-panel";
 import {
   effectiveExamStatus,
   EXAM_EVENT_STATUS_LABELS,
@@ -343,6 +344,9 @@ export default function StaffExamRegistrationPage() {
           })}
         </div>
       )}
+
+      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示） */}
+      <ExamManagerPanel pageHref="/staff/exam-registration" />
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 

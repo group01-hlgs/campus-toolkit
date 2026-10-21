@@ -10,6 +10,7 @@ import { Settings, defaultSettings } from "@/types/settings";
 import { ConfirmModal } from "../../components/exam-feedback";
 import Toast, { type ToastMessage } from "../../components/toast";
 import OfficialExamLabel from "../../components/official-exam-label";
+import ExamManagerPanel from "../../components/manager-panel";
 import {
   EXAM_SERVICE_NOTE_MAX,
   EXAM_CATEGORY_LABELS,
@@ -472,6 +473,9 @@ export default function ExamRegistrationStudentPage() {
         {/* 列印版面（僅 @media print 顯示；瀏覽器另存 PDF） */}
         {printItem && <RegistrationPrintSheet item={printItem} />}
       </main>
+
+      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示） */}
+      <ExamManagerPanel pageHref="/student/exam-registration" />
 
       <hr className="w-full max-w-2xl border-themed mb-4 print:hidden" />
       <div className="w-full max-w-2xl flex justify-start gap-2 mb-4 print:hidden">{actionButtons}</div>
