@@ -6,7 +6,8 @@ import { serverErrorMessage } from "@/lib/api-error";
 import { getAppHostingUsage } from "@/lib/usage-apphosting";
 import { getFirebaseUsage } from "@/lib/usage-firebase";
 import { getReadStatsSnapshot, resetReadStats } from "@/lib/read-stats";
-import type { StatsResponse } from "@/types/usage";
+import type { ReadStatsDiag } from "@/lib/read-stats";
+import type { StatsResponse, UsageSection } from "@/types/usage";
 
 /**
  * 統計儀表板：App Hosting（Cloud Run／Cloud Build）與 Firebase（Firestore）用量，
@@ -18,6 +19,28 @@ import type { StatsResponse } from "@/types/usage";
  *
  * POST：`{ action: "reset-read-stats" }` 清空本實例的端點讀取統計（開發除錯用）。
  */
+
+/** 金鑰未設定時，附上「本實例實際看到什麼」的診斷與設定引導（避免只說『尚未設定』卻看不出來源） */
+function appendRuntimeEnvHint<T extends UsageSection>(section: T, diag: ReadStatsDiag): T {
+  if (section.ok || section.configured) return section;
+  const sa = diag.serviceAccountKey.set
+    ? `已設定（${diag.serviceAccountKey.len} 字元）但無法使用（多為格式或權限問題）`
+    : "未設定——該變數尚未注入這個伺服器實例";
+  const runtime = diag.kService ? "App Hosting 執行環境" : "一般伺服器環境";
+  const diagBlock = `【本實例執行環境偵測】
+FIREBASE_SERVICE_ACCOUNT_KEY＝${sa}（NODE_ENV=${diag.nodeEnv}・${runtime}）。
+環境變數保存後不會自動生效——必須「重新部署」（最新部署時間須晚於變數保存時間），並確認設在提供本網址的同一個 backend。
+
+設定方式：
+1. Firebase Console → 專案設定 → 服務帳號 → 「產生新的私鑰」下載 JSON（整段私鑰）
+2. App Hosting Console → backend → 環境變數 → 新增 FIREBASE_SERVICE_ACCOUNT_KEY，值＝整段 JSON（或先 base64 編碼再貼，程式兩種格式都接受）
+3. 重新部署後回本頁按「重新整理」`;
+  return {
+    ...section,
+    hint: section.hint ? `${section.hint}\n\n${diagBlock}` : diagBlock,
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { denial } = await requireAdminModule("stats");
@@ -31,13 +54,19 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const [appHosting, firebase] = await Promise.all([getAppHostingUsage(), getFirebaseUsage()]);
+    const readStats = getReadStatsSnapshot();
+    const [appHostingRaw, firebaseRaw] = await Promise.all([
+      getAppHostingUsage(),
+      getFirebaseUsage(),
+    ]);
+    const appHosting = appendRuntimeEnvHint(appHostingRaw, readStats.diag);
+    const firebase = appendRuntimeEnvHint(firebaseRaw, readStats.diag);
 
     const body: StatsResponse = {
       success: true,
       appHosting,
       firebase,
-      readStats: getReadStatsSnapshot(),
+      readStats,
     };
     return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
