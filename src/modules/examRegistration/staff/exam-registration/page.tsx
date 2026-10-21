@@ -175,7 +175,6 @@ export default function StaffExamRegistrationPage() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [classCode, setClassCode] = useState("");
   const [events, setEvents] = useState<StaffEvent[]>([]);
-  const [message, setMessage] = useState("");
   /** 非兼導師（無班級代碼）：本區不適用——直接不顯示，也不另給「無法載入」提醒 */
   const [notApplicable, setNotApplicable] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -211,7 +210,10 @@ export default function StaffExamRegistrationPage() {
             setNotApplicable(true);
             return;
           }
-          setMessage(data?.message || "目前無法使用此功能，請洽系統管理員。");
+          // 後端暫時取不到資料：一律以「沒有適用的考試場次」呈現，不另給洽辦提醒
+          if (typeof data?.classCode === "string") setClassCode(data.classCode);
+          setEvents([]);
+          setLoadedEventIds(new Set());
           return;
         }
         setClassCode(data.classCode ?? "");
@@ -226,14 +228,17 @@ export default function StaffExamRegistrationPage() {
           ? ((await countResponse.json().catch(() => null)) as StaffResponse | null)
           : null;
         if (!countResponse?.ok || !countData?.success || !countData.counts) {
-          setMessage("無法取得名單總數，請重新整理頁面後再試。");
+          setEvents([]);
+          setLoadedEventIds(new Set());
           return;
         }
-        const nextCounts = countData.counts;
-        setCounts(nextCounts);
+        setCounts(countData.counts);
         setEvents(data.events ?? []);
       } catch {
-        if (!cancelled) setMessage("載入失敗，請稍後再試。");
+        if (!cancelled) {
+          setEvents([]);
+          setLoadedEventIds(new Set());
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -305,12 +310,12 @@ export default function StaffExamRegistrationPage() {
         </p>
       </div>
 
-      <div className="w-full max-w-2xl mt-4 mb-2 text-center">
+      <div className="content-width mt-4 mb-6 text-center">
         <h2 className="text-2xl font-bold text-t1">升學考試與模擬考校內報名</h2>
-        {classCode && <p className="text-sm text-t2 mt-1">班級：{classCode}</p>}
+        {classCode && <p className="text-sm text-t2 mt-2">兼導師班級：{classCode}</p>}
       </div>
 
-      <div className="w-full max-w-2xl flex justify-end gap-3 mb-4">
+      <div className="content-width flex justify-end gap-3 mb-4">
         <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
           返回功能首頁
         </button>
@@ -319,20 +324,18 @@ export default function StaffExamRegistrationPage() {
         </button>
       </div>
 
-      <hr className="w-full max-w-2xl border-themed mb-4" />
+      <hr className="content-width border-themed mb-4" />
 
-      {notApplicable ? null : message ? (
-        <div className="w-full max-w-2xl border border-themed rounded-lg p-8 bg-card text-center mb-8">
-          <p className="text-lg font-bold text-t1">目前無法載入班級報名資料</p>
-          <p className="text-sm text-t2 mt-2">{message}</p>
-        </div>
-      ) : events.length === 0 ? (
-        <div className="w-full max-w-2xl border border-themed rounded-lg p-8 bg-card text-center mb-8">
-          <p className="text-lg font-bold text-t1">目前沒有本班學生正在報名的場次</p>
-          <p className="text-sm text-t2 mt-2">此處會顯示本班目前開放報名且已有學生登錄的場次。</p>
+      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示）；此身分的基本功能置於其下方 */}
+      <ExamManagerPanel pageHref="/staff/exam-registration" />
+
+      {notApplicable ? null : events.length === 0 ? (
+        <div className="content-width border border-themed rounded-lg p-8 bg-card text-center mb-8">
+          <p className="text-lg font-bold text-t1">目前沒有適用的考試場次</p>
+          <p className="text-sm text-t2 mt-2">本班目前沒有開放中且適用的考試場次。</p>
         </div>
       ) : (
-        <div className="w-full max-w-2xl space-y-4 mb-8">
+        <div className="content-width space-y-4 mb-8">
           {events.map((event) => {
             const eventStudentsLoaded = loadedEventIds.has(event.eventId);
             return (
@@ -351,12 +354,9 @@ export default function StaffExamRegistrationPage() {
         </div>
       )}
 
-      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示） */}
-      <ExamManagerPanel pageHref="/staff/exam-registration" />
+      <hr className="content-width border-themed mb-4" />
 
-      <hr className="w-full max-w-2xl border-themed mb-4" />
-
-      <div className="w-full max-w-2xl flex justify-start gap-3 mb-8">
+      <div className="content-width flex justify-start gap-3 mb-8">
         <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
           返回功能首頁
         </button>
@@ -366,12 +366,12 @@ export default function StaffExamRegistrationPage() {
       </div>
 
       {settings.sponsorAdEnabled && (
-        <div className="w-full max-w-2xl">
+        <div className="content-width">
           <AdSense />
         </div>
       )}
 
-      <div className="w-full max-w-2xl mt-auto">
+      <div className="content-width mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
     </div>

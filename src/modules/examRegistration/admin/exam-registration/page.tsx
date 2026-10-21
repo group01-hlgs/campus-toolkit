@@ -279,9 +279,12 @@ function nextStatusOf(status: ExamEventType): ExamEventType | null {
  */
 export default function AdminExamRegistrationPage({
   rosterHrefBase = "/admin/exam-registration/roster",
+  fill = false,
 }: {
   /** 「查看名單」連結前綴；身分功能頁內嵌管理面板時改傳該頁路徑，名單留在同一頁檢視 */
   rosterHrefBase?: string;
+  /** 於身分功能頁（content-width）內嵌時填滿容器；/admin 獨立使用維持 max-w-4xl 標準 */
+  fill?: boolean;
 }) {
   const { ready: settingsReady, saverOn } = useDataSaver();
   // 子權限（managerPermissions）：管理員恆全權；非管理員看 delegatedModules（政策修改書 G3）
@@ -1059,7 +1062,7 @@ export default function AdminExamRegistrationPage({
     : [{ id: "other", name: "其他" }];
 
   return (
-    <div className="w-full max-w-4xl mb-8 space-y-6">
+          <div className={`w-full ${fill ? "" : "max-w-4xl"} mb-8 space-y-6`}>
       <Toast message={toast} onClose={() => setToast(null)} />
       {confirm && (
         <ConfirmModal

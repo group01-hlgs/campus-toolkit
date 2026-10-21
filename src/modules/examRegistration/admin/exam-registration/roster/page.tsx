@@ -52,9 +52,12 @@ function formatListDateTime(value: number): string {
 
 export default function ExamRegistrationRosterPage({
   listHref = "/admin/exam-registration",
+  fill = false,
 }: {
   /** 「返回場次清單」連結；身分功能頁內嵌管理面板時改傳該頁路徑 */
   listHref?: string;
+  /** 於身分功能頁（content-width）內嵌時填滿容器；/admin 獨立使用維持 max-w-4xl 標準 */
+  fill?: boolean;
 }) {
   const searchParams = useSearchParams();
   const eventId = searchParams.get("eventId") ?? "";
@@ -324,7 +327,7 @@ export default function ExamRegistrationRosterPage({
   }
 
   return (
-    <div className="w-full max-w-4xl mb-8 space-y-4">
+    <div className={`w-full ${fill ? "" : "max-w-4xl"} mb-8 space-y-4`}>
       <section className="border border-themed rounded-lg bg-card px-5 py-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>

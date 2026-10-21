@@ -11,6 +11,8 @@ const noStore = { "Cache-Control": "no-store" };
 
 /** GET：教職員兼導師讀取本人班級目前開放場次；名單可延遲載入或只取 count。 */
 export async function GET(request: NextRequest) {
+  // 兼導師班級：即使後端失敗也回傳，讓頁面仍能顯示標題下的班級名稱
+  let classCode = "";
   try {
     const limited = enforceRateLimit(
       request,
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     const entry = (session as VerifiedSession).__entry;
     const attribute = typeof entry?.attribute === "string" ? entry.attribute.trim() : "";
-    const classCode = typeof entry?.classCode === "string" ? entry.classCode.trim() : "";
+    classCode = typeof entry?.classCode === "string" ? entry.classCode.trim() : "";
     if (attribute !== "兼導師" || !classCode) {
       return NextResponse.json(
         { success: false, message: "此功能僅提供給有班級代碼的兼導師。" },
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Staff exam registration GET error:", error);
     return NextResponse.json(
-      { success: false, message: "載入班級報名資料失敗。" },
+      { success: false, message: "載入班級報名資料失敗。", classCode },
       { status: 500, headers: noStore }
     );
   }

@@ -365,14 +365,17 @@ export default function ExamRegistrationStudentPage() {
         </p>
       </div>
 
-      <div className="w-full max-w-2xl mt-4 mb-2 text-center print:hidden">
+      <div className="content-width mt-4 mb-2 text-center print:hidden">
         <h2 className="text-2xl font-bold text-t1">升學考試與模擬考校內報名</h2>
       </div>
 
-      <div className="w-full max-w-2xl flex justify-end gap-2 mb-4 print:hidden">{actionButtons}</div>
-      <hr className="w-full max-w-2xl border-themed mb-4 print:hidden" />
+      <div className="content-width flex justify-end gap-2 mb-4 print:hidden">{actionButtons}</div>
+      <hr className="content-width border-themed mb-4 print:hidden" />
 
-      <main className="w-full max-w-2xl mb-6 space-y-4">
+      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示）；此身分的基本功能置於其下方 */}
+      <ExamManagerPanel pageHref="/student/exam-registration" />
+
+      <main className="content-width mb-6 space-y-4">
         <div
           role="note"
           className="border border-danger rounded-lg bg-card p-4 text-sm text-danger space-y-1 print:hidden"
@@ -474,19 +477,16 @@ export default function ExamRegistrationStudentPage() {
         {printItem && <RegistrationPrintSheet item={printItem} />}
       </main>
 
-      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示） */}
-      <ExamManagerPanel pageHref="/student/exam-registration" />
-
-      <hr className="w-full max-w-2xl border-themed mb-4 print:hidden" />
-      <div className="w-full max-w-2xl flex justify-start gap-2 mb-4 print:hidden">{actionButtons}</div>
+      <hr className="content-width border-themed mb-4 print:hidden" />
+      <div className="content-width flex justify-start gap-2 mb-4 print:hidden">{actionButtons}</div>
 
       {settings.sponsorAdEnabled && (
-        <div className="w-full max-w-2xl mt-8 print:hidden">
+        <div className="content-width mt-8 print:hidden">
           <AdSense />
         </div>
       )}
 
-      <div className="w-full max-w-2xl mt-auto print:hidden">
+      <div className="content-width mt-auto print:hidden">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
     </div>

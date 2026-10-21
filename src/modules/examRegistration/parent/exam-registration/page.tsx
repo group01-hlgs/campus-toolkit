@@ -124,15 +124,18 @@ export default function ParentExamRegistrationPage() {
         </p>
       </div>
 
-      <div className="w-full max-w-3xl mt-4 mb-2 text-center">
+      <div className="content-width mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">升學考試與模擬考校內報名</h2>
         <p className="mt-1 text-sm text-t3">家長可查看家長名冊綁定子女的場次與報名資料。</p>
       </div>
 
-      <div className="w-full max-w-3xl flex justify-end gap-2 mb-4">{actionButtons}</div>
-      <hr className="w-full max-w-3xl border-themed mb-4" />
+      <div className="content-width flex justify-end gap-2 mb-4">{actionButtons}</div>
+      <hr className="content-width border-themed mb-4" />
 
-      <main className="w-full max-w-3xl mb-6 space-y-4">
+      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示）；此身分的基本功能置於其下方 */}
+      <ExamManagerPanel pageHref="/parent/exam-registration" />
+
+      <main className="content-width mb-6 space-y-4">
         {child && (
           <section className="border border-themed rounded-lg bg-card p-4">
             <h3 className="font-bold text-t1">子女資料</h3>
@@ -237,18 +240,15 @@ export default function ParentExamRegistrationPage() {
         )}
       </main>
 
-      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示） */}
-      <ExamManagerPanel pageHref="/parent/exam-registration" />
-
-      <hr className="w-full max-w-3xl border-themed mb-4" />
-      <div className="w-full max-w-3xl flex justify-start gap-2 mb-4">{actionButtons}</div>
+      <hr className="content-width border-themed mb-4" />
+      <div className="content-width flex justify-start gap-2 mb-4">{actionButtons}</div>
 
       {settings.sponsorAdEnabled && (
-        <div className="w-full max-w-3xl mt-8">
+        <div className="content-width mt-8">
           <AdSense />
         </div>
       )}
-      <div className="w-full max-w-3xl mt-auto">
+      <div className="content-width mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
     </div>
