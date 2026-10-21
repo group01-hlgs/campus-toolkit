@@ -17,7 +17,7 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.1.48",
+    "version": "0.1.49",
     "releasedAt": "2026-10-21"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -64,6 +64,13 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.1.49",
+      "releasedAt": "2026-10-21",
+      "notes": [
+        "教職員頁對非兼導師（無班級代碼）不再顯示「目前無法載入班級報名資料」提醒：此區不適用時直接不顯示（403 靜默處理），被指派管理者只看到下方的管理面板；其他載入失敗（如 500）仍會顯示錯誤訊息。"
+      ]
+    },
     {
       "version": "0.1.48",
       "releasedAt": "2026-10-21",

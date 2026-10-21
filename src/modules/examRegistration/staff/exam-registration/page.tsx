@@ -176,6 +176,8 @@ export default function StaffExamRegistrationPage() {
   const [classCode, setClassCode] = useState("");
   const [events, setEvents] = useState<StaffEvent[]>([]);
   const [message, setMessage] = useState("");
+  /** 非兼導師（無班級代碼）：本區不適用——直接不顯示，也不另給「無法載入」提醒 */
+  const [notApplicable, setNotApplicable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saverEnabled, setSaverEnabled] = useState(false);
   const [counts, setCounts] = useState<Record<string, StaffEventCounts>>({});
@@ -205,6 +207,10 @@ export default function StaffExamRegistrationPage() {
         const data: StaffResponse | null = await eventsResponse.json().catch(() => null);
         if (cancelled) return;
         if (!eventsResponse.ok || !data?.success) {
+          if (eventsResponse.status === 403) {
+            setNotApplicable(true);
+            return;
+          }
           setMessage(data?.message || "目前無法使用此功能，請洽系統管理員。");
           return;
         }
@@ -315,7 +321,7 @@ export default function StaffExamRegistrationPage() {
 
       <hr className="w-full max-w-2xl border-themed mb-4" />
 
-      {message ? (
+      {notApplicable ? null : message ? (
         <div className="w-full max-w-2xl border border-themed rounded-lg p-8 bg-card text-center mb-8">
           <p className="text-lg font-bold text-t1">目前無法載入班級報名資料</p>
           <p className="text-sm text-t2 mt-2">{message}</p>

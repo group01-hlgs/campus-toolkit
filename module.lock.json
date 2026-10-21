@@ -3,10 +3,10 @@
   "modules": [
     {
       "value": "examRegistration",
-      "version": "0.1.48",
+      "version": "0.1.49",
       "contractVersion": 1,
       "minHostVersion": "0.558",
-      "sha256": "b88f2ac274df7894f073a37c09d7c7f995043c4dbbe4307394c2ca1844415327",
+      "sha256": "6d6d87aa6907f502465d66e611ecb3c4dc962109b17c2a8226f9277345378063",
       "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/examRegistration.zip",
       "installedAt": "2026-10-21"
     }
