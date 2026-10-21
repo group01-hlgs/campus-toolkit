@@ -141,14 +141,23 @@ async function loadAppHostingUsage(): Promise<AppHostingUsage> {
       )
     );
 
-    const failure = results.find(
-      (item): item is { key: string; result: { error: { status: number; message: string; reasons: string[] } } } =>
-        "error" in item.result
+    type Failure = {
+      key: string;
+      result: { error: { status: number; message: string; reasons: string[] } };
+    };
+    const failures = results.filter(
+      (item): item is Failure => "error" in item.result
     );
-    if (failure) {
-      const { status, message, reasons } = failure.result.error;
+    const successes = results.filter(
+      (
+        item
+      ): item is { key: string; result: { points: Array<{ startTime: string; value: number }> } } =>
+        !("error" in item.result)
+    );
+
+    const buildDiagnostics = (failure: Failure, status: number, message: string, reasons: string[]) => {
       const reasonText = reasons.length ? `（${reasons.join("、")}）` : "";
-      const diagnostics = [
+      return [
         "診斷資訊：",
         `- 端點：GET ${MONITORING_BASE}/projects/${projectId}/timeSeries`,
         `- 專案：${projectId}；服務帳號：${resolved.credentials.clientEmail}`,
@@ -158,6 +167,14 @@ async function loadAppHostingUsage(): Promise<AppHostingUsage> {
         `- 失敗查詢：${failure.key}（${failure.result.error.message ? failure.result.error.message : status}）`,
         `- 回應：HTTP ${status}${message ? `：${message}` : ""}${reasonText}`,
       ].join("\n");
+    };
+
+    // 全部查詢都失敗 → 整段失敗（沿用原有的分項指引）
+    if (failures.length > 0 && successes.length === 0) {
+      const failure = failures[0];
+      const { status, message, reasons } = failure.result.error;
+      const reasonText = reasons.length ? `（${reasons.join("、")}）` : "";
+      const diagnostics = buildDiagnostics(failure, status, message, reasons);
       if (status === 401 || status === 403) {
         const apiDisabled = reasons.includes("SERVICE_DISABLED");
         return emptyUsage({
@@ -187,46 +204,59 @@ async function loadAppHostingUsage(): Promise<AppHostingUsage> {
 
     // 本月合計：日對齊點列直接累加（點已由 REDUCE_SUM 合併全部 revision／instance）
     const totals = new Map<string, number>();
-    for (const { key, result } of results) {
-      if ("points" in result) {
-        totals.set(key, result.points.reduce((sum, point) => sum + point.value, 0));
-      }
+    for (const { key, result } of successes) {
+      totals.set(key, result.points.reduce((sum, point) => sum + point.value, 0));
     }
     const requests = totals.get("requests") ?? 0;
     const cpuSeconds = totals.get("cpuSeconds") ?? 0;
     const memoryGibSeconds = totals.get("memoryGibSeconds") ?? 0;
     const builds = totals.get("builds") ?? 0;
 
+    const succeeded = (key: string) => successes.some((item) => item.key === key);
     const metrics: QuotaMetric[] = [
-      {
+      succeeded("requests") && {
         key: "requests",
         label: "Cloud Run 請求數（本月）",
         used: requests,
         limit: APP_HOSTING_FREE_LIMITS.requests,
         unit: "count",
       },
-      {
+      succeeded("cpuSeconds") && {
         key: "cpu",
         label: "Cloud Run CPU 時間（本月）",
         used: cpuSeconds / 3600,
         limit: APP_HOSTING_FREE_LIMITS.cpuSeconds / 3600,
         unit: "hours",
       },
-      {
+      succeeded("memoryGibSeconds") && {
         key: "memory",
         label: "Cloud Run 記憶體時間（本月）",
         used: memoryGibSeconds / 3600,
         limit: APP_HOSTING_FREE_LIMITS.memoryGibSeconds / 3600,
         unit: "gbHours",
       },
-      {
+      succeeded("builds") && {
         key: "builds",
         label: "Cloud Build 建置次數（本月，含失敗）",
         used: builds,
         limit: null,
         unit: "count",
       },
-    ];
+    ].filter((metric): metric is QuotaMetric => Boolean(metric));
+
+    // 部分指標失敗不整段報錯：成功的照常顯示，失敗的以 note 說明
+    let note =
+      "Cloud Build 免費額度以「建置分鐘」計（2,500 分鐘／月），建置次數本身無額度；分鐘數與頻寬請見 Cloud Build／帳單頁。所有額度為帳號層級合計、UTC 每月重置。";
+    if (failures.length > 0) {
+      const detail = failures
+        .map((item) => `${item.key}（${item.result.error.message || `HTTP ${item.result.error.status}`}）`)
+        .join("；");
+      const buildsOnly =
+        failures.length === 1 && failures[0].key === "builds";
+      note = buildsOnly
+        ? "「建置次數」查不到資料：App Hosting 的建置由 Google 管理，未必會在你的專案寫入 Cloud Build 監控指標（部分專案從未產出過此指標）。此不影響請求／CPU／記憶體數字；建置分鐘數請見官方 Cloud Build／帳單頁。"
+        : `部分指標查詢失敗，已略過：${detail}。其餘數字為本月成功查詢的累計，正式數字請以官方頁面為準。`;
+    }
 
     return {
       ok: true,
@@ -236,7 +266,7 @@ async function loadAppHostingUsage(): Promise<AppHostingUsage> {
       fetchedAt: new Date().toISOString(),
       period: { from: startIso, to: endIso },
       metrics,
-      note: "Cloud Build 免費額度以「建置分鐘」計（2,500 分鐘／月），建置次數本身無額度；分鐘數與頻寬請見 Cloud Build／帳單頁。所有額度為帳號層級合計、UTC 每月重置。",
+      note,
       links: appHostingUsageLinks(projectId),
     };
   } catch (error) {
