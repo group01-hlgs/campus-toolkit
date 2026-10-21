@@ -83,6 +83,20 @@ export interface ReadStatsEndpoint {
   deletes: number;
 }
 
+/** 執行環境診斷（僅回報存在與否＋字元數，不回報內容）——用於「設了 READ_STATS 卻顯示未啟用」時判定變數是否注入到該實例 */
+export interface ReadStatsDiag {
+  /** `process.env.NODE_ENV` */
+  nodeEnv: string;
+  /** `READ_STATS` 是否存在與其字元數 */
+  readStats: { set: boolean; len: number };
+  /** `READ_STATS_LOG` 是否存在與其字元數 */
+  readStatsLog: { set: boolean; len: number };
+  /** `FIREBASE_SERVICE_ACCOUNT_KEY` 是否存在（統計儀表板 Cloud Monitoring 區塊的前置條件） */
+  serviceAccountKey: { set: boolean; len: number };
+  /** App Hosting／Cloud Run 執行環境指標（存在＝部署在 GCP 伺服端） */
+  kService: boolean;
+}
+
 export interface ReadStatsSection {
   /** READ_STATS 開關是否啟用（dev 預設開；production 需 READ_STATS=1） */
   enabled: boolean;
@@ -91,10 +105,12 @@ export interface ReadStatsSection {
   /** 本實例啟動時間（epoch ms） */
   startedAt: number;
   totals: { requests: number; reads: number; writes: number; deletes: number };
-  /** 端點排行（依讀取數、上限 50） */
+  /** 端點排行（依讀取數，上限 50） */
   byEndpoint: ReadStatsEndpoint[];
-  /** 集合排行（依讀取數、上限 50） */
+  /** 集合排行（依讀取數，上限 50） */
   byCollection: Array<{ name: string; reads: number }>;
+  /** 執行環境診斷 */
+  diag: ReadStatsDiag;
 }
 
 /** `GET /api/admin/stats` 回應 */

@@ -245,6 +245,16 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   );
 }
 
+/** 環境變數存在與否的顯示文字（不揭露內容，僅字元數） */
+function presenceLabel(value: { set: boolean; len: number }): string {
+  return value.set ? `已設定（${value.len} 字元）` : "未設定";
+}
+
+/** 執行環境診斷一行字：讓使用者對照「環境變數保存了，但有沒有真的注入到這個實例」 */
+function diagLine(diag: ReadStatsSection["diag"]): string {
+  return `本實例實際環境：NODE_ENV=${diag.nodeEnv}・READ_STATS=${presenceLabel(diag.readStats)}・READ_STATS_LOG=${presenceLabel(diag.readStatsLog)}・FIREBASE_SERVICE_ACCOUNT_KEY=${presenceLabel(diag.serviceAccountKey)}${diag.kService ? "・App Hosting 執行環境" : ""}`;
+}
+
 /** 端點級讀取統計（read-stats：本實例進程內累計，不寫 Firestore） */
 function ReadStatsPanel({
   stats,
@@ -267,7 +277,12 @@ function ReadStatsPanel({
       />
       {!stats.enabled ? (
         <div className="p-4 text-sm alert-info text-t2 whitespace-pre-wrap">
-          {`read-stats 未啟用。development 預設啟用；production 請於環境變數設定 READ_STATS=1 後重新部署。\n附加 READ_STATS_LOG=1 可同時將每筆讀寫以結構化 log 輸出（App Hosting 日誌可留存，零 Firestore 成本）。`}
+          {`read-stats 未啟用。development 預設啟用；production 請於環境變數設定 READ_STATS=1（亦接受 true／yes／on，不區分大小寫）後重新部署。
+環境變數保存後必須「重新部署」才會注入新實例——請確認最新部署時間晚於變數保存時間。
+
+${diagLine(stats.diag)}
+若已保存 READ_STATS 卻顯示「未設定」，代表此實例尚未帶到該變數（多半是尚未重新部署）。
+附加 READ_STATS_LOG=1 可同時將每筆讀寫以結構化 log 輸出（App Hosting 日誌可留存，零 Firestore 成本）。`}
         </div>
       ) : (
         <div className="border border-themed rounded-lg bg-card overflow-hidden">
@@ -288,6 +303,7 @@ function ReadStatsPanel({
               {resetting ? "重設中…" : "重設本實例統計"}
             </button>
           </div>
+          <p className="px-4 py-2 text-xs text-t3 border-b border-themed">{diagLine(stats.diag)}</p>
           {stats.byEndpoint.length === 0 ? (
             <p className="p-6 text-center text-sm text-t3">
               尚無統計資料——瀏覽任一頁面或 API 後再回來查看。

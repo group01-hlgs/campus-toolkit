@@ -19,9 +19,11 @@ import { randomUUID } from "node:crypto";
  * 「當前請求」範圍（enforceRateLimit 傳路徑、verifySession 傳頁面標籤），
  * 其後同一 async 鏈上的所有計數累加至該 label。
  *
- * 開關：dev 預設啟用；production 需 `READ_STATS=1`（firebase-admin.ts 判斷，
- * 關閉時不裝 Proxy、零開銷）。`READ_STATS_LOG=1` 時每筆輸出結構化 log
- * （App Hosting／Cloud Logging 可永久留存，同樣不花 Firestore）。
+ * 開關：dev 預設啟用；production 需 `READ_STATS=1`（亦接受 `true`/`yes`/`on`，
+ * firebase-admin.ts 判斷，關閉時不裝 Proxy、零開銷）。`READ_STATS_LOG=1` 時每筆
+ * 輸出結構化 log（App Hosting／Cloud Logging 可永久留存，同樣不花 Firestore）。
+ * 儀表板以 `diag` 回報執行環境實際看到的變數（存在與否＋字元數），供「設了卻
+ * 未生效」時判斷環境變數是否真的注入到該實例（App Hosting 需重新部署才生效）。
  */
 
 interface ReadScope {
@@ -45,17 +47,49 @@ export interface ReadStatsSnapshot {
   totals: { requests: number; reads: number; writes: number; deletes: number };
   byEndpoint: EndpointStat[];
   byCollection: Array<{ name: string; reads: number }>;
+  /** 執行環境診斷（僅回報存在與否＋字元數，不回報內容） */
+  diag: ReadStatsDiag;
 }
 
-/** production 關閉、其他環境（dev/test）預設啟用；READ_STATS=1 可在 production 強制開啟、READ_STATS=0 關閉 */
+/** 執行環境診斷：讓儀表板能看出「環境變數到底有沒有進到這個實例」 */
+export interface ReadStatsDiag {
+  /** `process.env.NODE_ENV` */
+  nodeEnv: string;
+  /** `READ_STATS` 是否存在與其字元數（不含空白前後） */
+  readStats: { set: boolean; len: number };
+  /** `READ_STATS_LOG` 是否存在與其字元數 */
+  readStatsLog: { set: boolean; len: number };
+  /** `FIREBASE_SERVICE_ACCOUNT_KEY` 是否存在（儀表板另一區塊的前置條件） */
+  serviceAccountKey: { set: boolean; len: number };
+  /** App Hosting／Cloud Run 執行環境指標（存在＝部署在 GCP 伺服端） */
+  kService: boolean;
+}
+
+function envPresence(name: string): { set: boolean; len: number } {
+  const raw = process.env[name];
+  if (raw === undefined) return { set: false, len: 0 };
+  const trimmed = raw.trim();
+  return { set: trimmed.length > 0, len: trimmed.length };
+}
+
+/** 寬鬆布林解析：`1/true/yes/on`（不分大小寫、去空白）＝真、`0/false/no/off`＝假、其餘＝null（未明確指定） */
+function parseLooseBool(value: string | undefined): boolean | null {
+  if (value === undefined) return null;
+  const v = value.trim().toLowerCase();
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return null;
+}
+
+/** production 關閉、其他環境（dev/test）預設啟用；READ_STATS 可在 production 強制開啟（1/true/yes/on）、關閉（0/false/no/off） */
 export function isReadStatsEnabled(): boolean {
-  if (process.env.READ_STATS === "0") return false;
-  if (process.env.READ_STATS === "1") return true;
+  const flag = parseLooseBool(process.env.READ_STATS);
+  if (flag !== null) return flag;
   return process.env.NODE_ENV !== "production";
 }
 
 function shouldLog(): boolean {
-  return process.env.READ_STATS_LOG === "1";
+  return parseLooseBool(process.env.READ_STATS_LOG) === true;
 }
 
 const als = new AsyncLocalStorage<ReadScope>();
@@ -155,6 +189,13 @@ export function getReadStatsSnapshot(): ReadStatsSnapshot {
     },
     byEndpoint: endpoints,
     byCollection: collections,
+    diag: {
+      nodeEnv: process.env.NODE_ENV ?? "(未設定)",
+      readStats: envPresence("READ_STATS"),
+      readStatsLog: envPresence("READ_STATS_LOG"),
+      serviceAccountKey: envPresence("FIREBASE_SERVICE_ACCOUNT_KEY"),
+      kService: Boolean(process.env.K_SERVICE),
+    },
   };
 }
 
