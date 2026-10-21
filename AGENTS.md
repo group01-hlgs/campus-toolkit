@@ -44,6 +44,19 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 1. 請針對 A「主程式」進行修改
 2. 修改完成後 push A「主程式」，請勿將本機掛載安裝的選用功能模組 push 上去
 
+### 線上市集安裝的鐵律（必讀）
+
+線上市集安裝／更新／移除外掛時，**系統會自動 commit + push 到該部署所連結的 GitHub repo**
+（production 的持久化機制，讓模組撐過重新部署）。因此：
+
+- **只有連著「各校自己的 fork」的線上站，才可以用線上市集安裝**——裝出來的 commit
+  進自己的 fork，正是設計意圖。
+- **絕不可對連著上游（takan003/campus-toolkit）的線上站按市集安裝**——模組會被
+  commit 進上游，所有 fork 都會被迫附帶（違反「上游＝乾淨模板」的架構）。
+- 本機開發一律用 `module:link`（產物已 gitignore，不會進 git），與線上安裝互不相干。
+- 誤裝進上游時的補救：`git revert <該 commit>` 後 push 即可，**不需要重建任何 fork 或部署**；
+  各校 fork 自行安裝的模組不受影響（同步後 git 會保留他們自己的安裝）。
+
 ## 資料庫讀取規範（必讀）
 
 新增或修改任何 Firestore 讀取的程式碼前，先讀 `docs/資料庫讀取規範.md`
