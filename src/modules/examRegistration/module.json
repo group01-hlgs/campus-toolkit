@@ -17,8 +17,8 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.1.53",
-    "releasedAt": "2026-10-21"
+    "version": "0.1.54",
+    "releasedAt": "2026-10-22"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "defaultRoleEnabled": { "parent": false },
@@ -64,6 +64,13 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.1.54",
+      "releasedAt": "2026-10-22",
+      "notes": [
+        "官方報名資料檔新增「忽略身分證」勾選：勾選後缺證號的學生不再阻止匯出，其列排在試算表最上方，其餘按報名序號由小到大排序；未勾選維持原阻止行為並列出班級與姓名。"
+      ]
+    },
     {
       "version": "0.1.53",
       "releasedAt": "2026-10-21",

@@ -132,6 +132,7 @@ export async function GET(request: NextRequest) {
           to: request.nextUrl.searchParams.get("to")?.trim() ?? "",
           schoolExamCode,
           registrationNumberField: registrationNumberFieldRaw,
+          ignoreNationalId: request.nextUrl.searchParams.get("ignoreNationalId") === "1",
         });
         if (!file) {
           return NextResponse.json({ success: false, message: "找不到報名場次" }, { status: 404, headers: noStore });

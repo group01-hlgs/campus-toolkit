@@ -1528,6 +1528,19 @@ function registrationExportRow(
   };
 }
 
+/** 官方報名檔列排序：缺身分證者排最上方，其餘依報名序號由小到大（同號再依班級、座號）。 */
+function compareOfficialExportRows(
+  a: { nationalId: string; exportRow: ExamRosterExportRow },
+  b: { nationalId: string; exportRow: ExamRosterExportRow }
+): number {
+  return (
+    Number(Boolean(a.nationalId)) - Number(Boolean(b.nationalId)) ||
+    a.exportRow.registrationNo.localeCompare(b.exportRow.registrationNo, "en", { numeric: true }) ||
+    a.exportRow.studentClass.localeCompare(b.exportRow.studentClass, "zh-Hant", { numeric: true }) ||
+    a.exportRow.seatNo.localeCompare(b.exportRow.seatNo, "zh-Hant", { numeric: true })
+  );
+}
+
 function rosterString(entry: Record<string, unknown> | undefined, key: string): string {
   const value = entry?.[key];
   return typeof value === "string" ? value.trim() : "";
@@ -1758,7 +1771,13 @@ async function loadStudentNationalIds(uids: string[]): Promise<Map<string, strin
 /** 依正式考試名稱產生官方報名資料檔；英聽、學測與大學術科各用專屬欄位格式。 */
 async function buildUniversityArtsOfficialXlsxForEvent(
   anchorRoster: ExamEventRoster,
-  options: { from?: string; to?: string; schoolExamCode: string; registrationNumberField: ExamRegistrationNumberField }
+  options: {
+    from?: string;
+    to?: string;
+    schoolExamCode: string;
+    registrationNumberField: ExamRegistrationNumberField;
+    ignoreNationalId?: boolean;
+  }
 ): Promise<{ filename: string; buffer: Buffer }> {
   const anchorYear = anchorRoster.event.examDate.slice(0, 4);
   const { events } = await listAdminExamEvents();
@@ -1831,7 +1850,7 @@ async function buildUniversityArtsOfficialXlsxForEvent(
 
   const nationalIds = await loadStudentNationalIds(students.map((student) => student.uid));
   const missingIds = students.filter((student) => !nationalIds.get(student.uid));
-  if (missingIds.length) {
+  if (missingIds.length && !options.ignoreNationalId) {
     const sample = missingIds
       .slice(0, 5)
       .map(({ identityEntry }) =>
@@ -1845,27 +1864,22 @@ async function buildUniversityArtsOfficialXlsxForEvent(
     );
   }
 
-  students.sort((a, b) => {
-    const left = a.identityEntry.registration;
-    const right = b.identityEntry.registration;
-    return (
-      left.studentClass.localeCompare(right.studentClass, "zh-Hant", { numeric: true }) ||
-      left.seatNo.localeCompare(right.seatNo, "zh-Hant", { numeric: true }) ||
-      left.studentName.localeCompare(right.studentName, "zh-Hant")
-    );
-  });
-
   const schoolExamCode = options.schoolExamCode.trim();
+  const studentRows = students.map((student) => ({
+    student,
+    exportRow: registrationExportRow(
+      student.identityEntry.registration,
+      anchorRoster.event,
+      schoolExamCode,
+      options.registrationNumberField
+    ),
+    nationalId: nationalIds.get(student.uid) ?? "",
+  }));
+  studentRows.sort(compareOfficialExportRows);
+
   const aoa: (string | number)[][] = [
     [...UNIVERSITY_ARTS_EXAM_OFFICIAL_HEADERS],
-    ...students.map((student) => {
-      const { registration: identity } = student.identityEntry;
-      const exportRow = registrationExportRow(
-        identity,
-        anchorRoster.event,
-        schoolExamCode,
-        options.registrationNumberField
-      );
+    ...studentRows.map(({ student, exportRow, nationalId }) => {
       const fieldsByGroup: Partial<Record<UniversityArtsExamGroup, string[]>> = {};
       for (const group of ["music", "art", "sports"] as const) {
         const entry = student.groups[group];
@@ -1886,7 +1900,7 @@ async function buildUniversityArtsOfficialXlsxForEvent(
           registration.examServiceNote.trim(),
         ].filter(Boolean))
       )].join("；");
-      return [exportRow.registrationNo, nationalIds.get(student.uid) ?? "", ...fields, specialNeeds];
+      return [exportRow.registrationNo, nationalId, ...fields, specialNeeds];
     }),
   ];
   const worksheet = XLSX.utils.aoa_to_sheet(aoa);
@@ -1902,7 +1916,13 @@ async function buildUniversityArtsOfficialXlsxForEvent(
 
 export async function buildOfficialExamXlsxForEvent(
   eventId: string,
-  options: { from?: string; to?: string; schoolExamCode: string; registrationNumberField: ExamRegistrationNumberField }
+  options: {
+    from?: string;
+    to?: string;
+    schoolExamCode: string;
+    registrationNumberField: ExamRegistrationNumberField;
+    ignoreNationalId?: boolean;
+  }
 ): Promise<{ filename: string; buffer: Buffer } | null> {
   const roster = await getExamEventRoster(eventId);
   if (!roster) return null;
@@ -1922,7 +1942,7 @@ export async function buildOfficialExamXlsxForEvent(
   const isAcademicAbility = !isEnglishListening && !isSubjectAptitude && isAcademicAbilityExamTitle(roster.event.title);
   const nationalIds = await loadStudentNationalIds(registrations.map((row) => row.studentUid));
   const missingIds = registrations.filter((row) => !nationalIds.get(row.studentUid));
-  if (missingIds.length) {
+  if (missingIds.length && !options.ignoreNationalId) {
     const sample = missingIds
       .slice(0, 5)
       .map((row) => `${row.studentClass} ${row.studentName}`)
@@ -1941,15 +1961,16 @@ export async function buildOfficialExamXlsxForEvent(
       : isAcademicAbility
         ? [...ACADEMIC_ABILITY_EXAM_OFFICIAL_HEADERS]
         : genericOfficialExamHeaders(roster.event.subjects);
+  const exportRows = registrations.map((row) => ({
+    row,
+    exportRow: registrationExportRow(row, roster.event, schoolExamCode, options.registrationNumberField),
+    nationalId: nationalIds.get(row.studentUid) ?? "",
+  }));
+  exportRows.sort(compareOfficialExportRows);
+
   const aoa: (string | number)[][] = [
     headers,
-    ...registrations.map((row) => {
-      const exportRow = registrationExportRow(
-        row,
-        roster.event,
-        schoolExamCode,
-        options.registrationNumberField
-      );
+    ...exportRows.map(({ row, exportRow, nationalId }) => {
       const specialNeeds = [
         row.nonAirConditionedRoom ? "非冷氣試場" : "",
         row.examServiceNote.trim(),
@@ -1957,14 +1978,14 @@ export async function buildOfficialExamXlsxForEvent(
       if (isEnglishListening) {
         return [
           exportRow.registrationNo,
-          nationalIds.get(row.studentUid) ?? "",
+          nationalId,
           row.locationCode,
           specialNeeds,
         ];
       }
       return [
         exportRow.registrationNo,
-        nationalIds.get(row.studentUid) ?? "",
+        nationalId,
         row.locationCode,
         ...(isSubjectAptitude
           ? subjectAptitudeExamSubjectFlags(

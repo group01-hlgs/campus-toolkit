@@ -81,6 +81,7 @@ export default function ExamRegistrationRosterPage({
   const [exportScope, setExportScope] = useState("");
   const [schoolExamCode, setSchoolExamCode] = useState("");
   const [registrationNumberField, setRegistrationNumberField] = useState<ExamRegistrationNumberField>("rollNo");
+  const [ignoreNationalId, setIgnoreNationalId] = useState(false);
 
   // 子權限載入：管理員＝全開；非管理員＝delegatedModules 中 examRegistration 的 permissions
   useEffect(() => {
@@ -231,6 +232,7 @@ export default function ExamRegistrationRosterPage({
       }
       params.set("schoolExamCode", code);
       params.set("registrationNumberField", registrationNumberField);
+      params.set("ignoreNationalId", ignoreNationalId ? "1" : "0");
     }
     try {
       const res = await fetch(`/api/admin/exam-registration?${params.toString()}`, { cache: "no-store" });
@@ -450,6 +452,14 @@ export default function ExamRegistrationRosterPage({
                     ))}
                   </select>
                 </label>
+                <label className="inline-flex items-center gap-2 text-sm text-t1 pb-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ignoreNationalId}
+                    onChange={(e) => setIgnoreNationalId(e.target.checked)}
+                  />
+                  忽略身分證
+                </label>
                 <button
                   type="button"
                   onClick={() => void downloadScopeXlsx("registered", true)}
@@ -460,6 +470,8 @@ export default function ExamRegistrationRosterPage({
               </div>
               <p className="text-xs text-t3">
                 官方報名序號＝學校升學代碼＋所選學生名冊欄位；例如 931＋班號 30101＝93130101。
+                報名資料檔的列依報名序號由小到大排序，缺身分證的列排在檔案最上方（未勾選「忽略身分證」時，
+                缺證號會阻止匯出並列出班級與姓名；勾選後照常匯出）。
               </p>
             </div>
             )}
