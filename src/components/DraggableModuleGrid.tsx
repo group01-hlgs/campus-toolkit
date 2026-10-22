@@ -24,7 +24,7 @@ const DEFAULT_HINT =
   "拖曳卡片可調整顯示順序，拖到行與行的間隙可另起一行；分類標題可拖曳調整彼此位置，此瀏覽器會自動記住";
 
 const EDIT_HINT =
-  "編輯模式：點分類名稱可改名，可設定每行張數、預設收合、刪除分類；拖曳卡片可跨分類移動，按右側 ✓ 完成";
+  "編輯模式：點分類名稱可改名，可設定每行最多張數、預設收合、刪除分類；拖曳卡片可跨分類移動，按右側 ✓ 完成";
 
 /** 標題可顯示的最大字數（以目前字級，一個中文字＝1em＝16px）；＋2px 縫隙避免字型進位誤差讓剛好12字被截斷 */
 const LABEL_MAX_CHARS = 12;
@@ -104,8 +104,9 @@ interface StoredCategory {
   /** 目前收合狀態：使用者手動切換會記住到下次造訪 */
   collapsed: boolean;
   /**
-   * 每行張數（1..6）：該分類改為自動流排（rows 每 N 張切一行），分類框寬度上限＝N 張卡；
-   * null＝自由（現行行為：吃滿整行、可拖到行間隙手動斷行）。
+   * 每行張數上限（1..6）：分類框寬度上限＝N 張卡（窄螢幕自動減少），每行顯示 1~N 張、
+   * 超過框寬自動折行；斷行仍由使用者拖曳決定（含拖到行間隙另起一行）。
+   * null＝自由（吃滿整行、可手動斷行）。
    */
   columns: number | null;
   /** 沿用原有的「行」模型：每個元素是一行的卡片 id */
@@ -203,7 +204,7 @@ function mkUncategorized(ids: string[]): StoredCategory {
   };
 }
 
-/** 解析每行張數：1..6 的整數才有效，其餘（含舊版無此欄位）一律為「自由」 */
+/** 解析每行張數上限：1..6 的整數才有效，其餘（含舊版無此欄位）一律為「自由」 */
 function normalizeColumns(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isInteger(value)) return null;
   return value >= 1 && value <= MAX_COLUMNS ? value : null;
@@ -229,20 +230,6 @@ function normalizeCategory(entry: unknown): StoredCategory | null {
     columns: normalizeColumns(raw.columns),
     rows,
   };
-}
-
-/**
- * 自動流排（columns 設為 N 時）：把該分類的行攤平後每 N 張切一行，
- * 讓模型行＝實際顯示的每行張數；columns 為 null（自由）時原樣回傳。
- */
-function reflowCategory(category: StoredCategory): StoredCategory {
-  if (category.columns === null || category.columns < 1) return category;
-  const flat = category.rows.flat();
-  const rows: string[][] = [];
-  for (let index = 0; index < flat.length; index += category.columns) {
-    rows.push(flat.slice(index, index + category.columns));
-  }
-  return { ...category, rows };
 }
 
 /** 解析 localStorage 版面：v4/v3 分類格式，以及舊版 v2（二維行）／v1（一維卡片）皆可讀（自動包成單一未分類） */
@@ -310,8 +297,8 @@ function reconcileCategories(source: StoredCategory[], ids: string[]): StoredCat
       ];
     }
   }
-  // 設了每行張數的分類：對齊卡片後重新流排（新增/移除卡片都可能破壞每 N 張一行）
-  return result.map(reflowCategory);
+  // 設了每行張數上限的分類只影響框寬與折行，行模型維持使用者拖曳的結果
+  return result;
 }
 
 /**
@@ -369,18 +356,18 @@ function sameHint(a: DropHint, b: DropHint): boolean {
  * - 只有一個分類時不顯示標題列（畫面與無分類時完全相同）；新增第 2 個分類或進入編輯模式才顯示。
  * - 分類標題列為原生 `<details>`／`<summary>`＋DisclosureArrow：顯示名稱、卡片數、收合箭頭；
  *   收合狀態記住到下次造訪，「預設收合」開關決定首次（與重設後）的狀態。
- * - 編輯模式可就地改名、設每行張數、切換預設收合、刪除分類（未分類不可刪除，刪除後卡片退回未分類）、新增分類。
- * - 每行張數（1..6）：該分類改自動流排（每 N 張一行）、框寬上限＝N 張卡（窄螢幕自動減少）；
- *   改回「自由」＝吃滿整行、可手動斷行。卡片維持 286px 固定寬不變形。
+ * - 編輯模式可就地改名、設每行最多張數、切換預設收合、刪除分類（未分類不可刪除，刪除後卡片退回未分類）、新增分類。
+ * - 每行最多張數（1..6）：分類框寬度上限＝N 張卡（窄螢幕自動減少），每行顯示 1~N 張、超過框寬自動折行；
+ *   斷行仍由拖曳決定（拖到行間隙另起一行）；「自由」＝吃滿整行。卡片維持 286px 固定寬不變形。
  * - 拖到收合中（或空白）分類的標題列上＝放進該分類末尾，不會自動展開（手機資料夾規則）。
  *
  * 分類拖曳（標題列握把，比照卡片常駐）：
  * - 拖到分類框左/右半＝插到該分類前/後；拖到分類列間隙＝移到下一列首個分類前；全部下方＝排到最後。
  * - 卡片落點先判定「指標所在的分類框」，行/間隙判定限定在該框內（並排後上下相鄰不可靠）；
- *   指標不在任何框內（分類之間）則不放置——放入分類＝拖到框內或標題列。
+ *   框外取水平重疊且垂直最近的分類框（列間隙、框下方仍可放置），左右溝槽則不放置。
  *
  * 實作要點：
- * - 版面模型是分類→二維 string[][]（rows）；N 模式下 rows 恆為每 N 張一行（reflowCategory 重切）。
+ * - 版面模型是分類→二維 string[][]（rows）：斷行一律由拖曳決定；每行張數設定只影響框寬與折行上限。
  * - 全程使用 Pointer Events，滑鼠與手指（觸控）走同一套邏輯；不依賴 HTML5 拖曳 API（其不支援觸控）。
  * - 指標捕捉掛在「不會被搬動」的網格容器上，拖曳中 React 重排子節點也不會中斷事件。
  * - 每次 pointermove 都重新量測：跨行、跨分類搬移都會改變列高，
@@ -455,8 +442,7 @@ export default function DraggableModuleGrid({
         );
       }
     }
-    // 錨點搬移可能讓 N 模式的行超出每行張數：有變動才重新流排
-    return next === source ? source : next.map(reflowCategory);
+    return next;
   }
 
   function persist(value: StoredCategory[] = catsRef.current) {
@@ -569,23 +555,6 @@ export default function DraggableModuleGrid({
     return { grid: grid.getBoundingClientRect(), cardRects, headings, boxes, lines };
   }
 
-  /**
-   * N 模式（自動流排）的放置目標轉換：行間隙不再另起一行，改插到相鄰行
-   * （模型維持每 N 張一行，reflow 後會落在該邊界）；自由模式原樣回傳。
-   */
-  function autoFlowTarget(target: DropTarget): DropTarget {
-    if (target.kind !== "newRow") return target;
-    const category = catsRef.current.find((entry) => entry.id === target.category);
-    if (!category || category.columns === null) return target;
-    const rows = category.rows;
-    if (rows.length === 0) return { kind: "category", category: category.id };
-    const row = Math.max(0, Math.min(target.beforeRow, rows.length - 1));
-    if (target.beforeIndex <= 0) {
-      return { kind: "insert", category: category.id, row, index: 0 };
-    }
-    return { kind: "insert", category: category.id, row, index: rows[row].length };
-  }
-
   /** 依放置目標算出新版面；沒有實際變化時回傳 null */
   function buildRows(
     draggedId: string,
@@ -646,14 +615,9 @@ export default function DraggableModuleGrid({
       }
     }
 
-    // 自動流排的分類：來源與目的地都重新切成每 N 張一行（模型行＝實際顯示行）
-    const finalCategories = next.map(reflowCategory);
-    if (JSON.stringify(finalCategories) === JSON.stringify(current)) return null;
-    const landedCategory = finalCategories.find((entry) => entry.id === destination.id);
-    const landed = landedCategory
-      ? landedCategory.rows.findIndex((entry) => entry.includes(movedId))
-      : -1;
-    return { categories: finalCategories, category: destination.id, row: Math.max(0, landed) };
+    if (JSON.stringify(next) === JSON.stringify(current)) return null;
+    const landed = destination.rows.findIndex((entry) => entry.includes(movedId));
+    return { categories: next, category: destination.id, row: Math.max(0, landed) };
   }
 
   /** 套用放置：結構改變時同步重繪，讓緊接著的 pointermove 量到新版面 */
@@ -788,7 +752,7 @@ export default function DraggableModuleGrid({
       return;
     }
 
-    // 3-2) 指標在框內橫列之間的間隙：自由＝在該處另起一行；N 模式＝插到相鄰行（維持每 N 張一行）
+    // 3-2) 指標在框內橫列之間的間隙：在該處另起一行（含模型行折行後的視覺橫列，超出框寬自動折）
     const below = catLines.findIndex((entry) => entry.top > y);
     let target: DropTarget;
     let top: number;
@@ -815,7 +779,7 @@ export default function DraggableModuleGrid({
         ? (previousLine.bottom + nextLine.top) / 2
         : nextLine.top - ROW_GAP_PX / 2;
     }
-    place(draggedId, autoFlowTarget(target), {
+    place(draggedId, target, {
       type: "gap",
       top: top - grid.top,
       left: gapLeft,
@@ -1046,14 +1010,12 @@ export default function DraggableModuleGrid({
     );
   }
 
-  /** 設定每行張數：改為 N（自動流排＋框寬上限 N 張卡）或「自由」（吃滿整行、可手動斷行），並立刻重切該分類的行 */
+  /** 設定每行張數上限：N＝分類框寬度上限 N 張卡（每行 1~N 張、超過自動折行）；「自由」＝吃滿整行。行的斷行與順序一律由拖曳決定 */
   function setColumns(id: string, raw: string) {
     const parsed = raw === "" ? null : Number.parseInt(raw, 10);
     const columns = parsed !== null && parsed >= 1 && parsed <= MAX_COLUMNS ? parsed : null;
     applyCategories(
-      catsRef.current.map((category) =>
-        category.id === id ? reflowCategory({ ...category, columns }) : category
-      )
+      catsRef.current.map((category) => (category.id === id ? { ...category, columns } : category))
     );
   }
 
@@ -1249,6 +1211,16 @@ export default function DraggableModuleGrid({
                   }
                 }}
               >
+                {/* 分類拖曳握把（比照卡片常駐）：置於標題列最左，點擊本身不觸發收合 */}
+                <span
+                  onPointerDown={(event) => handleCategoryPointerDown(event, category.id)}
+                  onClick={(event) => event.preventDefault()}
+                  title="拖曳以調整分類位置"
+                  aria-hidden="true"
+                  className="flex w-6 shrink-0 items-center justify-center text-t3 cursor-grab active:cursor-grabbing touch-none"
+                >
+                  <DragHandleIcon />
+                </span>
                 <DisclosureArrow />
                 {editingId === category.id ? (
                   <input
@@ -1294,34 +1266,23 @@ export default function DraggableModuleGrid({
                   </span>
                 )}
                 <span className="text-xs font-normal text-t3">{count} 張卡片</span>
-                <span
-                  className="ml-auto flex items-center gap-1"
-                  onClick={editMode ? (event) => event.preventDefault() : undefined}
-                >
-                  {/* 分類拖曳握把（比照卡片常駐）：點擊本身不觸發收合 */}
+                {editMode && (
                   <span
-                    onPointerDown={(event) => handleCategoryPointerDown(event, category.id)}
+                    className="ml-auto flex items-center gap-1"
                     onClick={(event) => event.preventDefault()}
-                    title="拖曳以調整分類位置"
-                    aria-hidden="true"
-                    className="flex w-6 shrink-0 items-center justify-center text-t3 cursor-grab active:cursor-grabbing touch-none"
                   >
-                    <DragHandleIcon />
-                  </span>
-                  {editMode && (
-                    <>
-                      <select
+                    <select
                         value={category.columns === null ? "" : String(category.columns)}
                         onClick={(event) => event.stopPropagation()}
                         onChange={(event) => setColumns(category.id, event.target.value)}
-                        title="每行張數：自由＝吃滿整行、可手動斷行；數字＝自動排列且分類寬度上限為 N 張卡"
-                        aria-label={`「${category.name}」每行張數`}
+                        title="每行最多張數：自由＝吃滿整行；數字＝分類寬度上限 N 張卡，每行 1~N 張、超過自動折行（仍可拖到行間隙另起一行）"
+                        aria-label={`「${category.name}」每行最多張數`}
                         className="rounded border border-themed bg-page px-1 py-0.5 text-xs text-t2 cursor-pointer"
                       >
                         <option value="">自由</option>
                         {[1, 2, 3, 4, 5, 6].map((value) => (
                           <option key={value} value={value}>
-                            {value} 張/行
+                            最多 {value} 張
                           </option>
                         ))}
                       </select>
@@ -1354,9 +1315,8 @@ export default function DraggableModuleGrid({
                           <TrashIcon />
                         </button>
                       )}
-                    </>
-                  )}
-                </span>
+                    </span>
+                )}
               </summary>
               {rowsBlock}
             </details>
