@@ -32,6 +32,25 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 1. 請將三個專案程式 pull 後強制覆蓋，並啟動 A「主程式」本機伺服器測試
 2. 將 C「選用功能模組」掛載安裝進入 A「主程式」
 
+<details open>
+<summary>本機外掛掛載方法（E14 鐵律，掛不上去先看這裡）</summary>
+
+1. 掛載一律用複製＋監聽：`npm run module:link -- <C 專案路徑> --copy --watch`；
+   完成後確認 `module.lock.json` 的 `source` 為 `link-copy:`（若為 `link:` 即掛錯）。
+   win32 預設 link 是 junction，會被 Turbopack 判為 project root 外的無效 symlink，
+   全站 Build Error（`Module not found`＋`Symlink ... is invalid`）——此為 E14，不可用
+2. 掛載／解除前先停 dev server：運行中的 dev server 會重生成
+   `.next/dev/types/validator.ts` 滯留引用，使驗證鏈的 `npm run lint` 誤判失敗；
+   掛完再啟動
+3. 已掛載時不可直接重掛（報 `src/modules/<value> 已存在`）：先
+   `npm run module:uninstall -- <value>`，再以複製＋監聽模式重掛
+4. `--watch` 程序須常駐：改 C 後 300ms 內整棵同步到 `src/modules/<value>`，
+   動到 module.json 自動重跑掃描器；程序消失（如重開機）就重跑掛載指令
+5. 驗證：模組 API 路由回 401（未登入）而非 Build Error，dev log 無
+   `Module not found`／`is invalid` 即成功
+
+</details>
+
 **「修改C」指令**，實施流程：
 1. 只在 C「選用功能模組」程式專案中修改，修改後同步到 A「主程式」已掛載的功能模組測試結果
 2. 將 C「選用功能模組」 push 至遠端
