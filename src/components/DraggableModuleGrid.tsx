@@ -20,9 +20,11 @@ export interface ModuleCardItem {
   href: string;
 }
 
-const DEFAULT_HINT = "拖曳卡片可調整顯示順序，拖到行與行的間隙可另起一行，此瀏覽器會自動記住";
+const DEFAULT_HINT =
+  "拖曳卡片可調整顯示順序，拖到行與行的間隙可另起一行；分類標題可拖曳調整彼此位置，此瀏覽器會自動記住";
 
-const EDIT_HINT = "編輯模式：點分類名稱可改名，可設定預設收合、刪除分類；拖曳卡片可跨分類移動，按右側 ✓ 完成";
+const EDIT_HINT =
+  "編輯模式：點分類名稱可改名，可設定每行張數、預設收合、刪除分類；拖曳卡片可跨分類移動，按右側 ✓ 完成";
 
 /** 標題可顯示的最大字數（以目前字級，一個中文字＝1em＝16px）；＋2px 縫隙避免字型進位誤差讓剛好12字被截斷 */
 const LABEL_MAX_CHARS = 12;
@@ -46,11 +48,18 @@ const EDGE_MARGIN_PX = ROW_GAP_PX;
 /** 「未分類」的固定 id：永遠存在、不可刪除，是新增/刪除分類時卡片的退回處 */
 const UNCATEGORIZED_ID = "uncategorized";
 
-/** 拖曳中的放置提示：間隙＝另起一行（畫指示線），行內＝該行外框，標題列＝放入該分類 */
+/** 每行張數可設的最大值（超過絕大部分螢幕的可用寬度，設了也會自動折行） */
+const MAX_COLUMNS = 6;
+
+/** 卡片間距（px）：與卡片行的 gap-4 一致，用來推算「每行 N 張」的分類框寬度 */
+const CARD_GAP_PX = 16;
+
+/** 拖曳中的放置提示：間隙＝另起一行（畫指示線，可限定左右範圍），行內＝該行外框，標題列＝放入該分類，catBox＝分類前後落點 */
 type DropHint =
-  | { type: "gap"; top: number }
+  | { type: "gap"; top: number; left?: number; right?: number }
   | { type: "row"; category: string; row: number }
   | { type: "category"; category: string }
+  | { type: "catBox"; category: string }
   | null;
 
 /**
@@ -80,10 +89,12 @@ interface Geometry {
   cardRects: Map<string, DOMRect>;
   /** 各分類標題列（summary）的位置：拖到標題列上＝放入該分類 */
   headings: Map<string, DOMRect>;
+  /** 各分類框（含收合中＝只剩標題列）的位置：卡片落點先判定所在的分類框 */
+  boxes: Map<string, DOMRect>;
   lines: CardLine[];
 }
 
-/** 分類（群組）：包住數個「行」，可命名、可收合（未分類不可刪除） */
+/** 分類（群組）：包住數個「行」，可命名、可收合、可設每行張數（未分類不可刪除） */
 interface StoredCategory {
   /** 穩定識別碼：未分類固定為 "uncategorized"，其餘建立時生成 */
   id: string;
@@ -92,12 +103,17 @@ interface StoredCategory {
   defaultCollapsed: boolean;
   /** 目前收合狀態：使用者手動切換會記住到下次造訪 */
   collapsed: boolean;
+  /**
+   * 每行張數（1..6）：該分類改為自動流排（rows 每 N 張切一行），分類框寬度上限＝N 張卡；
+   * null＝自由（現行行為：吃滿整行、可拖到行間隙手動斷行）。
+   */
+  columns: number | null;
   /** 沿用原有的「行」模型：每個元素是一行的卡片 id */
   rows: string[][];
 }
 
 interface StoredLayout {
-  version: 3;
+  version: 4;
   categories: StoredCategory[];
   /** 已由使用者自行拖曳定位、不再套用排版規則的卡片 id */
   anchored: string[];
@@ -182,8 +198,15 @@ function mkUncategorized(ids: string[]): StoredCategory {
     name: "未分類",
     defaultCollapsed: false,
     collapsed: false,
+    columns: null,
     rows: ids.length > 0 ? [[...ids]] : [],
   };
+}
+
+/** 解析每行張數：1..6 的整數才有效，其餘（含舊版無此欄位）一律為「自由」 */
+function normalizeColumns(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  return value >= 1 && value <= MAX_COLUMNS ? value : null;
 }
 
 function normalizeCategory(entry: unknown): StoredCategory | null {
@@ -193,6 +216,7 @@ function normalizeCategory(entry: unknown): StoredCategory | null {
     name?: unknown;
     defaultCollapsed?: unknown;
     collapsed?: unknown;
+    columns?: unknown;
     rows?: unknown;
   };
   if (typeof raw.id !== "string" || raw.id === "") return null;
@@ -202,11 +226,26 @@ function normalizeCategory(entry: unknown): StoredCategory | null {
     name: typeof raw.name === "string" && raw.name.trim() !== "" ? raw.name : "未分類",
     defaultCollapsed: raw.defaultCollapsed === true,
     collapsed: raw.collapsed === true,
+    columns: normalizeColumns(raw.columns),
     rows,
   };
 }
 
-/** 解析 localStorage 版面：v3 分類格式，以及舊版 v2（二維行）／v1（一維卡片）皆可讀（自動包成單一未分類） */
+/**
+ * 自動流排（columns 設為 N 時）：把該分類的行攤平後每 N 張切一行，
+ * 讓模型行＝實際顯示的每行張數；columns 為 null（自由）時原樣回傳。
+ */
+function reflowCategory(category: StoredCategory): StoredCategory {
+  if (category.columns === null || category.columns < 1) return category;
+  const flat = category.rows.flat();
+  const rows: string[][] = [];
+  for (let index = 0; index < flat.length; index += category.columns) {
+    rows.push(flat.slice(index, index + category.columns));
+  }
+  return { ...category, rows };
+}
+
+/** 解析 localStorage 版面：v4/v3 分類格式，以及舊版 v2（二維行）／v1（一維卡片）皆可讀（自動包成單一未分類） */
 function parseStoredLayout(raw: string): { categories: StoredCategory[]; anchored: string[] } | null {
   let parsed: unknown;
   try {
@@ -271,7 +310,8 @@ function reconcileCategories(source: StoredCategory[], ids: string[]): StoredCat
       ];
     }
   }
-  return result;
+  // 設了每行張數的分類：對齊卡片後重新流排（新增/移除卡片都可能破壞每 N 張一行）
+  return result.map(reflowCategory);
 }
 
 /**
@@ -308,13 +348,20 @@ function sameHint(a: DropHint, b: DropHint): boolean {
   if (!a || !b || a.type !== b.type) return false;
   if (a.type === "row" && b.type === "row") return a.category === b.category && a.row === b.row;
   if (a.type === "category" && b.type === "category") return a.category === b.category;
-  if (a.type === "gap" && b.type === "gap") return Math.abs(a.top - b.top) < 0.5;
+  if (a.type === "catBox" && b.type === "catBox") return a.category === b.category;
+  if (a.type === "gap" && b.type === "gap") {
+    return (
+      Math.abs(a.top - b.top) < 0.5 &&
+      (a.left ?? 0) === (b.left ?? 0) &&
+      (a.right ?? 0) === (b.right ?? 0)
+    );
+  }
   return false;
 }
 
 /**
  * 功能首頁的入口卡片網格：卡片分成「行」保存、可再分成數個「分類」群組，
- * 行內超出視窗寬度就自動往下折。
+ * 分類框以 flex-wrap 並排（寬度不足自動換行），行內超出框寬就自動往下折。
  * 可拖曳調整順序（含跨分類搬移）、拖到行與行的間隙另起一行，版面存入 localStorage（每張卡片以 data-card-id 識別）。
  * 另可給 `anchorAfter` 排版規則（如「行事曆」緊接「系統公告」）：只在使用者尚未自行拖曳該卡片時套用。
  *
@@ -322,11 +369,18 @@ function sameHint(a: DropHint, b: DropHint): boolean {
  * - 只有一個分類時不顯示標題列（畫面與無分類時完全相同）；新增第 2 個分類或進入編輯模式才顯示。
  * - 分類標題列為原生 `<details>`／`<summary>`＋DisclosureArrow：顯示名稱、卡片數、收合箭頭；
  *   收合狀態記住到下次造訪，「預設收合」開關決定首次（與重設後）的狀態。
- * - 編輯模式可就地改名、切換預設收合、刪除分類（未分類不可刪除，刪除後卡片退回未分類）、新增分類。
+ * - 編輯模式可就地改名、設每行張數、切換預設收合、刪除分類（未分類不可刪除，刪除後卡片退回未分類）、新增分類。
+ * - 每行張數（1..6）：該分類改自動流排（每 N 張一行）、框寬上限＝N 張卡（窄螢幕自動減少）；
+ *   改回「自由」＝吃滿整行、可手動斷行。卡片維持 286px 固定寬不變形。
  * - 拖到收合中（或空白）分類的標題列上＝放進該分類末尾，不會自動展開（手機資料夾規則）。
  *
+ * 分類拖曳（標題列握把，比照卡片常駐）：
+ * - 拖到分類框左/右半＝插到該分類前/後；拖到分類列間隙＝移到下一列首個分類前；全部下方＝排到最後。
+ * - 卡片落點先判定「指標所在的分類框」，行/間隙判定限定在該框內（並排後上下相鄰不可靠）；
+ *   指標不在任何框內（分類之間）則不放置——放入分類＝拖到框內或標題列。
+ *
  * 實作要點：
- * - 版面模型是分類→二維 string[][]（rows）；行的內容由使用者拖曳決定，視窗寬度只影響折行、不會重排行。
+ * - 版面模型是分類→二維 string[][]（rows）；N 模式下 rows 恆為每 N 張一行（reflowCategory 重切）。
  * - 全程使用 Pointer Events，滑鼠與手指（觸控）走同一套邏輯；不依賴 HTML5 拖曳 API（其不支援觸控）。
  * - 指標捕捉掛在「不會被搬動」的網格容器上，拖曳中 React 重排子節點也不會中斷事件。
  * - 每次 pointermove 都重新量測：跨行、跨分類搬移都會改變列高，
@@ -339,7 +393,7 @@ export default function DraggableModuleGrid({
   items,
   storageKey,
   hint = DEFAULT_HINT,
-  gridClassName = `${AREA_WIDTH_CLASS} relative flex flex-col gap-y-6 mb-8`,
+  gridClassName = `${AREA_WIDTH_CLASS} relative flex flex-wrap gap-6 items-start mb-8`,
   anchorAfter,
 }: {
   items: ModuleCardItem[];
@@ -375,6 +429,12 @@ export default function DraggableModuleGrid({
   const [deleteId, setDeleteId] = useState<string | null>(null);
   /** Escape 取消改名時略過緊接的 onBlur 存檔 */
   const skipBlurRef = useRef(false);
+  /** 分類拖曳（標題列握把）：與卡片拖曳共用網格的 pointer 捕捉，兩者互斥進行 */
+  const catDragIdRef = useRef<string | null>(null);
+  const [catDragId, setCatDragId] = useState<string | null>(null);
+  const catMovedRef = useRef(false);
+  /** 分類拖曳結束後的那一次 click 不觸發 summary 收合（下一次 pointerdown 重設） */
+  const suppressSummaryClickRef = useRef(false);
 
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item] as const)), [items]);
 
@@ -395,13 +455,14 @@ export default function DraggableModuleGrid({
         );
       }
     }
-    return next;
+    // 錨點搬移可能讓 N 模式的行超出每行張數：有變動才重新流排
+    return next === source ? source : next.map(reflowCategory);
   }
 
   function persist(value: StoredCategory[] = catsRef.current) {
     try {
       const layout: StoredLayout = {
-        version: 3,
+        version: 4,
         categories: value,
         anchored: [...anchoredRef.current],
       };
@@ -481,6 +542,13 @@ export default function DraggableModuleGrid({
       const rect = element.getBoundingClientRect();
       if (id && rect.height > 0) headings.set(id, rect);
     });
+    const boxes = new Map<string, DOMRect>();
+    grid.querySelectorAll<HTMLElement>("[data-category-id]").forEach((element) => {
+      const id = element.dataset.categoryId;
+      const rect = element.getBoundingClientRect();
+      // 收合中的分類框＝只剩標題列（高度 > 0），仍可作為卡片與分類的放置目標
+      if (id && rect.height > 0) boxes.set(id, rect);
+    });
     const lines: CardLine[] = [];
     catsRef.current.forEach((category) => {
       category.rows.forEach((row, rowIndex) => {
@@ -498,7 +566,24 @@ export default function DraggableModuleGrid({
         }
       });
     });
-    return { grid: grid.getBoundingClientRect(), cardRects, headings, lines };
+    return { grid: grid.getBoundingClientRect(), cardRects, headings, boxes, lines };
+  }
+
+  /**
+   * N 模式（自動流排）的放置目標轉換：行間隙不再另起一行，改插到相鄰行
+   * （模型維持每 N 張一行，reflow 後會落在該邊界）；自由模式原樣回傳。
+   */
+  function autoFlowTarget(target: DropTarget): DropTarget {
+    if (target.kind !== "newRow") return target;
+    const category = catsRef.current.find((entry) => entry.id === target.category);
+    if (!category || category.columns === null) return target;
+    const rows = category.rows;
+    if (rows.length === 0) return { kind: "category", category: category.id };
+    const row = Math.max(0, Math.min(target.beforeRow, rows.length - 1));
+    if (target.beforeIndex <= 0) {
+      return { kind: "insert", category: category.id, row, index: 0 };
+    }
+    return { kind: "insert", category: category.id, row, index: rows[row].length };
   }
 
   /** 依放置目標算出新版面；沒有實際變化時回傳 null */
@@ -561,9 +646,14 @@ export default function DraggableModuleGrid({
       }
     }
 
-    if (JSON.stringify(next) === JSON.stringify(current)) return null;
-    const landed = destination.rows.findIndex((entry) => entry.includes(movedId));
-    return { categories: next, category: destination.id, row: Math.max(0, landed) };
+    // 自動流排的分類：來源與目的地都重新切成每 N 張一行（模型行＝實際顯示行）
+    const finalCategories = next.map(reflowCategory);
+    if (JSON.stringify(finalCategories) === JSON.stringify(current)) return null;
+    const landedCategory = finalCategories.find((entry) => entry.id === destination.id);
+    const landed = landedCategory
+      ? landedCategory.rows.findIndex((entry) => entry.includes(movedId))
+      : -1;
+    return { categories: finalCategories, category: destination.id, row: Math.max(0, landed) };
   }
 
   /** 套用放置：結構改變時同步重繪，讓緊接著的 pointermove 量到新版面 */
@@ -584,6 +674,7 @@ export default function DraggableModuleGrid({
 
   function handlePointerDown(event: ReactPointerEvent<HTMLSpanElement>, id: string) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (catDragIdRef.current !== null) return; // 分類拖曳中不啟動卡片拖曳
     event.preventDefault();
     movedRef.current = false;
     dragIdRef.current = id;
@@ -598,6 +689,11 @@ export default function DraggableModuleGrid({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    // 分類拖曳（標題列握把）走另一套邏輯
+    if (catDragIdRef.current !== null) {
+      handleCategoryMove(event);
+      return;
+    }
     const draggedId = dragIdRef.current;
     if (draggedId === null) return;
     movedRef.current = true;
@@ -605,7 +701,7 @@ export default function DraggableModuleGrid({
     if (!geometry) return;
     const x = event.clientX;
     const y = event.clientY;
-    const { grid, cardRects, headings, lines } = geometry;
+    const { grid, cardRects, headings, boxes, lines } = geometry;
 
     // 指標離開卡片區（含邊緣餘裕）就不動作，避免拖到頁面角落誤建新行
     if (
@@ -639,10 +735,40 @@ export default function DraggableModuleGrid({
       return;
     }
 
-    // 3) 指標在某條橫列範圍內（該列左右的空白）：插到該行最接近的位置
-    const line = lines.find((entry) => y >= entry.top && y <= entry.bottom);
+    // 3) 指標所在的分類框：行／間隙判定限定在框內（分類並排後上下相鄰不可靠）
+    let boxId: string | null = null;
+    let boxRect: DOMRect | null = null;
+    for (const [id, rect] of boxes) {
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
+      boxId = id;
+      boxRect = rect;
+      break;
+    }
+    if (boxRect === null) {
+      // 框外（列間隙、框下方、頂部餘裕）：取與指標水平重疊且垂直最近的分類框繼續判定；
+      // 左右溝槽（與任何框都無水平重疊）不放置——放入分類＝拖到框內或標題列
+      let best: { id: string; rect: DOMRect; distance: number } | null = null;
+      for (const [id, rect] of boxes) {
+        if (x < rect.left || x > rect.right) continue;
+        const distance = y < rect.top ? rect.top - y : y - rect.bottom;
+        if (!best || distance < best.distance) best = { id, rect, distance };
+      }
+      if (!best) {
+        if (!sameHint(dropHint, null)) setDropHint(null);
+        return;
+      }
+      boxId = best.id;
+      boxRect = best.rect;
+    }
+    if (boxId === null) return;
+    const gapLeft = boxRect.left - grid.left;
+    const gapRight = grid.right - boxRect.right;
+    const catLines = lines.filter((entry) => entry.category === boxId);
+
+    // 3-1) 指標在該分類的橫列範圍內（該列左右的空白）：插到該行最接近的位置
+    const line = catLines.find((entry) => y >= entry.top && y <= entry.bottom);
     if (line) {
-      const rowIds = rowsOf(line.category)[line.row] ?? [];
+      const rowIds = rowsOf(boxId)[line.row] ?? [];
       const last = line.cards[line.cards.length - 1];
       const lastPosition = last ? rowIds.indexOf(last.id) : -1;
       let index = lastPosition >= 0 ? lastPosition + 1 : rowIds.length;
@@ -656,52 +782,57 @@ export default function DraggableModuleGrid({
       }
       place(
         draggedId,
-        { kind: "insert", category: line.category, row: line.row, index },
-        { type: "row", category: line.category, row: line.row }
+        { kind: "insert", category: boxId, row: line.row, index },
+        { type: "row", category: boxId, row: line.row }
       );
       return;
     }
 
-    // 4) 指標在橫列之間的間隙：在該處另起一行（同一行的折行處＝把該行切開）
-    const below = lines.findIndex((entry) => entry.top > y);
+    // 3-2) 指標在框內橫列之間的間隙：自由＝在該處另起一行；N 模式＝插到相鄰行（維持每 N 張一行）
+    const below = catLines.findIndex((entry) => entry.top > y);
     let target: DropTarget;
     let top: number;
     if (below === -1) {
-      // 最後一條橫列下方
-      const last = lines[lines.length - 1];
-      if (!last) return;
-      const rowIds = rowsOf(last.category)[last.row] ?? [];
-      target = { kind: "newRow", category: last.category, beforeRow: last.row, beforeIndex: rowIds.length };
+      // 該分類最後一條橫列下方（框內底部空白）
+      const last = catLines[catLines.length - 1];
+      if (!last) {
+        // 空白分類框（編輯模式的空分類）：放進該分類末尾
+        place(draggedId, { kind: "category", category: boxId }, { type: "category", category: boxId });
+        return;
+      }
+      const rowIds = rowsOf(boxId)[last.row] ?? [];
+      target = { kind: "newRow", category: boxId, beforeRow: last.row, beforeIndex: rowIds.length };
       top = last.bottom + ROW_GAP_PX / 2;
     } else {
-      const nextLine = lines[below];
-      const previousLine = below > 0 ? lines[below - 1] : null;
-      const nextHeading = headings.get(nextLine.category);
-      if (nextHeading && y < nextHeading.top && previousLine) {
-        // 分類與分類之間的間隙：另起一行放進「上方分類」的行尾
-        const rowIds = rowsOf(previousLine.category)[previousLine.row] ?? [];
-        target = {
-          kind: "newRow",
-          category: previousLine.category,
-          beforeRow: previousLine.row,
-          beforeIndex: rowIds.length,
-        };
-        top = previousLine.bottom + ROW_GAP_PX / 2;
-      } else {
-        const firstId = nextLine.cards[0]?.id;
-        if (!firstId) return;
-        const at = locateCard(firstId);
-        if (!at) return;
-        target = { kind: "newRow", category: nextLine.category, beforeRow: at.row, beforeIndex: at.index };
-        top = previousLine
-          ? (previousLine.bottom + nextLine.top) / 2
-          : nextLine.top - ROW_GAP_PX / 2;
-      }
+      const nextLine = catLines[below];
+      const previousLine = below > 0 ? catLines[below - 1] : null;
+      const firstId = nextLine.cards[0]?.id;
+      if (!firstId) return;
+      const at = locateCard(firstId);
+      if (!at) return;
+      target = { kind: "newRow", category: boxId, beforeRow: at.row, beforeIndex: at.index };
+      top = previousLine
+        ? (previousLine.bottom + nextLine.top) / 2
+        : nextLine.top - ROW_GAP_PX / 2;
     }
-    place(draggedId, target, { type: "gap", top: top - grid.top });
+    place(draggedId, autoFlowTarget(target), {
+      type: "gap",
+      top: top - grid.top,
+      left: gapLeft,
+      right: gapRight,
+    });
   }
 
   function handlePointerEnd() {
+    if (catDragIdRef.current !== null) {
+      // 拖曳分類後的那一次 click 不觸發 summary 收合（下一次 pointerdown 會重設）
+      suppressSummaryClickRef.current = catMovedRef.current;
+      persist();
+      catDragIdRef.current = null;
+      setCatDragId(null);
+      setDropHint(null);
+      return;
+    }
     if (dragIdRef.current === null) return;
     const movedId = dragIdRef.current;
     // 使用者親手挪動受排版規則管理的卡片＝這張以拖曳結果為準，之後不再套用規則
@@ -724,6 +855,155 @@ export default function DraggableModuleGrid({
     // 編輯模式下點卡片不導頁（避免編輯時誤入功能）
     if (editMode) return;
     router.push(item.href);
+  }
+
+  // ── 分類拖曳（標題列握把，比照卡片） ────────────────────────────
+
+  function handleCategoryPointerDown(event: ReactPointerEvent<HTMLSpanElement>, id: string) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (dragIdRef.current !== null) return; // 卡片拖曳中不啟動分類拖曳
+    event.preventDefault();
+    catMovedRef.current = false;
+    suppressSummaryClickRef.current = false;
+    catDragIdRef.current = id;
+    setCatDragId(id);
+    const grid = gridRef.current;
+    if (!grid) return;
+    try {
+      grid.setPointerCapture(event.pointerId);
+    } catch {
+      // 指標已結束或不支援捕捉時，改以容器上的一般事件接續
+    }
+  }
+
+  /**
+   * 套用分類重排：targetIndex＝以「拖曳前座標」表示的「插到第幾位之前」
+   * （可等於陣列長度＝排到最後）。沒有實際變化時只更新提示。
+   */
+  function applyCategoryOrder(draggedId: string, targetIndex: number, hint: DropHint) {
+    const current = catsRef.current;
+    const from = current.findIndex((category) => category.id === draggedId);
+    if (from < 0) {
+      if (!sameHint(dropHint, hint)) setDropHint(hint);
+      return;
+    }
+    const next = [...current];
+    const [moved] = next.splice(from, 1);
+    const at = Math.max(
+      0,
+      Math.min(targetIndex > from ? targetIndex - 1 : targetIndex, next.length)
+    );
+    next.splice(at, 0, moved);
+    if (JSON.stringify(next) === JSON.stringify(current)) {
+      if (!sameHint(dropHint, hint)) setDropHint(hint);
+      return;
+    }
+    flushSync(() => {
+      catsRef.current = next;
+      setCategories(next);
+      setDropHint(hint);
+    });
+  }
+
+  /** 分類拖曳中：框左/右半＝插到該分類前/後；列間隙＝移到下一列首個分類前；全部下方＝排最後 */
+  function handleCategoryMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const draggedId = catDragIdRef.current;
+    if (draggedId === null) return;
+    catMovedRef.current = true;
+    const grid = gridRef.current;
+    if (!grid) return;
+    const gridRect = grid.getBoundingClientRect();
+    const x = event.clientX;
+    const y = event.clientY;
+
+    // 指標離開卡片區（含邊緣餘裕）就不動作
+    if (
+      x < gridRect.left - EDGE_MARGIN_PX ||
+      x > gridRect.right + EDGE_MARGIN_PX ||
+      y < gridRect.top - EDGE_MARGIN_PX ||
+      y > gridRect.bottom + EDGE_MARGIN_PX
+    ) {
+      if (!sameHint(dropHint, null)) setDropHint(null);
+      return;
+    }
+
+    const boxes = new Map<string, DOMRect>();
+    grid.querySelectorAll<HTMLElement>("[data-category-id]").forEach((element) => {
+      const id = element.dataset.categoryId;
+      const rect = element.getBoundingClientRect();
+      if (id && rect.width > 0 && rect.height > 0) boxes.set(id, rect);
+    });
+    const order = catsRef.current.map((category) => category.id);
+    const indexOf = (id: string) => order.indexOf(id);
+
+    // 1) 指標在某分類框內：左半＝插到該分類之前、右半＝之後（同一框不高亮）
+    for (const [id, rect] of boxes) {
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
+      if (id === draggedId) {
+        if (!sameHint(dropHint, null)) setDropHint(null);
+        return;
+      }
+      const targetIndex = x < rect.left + rect.width / 2 ? indexOf(id) : indexOf(id) + 1;
+      applyCategoryOrder(draggedId, targetIndex, { type: "catBox", category: id });
+      return;
+    }
+
+    // 2) 依頂邊把分類框分成視覺列（同列＝頂邊相同）
+    const groups: { top: number; bottom: number; items: { id: string; rect: DOMRect }[] }[] = [];
+    for (const [id, rect] of boxes) {
+      let group = groups.find((entry) => Math.abs(entry.top - rect.top) <= 1);
+      if (!group) {
+        group = { top: rect.top, bottom: rect.bottom, items: [] };
+        groups.push(group);
+      }
+      group.items.push({ id, rect });
+      group.top = Math.min(group.top, rect.top);
+      group.bottom = Math.max(group.bottom, rect.bottom);
+    }
+    groups.sort((a, b) => a.top - b.top);
+    for (const group of groups) group.items.sort((a, b) => a.rect.left - b.rect.left);
+
+    // 2-1) 在某一列範圍內（列左右的空白）：以該列的分類框判定前後（同卡片規則）
+    const line = groups.find((entry) => y >= entry.top && y <= entry.bottom);
+    if (line && line.items.length > 0) {
+      let targetIndex = indexOf(line.items[0].id);
+      for (const item of line.items) {
+        if (x < item.rect.left + item.rect.width / 2) {
+          targetIndex = indexOf(item.id);
+          break;
+        }
+        targetIndex = indexOf(item.id) + 1;
+      }
+      const anchorId = targetIndex < order.length ? order[targetIndex] : order[order.length - 1];
+      applyCategoryOrder(
+        draggedId,
+        targetIndex,
+        anchorId && anchorId !== draggedId ? { type: "catBox", category: anchorId } : null
+      );
+      return;
+    }
+
+    // 2-2) 列與列的間隙：插到下一列首個分類之前；全部下方＝排最後
+    const below = groups.findIndex((entry) => entry.top > y);
+    if (below === -1) {
+      const last = groups[groups.length - 1];
+      if (!last) return;
+      applyCategoryOrder(draggedId, order.length, {
+        type: "gap",
+        top: last.bottom + ROW_GAP_PX / 2 - gridRect.top,
+      });
+      return;
+    }
+    const firstOfNext = groups[below].items[0];
+    if (!firstOfNext) return;
+    const previousGroup = below > 0 ? groups[below - 1] : null;
+    const top = previousGroup
+      ? (previousGroup.bottom + groups[below].top) / 2
+      : groups[below].top - ROW_GAP_PX / 2;
+    applyCategoryOrder(draggedId, indexOf(firstOfNext.id), {
+      type: "gap",
+      top: top - gridRect.top,
+    });
   }
 
   // ── 分類編輯操作 ────────────────────────────────────────────────
@@ -766,6 +1046,17 @@ export default function DraggableModuleGrid({
     );
   }
 
+  /** 設定每行張數：改為 N（自動流排＋框寬上限 N 張卡）或「自由」（吃滿整行、可手動斷行），並立刻重切該分類的行 */
+  function setColumns(id: string, raw: string) {
+    const parsed = raw === "" ? null : Number.parseInt(raw, 10);
+    const columns = parsed !== null && parsed >= 1 && parsed <= MAX_COLUMNS ? parsed : null;
+    applyCategories(
+      catsRef.current.map((category) =>
+        category.id === id ? reflowCategory({ ...category, columns }) : category
+      )
+    );
+  }
+
   function addCategory() {
     // 改名中按下新增：先存起正在編輯的名稱（輸入框卸載不會觸發 onBlur）
     if (editingId !== null) commitRename();
@@ -773,7 +1064,7 @@ export default function DraggableModuleGrid({
     const name = `分類 ${catsRef.current.length}`;
     applyCategories([
       ...catsRef.current,
-      { id, name, defaultCollapsed: false, collapsed: false, rows: [] },
+      { id, name, defaultCollapsed: false, collapsed: false, columns: null, rows: [] },
     ]);
     skipBlurRef.current = false;
     setEditingId(id);
@@ -848,6 +1139,18 @@ export default function DraggableModuleGrid({
             dropHint?.type === "category" && dropHint.category === category.id;
           const highlightedRow =
             dropHint?.type === "row" && dropHint.category === category.id ? dropHint.row : -1;
+          const boxHighlighted =
+            dropHint?.type === "catBox" && dropHint.category === category.id;
+          const isCatDragging = catDragId === category.id;
+          // 分類框寬度：自由＝吃滿整行；設每行張數＝上限 N 張卡（窄螢幕靠 min(100%) 自動縮）
+          const boxStyle = {
+            ...(category.columns === null
+              ? { width: "100%" }
+              : {
+                  width: `min(100%, calc(${category.columns} * ${CARD_WIDTH} + ${category.columns - 1} * ${CARD_GAP_PX}px))`,
+                }),
+            ...(boxHighlighted ? { boxShadow: "0 0 0 2px var(--primary)" } : undefined),
+          };
 
           const rowsBlock = (
             <div className="flex flex-col gap-y-6">
@@ -904,7 +1207,12 @@ export default function DraggableModuleGrid({
 
           if (!showHeadings) {
             return (
-              <div key={category.id} data-category-id={category.id}>
+              <div
+                key={category.id}
+                data-category-id={category.id}
+                style={boxStyle}
+                className={isCatDragging ? "opacity-60" : undefined}
+              >
                 {rowsBlock}
               </div>
             );
@@ -924,7 +1232,8 @@ export default function DraggableModuleGrid({
                   )
                 );
               }}
-              className="flex flex-col gap-y-3 border-0! p-0!"
+              style={boxStyle}
+              className={`flex flex-col gap-y-3 border-0! p-0!${isCatDragging ? " opacity-60" : ""}`}
             >
               <summary
                 data-category-heading={category.id}
@@ -932,6 +1241,13 @@ export default function DraggableModuleGrid({
                 style={
                   headingHighlighted ? { boxShadow: "0 0 0 2px var(--primary)" } : undefined
                 }
+                onClick={(event) => {
+                  // 分類拖曳後的那一次 click 不觸發收合
+                  if (suppressSummaryClickRef.current) {
+                    event.preventDefault();
+                    suppressSummaryClickRef.current = false;
+                  }
+                }}
               >
                 <DisclosureArrow />
                 {editingId === category.id ? (
@@ -978,54 +1294,86 @@ export default function DraggableModuleGrid({
                   </span>
                 )}
                 <span className="text-xs font-normal text-t3">{count} 張卡片</span>
-                {editMode && (
+                <span
+                  className="ml-auto flex items-center gap-1"
+                  onClick={editMode ? (event) => event.preventDefault() : undefined}
+                >
+                  {/* 分類拖曳握把（比照卡片常駐）：點擊本身不觸發收合 */}
                   <span
-                    className="ml-auto flex items-center gap-1"
+                    onPointerDown={(event) => handleCategoryPointerDown(event, category.id)}
                     onClick={(event) => event.preventDefault()}
+                    title="拖曳以調整分類位置"
+                    aria-hidden="true"
+                    className="flex w-6 shrink-0 items-center justify-center text-t3 cursor-grab active:cursor-grabbing touch-none"
                   >
-                    <button
-                      type="button"
-                      onClick={() => startRename(category)}
-                      title="重新命名分類"
-                      aria-label={`重新命名「${category.name}」`}
-                      className="rounded p-1 text-t3 transition cursor-pointer hover:bg-hover hover:text-t2"
-                    >
-                      <PencilIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleDefaultCollapsed(category.id)}
-                      title="切換此分類的預設收合狀態（變更時會立即套用到目前狀態）"
-                      aria-label={`「${category.name}」目前${category.defaultCollapsed ? "預設收合" : "預設展開"}，按一下切換`}
-                      className="rounded border border-themed px-2 py-0.5 text-xs text-t2 transition cursor-pointer hover:bg-hover"
-                    >
-                      {category.defaultCollapsed ? "預設收合" : "預設展開"}
-                    </button>
-                    {category.id !== UNCATEGORIZED_ID && (
+                    <DragHandleIcon />
+                  </span>
+                  {editMode && (
+                    <>
+                      <select
+                        value={category.columns === null ? "" : String(category.columns)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => setColumns(category.id, event.target.value)}
+                        title="每行張數：自由＝吃滿整行、可手動斷行；數字＝自動排列且分類寬度上限為 N 張卡"
+                        aria-label={`「${category.name}」每行張數`}
+                        className="rounded border border-themed bg-page px-1 py-0.5 text-xs text-t2 cursor-pointer"
+                      >
+                        <option value="">自由</option>
+                        {[1, 2, 3, 4, 5, 6].map((value) => (
+                          <option key={value} value={value}>
+                            {value} 張/行
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
-                        onClick={() => setDeleteId(category.id)}
-                        title="刪除分類（卡片退回未分類）"
-                        aria-label={`刪除「${category.name}」`}
-                        className="rounded p-1 text-t3 transition cursor-pointer hover:bg-hover hover:text-danger"
+                        onClick={() => startRename(category)}
+                        title="重新命名分類"
+                        aria-label={`重新命名「${category.name}」`}
+                        className="rounded p-1 text-t3 transition cursor-pointer hover:bg-hover hover:text-t2"
                       >
-                        <TrashIcon />
+                        <PencilIcon className="h-4 w-4" />
                       </button>
-                    )}
-                  </span>
-                )}
+                      <button
+                        type="button"
+                        onClick={() => toggleDefaultCollapsed(category.id)}
+                        title="切換此分類的預設收合狀態（變更時會立即套用到目前狀態）"
+                        aria-label={`「${category.name}」目前${category.defaultCollapsed ? "預設收合" : "預設展開"}，按一下切換`}
+                        className="rounded border border-themed px-2 py-0.5 text-xs text-t2 transition cursor-pointer hover:bg-hover"
+                      >
+                        {category.defaultCollapsed ? "預設收合" : "預設展開"}
+                      </button>
+                      {category.id !== UNCATEGORIZED_ID && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteId(category.id)}
+                          title="刪除分類（卡片退回未分類）"
+                          aria-label={`刪除「${category.name}」`}
+                          className="rounded p-1 text-t3 transition cursor-pointer hover:bg-hover hover:text-danger"
+                        >
+                          <TrashIcon />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </span>
               </summary>
               {rowsBlock}
             </details>
           );
         })}
 
-        {/* 另起一行的放置指示線（絕對定位，不影響版面） */}
+        {/* 另起一行的放置指示線（絕對定位，不影響版面）；卡片落點限定分類框內時指示線也限定該框寬度 */}
         {dropHint?.type === "gap" && (
           <div
             aria-hidden="true"
-            className="absolute left-0 right-0 h-0.5 rounded-full -translate-y-1/2 pointer-events-none"
-            style={{ top: dropHint.top, background: "var(--primary)" }}
+            className="absolute h-0.5 rounded-full -translate-y-1/2 pointer-events-none"
+            style={{
+              top: dropHint.top,
+              left: dropHint.left ?? 0,
+              right: dropHint.right ?? 0,
+              background: "var(--primary)",
+            }}
           />
         )}
       </div>
