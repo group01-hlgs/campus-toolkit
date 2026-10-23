@@ -60,7 +60,12 @@ function renumberInstructions(raw: string): string {
   return lines.join("\n");
 }
 
-export default function SelfDirectedLearningSettingsPage() {
+export default function SelfDirectedLearningSettingsPage({
+  fill = false,
+}: {
+  /** 嵌入教職員頁管理面板時為 true：縮小外框、不出頁首返回列 */
+  fill?: boolean;
+}) {
   const [settings, setSettings] = useState<SelfDirectedLearningSettings>(DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS);
   /** 全學期形式的須填週數（由學期起訖自動判斷；null＝學校尚未設定起訖） */
   const [fullWeeks, setFullWeeks] = useState<number | null>(null);
@@ -266,7 +271,7 @@ export default function SelfDirectedLearningSettingsPage() {
   );
 
   return (
-    <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
+    <section className={fill ? "space-y-4" : "mx-auto content-width space-y-4 p-4 sm:p-6"}>
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-xl text-t1">管理規則</h1>

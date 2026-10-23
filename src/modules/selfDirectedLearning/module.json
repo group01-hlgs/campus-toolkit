@@ -13,10 +13,15 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.12",
+    "version": "0.0.13",
     "releasedAt": "2026-10-23"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
+  "managerPermissions": [
+    { "value": "configure", "label": "管理規則（開放時間、週數、節次行程、場域、審核名單、說明）" },
+    { "value": "review", "label": "審核計畫（通過／退回）" },
+    { "value": "viewPlans", "label": "查看計畫清單" }
+  ],
   "routes": [
     { "kind": "page", "path": "/admin/self-directed-learning" },
     { "kind": "api", "path": "/api/admin/self-directed-learning" },
@@ -48,6 +53,14 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.13",
+      "releasedAt": "2026-10-23",
+      "notes": [
+        "宣告 managerPermissions 子權限（管理規則 configure／審核 review／查看計畫 viewPlans），管理端 API 改以 requireModulePermission 守門；管理員恆全權",
+        "教職員名單內審核資格維持有效；另可由功能模組管理頁指派非管理員管理者，於自身教職員頁使用管理面板"
+      ]
+    },
     {
       "version": "0.0.12",
       "releasedAt": "2026-10-23",

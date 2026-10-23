@@ -3,6 +3,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
+import { managedModulesOf } from "@/lib/roster";
 import { requireFeatureModuleEnabled } from "@/lib/module-gate";
 import { getSettings } from "../../../lib/self-directed-learning";
 import {
@@ -30,18 +31,33 @@ interface StaffRoles {
   isReviewer: boolean;
   isTutor: boolean;
   classCode: string;
+  /** 被指派的管理子權限（功能模組管理頁指派；管理員不走此欄） */
+  permissions: string[];
 }
 
-/** 審核資格＝管理端設定的名單；導師資格＝名冊條目 attribute 為兼導師且有班級代碼 */
+/**
+ * 審核資格＝審核人員名單，或被指派 review／viewPlans 子權限；
+ * 導師＝名冊條目 attribute 為兼導師且有班級代碼。
+ */
 async function staffRolesOf(
   session: VerifiedSession,
   settings: SelfDirectedLearningSettings
 ): Promise<StaffRoles> {
-  const isReviewer = settings.reviewers.some((reviewer) => reviewer.uid === session.uid);
+  const isReviewerList = settings.reviewers.some((reviewer) => reviewer.uid === session.uid);
+  const grant = managedModulesOf(session.__entry).find(
+    (item) => item.module === "selfDirectedLearning"
+  );
+  const permissions = grant?.permissions ?? [];
+  const isReviewer = isReviewerList || permissions.includes("review");
   const entry = session.__entry;
   const attribute = entry && typeof entry.attribute === "string" ? entry.attribute.trim() : "";
   const classCode = entry && typeof entry.classCode === "string" ? entry.classCode.trim() : "";
-  return { isReviewer, isTutor: attribute === "兼導師" && Boolean(classCode), classCode };
+  return {
+    isReviewer,
+    isTutor: attribute === "兼導師" && Boolean(classCode),
+    classCode,
+    permissions,
+  };
 }
 
 /** GET：`?mode=review`（審核佇列，需審核資格）／`?mode=class`（全班，需兼導師） */
@@ -88,9 +104,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!roles.isReviewer) {
+    const canViewPlans =
+      roles.isReviewer || roles.permissions.includes("viewPlans") || roles.permissions.includes("review");
+    if (!canViewPlans) {
       return NextResponse.json(
-        { success: false, message: "你不在本模組的審核人員名單內。" },
+        { success: false, message: "你不在本模組的審核人員名單內，也未被指派查看計畫的權限。" },
         { status: 403, headers: noStore }
       );
     }
@@ -142,7 +160,7 @@ export async function POST(request: NextRequest) {
     const roles = await staffRolesOf(session as VerifiedSession, settings);
     if (!roles.isReviewer) {
       return NextResponse.json(
-        { success: false, message: "你不在本模組的審核人員名單內。" },
+        { success: false, message: "你沒有審核權限（不在審核人員名單，也未被指派 review 子權限）。" },
         { status: 403, headers: noStore }
       );
     }

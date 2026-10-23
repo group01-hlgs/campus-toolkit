@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import type { UserRole } from "@/types/users";
 import { publishFromModule, updateFromModule } from "@/lib/announcements";
 import { publishScheduleFromModule } from "@/lib/calendar";
@@ -36,7 +36,7 @@ function formatDateTime(epoch: number): string {
  */
 async function syncWindowHooks(
   settings: Awaited<ReturnType<typeof getSettings>>,
-  actor: { uid: string; name: string; role: "admin" }
+  actor: { uid: string; name: string; role: UserRole }
 ): Promise<string | null> {
   const { openAt, closeAt } = settings;
   try {
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("selfDirectedLearning");
+    const { denial } = await requireModulePermission("selfDirectedLearning", "configure");
     if (denial) return toAuthResponse(denial);
 
     const settings = await getSettings();
@@ -161,8 +161,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "跨來源請求已被拒絕" }, { status: 403, headers: noStore });
     }
 
-    const { session, denial } = await requireAdminModule("selfDirectedLearning");
-    if (denial) return toAuthResponse(denial);
+    const { context, denial } = await requireModulePermission("selfDirectedLearning", "configure");
+    if (denial || !context) return toAuthResponse(denial!);
+    const session = context.session;
 
     const parsed = parseSettingsInput(await request.json().catch(() => null));
     if (!parsed.ok) {
@@ -173,7 +174,7 @@ export async function POST(request: NextRequest) {
     const hookWarning = await syncWindowHooks(settings, {
       uid: session.uid,
       name: session.displayName || session.account,
-      role: "admin",
+      role: session.role === "admin" ? "admin" : "staff",
     });
     await logActivity({
       userId: session.uid,

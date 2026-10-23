@@ -10,11 +10,13 @@ import {
   PLAN_TIMING_LABELS,
   type SelfDirectedLearningPlan,
 } from "../../types/self-directed-learning";
+import SelfDirectedLearningManagerPanel from "../../components/manager-panel";
 
 interface StaffRoles {
   isReviewer: boolean;
   isTutor: boolean;
   classCode: string;
+  permissions: string[];
 }
 
 type Tab = "review" | "class";
@@ -112,7 +114,9 @@ export default function StaffSelfDirectedLearningPage() {
     }
   };
 
-  const hasAnyRole = Boolean(roles?.isReviewer || roles?.isTutor);
+  const hasAnyRole = Boolean(
+    roles?.isReviewer || roles?.isTutor || (roles?.permissions?.length ?? 0) > 0
+  );
 
   // 總開關關閉：只見維護說明（計畫清單不呈現、審核不開放）
   if (!loading && maintenance) {
@@ -142,7 +146,9 @@ export default function StaffSelfDirectedLearningPage() {
   }
 
   return (
-    <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
+    <>
+      <SelfDirectedLearningManagerPanel />
+      <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
       <header className="space-y-1">
         <h1 className="text-xl text-t1">自主學習計畫－審核與檢視</h1>
         <p className="text-t2 text-sm">
@@ -314,6 +320,7 @@ export default function StaffSelfDirectedLearningPage() {
       )}
 
       <Toast message={toast} onClose={() => setToast(null)} />
-    </section>
+      </section>
+    </>
   );
 }
