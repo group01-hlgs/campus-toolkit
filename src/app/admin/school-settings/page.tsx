@@ -114,6 +114,28 @@ const SUB_FEATURE_CARDS = [
       </svg>
     ),
   },
+  {
+    id: "periods",
+    href: "/admin/school-settings/periods",
+    label: "課表作息時間",
+    description: "維護每日節次的主要節次代碼、節次序號、節次名稱與開始、結束時間，含午休等非授課時段。",
+    icon: (
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
+      </svg>
+    ),
+  },
 ] as const;
 
 /** 「學校基本設定」入口：列出各子功能的卡片，點選進入對應子頁面 */

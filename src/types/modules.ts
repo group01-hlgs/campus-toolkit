@@ -93,7 +93,7 @@ const HAND_MODULES = [
     value: "schoolSettings",
     label: "學校基本設定",
     category: "校務資料",
-    description: "維護校務基本資料、單位層級、年段班級、各式代碼表與樓層空間。",
+    description: "維護校務基本資料、單位層級、年段班級、各式代碼表、樓層空間與課表作息時間。",
     scope: "superOnly",
     status: "built",
     href: "/admin/school-settings",
@@ -103,6 +103,7 @@ const HAND_MODULES = [
       { label: "年段班級設定", href: "/admin/school-settings/classes" },
       { label: "各式代碼表", href: "/admin/school-settings/codes" },
       { label: "樓層空間設定", href: "/admin/school-settings/spaces" },
+      { label: "課表作息時間", href: "/admin/school-settings/periods" },
     ],
   },
   {
