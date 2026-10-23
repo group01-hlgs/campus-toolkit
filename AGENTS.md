@@ -65,6 +65,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 1. 請針對 A「主程式」進行修改
 2. 修改完成後 push A「主程式」，請勿將本機掛載安裝的選用功能模組 push 上去
 
+### 貢獻者規範（必讀）
+
+1. 未經本人明確允許，**不得在「Contributors」自行新增任何貢獻者**——包含但不限於
+   README 的貢獻者名單、`package.json` 的 `contributors` 欄位、GitHub repo 的
+   Contributors 設定，以及 commit／PR 中夾帶的相關異動。
+2. 唯一例外：`takan003`（本人帳號）可正常出現於上述位置，無需額外確認。
+3. 若不確定某個名單／欄位是否算「Contributors」，先詢問本人再動手。
+
 ### 線上市集安裝的鐵律（必讀）
 
 線上市集安裝／更新／移除外掛時，**系統會自動 commit + push 到該部署所連結的 GitHub repo**
