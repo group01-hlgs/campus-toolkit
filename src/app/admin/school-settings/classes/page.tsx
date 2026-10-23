@@ -20,7 +20,13 @@ export default function SchoolClassesPage() {
         </button>
       </div>
 
-      <SchoolClassesEditor />
+      <section className="border border-themed rounded-lg bg-card p-5">
+        <h3 className="text-lg font-bold text-t1">年段班級設定</h3>
+        <p className="text-sm text-t3 mt-1">
+          設定年段（一個年段＝一個年級）的代碼與名稱，依學制分區管理，並維護各年級的班級清單。
+        </p>
+        <SchoolClassesEditor />
+      </section>
     </div>
   );
 }

@@ -21,7 +21,8 @@ export default function SchoolCodesPage() {
       </div>
 
       <section className="border border-themed rounded-lg bg-card p-5">
-        <p className="text-sm text-t3">
+        <h3 className="text-lg font-bold text-t1">各式代碼表</h3>
+        <p className="text-sm text-t3 mt-1">
           維護高級中等學校類型、群別與科別三份代碼清單（系統的基礎資料庫），
           內建預設取自教育部「高級中等學校課程計畫平臺」的官方代碼表，可增修列或還原官方預設。
           「年段班級設定」的班級會用這裡的群別、科別代碼帶入名稱；各份清單預設收合，按標題展開。
