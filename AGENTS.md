@@ -16,7 +16,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 |------|------|------|
 | **A** | `\campus-toolkit` | A「主程式」 |
 | **B** | `\campus-toolkit-marketplace` | B「模組市集」 |
-| **C** | `\examRegistration` | C「選用功能模組」（可能是正在開發的自訂功能模組名稱） |
+| **C** | `\selfDirectedLearning` | C「選用功能模組」（自主學習計畫，開發中） |
+| **D** | `\examRegistration` | D「選用功能模組」（升學考試與模擬考校內報名，已上架維護） |
 
 ### 名詞解釋
 
@@ -24,7 +25,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - **A「主程式」**：本機測試用的主程式，用來掛載安裝 C「選用功能模組」。
 - **B「模組市集」**：C「選用功能模組」打包後上架的市集。
-- **C「選用功能模組」**：正在開發的選用功能模組程式，又稱「外掛」、「外掛功能」。
+- **C「選用功能模組」**：正在開發的選用功能模組（`selfDirectedLearning` 自主學習計畫），又稱「外掛」、「外掛功能」。
+- **D「選用功能模組」**：已上架、維護中的選用功能模組（`examRegistration` 升學考試與模擬考校內報名）；維護時流程同「修改C」「打包C」，但對 D 專案操作。
 
 ### 工作指令
 
@@ -127,7 +129,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
    - Toast 元件會在 2 秒後自動消失，樣式使用 CSS 主題配色
      （`--success` 綠底、`--danger` 紅底白字）。
    - 儲存中的過場動畫（BlockingMask）保留不移除，僅移除儲存結果的過場動畫。
-   - **不適用於 C 選用功能模組**（examRegistration 使用自己的 FlashModal）。
+   - **不適用於選用功能模組**（如 `examRegistration`（D）使用自己的 FlashModal）。
 
 ## 說明文字格式（必讀）
 
