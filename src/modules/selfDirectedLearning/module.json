@@ -13,7 +13,7 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.11",
+    "version": "0.0.12",
     "releasedAt": "2026-10-23"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -48,6 +48,11 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.12",
+      "releasedAt": "2026-10-23",
+      "notes": ["給學生的說明：按 Enter 分段、儲存（與離開欄位）時自動標號 1. 2. 3. …，並提供插入範本"]
+    },
     {
       "version": "0.0.11",
       "releasedAt": "2026-10-23",

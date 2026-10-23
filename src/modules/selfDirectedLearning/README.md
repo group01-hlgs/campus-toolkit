@@ -6,7 +6,7 @@
 地點須在學校規範內。
 
 1. 開發者：[takan003](https://github.com/takan003)（`https://github.com/takan003/selfDirectedLearning`）
-2. 版本：0.0.11（`contractVersion` 1、`minHostVersion` 0.580）
+2. 版本：0.0.12（`contractVersion` 1、`minHostVersion` 0.580）
 3. 四身分入口：管理員（設定與總覽）、學生（填報送審）、教職員（審核／兼導師瀏覽全班）、家長（檢視）
 
 ## 功能摘要

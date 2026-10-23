@@ -41,6 +41,25 @@ const STATE_LABEL: Record<string, string> = {
   ended: "已截止",
 };
 
+/** 範例說明（插入後可再修改；空行不標號，其餘行自動 1. 2. 3. …） */
+const INSTRUCTIONS_TEMPLATE = [
+  "請於開放期間內完成填報並送出審核。",
+  "逐週學習安排與場地皆須填寫完整。",
+  "送出後請等待審核；退回時可依意見修改後再送。",
+].join("\n");
+
+/** 依行自動標號：先去掉行首既有數字標號再重編；空行保留不編號 */
+function renumberInstructions(raw: string): string {
+  let index = 0;
+  const lines = raw.split(/\r?\n/).map((line) => {
+    if (!line.trim()) return "";
+    index += 1;
+    const body = line.replace(/^\s*\d{1,3}[.、]\s*/, "").trim();
+    return `${index}. ${body}`;
+  });
+  return lines.join("\n");
+}
+
 export default function SelfDirectedLearningSettingsPage() {
   const [settings, setSettings] = useState<SelfDirectedLearningSettings>(DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS);
   /** 全學期形式的須填週數（由學期起訖自動判斷；null＝學校尚未設定起訖） */
@@ -180,10 +199,19 @@ export default function SelfDirectedLearningSettingsPage() {
     patch({ reviewers: settings.reviewers.filter((reviewer) => reviewer.uid !== uid) });
   };
 
+  const setInstructions = (value: string) => {
+    patch({ instructions: value });
+  };
+
   const save = async () => {
     const openAt = fromDateTimeLocal(toDateTimeLocal(settings.openAt));
     const closeAt = fromDateTimeLocal(toDateTimeLocal(settings.closeAt));
-    const payload = { ...settings, openAt, closeAt };
+    const payload = {
+      ...settings,
+      openAt,
+      closeAt,
+      instructions: renumberInstructions(settings.instructions),
+    };
     if (payload.openAt !== null && payload.closeAt !== null && payload.closeAt <= payload.openAt) {
       setToast({ kind: "error", text: "截止時間必須晚於開始時間" });
       return;
@@ -598,12 +626,23 @@ export default function SelfDirectedLearningSettingsPage() {
           <DisclosureArrow />
           給學生的說明
         </summary>
-        <div className="px-4 pb-4">
+        <div className="space-y-2 px-4 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-t3 text-xs">按 Enter 分段，將自動標號 1. 2. 3. …</p>
+            <button
+              type="button"
+              className="btn-theme h-8 px-3 text-sm"
+              onClick={() => setInstructions(renumberInstructions(INSTRUCTIONS_TEMPLATE))}
+            >
+              插入範本
+            </button>
+          </div>
           <textarea
             className="input-theme min-h-32 w-full rounded px-3 py-2 text-sm"
             value={settings.instructions}
             onChange={(event) => patch({ instructions: event.target.value })}
-            placeholder="說明撰寫原則、送審流程與注意事項…"
+            onBlur={() => setInstructions(renumberInstructions(settings.instructions))}
+            placeholder="按 Enter 分段，儲存時自動標號…"
           />
         </div>
       </details>
