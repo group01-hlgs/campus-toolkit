@@ -5,10 +5,18 @@ export const SELF_DIRECTED_LEARNING_SETTINGS_DOC_ID = "global";
 
 export const WEEKDAY_LABELS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"] as const;
 
-/** 審核人員（v1 手動輸入 uid＋名稱；uid 供 staff 端鑑權比對，v1.1 擬改帳號選擇器） */
+/** 審核人員（候選取自當期教職員名冊；uid 供 staff 端鑑權比對） */
 export interface ReviewerEntry {
   uid: string;
   name: string;
+}
+
+/** 教職員名冊候選人（審核人員選擇用） */
+export interface StaffCandidate {
+  uid: string;
+  name: string;
+  /** 名冊屬性（如專任教師、兼導師）；候選不依此過濾 */
+  attribute: string;
 }
 
 /** 彈性學習節次行程：週幾（1=週一…7=週日）＋該日節次文字（如「第 5 節」） */
@@ -17,8 +25,26 @@ export interface FlexibleSlot {
   periods: string[];
 }
 
-/** 週數填寫形式：full＝全學期（空白週數都須填寫）；flexible＝彈性週數（至少下限週數） */
+/** 逐週填寫無固定上限（週數受假期與定期考試影響）；
+ *  全學期形式的週數由程式依學校行事曆（學期起訖）自動判斷，不開放人工設定；
+ *  僅以防濫用為由保留伺服器硬上限 */
+export const MAX_PLAN_WEEKS = 104;
+
+/** 週數填寫形式：full＝全學期（空白週數都須填寫，週數自動判斷）；flexible＝彈性（至少下限週數） */
 export type WeekMode = "full" | "flexible";
+
+/** 節次候選（取自主程式課表作息；管理端節次行程選擇用） */
+export interface PeriodOption {
+  code: string;
+  name: string;
+  period: number;
+}
+
+/** 場域候選（取自主程式樓層空間設定的葉子空間；管理端開放場域選擇用） */
+export interface SpaceOption {
+  name: string;
+  floor: string;
+}
 
 /** 總開關關閉時，非管理端一律只見此說明（頁面標題與 API 錯誤訊息共用） */
 export const MAINTENANCE_TITLE = "目前此功能關閉維護中";
@@ -33,11 +59,9 @@ export interface SelfDirectedLearningSettings {
   openAt: number | null;
   /** 開放撰寫截止（epoch ms；null＝尚未設定） */
   closeAt: number | null;
-  /** 全學期週數（課綱 21/22 週，校方可調）：全學期模式＝須全數填寫的週數、彈性模式＝可填寫上限 */
-  maxWeeks: number;
-  /** 週數填寫形式（full＝全學期皆須填寫；flexible＝至少填到下限週數） */
+  /** 週數填寫形式（full＝全學期皆須填寫，週數由行事曆自動判斷；flexible＝至少填到下限週數） */
   weekMode: WeekMode;
-  /** 彈性模式的下限週數（建議至少 6 週；全學期模式不使用） */
+  /** 彈性形式的下限週數（建議至少 6 週；全學期形式不使用） */
   minWeeks: number;
   /** 校內彈性學習節次行程 */
   slots: FlexibleSlot[];
@@ -54,7 +78,6 @@ export const DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS: SelfDirectedLearningSettin
   enabled: true,
   openAt: null,
   closeAt: null,
-  maxWeeks: 22,
   weekMode: "full",
   minWeeks: 6,
   slots: [],
@@ -106,10 +129,6 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
         .filter((reviewer): reviewer is ReviewerEntry => reviewer !== null)
         .slice(0, 50)
     : [];
-  const maxWeeks =
-    typeof source.maxWeeks === "number" && Number.isInteger(source.maxWeeks)
-      ? Math.min(Math.max(source.maxWeeks, 1), 52)
-      : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.maxWeeks;
   const minWeeksRaw =
     typeof source.minWeeks === "number" && Number.isInteger(source.minWeeks)
       ? source.minWeeks
@@ -121,9 +140,8 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
         : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.enabled,
     openAt: asEpoch(source.openAt),
     closeAt: asEpoch(source.closeAt),
-    maxWeeks,
     weekMode: source.weekMode === "flexible" ? "flexible" : "full",
-    minWeeks: Math.min(Math.max(minWeeksRaw, 1), maxWeeks),
+    minWeeks: Math.min(Math.max(minWeeksRaw, 1), MAX_PLAN_WEEKS),
     slots,
     venues: asStringArray(source.venues, 60, 80),
     reviewers,
@@ -147,9 +165,6 @@ export function parseSettingsInput(raw: unknown): ParseResult {
     return { ok: false, message: "截止時間必須晚於開始時間" };
   }
   const value = normalizeSettings(body);
-  if (typeof body.maxWeeks === "number" && !Number.isInteger(body.maxWeeks)) {
-    return { ok: false, message: "全學期週數必須是整數" };
-  }
   if ("enabled" in body && typeof body.enabled !== "boolean") {
     return { ok: false, message: "功能總開關格式錯誤" };
   }
@@ -158,9 +173,6 @@ export function parseSettingsInput(raw: unknown): ParseResult {
   }
   if ("minWeeks" in body && typeof body.minWeeks === "number" && !Number.isInteger(body.minWeeks)) {
     return { ok: false, message: "下限週數必須是整數" };
-  }
-  if (value.slots.length === 0 && value.maxWeeks < 1) {
-    return { ok: false, message: "設定內容不合法" };
   }
   return { ok: true, value };
 }
@@ -253,6 +265,30 @@ function isTiming(value: unknown): value is PlanTiming {
   return value === "flexible" || value === "afterSchool";
 }
 
+/**
+ * 由起訖日期（YYYY-MM-DD）推算週數；不可用時回 null。
+ * 台灣公家機關週計算：每週第一日為星期日、最後一日為星期六；
+ * 第一週或最後一週未滿七日仍以一週計（先對齊到所在週的週日／週六再算整週）。
+ */
+export function countWeeksBetween(start: string, end: string): number | null {
+  if (!DATE_PATTERN.test(start) || !DATE_PATTERN.test(end)) return null;
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
+    return null;
+  }
+  // getDay()：0=週日…6=週六。起日回退到該週週日、訖日進位到該週週六
+  const alignedStart = new Date(startDate);
+  alignedStart.setDate(startDate.getDate() - startDate.getDay());
+  const alignedEnd = new Date(endDate);
+  alignedEnd.setDate(endDate.getDate() + (6 - endDate.getDay()));
+  const days =
+    Math.round((alignedEnd.getTime() - alignedStart.getTime()) / 86_400_000) + 1;
+  return Math.round(days / 7);
+}
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 export type PlanParseResult =
   | { ok: true; value: Omit<SelfDirectedLearningPlan, "id" | "period" | "studentUid" | "studentName" | "grade" | "classCode" | "className" | "status" | "submittedAt" | "updatedAt"> }
   | { ok: false; message: string };
@@ -260,10 +296,12 @@ export type PlanParseResult =
 /** 學生計畫草稿輸入驗證（送審與草稿共用；草稿寬鬆、送審才套週數形式與每週必填） */
 export function parsePlanDraft(
   raw: unknown,
-  rules: Pick<SelfDirectedLearningSettings, "maxWeeks" | "minWeeks" | "weekMode">,
+  rules: Pick<SelfDirectedLearningSettings, "weekMode" | "minWeeks"> & {
+    /** 程式判斷的學期總週數（兩種形式的填寫上限；null＝學校尚未設定起訖） */
+    fullWeeks: number | null;
+  },
   action: "save" | "submit"
 ): PlanParseResult {
-  const maxWeeks = rules.maxWeeks;
   if (!raw || typeof raw !== "object") return { ok: false, message: "請求內容格式錯誤" };
   const body = raw as Record<string, unknown>;
   const topic = typeof body.topic === "string" ? body.topic.trim().slice(0, 100) : "";
@@ -275,14 +313,29 @@ export function parsePlanDraft(
   if (!Array.isArray(body.weeks) || body.weeks.length < 1) {
     return { ok: false, message: "請至少填寫一週的課程安排" };
   }
-  if (body.weeks.length > maxWeeks) {
-    return { ok: false, message: `週數不得超過學校設定的 ${maxWeeks} 週` };
+  if (body.weeks.length > MAX_PLAN_WEEKS) {
+    return { ok: false, message: `週數不得超過 ${MAX_PLAN_WEEKS} 週` };
   }
-  if (action === "submit" && rules.weekMode === "full" && body.weeks.length !== maxWeeks) {
+  // 兩種形式的填寫上限皆為程式判斷的學期總週數
+  if (action === "submit" && rules.fullWeeks !== null && body.weeks.length > rules.fullWeeks) {
     return {
       ok: false,
-      message: `全學期形式須填寫全部 ${maxWeeks} 週（目前 ${body.weeks.length} 週）`,
+      message: `週數不得超過程式判斷的學期總週數 ${rules.fullWeeks} 週（目前 ${body.weeks.length} 週）`,
     };
+  }
+  if (action === "submit" && rules.weekMode === "full") {
+    if (rules.fullWeeks === null) {
+      return {
+        ok: false,
+        message: "學校尚未設定上課日／學期起訖，暫無法判斷全學期週數——請改用彈性形式，或請學校至「學校基本設定 → 學期起訖設定」填寫上課日起訖",
+      };
+    }
+    if (body.weeks.length !== rules.fullWeeks) {
+      return {
+        ok: false,
+        message: `全學期形式須填寫全部 ${rules.fullWeeks} 週（目前 ${body.weeks.length} 週）`,
+      };
+    }
   }
   if (action === "submit" && rules.weekMode === "flexible" && body.weeks.length < rules.minWeeks) {
     return {
@@ -296,7 +349,7 @@ export function parsePlanDraft(
     if (!item || typeof item !== "object") return { ok: false, message: "每週安排格式錯誤" };
     const week = item as Record<string, unknown>;
     const weekNo = typeof week.week === "number" ? week.week : NaN;
-    if (!Number.isInteger(weekNo) || weekNo < 1 || weekNo > maxWeeks) {
+    if (!Number.isInteger(weekNo) || weekNo < 1 || weekNo > MAX_PLAN_WEEKS) {
       return { ok: false, message: "週次編號不合法" };
     }
     if (seen.has(weekNo)) return { ok: false, message: `第 ${weekNo} 週重複` };

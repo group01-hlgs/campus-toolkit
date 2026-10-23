@@ -4,7 +4,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { requireFeatureModuleEnabled } from "@/lib/module-gate";
-import { getSettings } from "../../../lib/self-directed-learning";
+import { getFullWeeks, getSettings } from "../../../lib/self-directed-learning";
 import {
   getLatestReview,
   getMyPlan,
@@ -65,10 +65,11 @@ export async function GET(request: NextRequest) {
     }
 
     const settings = await getSettings();
+    const fullWeeks = await getFullWeeks();
     // 總開關關閉：非管理端只回維護旗標（計畫與審查意見不回傳）
     if (!settings.enabled) {
       return NextResponse.json(
-        { success: true, settings, maintenance: true, plan: null, latestReview: null, withinWindow: false },
+        { success: true, settings, fullWeeks, maintenance: true, plan: null, latestReview: null, withinWindow: false },
         { headers: noStore }
       );
     }
@@ -78,6 +79,7 @@ export async function GET(request: NextRequest) {
       {
         success: true,
         settings,
+        fullWeeks,
         plan,
         latestReview,
         withinWindow: openStateOf(settings) === "open",
@@ -137,7 +139,8 @@ export async function POST(request: NextRequest) {
         { status: 403, headers: noStore }
       );
     }
-    const parsed = parsePlanDraft(body?.draft, settings, action);
+    const fullWeeks = await getFullWeeks();
+    const parsed = parsePlanDraft(body?.draft, { ...settings, fullWeeks }, action);
     if (!parsed.ok) {
       return NextResponse.json(
         { success: false, message: parsed.message },

@@ -7,6 +7,7 @@ import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
   MAINTENANCE_HINT,
   MAINTENANCE_TITLE,
+  MAX_PLAN_WEEKS,
   PLAN_STATUS_LABELS,
   PLAN_TIMING_LABELS,
   openStateOf,
@@ -43,14 +44,20 @@ const WINDOW_LABEL: Record<string, string> = {
 };
 
 /**
- * 依設定的週數形式補齊／截斷草稿週數：
- * 全學期形式＝固定補到全學期週數；彈性形式＝夾在下限週數與上限之間。
+ * 依設定補齊草稿週數：
+ * 全學期形式＝補到程式判斷的學期總週數；彈性形式＝夾在下限與總週數上限之間。
  */
-function fitWeeks(weeks: PlanWeek[], settings: SelfDirectedLearningSettings): PlanWeek[] {
+function fitWeeks(
+  weeks: PlanWeek[],
+  settings: SelfDirectedLearningSettings,
+  fullWeeks: number | null
+): PlanWeek[] {
   const target =
-    settings.weekMode === "full"
-      ? settings.maxWeeks
-      : Math.min(Math.max(weeks.length, settings.minWeeks), settings.maxWeeks);
+    settings.weekMode === "full" && fullWeeks !== null
+      ? fullWeeks
+      : fullWeeks !== null
+        ? Math.min(Math.max(weeks.length, settings.minWeeks), fullWeeks)
+        : Math.max(weeks.length, settings.minWeeks);
   const next = weeks.slice(0, target);
   while (next.length < target) {
     next.push({ week: next.length + 1, content: "", venue: "", timing: "flexible" });
@@ -71,11 +78,13 @@ export default function StudentSelfDirectedLearningPage() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   /** 總開關關閉：只顯示維護說明 */
   const [maintenance, setMaintenance] = useState(false);
+  /** 全學期形式的須填週數（由學期起訖自動判斷；null＝學校尚未設定起訖） */
+  const [fullWeeks, setFullWeeks] = useState<number | null>(null);
 
   const locked = plan?.status === "submitted" || plan?.status === "approved";
 
   const applyPlan = useCallback(
-    (next: SelfDirectedLearningPlan | null, cfg: SelfDirectedLearningSettings) => {
+    (next: SelfDirectedLearningPlan | null, cfg: SelfDirectedLearningSettings, fullWeekCount: number | null) => {
       setPlan(next);
       // 已送出／已通過的計畫維持原週數；可編輯狀態才依週數形式補齊
       const editable = !next || next.status === "draft" || next.status === "returned";
@@ -85,10 +94,10 @@ export default function StudentSelfDirectedLearningPage() {
           topic: next.topic,
           studyGroup: next.studyGroup,
           advisor: next.advisor,
-          weeks: editable ? fitWeeks(weeks, cfg) : weeks,
+          weeks: editable ? fitWeeks(weeks, cfg, fullWeekCount) : weeks,
         });
       } else {
-        setDraft({ ...EMPTY_DRAFT, weeks: fitWeeks(emptyWeeks(1), cfg) });
+        setDraft({ ...EMPTY_DRAFT, weeks: fitWeeks(emptyWeeks(1), cfg, fullWeekCount) });
       }
     },
     []
@@ -103,11 +112,13 @@ export default function StudentSelfDirectedLearningPage() {
         return;
       }
       const nextSettings = data.settings as SelfDirectedLearningSettings;
+      const nextFullWeeks = typeof data.fullWeeks === "number" ? data.fullWeeks : null;
       setSettings(nextSettings);
+      setFullWeeks(nextFullWeeks);
       setMaintenance(Boolean(data.maintenance));
       setLatestReview((data.latestReview as PlanReview | null) ?? null);
       setWithinWindow(Boolean(data.withinWindow));
-      applyPlan((data.plan as SelfDirectedLearningPlan | null) ?? null, nextSettings);
+      applyPlan((data.plan as SelfDirectedLearningPlan | null) ?? null, nextSettings, nextFullWeeks);
     } catch {
       setToast({ kind: "error", text: "讀取資料失敗" });
     } finally {
@@ -271,30 +282,34 @@ export default function StudentSelfDirectedLearningPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-t1 font-medium">逐週課程安排</h2>
           {settings.weekMode === "flexible" ? (
-            <label className="text-t2 flex items-center gap-2 text-sm">
-              方案週數（至少 {settings.minWeeks} 週）
-              <select
-                className="input-theme rounded px-3 py-2 text-sm"
-                value={Math.min(
-                  Math.max(draft.weeks.length, settings.minWeeks),
-                  settings.maxWeeks
-                )}
+            <label className="text-t2 flex flex-wrap items-center gap-2 text-sm">
+              方案週數（至少 {settings.minWeeks} 週
+              {fullWeeks !== null ? `，至多 ${fullWeeks} 週` : ""}）
+              <input
+                type="number"
+                min={settings.minWeeks}
+                max={fullWeeks ?? MAX_PLAN_WEEKS}
+                className="input-theme w-24 rounded px-3 py-2 text-sm"
+                value={draft.weeks.length}
                 disabled={locked}
-                onChange={(event) => setWeekCount(Number(event.target.value))}
-              >
-                {Array.from(
-                  { length: Math.max(settings.maxWeeks - settings.minWeeks + 1, 1) },
-                  (_, index) => settings.minWeeks + index
-                ).map((count) => (
-                  <option key={count} value={count}>
-                    {count} 週
-                  </option>
-                ))}
-              </select>
+                onChange={(event) => {
+                  const parsed = Number(event.target.value);
+                  if (Number.isInteger(parsed)) {
+                    setWeekCount(
+                      Math.min(
+                        Math.max(parsed, settings.minWeeks),
+                        fullWeeks ?? MAX_PLAN_WEEKS
+                      )
+                    );
+                  }
+                }}
+              />
             </label>
           ) : (
             <p className="text-t2 text-sm">
-              全學期 {settings.maxWeeks} 週（全學期空白週數都須填寫）
+              {fullWeeks !== null
+                ? `全學期 ${fullWeeks} 週（全學期空白週數都須填寫）`
+                : "全學期形式：學校尚未設定上課日／學期起訖，暫無法判斷週數"}
             </p>
           )}
         </div>

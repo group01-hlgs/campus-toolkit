@@ -8,7 +8,7 @@ import { publishFromModule, updateFromModule } from "@/lib/announcements";
 import { publishScheduleFromModule } from "@/lib/calendar";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { schoolWideAudience } from "@/types/announcements";
-import { getSettings, saveSettings } from "../../../lib/self-directed-learning";
+import { getFullWeeks, getSchoolScheduleOptions, getSettings, getSpaceOptions, getStaffCandidates, saveSettings } from "../../../lib/self-directed-learning";
 import { parseSettingsInput } from "../../../types/self-directed-learning";
 
 const noStore = { "Cache-Control": "no-store" };
@@ -123,7 +123,24 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const settings = await getSettings();
-    return NextResponse.json({ success: true, settings }, { headers: noStore });
+    const [fullWeeks, scheduleOptions, spaceOptions, staffCandidates] = await Promise.all([
+      getFullWeeks(),
+      getSchoolScheduleOptions(),
+      getSpaceOptions(),
+      getStaffCandidates(),
+    ]);
+    return NextResponse.json(
+      {
+        success: true,
+        settings,
+        fullWeeks,
+        periodOptions: scheduleOptions.periods,
+        schoolDays: scheduleOptions.schoolDays,
+        spaceOptions,
+        staffCandidates,
+      },
+      { headers: noStore }
+    );
   } catch (error) {
     console.error("selfDirectedLearning settings GET error:", error);
     return NextResponse.json({ success: false, message: errorMessage(error, "讀取設定失敗") }, { status: 500, headers: noStore });
