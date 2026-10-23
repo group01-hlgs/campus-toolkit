@@ -93,6 +93,7 @@ export async function PUT(request: NextRequest) {
       .collection(PERIODS_DOC.collection)
       .doc(PERIODS_DOC.id)
       .set({
+        schoolDays: setting.schoolDays,
         periods: setting.periods.map((row) => ({
           code: row.code,
           period: row.period,

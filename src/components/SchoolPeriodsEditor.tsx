@@ -7,6 +7,7 @@ import {
   PERIODS_MAX_ROWS,
   PERIODS_MIN_NUMBER,
   PERIODS_NAME_MAX,
+  SCHOOL_DAY_LABELS,
   SchoolPeriodRow,
   SchoolPeriodsSetting,
   readSchoolPeriods,
@@ -125,6 +126,16 @@ export default function SchoolPeriodsEditor() {
         position === index ? { ...row, ...patch } : row
       ),
     });
+  }
+
+  /** 勾選／取消上課星期（1=週一…7=週日） */
+  function toggleSchoolDay(day: number, checked: boolean) {
+    if (!draft) return;
+    setToast(null);
+    const days = checked
+      ? [...draft.schoolDays, day].sort((a, b) => a - b)
+      : draft.schoolDays.filter((item) => item !== day);
+    setDraft({ ...draft, schoolDays: days });
   }
 
   function addRow() {
@@ -258,6 +269,32 @@ export default function SchoolPeriodsEditor() {
       <p className="text-xs text-t3 mb-3">
         {dirty ? "有尚未儲存的變更，記得按「儲存變更」。" : "已與伺服器同步。"}
       </p>
+
+      {/* 上課星期（第一順位）：勾選＝該日為上課日 */}
+      <section className="border border-themed rounded-lg p-4 mb-4">
+        <h4 className="font-bold text-t1">上課星期</h4>
+        <p className="text-sm text-t3 mt-1 mb-3">
+          勾選為上課日的星期（台灣學校一般為週一至週五）。此為結構性資料，供作息與行事曆引用。
+        </p>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {SCHOOL_DAY_LABELS.map((label, index) => {
+            const day = index + 1;
+            const checked = draft.schoolDays.includes(day);
+            return (
+              <label key={label} className="text-t1 flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer"
+                  checked={checked}
+                  disabled={saving}
+                  onChange={(event) => toggleSchoolDay(day, event.target.checked)}
+                />
+                {label}
+              </label>
+            );
+          })}
+        </div>
+      </section>
 
       {/* 節次表格（過寬時橫向捲動） */}
       <div className="border border-themed rounded-lg bg-card overflow-x-auto">
