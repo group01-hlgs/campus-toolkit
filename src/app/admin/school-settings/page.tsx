@@ -5,10 +5,33 @@ import { useRouter } from "next/navigation";
 /** 學校基本設定的子功能入口卡片（新增子功能時在這裡加一張） */
 const SUB_FEATURE_CARDS = [
   {
+    id: "semesters",
+    href: "/admin/school-settings/semesters",
+    label: "學期起訖設定",
+    description: "設定學年度、學年度起訖、學期與學期起訖（危險區：影響全站期間基準）。",
+    danger: true,
+    icon: (
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"
+        />
+      </svg>
+    ),
+  },
+  {
     id: "profile",
     href: "/admin/school-settings/profile",
     label: "校務基本資料",
-    description: "設定教育階段與學校年制、現任校長與副校長、各校區地址與電話、學校官網。",
+    description: "設定教育部學校代碼、教育階段與學校年制、現任校長與副校長、各校區地址與電話、學校官網。",
     icon: (
       <svg
         className="w-6 h-6"
@@ -150,10 +173,21 @@ export default function SchoolSettingsPage() {
             key={card.id}
             type="button"
             onClick={() => router.push(card.href)}
-            className="border border-themed rounded-lg bg-card p-5 text-left flex flex-col gap-2 transition cursor-pointer hover:bg-hover"
+            className={`border ${
+              "danger" in card && card.danger ? "border-danger" : "border-themed"
+            } rounded-lg bg-card p-5 text-left flex flex-col gap-2 transition cursor-pointer hover:bg-hover`}
           >
-            <span className="text-t3">{card.icon}</span>
-            <span className="text-lg font-bold text-t1">{card.label}</span>
+            <span className={("danger" in card && card.danger ? "text-danger" : "text-t3")}>
+              {card.icon}
+            </span>
+            <span className="text-lg font-bold text-t1 flex flex-wrap items-center gap-2">
+              {card.label}
+              {"danger" in card && card.danger && (
+                <span className="text-xs font-bold text-danger border border-danger rounded px-2 py-0.5">
+                  危險區
+                </span>
+              )}
+            </span>
             <span className="text-sm text-t3">{card.description}</span>
             <span className="text-sm text-t2 mt-1">進入設定 →</span>
           </button>

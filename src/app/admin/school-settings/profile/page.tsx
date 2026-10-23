@@ -23,8 +23,8 @@ export default function SchoolProfilePage() {
       <section className="border border-themed rounded-lg bg-card p-5">
         <h3 className="text-lg font-bold text-t1">校務基本資料</h3>
         <p className="text-sm text-t3 mt-1">
-          登記本校的教育階段與學校年制、現任校長與副校長、各校區的地址與電話，以及學校官網。
-          此為結構性資料，不隨學期變動。
+          登記教育部學校代碼，以及本校的教育階段與學校年制、現任校長與副校長、各校區的地址與電話，
+          與學校官網。此為結構性資料，不隨學期變動。
         </p>
         <SchoolProfileEditor />
       </section>

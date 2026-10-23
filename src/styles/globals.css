@@ -373,6 +373,8 @@ mark {
 .bg-primary { background-color: var(--primary); }
 .border-primary { border-color: var(--primary); }
 .border-primary-soft { border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+/* 危險區邊框：跟隨主題 --danger（學期起訖設定等危險區卡片使用） */
+.border-danger { border-color: var(--danger); }
 .border-themed { border-color: var(--bd); }
 /* 左側主題色粗邊（置頂橫幅卡）：寫在 .border-themed 之後，左邊框才會蓋過 */
 .border-l-primary { border-left-color: var(--primary); }

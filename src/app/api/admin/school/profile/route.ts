@@ -90,6 +90,7 @@ export async function PUT(request: NextRequest) {
       .collection(PROFILE_DOC.collection)
       .doc(PROFILE_DOC.id)
       .set({
+        schoolCode: profile.schoolCode,
         stages: profile.stages,
         seniorHighTypes: profile.seniorHighTypes,
         principal: profile.principal,
