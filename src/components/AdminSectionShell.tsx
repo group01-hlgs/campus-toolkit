@@ -104,13 +104,13 @@ export default function AdminSectionShell({
       </div>
 
       {/* 功能標題 */}
-      <div className="w-full max-w-4xl mt-4 mb-2 text-center">
+      <div className="content-width mt-4 mb-2 text-center">
         <h2 className="text-2xl font-bold text-t1">{title}</h2>
         <p className="text-sm text-t3 mt-1">{description}</p>
       </div>
 
       {/* 操作按鈕 */}
-      <div className="w-full max-w-4xl flex justify-end gap-3 mb-4">
+      <div className="content-width flex justify-end gap-3 mb-4">
         <button
           onClick={handleBack}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -125,22 +125,22 @@ export default function AdminSectionShell({
         </button>
       </div>
 
-      <hr className="w-full max-w-4xl border-themed mb-4" />
+      <hr className="content-width border-themed mb-4" />
 
       {/* 內容：各子功能頁 */}
       {allowed ? (
         children
       ) : (
-        <div className="w-full max-w-4xl border border-themed rounded-lg p-8 bg-card text-center space-y-2 mb-8">
+        <div className="content-width border border-themed rounded-lg p-8 bg-card text-center space-y-2 mb-8">
           <p className="text-lg font-bold text-t1">權限不足</p>
           <p className="text-sm text-t2">{deniedMessage}</p>
         </div>
       )}
 
-      <hr className="w-full max-w-4xl border-themed mb-4" />
+      <hr className="content-width border-themed mb-4" />
 
       {/* 底部操作按鈕 */}
-      <div className="w-full max-w-4xl flex justify-start gap-3 mb-8">
+      <div className="content-width flex justify-start gap-3 mb-8">
         <button
           onClick={handleBack}
           className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
@@ -157,13 +157,13 @@ export default function AdminSectionShell({
 
       {/* 廣告區域 */}
       {settings.sponsorAdEnabled && (
-        <div className="w-full max-w-4xl">
+        <div className="content-width">
           <AdSense />
         </div>
       )}
 
       {/* 版權宣告 */}
-      <div className="w-full max-w-4xl mt-auto">
+      <div className="content-width mt-auto">
         <Copyright mode={settings.copyrightNotice ? "啟用" : "關閉"} />
       </div>
     </div>

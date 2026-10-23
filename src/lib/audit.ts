@@ -42,6 +42,7 @@ export type ActivityAction =
   | "school_classes_updated"
   | "school_codes_updated"
   | "school_spaces_updated"
+  | "school_periods_updated"
   | "announcements_created"
   | "announcements_updated"
   | "announcements_archived"

@@ -381,7 +381,7 @@ export default function ModuleMarketPage() {
   }
 
   return (
-    <div className="w-full max-w-5xl space-y-6">
+    <div className="content-width space-y-6">
       {installMessage && (
         <div
           role={installKind === "error" ? "alert" : "status"}

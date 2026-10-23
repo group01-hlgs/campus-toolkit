@@ -483,9 +483,9 @@ export default function AdminAnnouncementsPage() {
     }));
   }
 
-  // 內容寬度與外殼（AdminSectionShell）的 hr／按鈕／頁尾同為 max-w-4xl，左右才會對齊
+  // 內容寬度與外殼（AdminSectionShell）的 hr／按鈕／頁尾同用 .content-width（80vw），左右才會對齊
   return (
-    <div className="w-full max-w-4xl mb-8 space-y-6">
+    <div className="content-width mb-8 space-y-6">
       <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 1. 設定管理（預設收合）：收納公告原則／顯示位置／公告分類三張卡片 */}

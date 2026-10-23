@@ -8,7 +8,7 @@ export default function OrgUnitSettingsPage() {
   const router = useRouter();
 
   return (
-    <div className="w-full max-w-4xl mb-8">
+    <div className="content-width mb-8">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <p className="text-sm text-t3">學校基本設定 ／ 單位層級設定</p>
         <button

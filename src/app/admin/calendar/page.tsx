@@ -688,7 +688,7 @@ export default function AdminCalendarPage() {
     : "不限月份";
 
   return (
-    <div className="w-full max-w-4xl mb-8 space-y-6">
+    <div className="content-width mb-8 space-y-6">
       <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 1. 設定管理（預設收合）：收納規則設定／顯示位置／行程類型三張卡片 */}
