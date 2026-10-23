@@ -93,7 +93,7 @@ export async function PATCH(request: NextRequest) {
       // 管理員欄已退役：管理員恆可見所有已啟用模組，不接受逐模組入口開關
       if (role === "admin") {
         return NextResponse.json(
-          { success: false, message: "管理員對所有功能模組恆為全權，無需設定入口功能" },
+          { success: false, message: "管理員對所有功能模組恆為全權，無需設定功能入口" },
           { status: 400 }
         );
       }

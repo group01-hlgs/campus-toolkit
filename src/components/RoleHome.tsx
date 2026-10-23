@@ -96,7 +96,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   // 行事曆：全站統一行事曆頁 /calendar（無身分差異；可見性由 API 依 session 過濾）
   const calendarHref = "/calendar";
   // 功能入口卡片：順序比照主程式管理員首頁
-  // 「帳號、身分與安全管理」「公告」「行事曆」依功能模組「入口功能」過濾
+  // 「帳號、身分與安全管理」「公告」「行事曆」依功能模組「功能入口」過濾
   // 個人「設定」頁為個人偏好、非功能模組入口，不套顯示開關
   const accountVisible =
     visibleModules === null || visibleModules.includes("account");
@@ -105,6 +105,9 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const calendarVisible = visibleModules === null || visibleModules.includes("calendar");
   const personalInfoVisible =
     visibleModules === null || visibleModules.includes("personalInfo");
+  // 休閒歡樂誠：首頁左上角遊戲浮動按鈕（依功能入口開關顯示）
+  const recreationVisible =
+    visibleModules === null || visibleModules.includes("recreation");
   const entryCards = [
     { ...settingsModule, id: "settings", href: settingsHref },
     ...(accountVisible ? [{ ...accountModule, id: "account", href: accountHref }] : []),
@@ -158,9 +161,13 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
-      <HomepageCornerWrench />
-      <HomepageCornerChangE />
-      <HomepageCornerExam />
+      {recreationVisible && (
+        <>
+          <HomepageCornerWrench />
+          <HomepageCornerChangE />
+          <HomepageCornerExam />
+        </>
+      )}
       <div className="text-center mb-2">
         <h1 className="text-4xl font-bold mb-2">{settings.systemName || "數位校園工具箱"}</h1>
         <p className="text-xl text-t2">{settings.schoolFullName || "學校名稱"}</p>

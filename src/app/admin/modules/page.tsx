@@ -17,7 +17,7 @@ import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
 import { ROSTER_ROLES, type RosterRole } from "@/types/roster";
 import Toast, { type ToastMessage } from "@/components/Toast";
 
-/** 入口功能欄對應的身分（管理員欄已退役——管理員恆全權，見政策修改書 G1） */
+/** 功能入口欄對應的身分（管理員欄已退役——管理員恆全權，見政策修改書 G1） */
 const ENTRY_ROLES: UserRole[] = ALL_ROLES.filter((role) => role !== "admin");
 
 /** 可被指派管理的身分（管理員恆全權、不列入指派） */
@@ -294,8 +294,8 @@ function DescriptionRow({
 }
 
 /**
- * 使用者端三身分欄：同時顯示「提供功能」圖示＋「入口功能」勾選。
- * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」與「入口功能」勾選上下排列。
+ * 使用者端三身分欄：同時顯示「提供功能」圖示＋「功能入口」勾選。
+ * 提供功能＝否 → 文字「未提供」（不可操作）；＝是 → 綠勾「提供」與「功能入口」勾選上下排列。
  * 管理員欄已退役——管理員對所有模組恆為全權，不再逐模組勾選入口（政策修改書 G1）。
  */
 function RoleCells({
@@ -346,17 +346,17 @@ function RoleCells({
                 提供
               </span>
               <label className="inline-flex items-center justify-center gap-1 text-xs text-t3">
-                <span>入口功能</span>
+                <span>功能入口</span>
                 <input
                   type="checkbox"
                   checked={switches?.[role] === true}
                   disabled={disabled}
                   onChange={(event) => onToggle(item, role, event.target.checked)}
-                  aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的入口功能`}
+                  aria-label={`「${item.label}」對${ROLE_LABELS[role]}身分的功能入口`}
                   title={
                     disabled
                       ? (disabledTitle ?? "同一時間只能處理一筆變更")
-                      : "入口功能（關閉＝首頁不顯示入口、禁止進入）"
+                      : "功能入口（關閉＝首頁不顯示入口、禁止進入）"
                   }
                   className="accent-current cursor-pointer disabled:opacity-50"
                 />
@@ -369,7 +369,7 @@ function RoleCells({
   );
 }
 
-/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入；身分欄＝入口功能 */
+/** 內建功能模組列表列：一律啟用；已上線且有入口者可直接進入；身分欄＝功能入口 */
 function BuiltinRow({
   item,
   open,
@@ -443,7 +443,7 @@ function BuiltinRow({
   );
 }
 
-/** 選用功能模組列表列：總開關＋使用者端三身分入口功能＋操作（齒輪前往／管理人員／卸載），全體管理員可操作 */
+/** 選用功能模組列表列：總開關＋使用者端三身分功能入口＋操作（齒輪前往／管理人員／卸載），全體管理員可操作 */
 function OptionalRow({
   item,
   open,
@@ -909,15 +909,15 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
 /**
  * 「功能模組管理」入口（全體管理員，政策修改書決議二）：
  * 內建／選用兩份功能模組列表，說明與作者／版本／提供功能由名稱旁箭頭就地展開；
- * 選用模組有總開關；使用者端三身分欄＝**入口功能**（提供功能＝否顯示「未提供」）。
+ * 選用模組有總開關；使用者端三身分欄＝**功能入口**（提供功能＝否顯示「未提供」）。
  * 管理員欄已退役（恆全權）；操作欄＝齒輪（前往）＋管理員圖示（就地展開「管理人員」指派列）＋卸載。
  */
 export default function ModulesPage() {
   const router = useRouter();
-  // 總開關與入口功能開關：null＝載入中（fail-closed，先當全部未啟用）
+  // 總開關與功能入口開關：null＝載入中（fail-closed，先當全部未啟用）
   const [enabled, setEnabled] = useState<FeatureModulesEnabledMap | null>(null);
   const [roles, setRoles] = useState<FeatureModuleRolesMap | null>(null);
-  // 處理中的鍵：總開關＝模組代碼；入口功能開關＝「模組代碼:身分」
+  // 處理中的鍵：總開關＝模組代碼；功能入口開關＝「模組代碼:身分」
   const [saving, setSaving] = useState<string | null>(null);
   // 開關狀態載入失敗訊息：非空＝頁面勾選／總開關不可信（禁止默默呈現全未勾選）
   const [loadError, setLoadError] = useState("");
@@ -991,7 +991,7 @@ export default function ModulesPage() {
     };
   }, []);
 
-  /** 送出 PATCH，成功後依回應更新總開關或入口功能開關 */
+  /** 送出 PATCH，成功後依回應更新總開關或功能入口開關 */
   async function patch(body: Record<string, unknown>, key: string) {
     if (saving) return;
     setSaving(key);
@@ -1021,7 +1021,7 @@ export default function ModulesPage() {
     void patch({ value: item.value, enabled: next }, item.value);
   }
 
-  /** 模組 × 身分入口功能 */
+  /** 模組 × 身分功能入口 */
   function toggleRole(item: FeatureModuleMeta, role: UserRole, next: boolean) {
     void patch({ value: item.value, role, enabled: next }, `${item.value}:${role}`);
   }
@@ -1236,7 +1236,7 @@ export default function ModulesPage() {
         <div className="p-3 space-y-3">
           <p className="text-xs text-t3">
             隨主程式提供、一律啟用；已上線的模組可直接進入（操作欄「齒輪」）。名稱旁的箭頭可展開說明與作者版本資訊；
-            使用者端三身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝入口功能
+            使用者端三身分欄：綠勾「提供」＝模組作者提供此功能（唯讀）；旁邊勾選＝功能入口
             （關閉＝首頁不顯示入口、禁止進入）。管理員對所有模組恆為全權，不設入口勾選；
             操作欄「管理員圖示」可就地展開該列下方的「管理人員」指派區。
           </p>
@@ -1296,7 +1296,7 @@ export default function ModulesPage() {
           <h3 className="text-lg font-bold text-t1">選用功能模組</h3>
           <p className="text-xs text-t3">
             已安裝的模組各有一個總開關（預設未啟用），由全體管理員啟用／停用。
-            使用者端三身分欄上下排列：綠勾「提供」與「入口功能」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
+            使用者端三身分欄上下排列：綠勾「提供」與「功能入口」勾選（提供功能＝否者顯示「未提供」）；版本欄顯示模組版本。
             操作欄「齒輪」在總開關開啟時可直接進入該模組管理頁面；「卸載」在卸載管線設定完成時可用（部署環境會建立 Git 提交）。
             操作欄「管理員圖示」可就地展開該列下方的「管理人員」區，指派非管理員身分帳號（管理員恆全權、不需指派）。
             設定為現行狀態，變更會記錄於稽核紀錄。
@@ -1383,7 +1383,7 @@ export default function ModulesPage() {
             並勾選該模組宣告之子權限；指派綁定當期名冊條目，學期切換需重新指定。
           </li>
           <li>
-            「入口功能」關閉時，該身分首頁不顯示此模組入口；
+            「功能入口」關閉時，該身分首頁不顯示此模組入口；
             管理權另由「管理人員」指派決定（兩者獨立）。
           </li>
           <li>

@@ -91,7 +91,7 @@ export interface FeatureModuleMeta {
    */
   provides: Record<UserRole, boolean>;
   /**
-   * 各身分「入口功能」預設值（選填，由模組作者在 manifest 宣告）：
+    * 各身分「功能入口」預設值（選填，由模組作者在 manifest 宣告）：
    * 僅 applies於 provides＝true 的身分；欄位不存在＝該身分預設顯示（fail-safe 開啟）。
    * 明確存值於 settings 時仍以存值為準——此欄位只決定「尚未手動切換過」時的初始狀態。
    */
@@ -224,6 +224,21 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "live",
     description: "學生檢視本學期的基本資料；以學生學籍資料為主，並提供家長、教職員與管理員依權限查閱與管理。",
     href: "/admin/personal-info",
+    author: DEFAULT_MODULE_AUTHOR,
+    provides: {
+      student: true,
+      parent: true,
+      staff: true,
+      admin: true,
+    },
+  },
+  {
+    value: "recreation",
+    label: "休閒歡樂誠",
+    kind: "builtin",
+    status: "live",
+    description: "課餘休閒小遊戲；四種身分功能首頁左上角浮動按鈕進入，無獨立管理頁。",
+    href: "",
     author: DEFAULT_MODULE_AUTHOR,
     provides: {
       student: true,
