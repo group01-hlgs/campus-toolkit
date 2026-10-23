@@ -592,7 +592,8 @@ export default function ModuleMarketPage() {
                 目前沒有可用的模組，請稍後再試。
               </div>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 items-start md:grid-cols-2">
+                {/* 卡片高度各自內容決定（items-start）：展開一張不拉伸同行另一張 */}
                 {modules.map((module) => (
                   <details key={module.id} className="group border border-themed rounded-lg bg-card p-5">
                     <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
