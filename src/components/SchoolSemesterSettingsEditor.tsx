@@ -80,6 +80,8 @@ export default function SchoolSemesterSettingsEditor() {
       | "academicYearEnd"
       | "semesterStart"
       | "semesterEnd"
+      | "classDayStart"
+      | "classDayEnd"
       | "winterStart"
       | "winterEnd"
       | "summerStart"
@@ -222,47 +224,72 @@ export default function SchoolSemesterSettingsEditor() {
         </div>
       </section>
 
-      {/* 學期＋學期起訖 */}
+      {/* 學期＋學期起訖＋上課日 */}
       <section className="border border-themed rounded-lg p-4 mb-4">
         <h4 className="font-bold text-t1">學期</h4>
         <p className="text-sm text-t3 mt-1 mb-3">
-          目前所屬的學期與起訖日期（日期可留空，起日不得晚於訖日）。
+          目前所屬的學期、學期起訖與上課日（日期可留空，起日不得晚於訖日）。
           學期同為全站的期間基準，變更後各資料頁會切換到該學期的資料。
         </p>
-        <div className="grid gap-3 md:grid-cols-[12rem_1fr] md:items-end">
-          <label className="text-sm">
-            <span className="block text-t2 mb-1">學期</span>
-            <select
-              value={draft.semester}
-              onChange={(event) => changeSemester(event.target.value)}
-              className="input-theme rounded px-3 py-2 text-sm w-full"
-            >
-              {SEMESTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[12rem_1fr] md:items-end">
             <label className="text-sm">
-              <span className="block text-t2 mb-1">起日</span>
-              <input
-                type="date"
-                value={draft.semesterStart}
-                onChange={(event) => changeDate("semesterStart", event.target.value)}
+              <span className="block text-t2 mb-1">學期</span>
+              <select
+                value={draft.semester}
+                onChange={(event) => changeSemester(event.target.value)}
                 className="input-theme rounded px-3 py-2 text-sm w-full"
-              />
+              >
+                {SEMESTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label className="text-sm">
-              <span className="block text-t2 mb-1">訖日</span>
-              <input
-                type="date"
-                value={draft.semesterEnd}
-                onChange={(event) => changeDate("semesterEnd", event.target.value)}
-                className="input-theme rounded px-3 py-2 text-sm w-full"
-              />
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">起日</span>
+                <input
+                  type="date"
+                  value={draft.semesterStart}
+                  onChange={(event) => changeDate("semesterStart", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">訖日</span>
+                <input
+                  type="date"
+                  value={draft.semesterEnd}
+                  onChange={(event) => changeDate("semesterEnd", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-[12rem_1fr] md:items-end">
+            <p className="text-sm font-bold text-t1">上課日</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">起日</span>
+                <input
+                  type="date"
+                  value={draft.classDayStart}
+                  onChange={(event) => changeDate("classDayStart", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">訖日</span>
+                <input
+                  type="date"
+                  value={draft.classDayEnd}
+                  onChange={(event) => changeDate("classDayEnd", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+            </div>
           </div>
         </div>
       </section>
