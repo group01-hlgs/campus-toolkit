@@ -35,6 +35,15 @@ export async function GET(request: NextRequest) {
     const gate = await requireFeatureModuleEnabled("selfDirectedLearning", session);
     if (gate) return gate;
 
+    // 總開關關閉：非管理端只回維護旗標（子女與計畫資料不回傳）
+    const settings = await getSettings();
+    if (!settings.enabled) {
+      return NextResponse.json(
+        { success: true, maintenance: true, child: null, plan: null, latestReview: null, withinWindow: false },
+        { headers: noStore }
+      );
+    }
+
     const entry = (session as VerifiedSession).__entry;
     if (!entry) {
       return NextResponse.json(
@@ -54,7 +63,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const settings = await getSettings();
     const plan = await getMyPlan(child.uid);
     const latestReview = plan ? await getLatestReview(plan.id) : null;
     return NextResponse.json(

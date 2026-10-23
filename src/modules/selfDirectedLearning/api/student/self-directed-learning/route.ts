@@ -11,7 +11,11 @@ import {
   saveStudentPlan,
   type StudentIdentityLite,
 } from "../../../lib/self-directed-learning-plans";
-import { openStateOf, parsePlanDraft } from "../../../types/self-directed-learning";
+import {
+  MAINTENANCE_TITLE,
+  openStateOf,
+  parsePlanDraft,
+} from "../../../types/self-directed-learning";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -61,6 +65,13 @@ export async function GET(request: NextRequest) {
     }
 
     const settings = await getSettings();
+    // 總開關關閉：非管理端只回維護旗標（計畫與審查意見不回傳）
+    if (!settings.enabled) {
+      return NextResponse.json(
+        { success: true, settings, maintenance: true, plan: null, latestReview: null, withinWindow: false },
+        { headers: noStore }
+      );
+    }
     const plan = await getMyPlan(student.uid);
     const latestReview = plan ? await getLatestReview(plan.id) : null;
     return NextResponse.json(
@@ -120,7 +131,13 @@ export async function POST(request: NextRequest) {
     const action = body?.action === "submit" ? "submit" : "save";
 
     const settings = await getSettings();
-    const parsed = parsePlanDraft(body?.draft, settings.maxWeeks);
+    if (!settings.enabled) {
+      return NextResponse.json(
+        { success: false, message: MAINTENANCE_TITLE },
+        { status: 403, headers: noStore }
+      );
+    }
+    const parsed = parsePlanDraft(body?.draft, settings, action);
     if (!parsed.ok) {
       return NextResponse.json(
         { success: false, message: parsed.message },

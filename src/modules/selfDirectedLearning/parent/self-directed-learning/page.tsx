@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
 import {
+  MAINTENANCE_HINT,
+  MAINTENANCE_TITLE,
   PLAN_STATUS_LABELS,
   PLAN_TIMING_LABELS,
   type PlanReview,
@@ -31,6 +33,8 @@ export default function ParentSelfDirectedLearningPage() {
   const [latestReview, setLatestReview] = useState<PlanReview | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  /** 總開關關閉：只顯示維護說明 */
+  const [maintenance, setMaintenance] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -40,7 +44,8 @@ export default function ParentSelfDirectedLearningPage() {
         setToast({ kind: "error", text: data.message || "讀取資料失敗" });
         return;
       }
-      setChild(data.child as LinkedChild);
+      setMaintenance(Boolean(data.maintenance));
+      setChild((data.child as LinkedChild | null) ?? null);
       setPlan((data.plan as SelfDirectedLearningPlan | null) ?? null);
       setLatestReview((data.latestReview as PlanReview | null) ?? null);
     } catch {
@@ -54,8 +59,24 @@ export default function ParentSelfDirectedLearningPage() {
     void load();
   }, [load]);
 
+  // 總開關關閉：只見維護說明（子女資料不呈現）
+  if (!loading && maintenance) {
+    return (
+      <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
+        <header className="space-y-1">
+          <h1 className="text-xl text-t1">自主學習計畫</h1>
+        </header>
+        <div className="border-themed bg-card space-y-2 rounded-lg p-6 text-center">
+          <p className="text-t1 text-lg font-medium">{MAINTENANCE_TITLE}</p>
+          <p className="text-t2 text-sm">{MAINTENANCE_HINT}</p>
+        </div>
+        <Toast message={toast} onClose={() => setToast(null)} />
+      </section>
+    );
+  }
+
   return (
-    <section className="mx-auto w-full max-w-3xl space-y-4 p-4 sm:p-6">
+    <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
       <header className="space-y-1">
         <h1 className="text-xl text-t1">自主學習計畫</h1>
         {child && (

@@ -11,7 +11,12 @@ import {
   listSubmittedPlans,
 } from "../../../lib/self-directed-learning-plans";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { parseReviewInput, periodLabelOf } from "../../../types/self-directed-learning";
+import {
+  MAINTENANCE_TITLE,
+  parseReviewInput,
+  periodLabelOf,
+  type SelfDirectedLearningSettings,
+} from "../../../types/self-directed-learning";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -28,8 +33,10 @@ interface StaffRoles {
 }
 
 /** 審核資格＝管理端設定的名單；導師資格＝名冊條目 attribute 為兼導師且有班級代碼 */
-async function staffRolesOf(session: VerifiedSession): Promise<StaffRoles> {
-  const settings = await getSettings();
+async function staffRolesOf(
+  session: VerifiedSession,
+  settings: SelfDirectedLearningSettings
+): Promise<StaffRoles> {
   const isReviewer = settings.reviewers.some((reviewer) => reviewer.uid === session.uid);
   const entry = session.__entry;
   const attribute = entry && typeof entry.attribute === "string" ? entry.attribute.trim() : "";
@@ -54,9 +61,18 @@ export async function GET(request: NextRequest) {
     const gate = await requireFeatureModuleEnabled("selfDirectedLearning", session);
     if (gate) return gate;
 
-    const roles = await staffRolesOf(session as VerifiedSession);
+    const settings = await getSettings();
+    const roles = await staffRolesOf(session as VerifiedSession, settings);
     const mode = request.nextUrl.searchParams.get("mode") === "class" ? "class" : "review";
     const period = periodLabelOf(await getCurrentPeriod());
+
+    // 總開關關閉：非管理端只回維護旗標（計畫清單不回傳）
+    if (!settings.enabled) {
+      return NextResponse.json(
+        { success: true, maintenance: true, mode, roles, period, plans: [] },
+        { headers: noStore }
+      );
+    }
 
     if (mode === "class") {
       if (!roles.isTutor) {
@@ -115,7 +131,15 @@ export async function POST(request: NextRequest) {
     const gate = await requireFeatureModuleEnabled("selfDirectedLearning", session);
     if (gate) return gate;
 
-    const roles = await staffRolesOf(session as VerifiedSession);
+    const settings = await getSettings();
+    if (!settings.enabled) {
+      return NextResponse.json(
+        { success: false, message: MAINTENANCE_TITLE },
+        { status: 403, headers: noStore }
+      );
+    }
+
+    const roles = await staffRolesOf(session as VerifiedSession, settings);
     if (!roles.isReviewer) {
       return NextResponse.json(
         { success: false, message: "你不在本模組的審核人員名單內。" },

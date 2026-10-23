@@ -3,7 +3,7 @@
   "label": "自主學習計畫",
   "kind": "optional",
   "status": "live",
-  "description": "自主學習計畫的申請、審核與進度紀錄。（開發中）",
+  "description": "自主學習計畫的申請、審核與進度紀錄。",
   "href": "/admin/self-directed-learning",
   "contractVersion": 1,
   "minHostVersion": "0.580",
@@ -13,8 +13,8 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.1",
-    "releasedAt": "2026-10-22"
+    "version": "0.0.2",
+    "releasedAt": "2026-10-23"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "routes": [
@@ -48,6 +48,16 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.2",
+      "releasedAt": "2026-10-23",
+      "notes": [
+        "管理頁更名「管理規則」，「開放撰寫時間」卡新增功能總開關——關閉時學生／教職員／家長頁面只顯示「目前此功能關閉維護中」，寫入 API 一律 403，管理端不受影響",
+        "週數改兩種填寫形式：全學期空白週數都須填寫（預設）／全學期採彈性週數填寫（下限週數預設 6、建議至少 6 週）；草稿可分次儲存，送出審核才強制週數形式與每週必填",
+        "四身分頁一級區塊改用主程式 content-width（80vw）比照功能首頁，表單控制項統一 rounded px-3 py-2 text-sm",
+        "README 與開發規劃書同步新欄位（enabled／weekMode／minWeeks）"
+      ]
+    },
     {
       "version": "0.0.1",
       "releasedAt": "2026-10-23",

@@ -5,6 +5,8 @@ import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
 import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
+  MAINTENANCE_HINT,
+  MAINTENANCE_TITLE,
   PLAN_STATUS_LABELS,
   PLAN_TIMING_LABELS,
   openStateOf,
@@ -40,6 +42,22 @@ const WINDOW_LABEL: Record<string, string> = {
   ended: "已超過開放撰寫期限",
 };
 
+/**
+ * 依設定的週數形式補齊／截斷草稿週數：
+ * 全學期形式＝固定補到全學期週數；彈性形式＝夾在下限週數與上限之間。
+ */
+function fitWeeks(weeks: PlanWeek[], settings: SelfDirectedLearningSettings): PlanWeek[] {
+  const target =
+    settings.weekMode === "full"
+      ? settings.maxWeeks
+      : Math.min(Math.max(weeks.length, settings.minWeeks), settings.maxWeeks);
+  const next = weeks.slice(0, target);
+  while (next.length < target) {
+    next.push({ week: next.length + 1, content: "", venue: "", timing: "flexible" });
+  }
+  return next.map((week, index) => ({ ...week, week: index + 1 }));
+}
+
 export default function StudentSelfDirectedLearningPage() {
   const [settings, setSettings] = useState<SelfDirectedLearningSettings>(
     DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS
@@ -51,22 +69,30 @@ export default function StudentSelfDirectedLearningPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<"save" | "submit" | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  /** 總開關關閉：只顯示維護說明 */
+  const [maintenance, setMaintenance] = useState(false);
 
   const locked = plan?.status === "submitted" || plan?.status === "approved";
 
-  const applyPlan = useCallback((next: SelfDirectedLearningPlan | null) => {
-    setPlan(next);
-    if (next) {
-      setDraft({
-        topic: next.topic,
-        studyGroup: next.studyGroup,
-        advisor: next.advisor,
-        weeks: next.weeks.length ? next.weeks : emptyWeeks(1),
-      });
-    } else {
-      setDraft({ ...EMPTY_DRAFT, weeks: emptyWeeks(1) });
-    }
-  }, []);
+  const applyPlan = useCallback(
+    (next: SelfDirectedLearningPlan | null, cfg: SelfDirectedLearningSettings) => {
+      setPlan(next);
+      // 已送出／已通過的計畫維持原週數；可編輯狀態才依週數形式補齊
+      const editable = !next || next.status === "draft" || next.status === "returned";
+      if (next) {
+        const weeks = next.weeks.length ? next.weeks : emptyWeeks(1);
+        setDraft({
+          topic: next.topic,
+          studyGroup: next.studyGroup,
+          advisor: next.advisor,
+          weeks: editable ? fitWeeks(weeks, cfg) : weeks,
+        });
+      } else {
+        setDraft({ ...EMPTY_DRAFT, weeks: fitWeeks(emptyWeeks(1), cfg) });
+      }
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     try {
@@ -76,10 +102,12 @@ export default function StudentSelfDirectedLearningPage() {
         setToast({ kind: "error", text: data.message || "讀取資料失敗" });
         return;
       }
-      setSettings(data.settings as SelfDirectedLearningSettings);
+      const nextSettings = data.settings as SelfDirectedLearningSettings;
+      setSettings(nextSettings);
+      setMaintenance(Boolean(data.maintenance));
       setLatestReview((data.latestReview as PlanReview | null) ?? null);
       setWithinWindow(Boolean(data.withinWindow));
-      applyPlan((data.plan as SelfDirectedLearningPlan | null) ?? null);
+      applyPlan((data.plan as SelfDirectedLearningPlan | null) ?? null, nextSettings);
     } catch {
       setToast({ kind: "error", text: "讀取資料失敗" });
     } finally {
@@ -140,8 +168,24 @@ export default function StudentSelfDirectedLearningPage() {
   const windowState = openStateOf(settings);
   const canSubmit = withinWindow && !locked && saving === null;
 
+  // 總開關關閉：只見維護說明（資料不呈現、表單不開放）
+  if (!loading && maintenance) {
+    return (
+      <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
+        <header className="space-y-1">
+          <h1 className="text-xl text-t1">自主學習計畫</h1>
+        </header>
+        <div className="border-themed bg-card space-y-2 rounded-lg p-6 text-center">
+          <p className="text-t1 text-lg font-medium">{MAINTENANCE_TITLE}</p>
+          <p className="text-t2 text-sm">{MAINTENANCE_HINT}</p>
+        </div>
+        <Toast message={toast} onClose={() => setToast(null)} />
+      </section>
+    );
+  }
+
   return (
-    <section className="mx-auto w-full max-w-3xl space-y-4 p-4 sm:p-6">
+    <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
       <header className="space-y-1">
         <h1 className="text-xl text-t1">自主學習計畫</h1>
         <p className="text-t2 flex flex-wrap items-center gap-2 text-sm">
@@ -188,7 +232,7 @@ export default function StudentSelfDirectedLearningPage() {
             <span>主題 *</span>
             <input
               type="text"
-              className="input-theme w-full"
+              className="input-theme w-full rounded px-3 py-2 text-sm"
               value={draft.topic}
               maxLength={100}
               disabled={locked}
@@ -200,7 +244,7 @@ export default function StudentSelfDirectedLearningPage() {
             <span>學群 *</span>
             <input
               type="text"
-              className="input-theme w-full"
+              className="input-theme w-full rounded px-3 py-2 text-sm"
               value={draft.studyGroup}
               maxLength={100}
               disabled={locked}
@@ -213,7 +257,7 @@ export default function StudentSelfDirectedLearningPage() {
           <span>指導老師（非必填）</span>
           <input
             type="text"
-            className="input-theme w-full sm:max-w-md"
+            className="input-theme w-full sm:max-w-md rounded px-3 py-2 text-sm"
             value={draft.advisor}
             maxLength={100}
             disabled={locked}
@@ -226,23 +270,33 @@ export default function StudentSelfDirectedLearningPage() {
       <div className="border-themed bg-card space-y-4 rounded-lg p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-t1 font-medium">逐週課程安排</h2>
-          <label className="text-t2 flex items-center gap-2 text-sm">
-            方案週數
-            <select
-              className="input-theme"
-              value={draft.weeks.length}
-              disabled={locked}
-              onChange={(event) => setWeekCount(Number(event.target.value))}
-            >
-              {Array.from({ length: Math.max(settings.maxWeeks, 1) }, (_, index) => index + 1).map(
-                (count) => (
+          {settings.weekMode === "flexible" ? (
+            <label className="text-t2 flex items-center gap-2 text-sm">
+              方案週數（至少 {settings.minWeeks} 週）
+              <select
+                className="input-theme rounded px-3 py-2 text-sm"
+                value={Math.min(
+                  Math.max(draft.weeks.length, settings.minWeeks),
+                  settings.maxWeeks
+                )}
+                disabled={locked}
+                onChange={(event) => setWeekCount(Number(event.target.value))}
+              >
+                {Array.from(
+                  { length: Math.max(settings.maxWeeks - settings.minWeeks + 1, 1) },
+                  (_, index) => settings.minWeeks + index
+                ).map((count) => (
                   <option key={count} value={count}>
                     {count} 週
                   </option>
-                )
-              )}
-            </select>
-          </label>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="text-t2 text-sm">
+              全學期 {settings.maxWeeks} 週（全學期空白週數都須填寫）
+            </p>
+          )}
         </div>
 
         <datalist id="sdl-venues">
@@ -259,7 +313,7 @@ export default function StudentSelfDirectedLearningPage() {
                 <label className="text-t2 block space-y-1 text-sm">
                   <span>學習安排</span>
                   <textarea
-                    className="input-theme min-h-20 w-full"
+                    className="input-theme min-h-20 w-full rounded px-3 py-2 text-sm"
                     value={week.content}
                     maxLength={600}
                     disabled={locked}
@@ -272,7 +326,7 @@ export default function StudentSelfDirectedLearningPage() {
                     <span>場地</span>
                     <input
                       type="text"
-                      className="input-theme w-full"
+                      className="input-theme w-full rounded px-3 py-2 text-sm"
                       value={week.venue}
                       list="sdl-venues"
                       maxLength={120}
@@ -284,7 +338,7 @@ export default function StudentSelfDirectedLearningPage() {
                   <label className="text-t2 block space-y-1 text-sm">
                     <span>時段</span>
                     <select
-                      className="input-theme w-full"
+                      className="input-theme w-full rounded px-3 py-2 text-sm"
                       value={week.timing}
                       disabled={locked}
                       onChange={(event) =>

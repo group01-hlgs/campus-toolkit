@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
       role: session.role,
       action: "self_directed_learning_settings_updated",
       ip: getClientIp(request),
-      details: "更新自主學習計畫開放時間與審核設定",
+      details: "更新管理規則（總開關、開放時間、週數形式與審核設定）",
     });
     return NextResponse.json(
       { success: true, settings, ...(hookWarning ? { hookWarning } : {}) },
