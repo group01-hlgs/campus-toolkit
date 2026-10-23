@@ -26,7 +26,7 @@ const noStore = { "Cache-Control": "no-store" };
 /**
  * 學期起訖設定（學校基本設定 schoolSettings 的子功能，危險區）。
  * 學年度／學期與起訖日期存於 `settings/system`，因此只做 **merge 部分更新**
- * （SEMESTER_SETTINGS_FIELDS 六欄），絕不整份覆寫系統設定文件。
+ * （SEMESTER_SETTINGS_FIELDS 白名單），絕不整份覆寫系統設定文件。
  * 守門用 requireAdminModule("schoolSettings")：等同僅超級管理員。
  */
 
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** PUT：merge 更新學期起訖六欄（驗證不過一律 400，不寫入） */
+/** PUT：merge 更新學期起訖白名單欄位（驗證不過一律 400，不寫入） */
 export async function PUT(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest) {
     }
     const settings = checked.value;
 
-    // 只更新白名單六欄（merge）：其餘系統設定欄位（含 roleEnabled、cacheEpoch 等）不受影響
+    // 只更新白名單欄位（merge）：其餘系統設定欄位（含 roleEnabled、cacheEpoch 等）不受影響
     const payload: Record<string, unknown> = {};
     for (const field of SEMESTER_SETTINGS_FIELDS) {
       payload[field] = settings[field];

@@ -75,7 +75,15 @@ export default function SchoolSemesterSettingsEditor() {
   }
 
   function changeDate(
-    field: "academicYearStart" | "academicYearEnd" | "semesterStart" | "semesterEnd",
+    field:
+      | "academicYearStart"
+      | "academicYearEnd"
+      | "semesterStart"
+      | "semesterEnd"
+      | "winterStart"
+      | "winterEnd"
+      | "summerStart"
+      | "summerEnd",
     value: string
   ) {
     if (!draft) return;
@@ -215,7 +223,7 @@ export default function SchoolSemesterSettingsEditor() {
       </section>
 
       {/* 學期＋學期起訖 */}
-      <section className="border border-themed rounded-lg p-4">
+      <section className="border border-themed rounded-lg p-4 mb-4">
         <h4 className="font-bold text-t1">學期</h4>
         <p className="text-sm text-t3 mt-1 mb-3">
           目前所屬的學期與起訖日期（日期可留空，起日不得晚於訖日）。
@@ -255,6 +263,62 @@ export default function SchoolSemesterSettingsEditor() {
                 className="input-theme rounded px-3 py-2 text-sm w-full"
               />
             </label>
+          </div>
+        </div>
+      </section>
+
+      {/* 寒假＋暑假起訖 */}
+      <section className="border border-themed rounded-lg p-4">
+        <h4 className="font-bold text-t1">假期起訖</h4>
+        <p className="text-sm text-t3 mt-1 mb-3">
+          寒假與暑假的起日與訖日（可留空，起日不得晚於訖日）。
+        </p>
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[12rem_1fr] md:items-end">
+            <p className="text-sm font-bold text-t1">寒假</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">起日</span>
+                <input
+                  type="date"
+                  value={draft.winterStart}
+                  onChange={(event) => changeDate("winterStart", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">訖日</span>
+                <input
+                  type="date"
+                  value={draft.winterEnd}
+                  onChange={(event) => changeDate("winterEnd", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-[12rem_1fr] md:items-end">
+            <p className="text-sm font-bold text-t1">暑假</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">起日</span>
+                <input
+                  type="date"
+                  value={draft.summerStart}
+                  onChange={(event) => changeDate("summerStart", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-t2 mb-1">訖日</span>
+                <input
+                  type="date"
+                  value={draft.summerEnd}
+                  onChange={(event) => changeDate("summerEnd", event.target.value)}
+                  className="input-theme rounded px-3 py-2 text-sm w-full"
+                />
+              </label>
+            </div>
           </div>
         </div>
       </section>

@@ -198,7 +198,7 @@ const HAND_RATE = {
   SCHOOL_PROFILE_MUTATE: { limit: 20, windowMs: 60_000 },
   /** 學校基本設定：讀取學期起訖設定 */
   SCHOOL_SEMESTERS_GET: { limit: 60, windowMs: 60_000 },
-  /** 學校基本設定：儲存學期起訖設定（危險區，僅 merge 六欄） */
+  /** 學校基本設定：儲存學期起訖設定（危險區，僅 merge 白名單欄位） */
   SCHOOL_SEMESTERS_MUTATE: { limit: 20, windowMs: 60_000 },
   /** 學校基本設定：讀取年段班級設定 */
   SCHOOL_CLASSES_GET: { limit: 60, windowMs: 60_000 },

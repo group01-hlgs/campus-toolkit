@@ -8,7 +8,7 @@
  *
  * 資料存於 `settings/system` 文件：學年度（academicYear）與學期（semester）
  * 本來就在該文件，起訖日期為同文件的新增欄位。因此本功能的 API 使用
- * **merge 部分更新**（只寫本表單的六個欄位），不可整份覆寫
+ * **merge 部分更新**（只寫本表單的白名單欄位），不可整份覆寫
  * ——整份覆寫會連帶抹掉系統設定的其他欄位（與 PUT /api/settings 行為不同）。
  *
  * 本檔不可 import `server-only`，前端表單與 API 伺服器端共用這裡的驗證。
@@ -28,7 +28,7 @@ export const SEMESTER_OPTIONS = [
   { value: 2, label: "第2學期" },
 ] as const;
 
-/** 本功能寫入 settings/system 的欄位白名單（merge 部分更新只動這六個） */
+/** 本功能寫入 settings/system 的欄位白名單（merge 部分更新只動這些欄位） */
 export const SEMESTER_SETTINGS_FIELDS = [
   "academicYear",
   "semester",
@@ -36,6 +36,10 @@ export const SEMESTER_SETTINGS_FIELDS = [
   "academicYearEnd",
   "semesterStart",
   "semesterEnd",
+  "winterStart",
+  "winterEnd",
+  "summerStart",
+  "summerEnd",
 ] as const;
 
 export interface SemesterSettings {
@@ -51,6 +55,14 @@ export interface SemesterSettings {
   semesterStart: string;
   /** 學期訖日（YYYY-MM-DD，可留空） */
   semesterEnd: string;
+  /** 寒假起日（YYYY-MM-DD，可留空） */
+  winterStart: string;
+  /** 寒假訖日（YYYY-MM-DD，可留空） */
+  winterEnd: string;
+  /** 暑假起日（YYYY-MM-DD，可留空） */
+  summerStart: string;
+  /** 暑假訖日（YYYY-MM-DD，可留空） */
+  summerEnd: string;
 }
 
 /** 預設值：學年度／學期沿用全站推算，起訖日期留空 */
@@ -63,6 +75,10 @@ export function defaultSemesterSettings(): SemesterSettings {
     academicYearEnd: "",
     semesterStart: "",
     semesterEnd: "",
+    winterStart: "",
+    winterEnd: "",
+    summerStart: "",
+    summerEnd: "",
   };
 }
 
@@ -101,6 +117,10 @@ export function readSemesterSettings(raw: unknown): SemesterSettings {
     academicYearEnd: readDate(data.academicYearEnd),
     semesterStart: readDate(data.semesterStart),
     semesterEnd: readDate(data.semesterEnd),
+    winterStart: readDate(data.winterStart),
+    winterEnd: readDate(data.winterEnd),
+    summerStart: readDate(data.summerStart),
+    summerEnd: readDate(data.summerEnd),
   };
 }
 
@@ -176,6 +196,10 @@ export function validateSemesterSettings(raw: unknown): SemesterSettingsValidati
     [data.academicYearEnd, "學年度訖日"],
     [data.semesterStart, "學期起日"],
     [data.semesterEnd, "學期訖日"],
+    [data.winterStart, "寒假起日"],
+    [data.winterEnd, "寒假訖日"],
+    [data.summerStart, "暑假起日"],
+    [data.summerEnd, "暑假訖日"],
   ];
   for (const [value, label] of dateFields) {
     const error = validateDateField(value, label);
@@ -184,7 +208,9 @@ export function validateSemesterSettings(raw: unknown): SemesterSettingsValidati
 
   const rangeError =
     validateRange(data.academicYearStart, data.academicYearEnd, "學年度起日", "學年度訖日") ??
-    validateRange(data.semesterStart, data.semesterEnd, "學期起日", "學期訖日");
+    validateRange(data.semesterStart, data.semesterEnd, "學期起日", "學期訖日") ??
+    validateRange(data.winterStart, data.winterEnd, "寒假起日", "寒假訖日") ??
+    validateRange(data.summerStart, data.summerEnd, "暑假起日", "暑假訖日");
   if (rangeError) return { ok: false, message: rangeError };
 
   return {
@@ -196,6 +222,10 @@ export function validateSemesterSettings(raw: unknown): SemesterSettingsValidati
       academicYearEnd: typeof data.academicYearEnd === "string" ? data.academicYearEnd.trim() : "",
       semesterStart: typeof data.semesterStart === "string" ? data.semesterStart.trim() : "",
       semesterEnd: typeof data.semesterEnd === "string" ? data.semesterEnd.trim() : "",
+      winterStart: typeof data.winterStart === "string" ? data.winterStart.trim() : "",
+      winterEnd: typeof data.winterEnd === "string" ? data.winterEnd.trim() : "",
+      summerStart: typeof data.summerStart === "string" ? data.summerStart.trim() : "",
+      summerEnd: typeof data.summerEnd === "string" ? data.summerEnd.trim() : "",
     },
   };
 }

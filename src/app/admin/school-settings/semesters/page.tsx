@@ -28,7 +28,7 @@ export default function SchoolSemestersPage() {
           </span>
         </div>
         <p className="text-sm text-t3 mt-1">
-          設定目前的學年度、學年度起訖、學期與學期起訖。
+          設定目前的學年度、學年度起訖、學期、學期起訖，以及寒假與暑假的起訖日期。
           學年度與學期是全站的期間基準，名冊、個資、公告與行事曆等資料皆以它為鍵，
           <span className="text-danger">變更前請務必確認，以免各資料頁切換到非預期的期間</span>。
         </p>
