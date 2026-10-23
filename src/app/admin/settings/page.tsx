@@ -45,17 +45,6 @@ const settingGroups: SettingGroup[] = [
       { id: "schoolFullName", label: "學校全稱", type: "text", placeholder: "" },
       { id: "schoolShortName", label: "學校簡稱", type: "text", placeholder: "" },
       { id: "schoolOtherNames", label: "學校其他別名", type: "text", placeholder: "" },
-      { id: "academicYear", label: "學年度", type: "number" },
-      {
-        id: "semester",
-        label: "學期",
-        type: "select",
-        options: [
-          { value: "1", label: "第1學期" },
-          { value: "2", label: "第2學期" },
-        ],
-      },
-      { id: "schoolCode", label: "教育部學校代碼", type: "text", placeholder: "" },
     ],
   },
   {
@@ -299,7 +288,7 @@ export default function SettingsPage() {
       "copyrightNotice", "sponsorAdEnabled", "dataSaverEnabled",
     ];
     const numberFields: (keyof Settings)[] = [
-      "academicYear", "semester", "sessionTimeout", "cacheTtlSeconds",
+      "sessionTimeout", "cacheTtlSeconds",
     ];
 
     if (booleanFields.includes(id)) {

@@ -11,6 +11,7 @@ import {
   PROFILE_MIN_CAMPUSES,
   PROFILE_NAME_MAX,
   PROFILE_PHONE_MAX,
+  PROFILE_SCHOOL_CODE_MAX,
   PROFILE_WEBSITE_MAX,
   SchoolProfile,
   StageValue,
@@ -300,6 +301,29 @@ export default function SchoolProfileEditor() {
       <p className="text-xs text-t3 mb-3">
         {dirty ? "有尚未儲存的變更，記得按「儲存變更」。" : "已與伺服器同步。"}
       </p>
+
+      {/* 教育部學校代碼 */}
+      <section className="border border-themed rounded-lg p-4 mb-4">
+        <h4 className="font-bold text-t1">教育部學校代碼</h4>
+        <p className="text-sm text-t3 mt-1 mb-3">
+          教育部編定的學校代碼（如 150302），供報名與對外系統串接使用，可留空。
+        </p>
+        <label className="text-sm">
+          <span className="block text-t2 mb-1">學校代碼</span>
+          <input
+            type="text"
+            maxLength={PROFILE_SCHOOL_CODE_MAX}
+            value={draft.schoolCode}
+            onChange={(event) => {
+              if (!draft) return;
+              setToast(null);
+              setDraft({ ...draft, schoolCode: event.target.value });
+            }}
+            placeholder="如：150302"
+            className="input-theme rounded px-3 py-2 text-sm w-full max-w-md"
+          />
+        </label>
+      </section>
 
       {/* 教育階段與年制 */}
       <section className="border border-themed rounded-lg p-4 mb-4">

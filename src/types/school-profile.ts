@@ -49,6 +49,8 @@ export interface Campus {
 }
 
 export interface SchoolProfile {
+  /** 教育部學校代碼（如 150302；可留空） */
+  schoolCode: string;
   /** 教育階段＋年制；未勾選的階段不出現在陣列中 */
   stages: StageSetting[];
   /**
@@ -73,6 +75,7 @@ export const PROFILE_MAX_VICE_PRINCIPALS = 10;
 export const PROFILE_MIN_CAMPUSES = 1;
 export const PROFILE_MAX_CAMPUSES = 10;
 export const PROFILE_NAME_MAX = 40;
+export const PROFILE_SCHOOL_CODE_MAX = 20;
 export const PROFILE_CAMPUS_NAME_MAX = 30;
 export const PROFILE_ADDRESS_MAX = 120;
 export const PROFILE_PHONE_MAX = 30;
@@ -106,6 +109,7 @@ export function newCampusId(): string {
 
 export function defaultSchoolProfile(): SchoolProfile {
   return {
+    schoolCode: "",
     stages: [],
     seniorHighTypes: [],
     principal: "",
@@ -199,6 +203,7 @@ export function readSchoolProfile(raw: unknown): SchoolProfile {
   }
 
   return {
+    schoolCode: readString(data.schoolCode, PROFILE_SCHOOL_CODE_MAX),
     stages,
     seniorHighTypes: readSeniorHighTypes(data.seniorHighTypes),
     principal: readString(data.principal, PROFILE_NAME_MAX),
@@ -238,6 +243,14 @@ export function validateSchoolProfile(raw: unknown): ProfileValidation {
     return { ok: false, message: "無效的校務基本資料內容" };
   }
   const data = raw as Record<string, unknown>;
+
+  const schoolCode = typeof data.schoolCode === "string" ? data.schoolCode.trim() : "";
+  if (schoolCode.length > PROFILE_SCHOOL_CODE_MAX) {
+    return { ok: false, message: `教育部學校代碼過長（最多 ${PROFILE_SCHOOL_CODE_MAX} 字）` };
+  }
+  if (schoolCode && !/^[0-9-]+$/.test(schoolCode)) {
+    return { ok: false, message: "教育部學校代碼僅能包含數字與連字號（-）" };
+  }
 
   const rawStages = Array.isArray(data.stages) ? data.stages : [];
   if (rawStages.length > EDUCATION_STAGES.length) {
@@ -388,6 +401,6 @@ export function validateSchoolProfile(raw: unknown): ProfileValidation {
 
   return {
     ok: true,
-    value: { stages, seniorHighTypes, principal, vicePrincipals, campuses, website },
+    value: { schoolCode, stages, seniorHighTypes, principal, vicePrincipals, campuses, website },
   };
 }

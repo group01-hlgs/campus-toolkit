@@ -7,7 +7,22 @@ export interface Settings {
   academicYear: number;
   /** 學期：1=第1學期、2=第2學期 */
   semester: number;
-  schoolCode: string;
+  /** 學年度起日（YYYY-MM-DD，可留空；於「學校基本設定 → 學期起訖設定」維護） */
+  academicYearStart: string;
+  /** 學年度訖日（YYYY-MM-DD，可留空） */
+  academicYearEnd: string;
+  /** 學期起日（YYYY-MM-DD，可留空） */
+  semesterStart: string;
+  /** 學期訖日（YYYY-MM-DD，可留空） */
+  semesterEnd: string;
+  /** 寒假起日（YYYY-MM-DD，可留空；於「學校基本設定 → 學期起訖設定」維護） */
+  winterStart: string;
+  /** 寒假訖日（YYYY-MM-DD，可留空） */
+  winterEnd: string;
+  /** 暑假起日（YYYY-MM-DD，可留空） */
+  summerStart: string;
+  /** 暑假訖日（YYYY-MM-DD，可留空） */
+  summerEnd: string;
   contactPerson: string;
   contactEmail: string;
   oauthEnabled: boolean;
@@ -103,7 +118,14 @@ export const defaultSettings: Settings = {
   schoolOtherNames: "",
   academicYear: INITIAL_PERIOD.academicYear,
   semester: INITIAL_PERIOD.semester,
-  schoolCode: "",
+  academicYearStart: "",
+  academicYearEnd: "",
+  semesterStart: "",
+  semesterEnd: "",
+  winterStart: "",
+  winterEnd: "",
+  summerStart: "",
+  summerEnd: "",
   contactPerson: "",
   contactEmail: "",
   oauthEnabled: false,

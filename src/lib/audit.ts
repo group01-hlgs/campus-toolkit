@@ -39,6 +39,7 @@ export type ActivityAction =
   | "theme_preferences_updated"
   | "school_org_updated"
   | "school_profile_updated"
+  | "school_semesters_updated"
   | "school_classes_updated"
   | "school_codes_updated"
   | "school_spaces_updated"
