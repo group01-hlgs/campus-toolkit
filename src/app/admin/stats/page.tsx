@@ -436,7 +436,7 @@ export default function StatsPage() {
   const firebase: FirebaseUsage | undefined = data?.firebase;
 
   return (
-    <div className="w-full max-w-4xl mb-8 space-y-6">
+    <div className="content-width mb-8 space-y-6">
       {/* 工具列：更新時間、重新整理、整頁錯誤 */}
       <section className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-t3">

@@ -1117,7 +1117,7 @@ export default function ModulesPage() {
   const loadingText = loading ? "啟用狀態載入中..." : "";
 
   return (
-    <div className="w-full max-w-5xl mb-8 space-y-6">
+    <div className="content-width mb-8 space-y-6">
       <div className="flex justify-end">
         <button
           type="button"

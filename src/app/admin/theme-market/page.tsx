@@ -239,7 +239,7 @@ export default function ThemeMarketPage() {
   void availableThemes;
 
   return (
-    <div className="w-full max-w-5xl space-y-6">
+    <div className="content-width space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-t1">主題市集</h1>

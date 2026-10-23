@@ -121,7 +121,7 @@ export default function SchoolSettingsPage() {
   const router = useRouter();
 
   return (
-    <div className="w-full max-w-4xl mb-8">
+    <div className="content-width mb-8">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {SUB_FEATURE_CARDS.map((card) => (
           <button

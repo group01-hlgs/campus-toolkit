@@ -140,7 +140,7 @@ export default function ClassesPage() {
   }, [rows, keyword]);
 
   return (
-    <div className="w-full max-w-4xl mb-8 space-y-6">
+    <div className="content-width mb-8 space-y-6">
       {/* 區塊標題與操作 */}
       <section className="flex flex-wrap items-start justify-between gap-3">
         <div>

@@ -201,7 +201,7 @@ export default function PostalCodesPage() {
 
   return (
     <>
-      <main className="w-full max-w-5xl mb-8 space-y-5">
+      <main className="content-width mb-8 space-y-5">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-t1">郵遞區號設定</h2>
