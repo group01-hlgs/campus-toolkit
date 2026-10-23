@@ -15,6 +15,10 @@ export interface Settings {
   semesterStart: string;
   /** 學期訖日（YYYY-MM-DD，可留空） */
   semesterEnd: string;
+  /** 上課日起日（YYYY-MM-DD，可留空；於「學校基本設定 → 學期起訖設定」維護） */
+  classDayStart: string;
+  /** 上課日訖日（YYYY-MM-DD，可留空） */
+  classDayEnd: string;
   /** 寒假起日（YYYY-MM-DD，可留空；於「學校基本設定 → 學期起訖設定」維護） */
   winterStart: string;
   /** 寒假訖日（YYYY-MM-DD，可留空） */
@@ -122,6 +126,8 @@ export const defaultSettings: Settings = {
   academicYearEnd: "",
   semesterStart: "",
   semesterEnd: "",
+  classDayStart: "",
+  classDayEnd: "",
   winterStart: "",
   winterEnd: "",
   summerStart: "",

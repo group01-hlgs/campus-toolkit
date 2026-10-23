@@ -36,6 +36,8 @@ export const SEMESTER_SETTINGS_FIELDS = [
   "academicYearEnd",
   "semesterStart",
   "semesterEnd",
+  "classDayStart",
+  "classDayEnd",
   "winterStart",
   "winterEnd",
   "summerStart",
@@ -55,6 +57,10 @@ export interface SemesterSettings {
   semesterStart: string;
   /** 學期訖日（YYYY-MM-DD，可留空） */
   semesterEnd: string;
+  /** 上課日起日（YYYY-MM-DD，可留空；實際授课期間，扣假期等） */
+  classDayStart: string;
+  /** 上課日訖日（YYYY-MM-DD，可留空） */
+  classDayEnd: string;
   /** 寒假起日（YYYY-MM-DD，可留空） */
   winterStart: string;
   /** 寒假訖日（YYYY-MM-DD，可留空） */
@@ -75,6 +81,8 @@ export function defaultSemesterSettings(): SemesterSettings {
     academicYearEnd: "",
     semesterStart: "",
     semesterEnd: "",
+    classDayStart: "",
+    classDayEnd: "",
     winterStart: "",
     winterEnd: "",
     summerStart: "",
@@ -117,6 +125,8 @@ export function readSemesterSettings(raw: unknown): SemesterSettings {
     academicYearEnd: readDate(data.academicYearEnd),
     semesterStart: readDate(data.semesterStart),
     semesterEnd: readDate(data.semesterEnd),
+    classDayStart: readDate(data.classDayStart),
+    classDayEnd: readDate(data.classDayEnd),
     winterStart: readDate(data.winterStart),
     winterEnd: readDate(data.winterEnd),
     summerStart: readDate(data.summerStart),
@@ -196,6 +206,8 @@ export function validateSemesterSettings(raw: unknown): SemesterSettingsValidati
     [data.academicYearEnd, "學年度訖日"],
     [data.semesterStart, "學期起日"],
     [data.semesterEnd, "學期訖日"],
+    [data.classDayStart, "上課日起日"],
+    [data.classDayEnd, "上課日訖日"],
     [data.winterStart, "寒假起日"],
     [data.winterEnd, "寒假訖日"],
     [data.summerStart, "暑假起日"],
@@ -209,6 +221,7 @@ export function validateSemesterSettings(raw: unknown): SemesterSettingsValidati
   const rangeError =
     validateRange(data.academicYearStart, data.academicYearEnd, "學年度起日", "學年度訖日") ??
     validateRange(data.semesterStart, data.semesterEnd, "學期起日", "學期訖日") ??
+    validateRange(data.classDayStart, data.classDayEnd, "上課日起日", "上課日訖日") ??
     validateRange(data.winterStart, data.winterEnd, "寒假起日", "寒假訖日") ??
     validateRange(data.summerStart, data.summerEnd, "暑假起日", "暑假訖日");
   if (rangeError) return { ok: false, message: rangeError };
@@ -222,6 +235,8 @@ export function validateSemesterSettings(raw: unknown): SemesterSettingsValidati
       academicYearEnd: typeof data.academicYearEnd === "string" ? data.academicYearEnd.trim() : "",
       semesterStart: typeof data.semesterStart === "string" ? data.semesterStart.trim() : "",
       semesterEnd: typeof data.semesterEnd === "string" ? data.semesterEnd.trim() : "",
+      classDayStart: typeof data.classDayStart === "string" ? data.classDayStart.trim() : "",
+      classDayEnd: typeof data.classDayEnd === "string" ? data.classDayEnd.trim() : "",
       winterStart: typeof data.winterStart === "string" ? data.winterStart.trim() : "",
       winterEnd: typeof data.winterEnd === "string" ? data.winterEnd.trim() : "",
       summerStart: typeof data.summerStart === "string" ? data.summerStart.trim() : "",

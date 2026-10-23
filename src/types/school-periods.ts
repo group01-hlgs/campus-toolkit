@@ -33,7 +33,15 @@ export type SchoolPeriodRow = {
   end: string;
 };
 
+/** 上課星期（1=週一…7=週日；台灣學校一般為週一至週五） */
+export const SCHOOL_DAY_LABELS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"] as const;
+
+/** 預設上課星期：週一至週五 */
+export const DEFAULT_SCHOOL_DAYS = [1, 2, 3, 4, 5] as const;
+
 export type SchoolPeriodsSetting = {
+  /** 上課星期（勾選＝該日為上課日；1=週一…7=週日，至少一天） */
+  schoolDays: number[];
   periods: SchoolPeriodRow[];
 };
 
@@ -54,9 +62,21 @@ const DEFAULT_PERIODS: SchoolPeriodRow[] = [
   { code: "P8", period: 8, name: "第八節", start: "16:20", end: "17:10" },
 ];
 
+/** 讀回上課星期（寬容）：只留 1–7 的整數、去重升冪；缺漏或全無效回預設週一至週五 */
+function readSchoolDays(value: unknown): number[] {
+  if (!Array.isArray(value)) return [...DEFAULT_SCHOOL_DAYS];
+  const days = new Set<number>();
+  for (const item of value) {
+    const day = Number(item);
+    if (Number.isInteger(day) && day >= 1 && day <= 7) days.add(day);
+  }
+  if (days.size === 0) return [...DEFAULT_SCHOOL_DAYS];
+  return [...days].sort((a, b) => a - b);
+}
+
 /** 內建預設（複製一份，避免外部改動到內建值） */
 export function defaultSchoolPeriods(): SchoolPeriodsSetting {
-  return { periods: DEFAULT_PERIODS.map((row) => ({ ...row })) };
+  return { schoolDays: [...DEFAULT_SCHOOL_DAYS], periods: DEFAULT_PERIODS.map((row) => ({ ...row })) };
 }
 
 /**
@@ -86,7 +106,7 @@ export function readSchoolPeriods(raw: unknown): SchoolPeriodsSetting {
     if (!TIME_PATTERN.test(start) || !TIME_PATTERN.test(end)) continue;
     rows.push({ code, period, name, start, end });
   }
-  return { periods: rows };
+  return { schoolDays: readSchoolDays(record.schoolDays), periods: rows };
 }
 
 /** 時段是否合法（`HH:MM` 且 24 小時制） */
@@ -108,6 +128,25 @@ export function validateSchoolPeriods(raw: unknown): PeriodsValidation {
   }
   if (record.periods.length > PERIODS_MAX_ROWS) {
     return { ok: false, message: `節次最多 ${PERIODS_MAX_ROWS} 筆` };
+  }
+
+  const schoolDaysRaw = record.schoolDays === undefined ? DEFAULT_SCHOOL_DAYS : record.schoolDays;
+  if (!Array.isArray(schoolDaysRaw)) {
+    return { ok: false, message: "上課星期格式錯誤" };
+  }
+  const schoolDays = new Set<number>();
+  for (const item of schoolDaysRaw) {
+    const day = Number(item);
+    if (!Number.isInteger(day) || day < 1 || day > 7) {
+      return { ok: false, message: "上課星期僅能選擇週一至週日" };
+    }
+    if (schoolDays.has(day)) {
+      return { ok: false, message: "上課星期有重複的選項" };
+    }
+    schoolDays.add(day);
+  }
+  if (schoolDays.size === 0) {
+    return { ok: false, message: "至少須勾選一天上課星期" };
   }
 
   const rows: SchoolPeriodRow[] = [];
@@ -183,5 +222,5 @@ export function validateSchoolPeriods(raw: unknown): PeriodsValidation {
     }
   }
 
-  return { ok: true, value: { periods: rows } };
+  return { ok: true, value: { schoolDays: [...schoolDays].sort((a, b) => a - b), periods: rows } };
 }

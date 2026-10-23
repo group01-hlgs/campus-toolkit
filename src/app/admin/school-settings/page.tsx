@@ -8,7 +8,7 @@ const SUB_FEATURE_CARDS = [
     id: "semesters",
     href: "/admin/school-settings/semesters",
     label: "學期起訖設定",
-    description: "設定學年度、學年度起訖、學期、學期起訖與寒暑假起訖（危險區：影響全站期間基準）。",
+    description: "設定學年度、學年度起訖、學期、學期起訖、上課日與寒暑假起訖（危險區：影響全站期間基準）。",
     danger: true,
     icon: (
       <svg
