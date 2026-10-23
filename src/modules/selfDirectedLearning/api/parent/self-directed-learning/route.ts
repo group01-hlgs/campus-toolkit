@@ -1,0 +1,77 @@
+import { NextRequest, NextResponse } from "next/server";
+import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
+import { requireFeatureModuleEnabled } from "@/lib/module-gate";
+import { getSettings } from "../../../lib/self-directed-learning";
+import {
+  getLatestReview,
+  getMyPlan,
+  linkedChildForParent,
+} from "../../../lib/self-directed-learning-plans";
+import { openStateOf } from "../../../types/self-directed-learning";
+
+const noStore = { "Cache-Control": "no-store" };
+
+/** 主程式的 serverErrorMessage 等價小工具（模組不得依賴非公開面檔案） */
+function errorMessage(error: unknown, fallback: string): string {
+  if (process.env.NODE_ENV !== "production" && error instanceof Error) return error.message;
+  return fallback;
+}
+
+/** GET：家長唯讀檢視子女的自主學習計畫與最新審查意見 */
+export async function GET(request: NextRequest) {
+  try {
+    const limited = enforceRateLimit(
+      request,
+      "self-directed-learning-list",
+      RATE.SELF_DIRECTED_LEARNING_LIST.limit,
+      RATE.SELF_DIRECTED_LEARNING_LIST.windowMs
+    );
+    if (limited) return limited;
+
+    const { session, denial } = await requireRole("parent");
+    if (denial) return toAuthResponse(denial);
+
+    const gate = await requireFeatureModuleEnabled("selfDirectedLearning", session);
+    if (gate) return gate;
+
+    const entry = (session as VerifiedSession).__entry;
+    if (!entry) {
+      return NextResponse.json(
+        { success: false, message: "查無家長名冊資料，無法使用本功能" },
+        { status: 403, headers: noStore }
+      );
+    }
+
+    const child = await linkedChildForParent(entry);
+    if (!child) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "本帳號未綁定可檢視的子女（名冊未設定學號或查無唯一子女）。",
+        },
+        { status: 403, headers: noStore }
+      );
+    }
+
+    const settings = await getSettings();
+    const plan = await getMyPlan(child.uid);
+    const latestReview = plan ? await getLatestReview(plan.id) : null;
+    return NextResponse.json(
+      {
+        success: true,
+        child,
+        plan,
+        latestReview,
+        withinWindow: openStateOf(settings) === "open",
+      },
+      { headers: noStore }
+    );
+  } catch (error) {
+    console.error("selfDirectedLearning parent GET error:", error);
+    return NextResponse.json(
+      { success: false, message: errorMessage(error, "讀取資料失敗") },
+      { status: 500, headers: noStore }
+    );
+  }
+}

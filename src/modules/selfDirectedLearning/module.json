@@ -1,0 +1,62 @@
+{
+  "value": "selfDirectedLearning",
+  "label": "自主學習計畫",
+  "kind": "optional",
+  "status": "live",
+  "description": "自主學習計畫的申請、審核與進度紀錄。（開發中）",
+  "href": "/admin/self-directed-learning",
+  "contractVersion": 1,
+  "minHostVersion": "0.580",
+  "license": "MIT",
+  "repository": "https://github.com/takan003/selfDirectedLearning",
+  "keywords": ["自主學習", "學習計畫"],
+  "author": {
+    "author": "takan003",
+    "authorUrl": "https://github.com/takan003",
+    "version": "0.0.1",
+    "releasedAt": "2026-10-22"
+  },
+  "provides": { "student": true, "parent": true, "staff": true, "admin": true },
+  "routes": [
+    { "kind": "page", "path": "/admin/self-directed-learning" },
+    { "kind": "api", "path": "/api/admin/self-directed-learning" },
+    { "kind": "page", "path": "/student/self-directed-learning" },
+    { "kind": "api", "path": "/api/student/self-directed-learning" },
+    { "kind": "page", "path": "/staff/self-directed-learning" },
+    { "kind": "api", "path": "/api/staff/self-directed-learning" },
+    { "kind": "page", "path": "/parent/self-directed-learning" },
+    { "kind": "api", "path": "/api/parent/self-directed-learning" }
+  ],
+  "permission": { "mode": "new", "value": "selfDirectedLearning", "category": "校務資料" },
+  "icon": "selfDirectedLearning",
+  "rateLimits": [
+    { "key": "SELF_DIRECTED_LEARNING_LIST", "limit": 120, "windowMs": 60000 },
+    { "key": "SELF_DIRECTED_LEARNING_STUDENT", "limit": 20, "windowMs": 60000 },
+    { "key": "SELF_DIRECTED_LEARNING_STAFF", "limit": 60, "windowMs": 60000 },
+    { "key": "SELF_DIRECTED_LEARNING_ADMIN", "limit": 60, "windowMs": 60000 }
+  ],
+  "auditActions": [
+    "self_directed_learning_settings_updated",
+    "self_directed_learning_plan_submitted",
+    "self_directed_learning_plan_reviewed",
+    "self_directed_learning_plan_archived"
+  ],
+  "dataCollections": [
+    "selfDirectedLearningSettings",
+    "selfDirectedLearningPlans",
+    "selfDirectedLearningReviews"
+  ],
+  "hooks": ["announcements", "calendar"],
+  "changelog": [
+    {
+      "version": "0.0.1",
+      "releasedAt": "2026-10-23",
+      "notes": [
+        "首版：四身分頁面（管理端設定、學生填報送審、教職員審核與兼導師瀏覽全班、家長檢視）",
+        "狀態機草稿→審核中→通過／退回，審查意見保留多輪歷程",
+        "管理端儲存設定同步公告與行事曆（開放時間掛勾）",
+        "資料集合：selfDirectedLearningSettings／Plans／Reviews；限流 4 桶、稽核 4 項"
+      ]
+    }
+  ]
+}
