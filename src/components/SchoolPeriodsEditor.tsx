@@ -21,6 +21,58 @@ function blankRow(): SchoolPeriodRow {
   return { code: "", period: -1, name: "", start: "", end: "" };
 }
 
+/** 操作欄圖示：上移 */
+function IconArrowUp() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+    </svg>
+  );
+}
+
+/** 操作欄圖示：下移 */
+function IconArrowDown() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+    </svg>
+  );
+}
+
+/** 操作欄圖示：移除（垃圾桶） */
+function IconTrash() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+      />
+    </svg>
+  );
+}
+
 /**
  * 課表作息時間編輯器（學校基本設定的子功能）。
  * 自行讀取與儲存 `GET/PUT /api/admin/school/periods`；
@@ -85,6 +137,19 @@ export default function SchoolPeriodsEditor() {
     if (!draft) return;
     setToast(null);
     setDraft({ ...draft, periods: draft.periods.filter((_, position) => position !== index) });
+  }
+
+  /** 與上一列／下一列對調順位（陣列順序即畫面顯示與儲存順序） */
+  function moveRow(index: number, delta: -1 | 1) {
+    if (!draft) return;
+    const target = index + delta;
+    if (target < 0 || target >= draft.periods.length) return;
+    setToast(null);
+    const periods = [...draft.periods];
+    const current = periods[index];
+    periods[index] = periods[target];
+    periods[target] = current;
+    setDraft({ ...draft, periods });
   }
 
   function reset() {
@@ -273,15 +338,41 @@ export default function SchoolPeriodsEditor() {
                     className="input-theme rounded px-3 py-2 text-sm w-32"
                   />
                 </td>
-                <td className="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    onClick={() => removeRow(index)}
-                    disabled={saving}
-                    className="text-sm text-danger cursor-pointer disabled:opacity-50"
-                  >
-                    移除
-                  </button>
+                <td className="px-3 py-2 whitespace-nowrap text-right">
+                  <div className="inline-flex flex-wrap justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => moveRow(index, -1)}
+                      disabled={index === 0 || saving}
+                      title={index === 0 ? "已是第一列" : "與上一列對調順位"}
+                      aria-label={`第 ${index + 1} 筆上移`}
+                      className="rounded p-1 text-t2 hover:text-t1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <IconArrowUp />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveRow(index, 1)}
+                      disabled={index === draft.periods.length - 1 || saving}
+                      title={
+                        index === draft.periods.length - 1 ? "已是最後一列" : "與下一列對調順位"
+                      }
+                      aria-label={`第 ${index + 1} 筆下移`}
+                      className="rounded p-1 text-t2 hover:text-t1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <IconArrowDown />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeRow(index)}
+                      disabled={saving}
+                      title="移除這一列（未儲存前可用「還原」復原）"
+                      aria-label={`第 ${index + 1} 筆移除`}
+                      className="rounded p-1 text-danger hover:opacity-70 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <IconTrash />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
