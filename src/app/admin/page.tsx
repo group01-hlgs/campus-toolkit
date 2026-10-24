@@ -131,6 +131,8 @@ export default function AdminPage() {
     user.adminModules == null || user.adminModules.length === 0
       ? visibleModules === null || visibleModules.includes("personalInfo")
       : true;
+  // 休閒歡樂誠：首頁左上角遊戲浮動按鈕（依功能入口開關顯示；管理員恆可見）
+  const recreationVisible = visibleModules === null || visibleModules.includes("recreation");
   const visibleModulesCards = [
     ...gatedModules,
     ...(personalVisible ? [personalCard] : []),
@@ -139,9 +141,13 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
-      <HomepageCornerWrench />
-      <HomepageCornerChangE />
-      <HomepageCornerExam />
+      {recreationVisible && (
+        <>
+          <HomepageCornerWrench />
+          <HomepageCornerChangE />
+          <HomepageCornerExam />
+        </>
+      )}
       {/* 標題區域（版本號僅管理員可見：獨立一行置中，顯示在系統名稱上方） */}
       <div className="text-center mb-2">
         <p className="text-xs text-t3 mb-1" title={versionLabel}>
