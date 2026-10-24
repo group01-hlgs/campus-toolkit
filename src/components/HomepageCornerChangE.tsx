@@ -302,11 +302,14 @@ function drawChangE(ctx: CanvasRenderingContext2D, x: number, y: number, width: 
 export default function HomepageCornerChangE({
   hideLauncher = false,
   openSignal = 0,
+  launcherTop,
 }: {
   /** 不顯示左上角浮動按鈕（改由外部卡片開啟） */
   hideLauncher?: boolean;
   /** 外部開啟訊號：數值遞增即開啟遊戲視窗 */
   openSignal?: number;
+  /** 浮動按鈕的上緣位置（px）；未指定時沿用預設值 */
+  launcherTop?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [score, setScore] = useState(0);
@@ -759,6 +762,7 @@ export default function HomepageCornerChangE({
           type="button"
           title="嫦娥奔月"
           onClick={() => setOpen(true)}
+          style={launcherTop !== undefined ? { top: launcherTop } : undefined}
           className="fixed left-4 top-[88px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
           aria-label="開啟嫦娥奔月"
         >

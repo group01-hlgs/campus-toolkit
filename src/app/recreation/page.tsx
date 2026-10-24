@@ -11,8 +11,11 @@ import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
 import { fetchSettings } from "@/lib/settings-client";
-
-type GameKey = "wrench" | "changE" | "exam";
+import {
+  GAME_SHORTCUT_CATEGORY_NAME,
+  GAME_SHORTCUT_STORAGE_KEY,
+  type GameKey,
+} from "@/lib/game-shortcuts";
 
 /** 遊戲卡片圖示（與首頁左上角浮動按鈕一致） */
 function WrenchIcon() {
@@ -136,8 +139,14 @@ export default function RecreationHomePage() {
 
       <hr className="content-width border-themed mb-4" />
 
-      {/* 內容顯示區：3 個既有小遊戲的卡片（可拖曳排序） */}
-      <DraggableModuleGrid items={gameCards} storageKey="campusCardOrder.recreation" />
+      {/* 內容顯示區：「快捷區」分類（不可刪除、名稱永遠顯示，可為空、最多 3 個遊戲）；
+          卡片順序同時決定各身分功能首頁遊戲快捷區的顯示順序 */}
+      <DraggableModuleGrid
+        items={gameCards}
+        storageKey={GAME_SHORTCUT_STORAGE_KEY}
+        defaultCategoryName={GAME_SHORTCUT_CATEGORY_NAME}
+        alwaysShowHeadings
+      />
 
       <hr className="content-width border-themed mb-4" />
 

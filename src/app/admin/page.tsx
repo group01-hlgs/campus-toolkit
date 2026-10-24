@@ -5,10 +5,8 @@ import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
-import HomepageCornerWrench from "@/components/HomepageCornerWrench";
-import HomepageCornerChangE from "@/components/HomepageCornerChangE";
-import HomepageCornerExam from "@/components/HomepageCornerExam";
 import HomepageCornerCastle from "@/components/HomepageCornerCastle";
+import GameShortcutArea from "@/components/GameShortcutArea";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import ModuleIcon from "@/components/ModuleIcon";
 import RoleSwitcher from "@/components/RoleSwitcher";
@@ -146,9 +144,7 @@ export default function AdminPage() {
       {recreationVisible && (
         <>
           <HomepageCornerCastle />
-          <HomepageCornerWrench />
-          <HomepageCornerChangE />
-          <HomepageCornerExam />
+          <GameShortcutArea />
         </>
       )}
       {/* 標題區域（版本號僅管理員可見：獨立一行置中，顯示在系統名稱上方） */}

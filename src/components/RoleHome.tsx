@@ -7,10 +7,8 @@ import { UserRole, ROLE_HOME, ROLE_LABELS } from "@/types/users";
 import { fetchSession, logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
-import HomepageCornerWrench from "@/components/HomepageCornerWrench";
-import HomepageCornerChangE from "@/components/HomepageCornerChangE";
-import HomepageCornerExam from "@/components/HomepageCornerExam";
 import HomepageCornerCastle from "@/components/HomepageCornerCastle";
+import GameShortcutArea from "@/components/GameShortcutArea";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import ModuleIcon from "@/components/ModuleIcon";
@@ -175,9 +173,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
       {recreationVisible && (
         <>
           <HomepageCornerCastle />
-          <HomepageCornerWrench />
-          <HomepageCornerChangE />
-          <HomepageCornerExam />
+          <GameShortcutArea />
         </>
       )}
       <div className="text-center mb-2">
