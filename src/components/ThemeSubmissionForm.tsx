@@ -35,7 +35,7 @@ const DEFAULT_COLORS: Record<string, string> = {
   "--primary-hover": "#111111",
   "--link": "#333333",
   "--success": "#28a745",
-  "--warning": "#ffc107",
+  "--warning": "#e67e22",
   "--danger": "#dc3545",
 };
 
