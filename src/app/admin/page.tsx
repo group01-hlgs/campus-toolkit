@@ -133,10 +133,17 @@ export default function AdminPage() {
       : true;
   // 休閒歡樂誠：首頁左上角遊戲浮動按鈕（依功能入口開關顯示；管理員恆可見）
   const recreationVisible = visibleModules === null || visibleModules.includes("recreation");
+  const recreationCard: ModuleCard = {
+    id: "recreation",
+    icon: <ModuleIcon value="recreation" />,
+    label: "休閒歡樂誠",
+    href: "",
+  };
   const visibleModulesCards = [
     ...gatedModules,
     ...(personalVisible ? [personalCard] : []),
     ...(personalInfoVisible ? [personalInfoCard] : []),
+    ...(recreationVisible ? [recreationCard] : []),
   ];
 
   return (

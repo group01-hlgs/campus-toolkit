@@ -141,6 +141,16 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
           },
         ]
       : []),
+    ...(recreationVisible
+      ? [
+          {
+            icon: <ModuleIcon value="recreation" />,
+            label: "休閒歡樂誠",
+            id: "recreation",
+            href: "",
+          },
+        ]
+      : []),
   ];
   // 選用（外掛）功能模組卡：visibleModules 已含 provides＋顯示開關＋總開關（0.392）；
   // href 取該身分的入口（掃描器由 routes 映射的 roleHrefs）；無此身分頁面者不出卡
