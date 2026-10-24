@@ -32,17 +32,24 @@ function formatDateTime(epoch: number): string {
 /**
  * 掛勾同步（§6 總則）：開放時間 → 公告（update→publish，固定 sourceRef 不重複發文）
  * ＋行事曆（publishScheduleFromModule 同 sourceRef 覆寫更新）。
+ * 兩者由管理人員分別勾選；未勾選的項目完全不做動。
  * 掛勾失敗不阻擋設定儲存——回 hookWarning 供頁面提示。
  */
 async function syncWindowHooks(
   settings: Awaited<ReturnType<typeof getSettings>>,
-  actor: { uid: string; name: string; role: UserRole }
+  actor: { uid: string; name: string; role: UserRole },
+  options: { announcement: boolean; calendar: boolean }
 ): Promise<string | null> {
   const { openAt, closeAt } = settings;
+  if (!options.announcement && !options.calendar) return null;
   try {
     const period = await getCurrentPeriod();
-    const audience = schoolWideAudience(["student", "parent"]);
-    const calendarAudience = { roles: ["student", "parent"] as UserRole[], classCodes: [] as string[] };
+    // 發送對象：學生、家長、教職員
+    const audience = schoolWideAudience(["student", "parent", "staff"]);
+    const calendarAudience = {
+      roles: ["student", "parent", "staff"] as UserRole[],
+      classCodes: [] as string[],
+    };
 
     if (openAt !== null && closeAt !== null) {
       const title = "自主學習計畫開放撰寫";
@@ -51,55 +58,63 @@ async function syncWindowHooks(
         ? `${window}\n${settings.instructions.trim()}`
         : window;
 
-      const updated = await updateFromModule({
-        sourceModule: MODULE_VALUE,
-        sourceRef: ANNOUNCE_SOURCE_REF,
-        title,
-        body,
-        audience,
-        publishAt: openAt,
-        expireAt: closeAt,
-        status: "published",
-      });
-      if (updated.updated === 0) {
-        await publishFromModule({
+      if (options.announcement) {
+        const updated = await updateFromModule({
           sourceModule: MODULE_VALUE,
           sourceRef: ANNOUNCE_SOURCE_REF,
           title,
           body,
-          authorUid: actor.uid,
-          authorName: actor.name,
-          authorRole: actor.role,
           audience,
           publishAt: openAt,
           expireAt: closeAt,
+          status: "published",
         });
+        if (updated.updated === 0) {
+          await publishFromModule({
+            sourceModule: MODULE_VALUE,
+            sourceRef: ANNOUNCE_SOURCE_REF,
+            title,
+            body,
+            authorUid: actor.uid,
+            authorName: actor.name,
+            authorRole: actor.role,
+            audience,
+            publishAt: openAt,
+            expireAt: closeAt,
+          });
+        }
       }
 
-      await publishScheduleFromModule({
-        sourceModule: MODULE_VALUE,
-        sourceRef: CALENDAR_SOURCE_REF,
-        title,
-        description: body,
-        startAt: openAt,
-        endAt: closeAt,
-        audience: calendarAudience,
-        createdBy: { uid: actor.uid, name: actor.name, role: actor.role },
-        academicYear: period.academicYear,
-        semester: period.semester === 2 ? 2 : 1,
-      });
+      if (options.calendar) {
+        await publishScheduleFromModule({
+          sourceModule: MODULE_VALUE,
+          sourceRef: CALENDAR_SOURCE_REF,
+          title,
+          description: body,
+          startAt: openAt,
+          endAt: closeAt,
+          audience: calendarAudience,
+          createdBy: { uid: actor.uid, name: actor.name, role: actor.role },
+          academicYear: period.academicYear,
+          semester: period.semester === 2 ? 2 : 1,
+        });
+      }
     } else {
-      // 時間被清空：撤回公告（保留文件）與行程（取消）
-      await updateFromModule({
-        sourceModule: MODULE_VALUE,
-        sourceRef: ANNOUNCE_SOURCE_REF,
-        status: "archived",
-      });
-      await publishScheduleFromModule({
-        sourceModule: MODULE_VALUE,
-        sourceRef: CALENDAR_SOURCE_REF,
-        status: "cancelled",
-      }).catch(() => undefined);
+      // 時間被清空：只處理管理人員有勾選同步的項目
+      if (options.announcement) {
+        await updateFromModule({
+          sourceModule: MODULE_VALUE,
+          sourceRef: ANNOUNCE_SOURCE_REF,
+          status: "archived",
+        });
+      }
+      if (options.calendar) {
+        await publishScheduleFromModule({
+          sourceModule: MODULE_VALUE,
+          sourceRef: CALENDAR_SOURCE_REF,
+          status: "cancelled",
+        }).catch(() => undefined);
+      }
     }
     return null;
   } catch (error) {
@@ -157,9 +172,8 @@ export async function POST(request: NextRequest) {
       RATE.SELF_DIRECTED_LEARNING_ADMIN.windowMs
     );
     if (limited) return limited;
-    if (!(await assertSameOrigin(request))) {
-      return NextResponse.json({ success: false, message: "跨來源請求已被拒絕" }, { status: 403, headers: noStore });
-    }
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
 
     const { context, denial } = await requireModulePermission("selfDirectedLearning", "configure");
     if (denial || !context) return toAuthResponse(denial!);
@@ -171,17 +185,27 @@ export async function POST(request: NextRequest) {
     }
 
     const settings = await saveSettings(parsed.value);
-    const hookWarning = await syncWindowHooks(settings, {
-      uid: session.uid,
-      name: session.displayName || session.account,
-      role: session.role === "admin" ? "admin" : "staff",
-    });
+    // 公告與行事曆只由管理人員分別勾選後才同步；未勾選一律不自動發送
+    const hookWarning =
+      settings.publishAnnouncement || settings.publishCalendar
+        ? await syncWindowHooks(
+            settings,
+            {
+              uid: session.uid,
+              name: session.displayName || session.account,
+              role: session.role === "admin" ? "admin" : "staff",
+            },
+            { announcement: settings.publishAnnouncement, calendar: settings.publishCalendar }
+          )
+        : null;
     await logActivity({
       userId: session.uid,
       role: session.role,
       action: "self_directed_learning_settings_updated",
       ip: getClientIp(request),
-      details: "更新管理規則（總開關、開放時間、週數形式與審核設定）",
+      details: `更新管理規則（總開關、開放時間、週數形式與審核設定；同步公告：${
+        settings.publishAnnouncement ? "是" : "否"
+      }、同步行事曆：${settings.publishCalendar ? "是" : "否"}）`,
     });
     return NextResponse.json(
       { success: true, settings, ...(hookWarning ? { hookWarning } : {}) },

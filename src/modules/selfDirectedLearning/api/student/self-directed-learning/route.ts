@@ -105,12 +105,8 @@ export async function POST(request: NextRequest) {
       RATE.SELF_DIRECTED_LEARNING_STUDENT.windowMs
     );
     if (limited) return limited;
-    if (!(await assertSameOrigin(request))) {
-      return NextResponse.json(
-        { success: false, message: "跨來源請求已被拒絕" },
-        { status: 403, headers: noStore }
-      );
-    }
+    const originDenied = assertSameOrigin(request);
+    if (originDenied) return originDenied;
 
     const { session, denial } = await requireRole("student");
     if (denial) return toAuthResponse(denial);

@@ -13,8 +13,8 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.13",
-    "releasedAt": "2026-10-23"
+    "version": "0.0.18",
+    "releasedAt": "2026-10-24"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "managerPermissions": [
@@ -53,6 +53,42 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.18",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "移除對主程式 school-periods／school-spaces 型別的 import，改由模組自行寬容讀取課表作息與樓層空間；module:check 靜態掃描通過，可上架市集"
+      ]
+    },
+    {
+      "version": "0.0.17",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "系統公告與行事曆改為分開設定（兩個獨立開關），管理人員可分別決定是否同步發布",
+        "公告與行事曆的發送對象皆包含教職員（學生、家長、教職員）；未勾選的項目完全不自動發送"
+      ]
+    },
+    {
+      "version": "0.0.16",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "管理規則新增「公告與行事曆」區塊：由管理人員勾選儲存設定時是否同步發布（或更新）系統公告與行事曆行程；未勾選不再於背後自動發送，也不更動既有公告與行程"
+      ]
+    },
+    {
+      "version": "0.0.15",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "學生端自主學習計畫頁版面比照「升學考試與模擬考校內報名」學生頁：系統抬頭、功能標題、上下操作按鈕、分隔線、廣告與版權位置一致；內容顯示區維持原本表單"
+      ]
+    },
+    {
+      "version": "0.0.14",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "修正儲存設定時誤判為跨來源請求（assertSameOrigin 回傳值判斷反向）：同源請求可正常儲存，跨來源請求改由主程式 CSRF 檢查正確拒絕"
+      ]
+    },
     {
       "version": "0.0.13",
       "releasedAt": "2026-10-23",

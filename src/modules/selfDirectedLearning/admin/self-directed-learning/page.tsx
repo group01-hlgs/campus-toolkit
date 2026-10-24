@@ -408,6 +408,53 @@ export default function SelfDirectedLearningSettingsPage({
       <details className="border-themed bg-card rounded-lg" open>
         <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
           <DisclosureArrow />
+          公告與行事曆
+        </summary>
+        <div className="space-y-3 px-4 pb-4">
+          <label className="border-themed bg-surface flex flex-wrap items-start gap-3 rounded-md p-3">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 cursor-pointer"
+              checked={settings.publishAnnouncement}
+              onChange={(event) => patch({ publishAnnouncement: event.target.checked })}
+            />
+            <span className="min-w-56 flex-1">
+              <span className="text-t1 block text-sm font-medium">
+                儲存設定時同步發布系統公告（{settings.publishAnnouncement ? "開啟" : "關閉"}）
+              </span>
+              <span className="text-t3 block text-xs">
+                勾選後，儲存設定時會建立或更新系統公告（對象：學生、家長、教職員），
+                同一筆公告不會重複發送；未勾選時不會自動發送，也不會更動既有公告。
+              </span>
+            </span>
+          </label>
+          <label className="border-themed bg-surface flex flex-wrap items-start gap-3 rounded-md p-3">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 cursor-pointer"
+              checked={settings.publishCalendar}
+              onChange={(event) => patch({ publishCalendar: event.target.checked })}
+            />
+            <span className="min-w-56 flex-1">
+              <span className="text-t1 block text-sm font-medium">
+                儲存設定時同步發布行事曆行程（{settings.publishCalendar ? "開啟" : "關閉"}）
+              </span>
+              <span className="text-t3 block text-xs">
+                勾選後，儲存設定時會建立或更新行事曆行程（對象：學生、家長、教職員），
+                同一筆行程會覆寫更新；未勾選時不會自動發送，也不會更動既有行程。
+              </span>
+            </span>
+          </label>
+          <p className="text-t3 text-sm">
+            公告標題「自主學習計畫開放撰寫」，時間為上方設定的開始～截止時間；
+            若時間清空，有勾選的項目會撤回公告或取消行程。
+          </p>
+        </div>
+      </details>
+
+      <details className="border-themed bg-card rounded-lg" open>
+        <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
+          <DisclosureArrow />
           校內彈性學習節次行程
         </summary>
         <div className="space-y-4 px-4 pb-4">

@@ -3,8 +3,6 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 import { getCacheTtlSeconds, getCurrentPeriod } from "@/lib/settings-server";
 import { isActiveEntry, loadPeriodEntries } from "@/lib/roster";
-import { readSchoolPeriods, DEFAULT_SCHOOL_DAYS } from "@/types/school-periods";
-import { readSpaceStructure } from "@/types/school-spaces";
 import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
   SELF_DIRECTED_LEARNING_SETTINGS_COLLECTION,
@@ -27,6 +25,83 @@ function settingsRef() {
   return getAdminDb()
     .collection(SELF_DIRECTED_LEARNING_SETTINGS_COLLECTION)
     .doc(SELF_DIRECTED_LEARNING_SETTINGS_DOC_ID);
+}
+
+/** 主程式課表作息的預設上課星期（週一至週五） */
+const DEFAULT_SCHOOL_DAYS = [1, 2, 3, 4, 5] as const;
+const PERIOD_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+interface RawSchoolPeriodRow {
+  code: string;
+  period: number;
+  name: string;
+}
+
+function readSchoolDays(value: unknown): number[] {
+  if (!Array.isArray(value)) return [...DEFAULT_SCHOOL_DAYS];
+  const days = new Set<number>();
+  for (const item of value) {
+    const day = Number(item);
+    if (Number.isInteger(day) && day >= 1 && day <= 7) days.add(day);
+  }
+  if (days.size === 0) return [...DEFAULT_SCHOOL_DAYS];
+  return [...days].sort((a, b) => a - b);
+}
+
+/** 讀回主程式課表作息（寬容）：只保留可用節次，缺漏時回預設上課星期 */
+function readSchoolPeriods(raw: unknown): {
+  schoolDays: number[];
+  periods: RawSchoolPeriodRow[];
+} {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { schoolDays: [...DEFAULT_SCHOOL_DAYS], periods: [] };
+  }
+  const record = raw as Record<string, unknown>;
+  if (!Array.isArray(record.periods)) {
+    return { schoolDays: [...DEFAULT_SCHOOL_DAYS], periods: [] };
+  }
+  const periods: RawSchoolPeriodRow[] = [];
+  for (const item of record.periods.slice(0, 50)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const code = typeof row.code === "string" ? row.code.trim() : "";
+    const name = typeof row.name === "string" ? row.name.trim() : "";
+    const start = typeof row.start === "string" ? row.start.trim() : "";
+    const end = typeof row.end === "string" ? row.end.trim() : "";
+    const period = typeof row.period === "number" ? row.period : NaN;
+    if (!code || !name || code.length > 20 || name.length > 40) continue;
+    if (!Number.isInteger(period)) continue;
+    if (!PERIOD_TIME_PATTERN.test(start) || !PERIOD_TIME_PATTERN.test(end)) continue;
+    periods.push({ code, period, name });
+  }
+  return { schoolDays: readSchoolDays(record.schoolDays), periods };
+}
+
+interface RawSpaceUnit {
+  code: string;
+  name: string;
+  floor: string;
+  parent: string | null;
+}
+
+/** 讀回主程式樓層空間（寬容）：只取需要的欄位，供葉子空間場域候選使用 */
+function readSpaceUnits(raw: unknown): RawSpaceUnit[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const data = raw as Record<string, unknown>;
+  if (!Array.isArray(data.units)) return [];
+  const units: RawSpaceUnit[] = [];
+  for (const item of data.units) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const unit = item as Record<string, unknown>;
+    const code = typeof unit.code === "string" ? unit.code.trim() : "";
+    const name = typeof unit.name === "string" ? unit.name.trim() : "";
+    if (!code || !name) continue;
+    const floor = typeof unit.floor === "string" ? unit.floor.trim() : "";
+    const parent =
+      typeof unit.parent === "string" && unit.parent.trim() ? unit.parent.trim() : null;
+    units.push({ code, name, floor, parent });
+  }
+  return units;
 }
 
 /** 讀設定（缺檔即建預設值：lazy init） */
@@ -107,11 +182,11 @@ export async function getSchoolScheduleOptions(): Promise<SchoolScheduleOptions>
 export async function getSpaceOptions(): Promise<SpaceOption[]> {
   return cachedRead(SPACE_OPTIONS_CACHE_KEY, await settingsTtlMs(), async () => {
     const snap = await getAdminDb().collection("settings").doc("spaces").get();
-    const structure = readSpaceStructure(snap.exists ? snap.data() : null);
+    const units = readSpaceUnits(snap.exists ? snap.data() : null);
     const hasChild = new Set(
-      structure.units.filter((unit) => unit.parent !== null).map((unit) => unit.parent as string)
+      units.filter((unit) => unit.parent !== null).map((unit) => unit.parent as string)
     );
-    return structure.units
+    return units
       .filter((unit) => !hasChild.has(unit.code) && unit.name)
       .map((unit) => ({ name: unit.name, floor: unit.floor }));
   });

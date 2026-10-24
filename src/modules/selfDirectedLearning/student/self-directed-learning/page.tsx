@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import AdSense from "@/components/AdSense";
+import Copyright from "@/components/Copyright";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { fetchSettings } from "@/lib/settings-client";
+import { logout } from "@/lib/session";
+import { Settings, defaultSettings } from "@/types/settings";
 import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
   MAINTENANCE_HINT,
@@ -66,6 +72,8 @@ function fitWeeks(
 }
 
 export default function StudentSelfDirectedLearningPage() {
+  const router = useRouter();
+  const [systemSettings, setSystemSettings] = useState<Settings>(defaultSettings);
   const [settings, setSettings] = useState<SelfDirectedLearningSettings>(
     DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS
   );
@@ -130,6 +138,23 @@ export default function StudentSelfDirectedLearningPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await fetchSettings();
+        if (!cancelled && data?.success && data.settings) {
+          setSystemSettings({ ...defaultSettings, ...data.settings });
+        }
+      } catch {
+        // 設定讀取失敗時沿用預設值顯示
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const patchDraft = (partial: Partial<Draft>) => setDraft((prev) => ({ ...prev, ...partial }));
 
   const setWeekCount = (count: number) => {
@@ -179,43 +204,95 @@ export default function StudentSelfDirectedLearningPage() {
   const windowState = openStateOf(settings);
   const canSubmit = withinWindow && !locked && saving === null;
 
+  const actionButtons = (
+    <>
+      <button
+        type="button"
+        onClick={() => router.push("/student")}
+        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+      >
+        返回功能首頁
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void logout();
+          router.push("/");
+        }}
+        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+      >
+        登出
+      </button>
+    </>
+  );
+
+  /** 頁面外殼：與「升學考試與模擬考校內報名」學生頁一致（內容顯示區由 inner 帶入） */
+  const renderShell = (inner: ReactNode) => (
+    <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
+      <Toast message={toast} onClose={() => setToast(null)} />
+
+      <div className="text-center mb-2">
+        <h1 className="text-4xl font-bold mb-2">
+          {systemSettings.systemName || "數位校園工具箱"}
+        </h1>
+        <p className="text-xl text-t2">{systemSettings.schoolFullName || "學校名稱"}</p>
+        <p className="text-lg text-t3">
+          {systemSettings.academicYear} 學年度 第{systemSettings.semester}學期
+        </p>
+      </div>
+
+      <div className="content-width mt-4 mb-2 text-center">
+        <h2 className="text-2xl font-bold text-t1">自主學習計畫</h2>
+      </div>
+
+      <div className="content-width flex justify-end gap-2 mb-4">{actionButtons}</div>
+      <hr className="content-width border-themed mb-4" />
+
+      <main className="content-width mb-6 space-y-4">{inner}</main>
+
+      <hr className="content-width border-themed mb-4" />
+      <div className="content-width flex justify-start gap-2 mb-4">{actionButtons}</div>
+
+      {systemSettings.sponsorAdEnabled && (
+        <div className="content-width mt-8">
+          <AdSense />
+        </div>
+      )}
+
+      <div className="content-width mt-auto">
+        <Copyright mode={systemSettings.copyrightNotice ? "啟用" : "關閉"} />
+      </div>
+    </div>
+  );
+
   // 總開關關閉：只見維護說明（資料不呈現、表單不開放）
   if (!loading && maintenance) {
-    return (
-      <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
-        <header className="space-y-1">
-          <h1 className="text-xl text-t1">自主學習計畫</h1>
-        </header>
-        <div className="border-themed bg-card space-y-2 rounded-lg p-6 text-center">
-          <p className="text-t1 text-lg font-medium">{MAINTENANCE_TITLE}</p>
-          <p className="text-t2 text-sm">{MAINTENANCE_HINT}</p>
-        </div>
-        <Toast message={toast} onClose={() => setToast(null)} />
-      </section>
+    return renderShell(
+      <div className="border-themed bg-card space-y-2 rounded-lg p-6 text-center">
+        <p className="text-t1 text-lg font-medium">{MAINTENANCE_TITLE}</p>
+        <p className="text-t2 text-sm">{MAINTENANCE_HINT}</p>
+      </div>
     );
   }
 
-  return (
-    <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
-      <header className="space-y-1">
-        <h1 className="text-xl text-t1">自主學習計畫</h1>
-        <p className="text-t2 flex flex-wrap items-center gap-2 text-sm">
-          <span
-            className={
-              plan?.status === "approved"
-                ? "text-success"
-                : plan?.status === "returned"
-                  ? "text-danger"
-                  : "text-t2"
-            }
-          >
-            {plan ? PLAN_STATUS_LABELS[plan.status] : "尚未建立計畫"}
-          </span>
-          <span className={windowState === "open" ? "text-success" : "text-t3"}>
-            {WINDOW_LABEL[windowState]}
-          </span>
-        </p>
-      </header>
+  return renderShell(
+    <>
+      <p className="text-t2 flex flex-wrap items-center gap-2 text-sm">
+        <span
+          className={
+            plan?.status === "approved"
+              ? "text-success"
+              : plan?.status === "returned"
+                ? "text-danger"
+                : "text-t2"
+          }
+        >
+          {plan ? PLAN_STATUS_LABELS[plan.status] : "尚未建立計畫"}
+        </span>
+        <span className={windowState === "open" ? "text-success" : "text-t3"}>
+          {WINDOW_LABEL[windowState]}
+        </span>
+      </p>
 
       {latestReview && (latestReview.decision === "returned" || plan?.status !== "approved") && (
         <section className="border-themed bg-card rounded-lg p-4" aria-label="審查意見">
@@ -393,8 +470,6 @@ export default function StudentSelfDirectedLearningPage() {
           {saving === "submit" ? "送出中…" : "送出審核"}
         </button>
       </div>
-
-      <Toast message={toast} onClose={() => setToast(null)} />
-    </section>
+    </>
   );
 }

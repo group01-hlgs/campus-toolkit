@@ -71,6 +71,10 @@ export interface SelfDirectedLearningSettings {
   reviewers: ReviewerEntry[];
   /** 給學生的說明文字 */
   instructions: string;
+  /** 儲存設定時是否同步發布（或更新）系統公告（由管理人員勾選，預設不自動發送） */
+  publishAnnouncement: boolean;
+  /** 儲存設定時是否同步發布（或更新）行事曆行程（由管理人員勾選，預設不自動發送） */
+  publishCalendar: boolean;
   updatedAt: number;
 }
 
@@ -84,6 +88,8 @@ export const DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS: SelfDirectedLearningSettin
   venues: [],
   reviewers: [],
   instructions: "",
+  publishAnnouncement: false,
+  publishCalendar: false,
   updatedAt: 0,
 };
 
@@ -147,6 +153,19 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
     reviewers,
     instructions:
       typeof source.instructions === "string" ? source.instructions.slice(0, 4000) : "",
+    // 舊版單一開關（syncAnnouncementAndCalendar）一併視為兩者皆開啟，避免既有勾選失效
+    publishAnnouncement:
+      typeof source.publishAnnouncement === "boolean"
+        ? source.publishAnnouncement
+        : typeof source.syncAnnouncementAndCalendar === "boolean"
+          ? source.syncAnnouncementAndCalendar
+          : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.publishAnnouncement,
+    publishCalendar:
+      typeof source.publishCalendar === "boolean"
+        ? source.publishCalendar
+        : typeof source.syncAnnouncementAndCalendar === "boolean"
+          ? source.syncAnnouncementAndCalendar
+          : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.publishCalendar,
     updatedAt: typeof source.updatedAt === "number" ? source.updatedAt : 0,
   };
 }
@@ -173,6 +192,12 @@ export function parseSettingsInput(raw: unknown): ParseResult {
   }
   if ("minWeeks" in body && typeof body.minWeeks === "number" && !Number.isInteger(body.minWeeks)) {
     return { ok: false, message: "下限週數必須是整數" };
+  }
+  if ("publishAnnouncement" in body && typeof body.publishAnnouncement !== "boolean") {
+    return { ok: false, message: "系統公告同步設定格式錯誤" };
+  }
+  if ("publishCalendar" in body && typeof body.publishCalendar !== "boolean") {
+    return { ok: false, message: "行事曆同步設定格式錯誤" };
   }
   return { ok: true, value };
 }
