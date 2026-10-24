@@ -214,6 +214,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
       <DraggableModuleGrid
         items={[...entryCards, ...optionalCards]}
         storageKey={`campusCardOrder.${role}`}
+        itemsReady={visibleModules !== null}
       />
 
       <hr className="content-width border-themed mb-4" />

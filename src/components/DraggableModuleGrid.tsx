@@ -402,6 +402,7 @@ export default function DraggableModuleGrid({
   defaultCategoryName = "未分類",
   alwaysShowHeadings = false,
   defaultCategoryNote,
+  itemsReady = true,
 }: {
   items: ModuleCardItem[];
   storageKey: string;
@@ -419,6 +420,11 @@ export default function DraggableModuleGrid({
   alwaysShowHeadings?: boolean;
   /** 預設分類標題下方的簡要說明（可放不同主題色的文字片段） */
   defaultCategoryNote?: ReactNode;
+  /**
+   * items 是否已是完整清單：外掛卡片非同步載入時先傳 false，
+   * 避免以「暫時缺少外掛卡」的清單對齊版面而把已記住的位置清掉。
+   */
+  itemsReady?: boolean;
 }) {
   const router = useRouter();
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -512,13 +518,15 @@ export default function DraggableModuleGrid({
         ? { ...category, name: defaultCategoryName }
         : category
     );
-    const reconciled = reconcileCategories(
-      categories,
-      items.map((item) => item.id),
-      defaultCategoryName
-    );
+    const reconciled = itemsReady
+      ? reconcileCategories(
+          categories,
+          items.map((item) => item.id),
+          defaultCategoryName
+        )
+      : categories;
     if (reconciled.length === 0) return;
-    const next = applyAnchorRules(reconciled);
+    const next = itemsReady ? applyAnchorRules(reconciled) : reconciled;
     catsRef.current = next;
     setCategories(next);
     // 只有「排版規則有實際挪動卡片」才存回（讓這次歸位只做一次）；
@@ -529,6 +537,8 @@ export default function DraggableModuleGrid({
 
   // 卡片有增減時（例如功能改版）同步到版面：新卡片補進「未分類」末行，再套排版規則
   useEffect(() => {
+    // 外掛卡片尚未載入完成時先不動版面，否則會把已記住的外掛卡位置清掉
+    if (!itemsReady) return;
     const next = applyAnchorRules(
       reconcileCategories(
         catsRef.current,
@@ -539,7 +549,7 @@ export default function DraggableModuleGrid({
     if (JSON.stringify(next) === JSON.stringify(catsRef.current)) return;
     catsRef.current = next;
     setCategories(next);
-  }, [items, defaultCategoryName]);
+  }, [items, itemsReady, defaultCategoryName]);
 
   function locateCard(id: string): { category: string; row: number; index: number } | null {
     for (const category of catsRef.current) {
