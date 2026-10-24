@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
-import { fetchSession, logout } from "@/lib/session";
+import { logout } from "@/lib/session";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
@@ -13,28 +13,13 @@ import { fetchSettings } from "@/lib/settings-client";
 
 /**
  * 休閒歡樂誠功能首頁（/recreation）：
- * 架構與排版比照各身分功能首頁；內容區暫空，由日後小遊戲卡片陸續進駐。
+ * 版面與樣式比照「學校基本設定」功能首頁，僅內容顯示區保留本頁內容
+ * （系統公告、行程與可拖曳排序的卡片區，暫空待日後小遊戲卡片進駐）。
  * 入口：首頁與各功能首頁左上角城堡圖示、各首頁「休閒歡樂誠」卡。
  */
 export default function RecreationHomePage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [displayName, setDisplayName] = useState("");
-  const [loggedIn, setLoggedIn] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchSession(true).then((session) => {
-      if (cancelled) return;
-      if (session) {
-        setLoggedIn(true);
-        setDisplayName(session.displayName);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +40,10 @@ export default function RecreationHomePage() {
     };
   }, []);
 
+  function handleBack() {
+    router.push("/");
+  }
+
   function handleLogout() {
     void logout();
     router.push("/");
@@ -68,41 +57,40 @@ export default function RecreationHomePage() {
         <p className="text-lg text-t3">{settings.academicYear} 學年度 第{settings.semester}學期</p>
       </div>
 
+      {/* 功能標題（版面與樣式比照「學校基本設定」功能首頁） */}
       <div className="content-width mt-4 mb-2 text-center">
-        <p className="mb-2 inline-flex rounded border border-warning/60 bg-warning/10 px-3 py-1 text-xs text-warning">
-          功能建構中，陸續開放
-        </p>
-        <h2 className="text-2xl font-bold text-primary">
+        <h2 className="text-2xl font-bold text-t1">
           休閒歡樂<span className="inline-block rotate-[30deg] ml-[3px]">誠</span>
         </h2>
-        {displayName && <p className="text-t2 mt-1">{displayName}，您好</p>}
+        <p className="text-sm text-t3 mt-1">功能建構中，陸續開放。</p>
       </div>
 
-      {/* 系統公告與行程：與其他功能首頁同一擺位（顯示位置由管理端設定） */}
-      <AnnouncementSurface surface="login" className="content-width mb-3" />
-      <CalendarSurface surface="login" className="content-width mb-3" />
-
-      <div className="content-width flex justify-end items-center gap-2 mb-4">
-        <button onClick={() => router.push("/")} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+      {/* 操作按鈕 */}
+      <div className="content-width flex justify-end gap-3 mb-4">
+        <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
           返回首頁
         </button>
-        {loggedIn && (
-          <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
-            登出
-          </button>
-        )}
+        <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+          登出
+        </button>
       </div>
 
       <hr className="content-width border-themed mb-4" />
 
-      {/* 內容區：暫空，架構比照各身分功能首頁（可拖曳排序的卡片區） */}
+      {/* 內容顯示區：系統公告、行程與可拖曳排序的卡片區 */}
+      <AnnouncementSurface surface="login" className="content-width mb-3" />
+      <CalendarSurface surface="login" className="content-width mb-3" />
       <DraggableModuleGrid items={[]} storageKey="campusCardOrder.recreation" />
 
       <hr className="content-width border-themed mb-4" />
 
-      <div className="content-width mb-8">
-        <button onClick={() => router.push("/")} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+      {/* 底部操作按鈕 */}
+      <div className="content-width flex justify-start gap-3 mb-8">
+        <button onClick={handleBack} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
           返回首頁
+        </button>
+        <button onClick={handleLogout} className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer">
+          登出
         </button>
       </div>
 
