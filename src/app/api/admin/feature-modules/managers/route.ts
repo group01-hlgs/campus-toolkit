@@ -6,7 +6,8 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
-import { managedModulesOf } from "@/lib/roster";
+import { isActiveEntry, loadPeriodEntries, managedModulesOf } from "@/lib/roster";
+import { resolveStaffAttribute } from "@/types/users";
 import { featureModuleMeta } from "@/types/feature-modules";
 import { ROSTER_ROLES, isRosterRole, rosterCollection, RosterRole } from "@/types/roster";
 
@@ -27,17 +28,38 @@ interface ManagerRow {
   email: string;
   account: string;
   permissions: string[];
+  /** 名冊輔助資訊（顯示候選名單用；缺漏為空字串） */
+  attribute?: string;
+  unit?: string;
+  title?: string;
+  grade?: string;
+  classCode?: string;
+  className?: string;
+  studentId?: string;
+  rollNo?: string;
+  studentName?: string;
 }
 
 /** 讀一條名冊條目的展示欄位（不足處退回空字串；permissions 由呼叫端依模組填入） */
 function personOf(data: Record<string, unknown>, role: RosterRole, uid: string): ManagerRow {
+  const str = (key: string) => (typeof data[key] === "string" ? (data[key] as string) : "");
   return {
     uid,
     role,
-    name: typeof data.name === "string" ? data.name : "",
-    email: typeof data.email === "string" ? data.email : "",
-    account: typeof data.account === "string" ? data.account : "",
+    name: str("name"),
+    email: str("email"),
+    account: str("account"),
     permissions: [],
+    attribute:
+      role === "staff" ? resolveStaffAttribute(str("attribute")) : str("attribute"),
+    unit: str("unit"),
+    title: str("title"),
+    grade: str("grade"),
+    classCode: str("classCode"),
+    className: str("className"),
+    studentId: str("studentId"),
+    rollNo: str("rollNo"),
+    studentName: str("studentName"),
   };
 }
 
@@ -71,13 +93,82 @@ export async function GET(request: NextRequest) {
     const db = getAdminDb();
     const delegatableRoles: RosterRole[] = ["student", "parent", "staff"];
 
-    // 搜尋模式：單一身分精確比對帳號或姓名（點查式查詢，避免全表掃描）
-    const searchRole = request.nextUrl.searchParams.get("role");
+    const toManagerRow = (data: Record<string, unknown>, role: RosterRole, uid: string) => {
+      const row = personOf(data, role, uid);
+      const grant = managedModulesOf(data).find((item) => item.module === moduleValue);
+      return { ...row, permissions: grant ? grant.permissions : [] };
+    };
+
+    // 搜尋／候選模式：
+    // - 教職員：列出當期名冊（可用 attribute 篩選屬性），不需輸入關鍵字。
+    // - 學生：以次要欄位（班號／學號／姓名）精確比對。
+    // - 家長：沿用帳號或姓名精確比對。
+    const searchRoleParam = request.nextUrl.searchParams.get("role") || "";
     const q = (request.nextUrl.searchParams.get("q") || "").trim();
-    if (searchRole && q) {
-      if (!isRosterRole(searchRole) || searchRole === "admin") {
+    if (searchRoleParam) {
+      if (!isRosterRole(searchRoleParam) || searchRoleParam === "admin") {
         return NextResponse.json({ success: false, message: "身分無效" }, { status: 400 });
       }
+      const searchRole = searchRoleParam;
+
+      if (searchRole === "staff") {
+        const attribute = (request.nextUrl.searchParams.get("attribute") || "").trim();
+        const entries = await loadPeriodEntries(period, "staff");
+        const people: ManagerRow[] = [];
+        const keyword = q.toLowerCase();
+        for (const [uid, data] of entries) {
+          if (!isActiveEntry(data)) continue;
+          const entryAttribute = resolveStaffAttribute(
+            typeof data.attribute === "string" ? data.attribute : ""
+          );
+          if (attribute && entryAttribute !== attribute) continue;
+          if (keyword) {
+            const haystack = `${data.name ?? ""} ${data.account ?? ""}`.toLowerCase();
+            if (!haystack.includes(keyword)) continue;
+          }
+          people.push(toManagerRow(data, "staff", uid));
+        }
+        people.sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+        return NextResponse.json(
+          { success: true, people },
+          { headers: { "Cache-Control": "no-store" } }
+        );
+      }
+
+      if (!q) {
+        return NextResponse.json(
+          { success: true, people: [] },
+          { headers: { "Cache-Control": "no-store" } }
+        );
+      }
+
+      if (searchRole === "student") {
+        const fieldParam = request.nextUrl.searchParams.get("field");
+        const field =
+          fieldParam === "studentId" ? "studentId" : fieldParam === "rollNo" ? "rollNo" : "name";
+        const snap = await db
+          .collection(rosterCollection("student"))
+          .where("academicYear", "==", period.academicYear)
+          .where("semester", "==", period.semester)
+          .where(field, "==", q)
+          .limit(20)
+          .get();
+        const seen = new Set<string>();
+        const people: ManagerRow[] = [];
+        for (const doc of snap.docs) {
+          const data = doc.data();
+          const uid = typeof data.uid === "string" ? data.uid : "";
+          if (!uid || seen.has(uid) || !isActiveEntry(data)) continue;
+          seen.add(uid);
+          people.push(toManagerRow(data, "student", uid));
+        }
+        people.sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+        return NextResponse.json(
+          { success: true, people },
+          { headers: { "Cache-Control": "no-store" } }
+        );
+      }
+
       const col = db.collection(rosterCollection(searchRole));
       const [byAccount, byName] = await Promise.all([
         col
@@ -100,10 +191,7 @@ export async function GET(request: NextRequest) {
         const uid = typeof data.uid === "string" ? data.uid : "";
         if (!uid || seen.has(uid)) continue;
         seen.add(uid);
-        const row = personOf(data, searchRole, uid);
-        const grants = managedModulesOf(data);
-        const grant = grants.find((item) => item.module === moduleValue);
-        people.push({ ...row, permissions: grant ? grant.permissions : [] });
+        people.push(toManagerRow(data, searchRole, uid));
       }
       return NextResponse.json(
         { success: true, people },
