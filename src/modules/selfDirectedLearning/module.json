@@ -13,14 +13,14 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.29",
-    "releasedAt": "2026-10-24"
+    "version": "0.0.33",
+    "releasedAt": "2026-10-25"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "managerPermissions": [
     { "value": "configure", "label": "管理規則（開放時間、週數、節次行程、場域、審核名單、說明）" },
     { "value": "review", "label": "審核計畫（通過／退回）" },
-    { "value": "viewPlans", "label": "查看計畫清單" }
+    { "value": "viewPlans", "label": "查看、管理計畫清單" }
   ],
   "routes": [
     { "kind": "page", "path": "/admin/self-directed-learning" },
@@ -54,6 +54,38 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.33",
+      "releasedAt": "2026-10-25",
+      "notes": [
+        "管理規則的說明拆成兩類：「自主學習實施說明」給學生與家長的總說明；「自主學習計畫撰寫說明」給學生發起新計畫、編輯草稿時的撰寫說明",
+        "學生端在「撰寫計畫」區塊顯示撰寫說明；家長端新增顯示實施說明",
+        "舊版單一說明（instructions）相容對應為自主學習實施說明"
+      ]
+    },
+    {
+      "version": "0.0.32",
+      "releasedAt": "2026-10-25",
+      "notes": [
+        "學生端改為「我的計畫」（上）與「撰寫計畫」（下，預設隱藏）兩個區塊；我的計畫分開列出正式計畫（已通過）與草稿計畫（未送審、審核中、退回修改），並可展開查看內容",
+        "開放撰寫期間且本學期尚無正式計畫時可發起新計畫；點「發起新計畫」或草稿的「編輯」才展開撰寫表單",
+        "同一學期可有多筆草稿，正式計畫僅一份：送審與審核通過時都會檢查；計畫 doc id 改為可容納多筆（舊資料仍相容）"
+      ]
+    },
+    {
+      "version": "0.0.31",
+      "releasedAt": "2026-10-25",
+      "notes": [
+        "調整管理規則頁提示文字為：管理員僅負責功能的規則設定，計畫審核、管理等請授權給指定的管理人員"
+      ]
+    },
+    {
+      "version": "0.0.30",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "管理權限「查看計畫清單」更名為「查看、管理計畫清單」"
+      ]
+    },
     {
       "version": "0.0.29",
       "releasedAt": "2026-10-24",

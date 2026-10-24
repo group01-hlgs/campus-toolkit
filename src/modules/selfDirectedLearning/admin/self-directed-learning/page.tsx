@@ -51,6 +51,13 @@ const INSTRUCTIONS_TEMPLATE = [
   "送出後請等待審核；退回時可依意見修改後再送。",
 ].join("\n");
 
+/** 實施說明範例（給學生、家長的總說明） */
+const IMPLEMENTATION_TEMPLATE = [
+  "自主學習計畫請於學校開放的期間內填報並送出審核。",
+  "學習活動請於學校規定的時間與場地實施。",
+  "計畫經審核通過後，始得依計畫內容實施。",
+].join("\n");
+
 /** 依行自動標號：先去掉行首既有數字標號再重編；空行保留不編號 */
 function renumberInstructions(raw: string): string {
   let index = 0;
@@ -373,6 +380,10 @@ export default function SelfDirectedLearningSettingsPage({
     patch({ instructions: value });
   };
 
+  const setWritingInstructions = (value: string) => {
+    patch({ writingInstructions: value });
+  };
+
   const save = async () => {
     const emptyScopeReviewer = settings.reviewers.find(
       (reviewer) =>
@@ -393,6 +404,7 @@ export default function SelfDirectedLearningSettingsPage({
       openAt,
       closeAt,
       instructions: renumberInstructions(settings.instructions),
+      writingInstructions: renumberInstructions(settings.writingInstructions),
     };
     if (payload.openAt !== null && payload.closeAt !== null && payload.closeAt <= payload.openAt) {
       setToast({ kind: "error", text: "截止時間必須晚於開始時間" });
@@ -484,7 +496,7 @@ export default function SelfDirectedLearningSettingsPage({
         className="border border-warning/60 bg-warning/10 text-warning space-y-1 rounded-lg p-3 text-sm"
       >
         <p className="font-medium">
-          管理員僅負責本頁的規則設定，請在下方「審核人員」指定教職員負責審查與管理。
+          管理員僅負責功能的規則設定，計畫審核、管理等請授權給指定的管理人員。
         </p>
       </div>
 
@@ -1072,15 +1084,17 @@ export default function SelfDirectedLearningSettingsPage({
       <details className="border-themed bg-card rounded-lg" open>
         <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
           <DisclosureArrow />
-          給學生的說明
+          自主學習實施說明
         </summary>
         <div className="space-y-2 px-4 pb-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-t3 text-xs">按 Enter 分段，將自動標號 1. 2. 3. …</p>
+            <p className="text-t3 text-xs">
+              給學生、家長的總說明；按 Enter 分段，將自動標號 1. 2. 3. …
+            </p>
             <button
               type="button"
               className="btn-theme h-8 px-3 text-sm"
-              onClick={() => setInstructions(renumberInstructions(INSTRUCTIONS_TEMPLATE))}
+              onClick={() => setInstructions(renumberInstructions(IMPLEMENTATION_TEMPLATE))}
             >
               插入範本
             </button>
@@ -1090,6 +1104,38 @@ export default function SelfDirectedLearningSettingsPage({
             value={settings.instructions}
             onChange={(event) => patch({ instructions: event.target.value })}
             onBlur={() => setInstructions(renumberInstructions(settings.instructions))}
+            placeholder="按 Enter 分段，儲存時自動標號…"
+          />
+        </div>
+      </details>
+
+      <details className="border-themed bg-card rounded-lg" open>
+        <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
+          <DisclosureArrow />
+          自主學習計畫撰寫說明
+        </summary>
+        <div className="space-y-2 px-4 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-t3 text-xs">
+              給學生發起新計畫、編輯草稿時的撰寫說明；按 Enter 分段，將自動標號 1. 2. 3. …
+            </p>
+            <button
+              type="button"
+              className="btn-theme h-8 px-3 text-sm"
+              onClick={() =>
+                setWritingInstructions(renumberInstructions(INSTRUCTIONS_TEMPLATE))
+              }
+            >
+              插入範本
+            </button>
+          </div>
+          <textarea
+            className="input-theme min-h-32 w-full rounded px-3 py-2 text-sm"
+            value={settings.writingInstructions}
+            onChange={(event) => patch({ writingInstructions: event.target.value })}
+            onBlur={() =>
+              setWritingInstructions(renumberInstructions(settings.writingInstructions))
+            }
             placeholder="按 Enter 分段，儲存時自動標號…"
           />
         </div>

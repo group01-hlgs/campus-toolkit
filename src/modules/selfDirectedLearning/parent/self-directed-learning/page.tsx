@@ -31,6 +31,7 @@ export default function ParentSelfDirectedLearningPage() {
   const [child, setChild] = useState<LinkedChild | null>(null);
   const [plan, setPlan] = useState<SelfDirectedLearningPlan | null>(null);
   const [latestReview, setLatestReview] = useState<PlanReview | null>(null);
+  const [instructions, setInstructions] = useState("");
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   /** 總開關關閉：只顯示維護說明 */
@@ -48,6 +49,7 @@ export default function ParentSelfDirectedLearningPage() {
       setChild((data.child as LinkedChild | null) ?? null);
       setPlan((data.plan as SelfDirectedLearningPlan | null) ?? null);
       setLatestReview((data.latestReview as PlanReview | null) ?? null);
+      setInstructions(typeof data.instructions === "string" ? data.instructions : "");
     } catch {
       setToast({ kind: "error", text: "讀取資料失敗" });
     } finally {
@@ -86,6 +88,16 @@ export default function ParentSelfDirectedLearningPage() {
           </p>
         )}
       </header>
+
+      {instructions.trim() && (
+        <details className="border-themed bg-card rounded-lg">
+          <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
+            <DisclosureArrow />
+            自主學習實施說明
+          </summary>
+          <p className="text-t2 px-4 pb-4 whitespace-pre-wrap text-sm">{instructions}</p>
+        </details>
+      )}
 
       {loading ? (
         <div className="border-themed bg-card text-t2 rounded-lg p-4 text-sm">載入中…</div>

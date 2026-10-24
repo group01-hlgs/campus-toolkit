@@ -8,6 +8,7 @@ import {
   SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION,
   periodLabelOf,
   planDocIdOf,
+  openStateOf,
   type PlanReview,
   type ReviewScope,
   type SelfDirectedLearningPlan,
@@ -21,8 +22,10 @@ function plansRef() {
 /** 學生視角儀表資料 */
 export interface StudentDashboard {
   period: string;
-  plan: SelfDirectedLearningPlan | null;
-  latestReview: PlanReview | null;
+  /** 目前為止的所有計畫（正式與草稿並存；正式＝approved，其餘皆視為草稿） */
+  plans: SelfDirectedLearningPlan[];
+  /** 各計畫的最新審查意見（key＝plan id） */
+  latestReviews: Record<string, PlanReview>;
   /** 現在是否在開放撰寫期間 */
   withinWindow: boolean;
 }
@@ -70,13 +73,27 @@ function readPlan(id: string, raw: Record<string, unknown>): SelfDirectedLearnin
   };
 }
 
-/** 讀當期學生計畫（精準點查，無快取需求） */
-export async function getMyPlan(studentUid: string): Promise<SelfDirectedLearningPlan | null> {
-  const period = periodLabelOf(await getCurrentPeriod());
-  const id = planDocIdOf(period, studentUid);
-  const snap = await plansRef().doc(id).get();
-  if (!snap.exists) return null;
-  return readPlan(id, (snap.data() || {}) as Record<string, unknown>);
+/** 讀學生目前為止的所有計畫（單一等值查詢，避免複合索引；依更新時間新到舊） */
+export async function getStudentPlans(
+  studentUid: string,
+  limit = 200
+): Promise<SelfDirectedLearningPlan[]> {
+  const snap = await plansRef().where("studentUid", "==", studentUid).limit(limit).get();
+  const plans = readPlansFromSnapshot(snap);
+  plans.sort((a, b) => b.updatedAt - a.updatedAt);
+  return plans;
+}
+
+function readReview(id: string, raw: Record<string, unknown>): PlanReview {
+  return {
+    id,
+    planId: typeof raw.planId === "string" ? raw.planId : "",
+    reviewerUid: typeof raw.reviewerUid === "string" ? raw.reviewerUid : "",
+    reviewerName: typeof raw.reviewerName === "string" ? raw.reviewerName : "",
+    decision: raw.decision === "returned" ? ("returned" as const) : ("approved" as const),
+    note: typeof raw.note === "string" ? raw.note : "",
+    reviewedAt: typeof raw.reviewedAt === "number" ? raw.reviewedAt : 0,
+  };
 }
 
 /** 讀計畫的最新審查意見（where 精準條件＋本機排序，筆數有界） */
@@ -87,20 +104,32 @@ export async function getLatestReview(planId: string): Promise<PlanReview | null
     .limit(20)
     .get();
   if (snap.empty) return null;
-  const items = snap.docs.map((doc) => {
-    const raw = (doc.data() || {}) as Record<string, unknown>;
-    return {
-      id: doc.id,
-      planId: typeof raw.planId === "string" ? raw.planId : "",
-      reviewerUid: typeof raw.reviewerUid === "string" ? raw.reviewerUid : "",
-      reviewerName: typeof raw.reviewerName === "string" ? raw.reviewerName : "",
-      decision: raw.decision === "returned" ? ("returned" as const) : ("approved" as const),
-      note: typeof raw.note === "string" ? raw.note : "",
-      reviewedAt: typeof raw.reviewedAt === "number" ? raw.reviewedAt : 0,
-    };
-  });
+  const items = snap.docs.map((doc) =>
+    readReview(doc.id, (doc.data() || {}) as Record<string, unknown>)
+  );
   items.sort((a, b) => b.reviewedAt - a.reviewedAt);
   return items[0] || null;
+}
+
+/** 一次取多筆計畫的最新審查意見（`planId in` 分塊，避免逐筆 N+1） */
+export async function getLatestReviews(planIds: string[]): Promise<Record<string, PlanReview>> {
+  const unique = [...new Set(planIds.filter((id) => typeof id === "string" && id))];
+  const latest: Record<string, PlanReview> = {};
+  for (let index = 0; index < unique.length; index += 30) {
+    const chunk = unique.slice(index, index + 30);
+    const snap = await getAdminDb()
+      .collection(SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION)
+      .where("planId", "in", chunk)
+      .limit(500)
+      .get();
+    for (const doc of snap.docs) {
+      const review = readReview(doc.id, (doc.data() || {}) as Record<string, unknown>);
+      if (!review.planId) continue;
+      const previous = latest[review.planId];
+      if (!previous || review.reviewedAt > previous.reviewedAt) latest[review.planId] = review;
+    }
+  }
+  return latest;
 }
 
 export interface StudentIdentityLite {
@@ -115,11 +144,20 @@ export type SaveAction = "save" | "submit";
 
 export type SavePlanResult =
   | { ok: true; plan: SelfDirectedLearningPlan }
-  | { ok: false; status: 400 | 409; message: string };
+  | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/** 新計畫的 doc id：`period_uid_時間亂數`（舊資料仍為 `period_uid`，兩種都相容） */
+function newPlanDocId(period: string, studentUid: string, now: number): string {
+  return `${planDocIdOf(period, studentUid)}_${now.toString(36)}${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
 
 /**
  * 儲存草稿／送出審核。
- * save：任何時間可存（approved 鎖定不可改）；submit：僅開放期間內、狀態不得為 approved/submitted。
+ * - 未帶 planId＝新增計畫（僅限開放撰寫期間，且同一學期已有正式計畫時不可新增）。
+ * - 帶 planId＝編輯既有草稿（草稿／退回修改可編輯；審核中／已通過不可編輯）。
+ * - 正式計畫（approved）每學期僅一份；送出審核與審核通過時都會檢查。
  */
 export async function saveStudentPlan(input: {
   student: StudentIdentityLite;
@@ -131,15 +169,41 @@ export async function saveStudentPlan(input: {
   };
   action: SaveAction;
   settings: SelfDirectedLearningSettings;
+  /** 編輯既有草稿時帶入；新增計畫不帶 */
+  planId?: string | null;
   now?: number;
 }): Promise<SavePlanResult> {
   const now = input.now ?? Date.now();
-  const period = periodLabelOf(await getCurrentPeriod());
-  const id = planDocIdOf(period, input.student.uid);
-  const current = await getMyPlan(input.student.uid);
+  const currentPeriod = periodLabelOf(await getCurrentPeriod());
+  const requestedId = typeof input.planId === "string" ? input.planId.trim() : "";
 
-  if (current && current.status === "approved") {
-    return { ok: false, status: 409, message: "計畫已通過審核，不可再修改" };
+  let target: SelfDirectedLearningPlan | null = null;
+  if (requestedId) {
+    const snap = await plansRef().doc(requestedId).get();
+    if (!snap.exists) return { ok: false, status: 404, message: "查無此計畫" };
+    target = readPlan(requestedId, (snap.data() || {}) as Record<string, unknown>);
+    if (target.studentUid !== input.student.uid) {
+      return { ok: false, status: 403, message: "無權修改此計畫" };
+    }
+    if (target.status === "approved") {
+      return { ok: false, status: 409, message: "計畫已通過審核，不可再修改" };
+    }
+    if (target.status === "submitted") {
+      return { ok: false, status: 409, message: "計畫審核中，請等待審查結果" };
+    }
+  }
+
+  const period = target?.period || currentPeriod;
+  const studentPlans = await getStudentPlans(input.student.uid);
+  const approvedElsewhere = studentPlans.find(
+    (plan) => plan.period === period && plan.status === "approved" && plan.id !== requestedId
+  );
+  if (approvedElsewhere && (!target || input.action === "submit")) {
+    return { ok: false, status: 409, message: "本學期已有正式計畫，無法再新增或送出計畫" };
+  }
+
+  if (!target && openStateOf(input.settings, now) !== "open") {
+    return { ok: false, status: 400, message: "目前非開放撰寫期間，無法新增計畫" };
   }
 
   if (input.action === "submit") {
@@ -149,11 +213,9 @@ export async function saveStudentPlan(input: {
     }
     if (now < openAt) return { ok: false, status: 400, message: "尚未到開放撰寫時間" };
     if (now > closeAt) return { ok: false, status: 400, message: "已超過開放撰寫期限" };
-    if (current && current.status === "submitted") {
-      return { ok: false, status: 409, message: "計畫審核中，請等待審查結果" };
-    }
   }
 
+  const id = target?.id ?? newPlanDocId(period, input.student.uid, now);
   const next: SelfDirectedLearningPlan = {
     id,
     period,
@@ -167,7 +229,7 @@ export async function saveStudentPlan(input: {
     advisor: input.draft.advisor,
     weeks: input.draft.weeks,
     status: input.action === "submit" ? "submitted" : "draft",
-    submittedAt: input.action === "submit" ? now : current?.submittedAt ?? null,
+    submittedAt: input.action === "submit" ? now : target?.submittedAt ?? null,
     updatedAt: now,
   };
   await plansRef().doc(id).set(next, { merge: true });
@@ -234,13 +296,10 @@ export async function listSubmittedPlansForScope(
   const uids = [...new Set(scope.studentUids)];
   for (let index = 0; index < uids.length; index += 30) {
     const chunk = uids.slice(index, index + 30);
-    const docs = await getAdminDb().getAll(
-      ...chunk.map((uid) => plansRef().doc(planDocIdOf(period, uid)))
-    );
-    for (const doc of docs) {
-      if (!doc.exists) continue;
-      const plan = readPlan(doc.id, (doc.data() || {}) as Record<string, unknown>);
-      if (plan.status === "submitted") merged.set(plan.id, plan);
+    // 同一學生可能有數筆草稿／正式計畫，改用 studentUid 等值查詢（單一欄位索引）
+    const snap = await plansRef().where("studentUid", "in", chunk).limit(300).get();
+    for (const plan of readPlansFromSnapshot(snap)) {
+      if (plan.period === period && plan.status === "submitted") merged.set(plan.id, plan);
     }
   }
 
@@ -300,6 +359,18 @@ export async function applyReview(input: {
       return { kind: "outOfScope" as const };
     }
     if (current.status !== "submitted") return { kind: "badStatus" as const };
+    if (input.action === "approve") {
+      // 同一學生同一學期僅能有一份正式計畫：審核當下再檢查一次，避免兩筆待審先後通過
+      const approvedSnap = await tx.get(
+        plansRef().where("studentUid", "==", current.studentUid).limit(50)
+      );
+      const conflict = approvedSnap.docs.some((doc) => {
+        if (doc.id === current.id) return false;
+        const data = (doc.data() || {}) as Record<string, unknown>;
+        return data.period === current.period && data.status === "approved";
+      });
+      if (conflict) return { kind: "conflict" as const };
+    }
     const now = Date.now();
     const status: SelfDirectedLearningPlan["status"] =
       input.action === "approve" ? "approved" : "returned";
@@ -326,6 +397,9 @@ export async function applyReview(input: {
   }
   if (outcome.kind === "badStatus") {
     return { ok: false, status: 409, message: "此計畫不在待審核狀態" };
+  }
+  if (outcome.kind === "conflict") {
+    return { ok: false, status: 409, message: "此學生本學期已有正式計畫，無法再通過" };
   }
   return { ok: true, plan: outcome.plan };
 }

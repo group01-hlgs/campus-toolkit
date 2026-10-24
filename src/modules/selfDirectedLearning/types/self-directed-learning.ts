@@ -127,8 +127,10 @@ export interface SelfDirectedLearningSettings {
   venues: string[];
   /** 審核人員名單 */
   reviewers: ReviewerEntry[];
-  /** 給學生的說明文字 */
+  /** 自主學習實施說明（給學生、家長的總說明） */
   instructions: string;
+  /** 自主學習計畫撰寫說明（學生發起新計畫或編輯草稿時的撰寫說明） */
+  writingInstructions: string;
   /** 儲存設定時是否同步發布（或更新）系統公告（由管理人員勾選，預設不自動發送） */
   publishAnnouncement: boolean;
   /** 儲存設定時是否同步發布（或更新）行事曆行程（由管理人員勾選，預設不自動發送） */
@@ -146,6 +148,7 @@ export const DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS: SelfDirectedLearningSettin
   venues: [],
   reviewers: [],
   instructions: "",
+  writingInstructions: "",
   publishAnnouncement: false,
   publishCalendar: false,
   updatedAt: 0,
@@ -250,6 +253,10 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
     reviewers,
     instructions:
       typeof source.instructions === "string" ? source.instructions.slice(0, 4000) : "",
+    writingInstructions:
+      typeof source.writingInstructions === "string"
+        ? source.writingInstructions.slice(0, 4000)
+        : "",
     // 舊版單一開關（syncAnnouncementAndCalendar）一併視為兩者皆開啟，避免既有勾選失效
     publishAnnouncement:
       typeof source.publishAnnouncement === "boolean"

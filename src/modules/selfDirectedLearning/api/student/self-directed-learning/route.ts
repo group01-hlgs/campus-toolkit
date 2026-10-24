@@ -6,15 +6,17 @@ import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { requireFeatureModuleEnabled } from "@/lib/module-gate";
 import { getFullWeeks, getSettings } from "../../../lib/self-directed-learning";
 import {
-  getLatestReview,
-  getMyPlan,
+  getLatestReviews,
+  getStudentPlans,
   saveStudentPlan,
   type StudentIdentityLite,
 } from "../../../lib/self-directed-learning-plans";
+import { getCurrentPeriod } from "@/lib/settings-server";
 import {
   MAINTENANCE_TITLE,
   openStateOf,
   parsePlanDraft,
+  periodLabelOf,
 } from "../../../types/self-directed-learning";
 
 const noStore = { "Cache-Control": "no-store" };
@@ -66,22 +68,36 @@ export async function GET(request: NextRequest) {
 
     const settings = await getSettings();
     const fullWeeks = await getFullWeeks();
+    const currentPeriod = periodLabelOf(await getCurrentPeriod());
     // 總開關關閉：非管理端只回維護旗標（計畫與審查意見不回傳）
     if (!settings.enabled) {
       return NextResponse.json(
-        { success: true, settings, fullWeeks, maintenance: true, plan: null, latestReview: null, withinWindow: false },
+        {
+          success: true,
+          settings,
+          fullWeeks,
+          maintenance: true,
+          plans: [],
+          reviews: {},
+          currentPeriod,
+          withinWindow: false,
+        },
         { headers: noStore }
       );
     }
-    const plan = await getMyPlan(student.uid);
-    const latestReview = plan ? await getLatestReview(plan.id) : null;
+    const plans = await getStudentPlans(student.uid);
+    // 只取需要顯示審查意見的計畫（草稿不需查）
+    const reviews = await getLatestReviews(
+      plans.filter((plan) => plan.status !== "draft").map((plan) => plan.id)
+    );
     return NextResponse.json(
       {
         success: true,
         settings,
         fullWeeks,
-        plan,
-        latestReview,
+        plans,
+        reviews,
+        currentPeriod,
         withinWindow: openStateOf(settings) === "open",
       },
       { headers: noStore }
@@ -125,8 +141,10 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => null)) as {
       action?: string;
       draft?: unknown;
+      planId?: unknown;
     } | null;
     const action = body?.action === "submit" ? "submit" : "save";
+    const planId = typeof body?.planId === "string" ? body.planId.trim().slice(0, 200) : "";
 
     const settings = await getSettings();
     if (!settings.enabled) {
@@ -144,7 +162,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await saveStudentPlan({ student, draft: parsed.value, action, settings });
+    const result = await saveStudentPlan({
+      student,
+      draft: parsed.value,
+      action,
+      settings,
+      planId: planId || null,
+    });
     if (!result.ok) {
       return NextResponse.json(
         { success: false, message: result.message },

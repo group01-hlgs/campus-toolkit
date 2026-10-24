@@ -5,10 +5,11 @@ import { requireFeatureModuleEnabled } from "@/lib/module-gate";
 import { getSettings } from "../../../lib/self-directed-learning";
 import {
   getLatestReview,
-  getMyPlan,
+  getStudentPlans,
   linkedChildForParent,
 } from "../../../lib/self-directed-learning-plans";
-import { openStateOf } from "../../../types/self-directed-learning";
+import { getCurrentPeriod } from "@/lib/settings-server";
+import { openStateOf, periodLabelOf } from "../../../types/self-directed-learning";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
     const settings = await getSettings();
     if (!settings.enabled) {
       return NextResponse.json(
-        { success: true, maintenance: true, child: null, plan: null, latestReview: null, withinWindow: false },
+        { success: true, maintenance: true, child: null, plan: null, latestReview: null, instructions: "", withinWindow: false },
         { headers: noStore }
       );
     }
@@ -63,7 +64,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const plan = await getMyPlan(child.uid);
+    // 同一學生可能有多筆計畫：優先顯示本學期正式計畫，其次最新通過，最後最新一筆
+    const plans = await getStudentPlans(child.uid);
+    const currentPeriod = periodLabelOf(await getCurrentPeriod());
+    const plan =
+      plans.find((item) => item.period === currentPeriod && item.status === "approved") ??
+      plans.find((item) => item.status === "approved") ??
+      plans[0] ??
+      null;
     const latestReview = plan ? await getLatestReview(plan.id) : null;
     return NextResponse.json(
       {
@@ -71,6 +79,7 @@ export async function GET(request: NextRequest) {
         child,
         plan,
         latestReview,
+        instructions: settings.instructions,
         withinWindow: openStateOf(settings) === "open",
       },
       { headers: noStore }
