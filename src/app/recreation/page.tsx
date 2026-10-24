@@ -72,7 +72,9 @@ export default function RecreationHomePage() {
         <p className="mb-2 inline-flex rounded border border-warning/60 bg-warning/10 px-3 py-1 text-xs text-warning">
           功能建構中，陸續開放
         </p>
-        <h2 className="text-2xl font-bold text-t1">休閒歡樂誠功能首頁</h2>
+        <h2 className="text-2xl font-bold text-primary">
+          休閒歡樂<span className="inline-block rotate-[30deg] ml-[3px]">誠</span>
+        </h2>
         {displayName && <p className="text-t2 mt-1">{displayName}，您好</p>}
       </div>
 
