@@ -63,6 +63,34 @@ function renumberInstructions(raw: string): string {
   return lines.join("\n");
 }
 
+/** 對象名單圖示 */
+function TargetListIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12M8.25 17.25h12M3.75 6.75h.007v.008H3.75V6.75zm0 5.25h.007v.008H3.75V12zm0 5.25h.007v.008H3.75v-.008z" />
+    </svg>
+  );
+}
+
+/** 設定對象圖示 */
+function TargetSettingsIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+/** 移除圖示 */
+function RemoveIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+    </svg>
+  );
+}
+
 export default function SelfDirectedLearningSettingsPage({
   fill = false,
 }: {
@@ -97,6 +125,12 @@ export default function SelfDirectedLearningSettingsPage({
   const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   /** 正在設定審查對象的審核人員 uid（一次只展開一位） */
   const [scopeEditorUid, setScopeEditorUid] = useState<string | null>(null);
+  /** 正在檢視對象名單的審核人員 uid（彈出視窗） */
+  const [targetViewerUid, setTargetViewerUid] = useState<string | null>(null);
+  /** 等待確認移除的審核人員 */
+  const [confirmRemoveReviewer, setConfirmRemoveReviewer] = useState<ReviewerEntry | null>(
+    null
+  );
   /** 個人模式目前選取載入的班級 */
   const [targetClassCode, setTargetClassCode] = useState("");
   /** 已載入的班級學生（按班級快取，避免重複讀取） */
@@ -237,6 +271,7 @@ export default function SelfDirectedLearningSettingsPage({
   const removeReviewer = (uid: string) => {
     patch({ reviewers: settings.reviewers.filter((reviewer) => reviewer.uid !== uid) });
     if (scopeEditorUid === uid) setScopeEditorUid(null);
+    if (targetViewerUid === uid) setTargetViewerUid(null);
   };
 
   const patchReviewer = (uid: string, partial: Partial<ReviewerEntry>) => {
@@ -334,39 +369,6 @@ export default function SelfDirectedLearningSettingsPage({
     }
   };
 
-  const reviewerScopeLabel = (reviewer: ReviewerEntry): string => {
-    const parts: string[] = [];
-    if (reviewer.classScoped) {
-      const codes = reviewer.classCodes ?? [];
-      if (codes.length === 0) {
-        parts.push("班級（尚未選擇）");
-      } else {
-        const grouped = new Map<string, string[]>();
-        for (const code of codes) {
-          const option = classOptions.find((item) => item.code === code);
-          const grade = option?.grade || "其他";
-          const names = grouped.get(grade) ?? [];
-          names.push(option ? option.name || option.code : code);
-          grouped.set(grade, names);
-        }
-        parts.push(
-          `班級：${[...grouped.entries()]
-            .map(([grade, names]) => `${grade}：${names.join("、")}`)
-            .join("；")}`
-        );
-      }
-    }
-    if (reviewer.studentScoped) {
-      const students = reviewer.students ?? [];
-      parts.push(
-        students.length
-          ? `個人：${students.map((student) => student.name || student.uid).join("、")}`
-          : "個人（尚未選擇）"
-      );
-    }
-    return parts.length ? parts.join("；") : "全校";
-  };
-
   const setInstructions = (value: string) => {
     patch({ instructions: value });
   };
@@ -445,6 +447,14 @@ export default function SelfDirectedLearningSettingsPage({
     </div>
   );
 
+  const targetViewer = targetViewerUid
+    ? settings.reviewers.find((reviewer) => reviewer.uid === targetViewerUid) ?? null
+    : null;
+  const knownClassCodes = new Set(classOptions.map((option) => option.code));
+  const unknownTargetClassCodes = targetViewer?.classScoped
+    ? (targetViewer.classCodes ?? []).filter((code) => !knownClassCodes.has(code))
+    : [];
+
   return (
     <section className={fill ? "space-y-4" : "mx-auto content-width space-y-4 p-4 sm:p-6"}>
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -468,6 +478,15 @@ export default function SelfDirectedLearningSettingsPage({
         </div>
         {actionButtons}
       </header>
+
+      <div
+        role="note"
+        className="border border-warning/60 bg-warning/10 text-warning space-y-1 rounded-lg p-3 text-sm"
+      >
+        <p className="font-medium">
+          管理員僅負責本頁的規則設定，請在下方「審核人員」指定教職員負責審查與管理。
+        </p>
+      </div>
 
       <details className="border-themed bg-card rounded-lg" open>
         <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
@@ -833,30 +852,42 @@ export default function SelfDirectedLearningSettingsPage({
             <ul className="space-y-2">
               {settings.reviewers.map((reviewer) => (
                 <li key={reviewer.uid} className="border-themed bg-surface space-y-2 rounded-md px-3 py-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="text-t1 text-sm">
-                        {reviewer.name}
-                        <span className="text-t3 ml-2 text-xs">{reviewer.uid}</span>
-                      </span>
-                      <p className="text-t3 mt-0.5 text-xs">
-                        審查對象：{reviewerScopeLabel(reviewer)}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-t1 min-w-0 flex-1 truncate text-sm">
+                      {reviewer.name}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
-                        className="btn-theme h-8 px-3 text-sm"
-                        onClick={() => toggleScopeEditor(reviewer.uid)}
+                        title="對象名單"
+                        aria-label={`查看 ${reviewer.name} 的對象名單`}
+                        onClick={() => setTargetViewerUid(reviewer.uid)}
+                        className="cursor-pointer rounded p-1 text-t3 transition hover:bg-hover hover:text-t2"
                       >
-                        {scopeEditorUid === reviewer.uid ? "收合對象" : "設定對象"}
+                        <TargetListIcon />
                       </button>
                       <button
                         type="button"
-                        className="btn-danger btn-theme h-8 px-3 text-sm"
-                        onClick={() => removeReviewer(reviewer.uid)}
+                        title="設定對象"
+                        aria-label={`設定 ${reviewer.name} 的審查對象`}
+                        aria-pressed={scopeEditorUid === reviewer.uid}
+                        onClick={() => toggleScopeEditor(reviewer.uid)}
+                        className={`cursor-pointer rounded p-1 transition hover:bg-hover ${
+                          scopeEditorUid === reviewer.uid
+                            ? "text-primary"
+                            : "text-t3 hover:text-t2"
+                        }`}
                       >
-                        移除
+                        <TargetSettingsIcon />
+                      </button>
+                      <button
+                        type="button"
+                        title="移除"
+                        aria-label={`移除 ${reviewer.name}`}
+                        onClick={() => setConfirmRemoveReviewer(reviewer)}
+                        className="cursor-pointer rounded p-1 text-t3 transition hover:bg-hover hover:text-danger"
+                      >
+                        <RemoveIcon />
                       </button>
                     </div>
                   </div>
@@ -1065,6 +1096,122 @@ export default function SelfDirectedLearningSettingsPage({
       </details>
 
       {actionButtons}
+
+      {targetViewer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.4)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reviewer-target-title"
+        >
+          <div className="border border-themed bg-card w-full max-w-md rounded-xl p-5 shadow-lg">
+            <h2 id="reviewer-target-title" className="text-t1 mb-3 font-semibold">
+              {targetViewer.name} 的審查對象
+            </h2>
+            <div className="text-t2 max-h-[60vh] space-y-3 overflow-y-auto text-sm">
+              {!targetViewer.classScoped && !targetViewer.studentScoped ? (
+                <p>全校</p>
+              ) : (
+                <>
+                  {targetViewer.classScoped && (
+                    <div className="space-y-1">
+                      <p className="text-t1 font-medium">班級</p>
+                      {(targetViewer.classCodes ?? []).length === 0 ? (
+                        <p className="text-t3">尚未選擇</p>
+                      ) : (
+                        <>
+                          {classGroups.map(({ grade, classes }) => {
+                            const selected = classes.filter((option) =>
+                              (targetViewer.classCodes ?? []).includes(option.code)
+                            );
+                            if (selected.length === 0) return null;
+                            return (
+                              <p key={grade}>
+                                <span className="text-t1">{grade}</span>：
+                                {selected.map((option) => option.name || option.code).join("、")}
+                              </p>
+                            );
+                          })}
+                          {unknownTargetClassCodes.length > 0 && (
+                            <p>
+                              <span className="text-t1">其他</span>：
+                              {unknownTargetClassCodes.join("、")}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {targetViewer.studentScoped && (
+                    <div className="space-y-1">
+                      <p className="text-t1 font-medium">個別學生</p>
+                      {(targetViewer.students ?? []).length === 0 ? (
+                        <p className="text-t3">尚未選擇</p>
+                      ) : (
+                        <p>
+                          {(targetViewer.students ?? [])
+                            .map((student) =>
+                              `${student.name || student.uid}${
+                                student.classCode ? `（${student.classCode}）` : ""
+                              }`
+                            )
+                            .join("、")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                className="btn-theme h-9 px-4 text-sm"
+                onClick={() => setTargetViewerUid(null)}
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmRemoveReviewer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.4)] p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="reviewer-remove-title"
+        >
+          <div className="border border-themed bg-card w-full max-w-sm rounded-xl p-5 shadow-lg">
+            <h2 id="reviewer-remove-title" className="text-t1 mb-2 font-semibold">
+              移除審查人員
+            </h2>
+            <p className="text-t2 mb-4 text-sm">
+              確定要移除「{confirmRemoveReviewer.name}」嗎？移除後將不再出現在審查人員名單。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn-theme h-9 px-4 text-sm"
+                onClick={() => setConfirmRemoveReviewer(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-theme h-9 px-4 text-sm"
+                onClick={() => {
+                  removeReviewer(confirmRemoveReviewer.uid);
+                  setConfirmRemoveReviewer(null);
+                }}
+              >
+                確定移除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast message={toast} onClose={() => setToast(null)} />
     </section>

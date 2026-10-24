@@ -13,7 +13,7 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.25",
+    "version": "0.0.29",
     "releasedAt": "2026-10-24"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -54,6 +54,34 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.29",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "調整管理規則頁提示文字為：管理員僅負責本頁的規則設定，請在下方「審核人員」指定教職員負責審查與管理"
+      ]
+    },
+    {
+      "version": "0.0.28",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "管理規則頁新增警告色提示：管理員不負責審查與管理自主學習計畫，請於「審核人員」指定教職員負責"
+      ]
+    },
+    {
+      "version": "0.0.27",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "移除審查人員改為先跳出一般等級的確認視窗（取消／確定移除），避免誤刪"
+      ]
+    },
+    {
+      "version": "0.0.26",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "審核人員列表改為每位一行：只顯示姓名與三個圖示（對象名單／設定對象／移除），不再顯示 uid 與完整對象清單；對象名單改以彈出視窗依年級呈現，避免版面過長"
+      ]
+    },
     {
       "version": "0.0.25",
       "releasedAt": "2026-10-24",
