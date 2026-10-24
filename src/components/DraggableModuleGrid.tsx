@@ -18,6 +18,8 @@ export interface ModuleCardItem {
   icon: ReactNode;
   label: string;
   href: string;
+  /** 點擊卡片時改為執行此動作（如開啟遊戲視窗），不導頁；有提供時優先於 href */
+  onClick?: () => void;
 }
 
 const DEFAULT_HINT =
@@ -192,11 +194,11 @@ function TrashIcon() {
 const cleanRow = (row: unknown): string[] =>
   Array.isArray(row) ? row.filter((entry): entry is string => typeof entry === "string") : [];
 
-/** 建立「未分類」：永遠存在的退回容器（初始時裝著全部卡片） */
-function mkUncategorized(ids: string[]): StoredCategory {
+/** 建立「預設分類」：永遠存在的退回容器（初始時裝著全部卡片） */
+function mkUncategorized(ids: string[], name = "未分類"): StoredCategory {
   return {
     id: UNCATEGORIZED_ID,
-    name: "未分類",
+    name,
     defaultCollapsed: false,
     collapsed: false,
     columns: null,
@@ -210,7 +212,7 @@ function normalizeColumns(value: unknown): number | null {
   return value >= 1 && value <= MAX_COLUMNS ? value : null;
 }
 
-function normalizeCategory(entry: unknown): StoredCategory | null {
+function normalizeCategory(entry: unknown, fallbackName = "未分類"): StoredCategory | null {
   if (!entry || typeof entry !== "object") return null;
   const raw = entry as {
     id?: unknown;
@@ -224,7 +226,7 @@ function normalizeCategory(entry: unknown): StoredCategory | null {
   const rows = Array.isArray(raw.rows) ? raw.rows.map(cleanRow).filter((row) => row.length > 0) : [];
   return {
     id: raw.id,
-    name: typeof raw.name === "string" && raw.name.trim() !== "" ? raw.name : "未分類",
+    name: typeof raw.name === "string" && raw.name.trim() !== "" ? raw.name : fallbackName,
     defaultCollapsed: raw.defaultCollapsed === true,
     collapsed: raw.collapsed === true,
     columns: normalizeColumns(raw.columns),
@@ -233,7 +235,10 @@ function normalizeCategory(entry: unknown): StoredCategory | null {
 }
 
 /** 解析 localStorage 版面：v4/v3 分類格式，以及舊版 v2（二維行）／v1（一維卡片）皆可讀（自動包成單一未分類） */
-function parseStoredLayout(raw: string): { categories: StoredCategory[]; anchored: string[] } | null {
+function parseStoredLayout(
+  raw: string,
+  defaultCategoryName = "未分類"
+): { categories: StoredCategory[]; anchored: string[] } | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -242,23 +247,31 @@ function parseStoredLayout(raw: string): { categories: StoredCategory[]; anchore
   }
   const isString = (value: unknown): value is string => typeof value === "string";
   if (Array.isArray(parsed) && parsed.every((entry) => Array.isArray(entry))) {
-    return { categories: [mkUncategorized((parsed as unknown[]).flatMap(cleanRow))], anchored: [] };
+    return {
+      categories: [mkUncategorized((parsed as unknown[]).flatMap(cleanRow), defaultCategoryName)],
+      anchored: [],
+    };
   }
   if (Array.isArray(parsed) && parsed.every(isString)) {
-    return { categories: [mkUncategorized(parsed)], anchored: [] };
+    return { categories: [mkUncategorized(parsed, defaultCategoryName)], anchored: [] };
   }
   if (parsed && typeof parsed === "object") {
     const stored = parsed as { rows?: unknown; anchored?: unknown; categories?: unknown };
     const anchored = Array.isArray(stored.anchored) ? stored.anchored.filter(isString) : [];
     if (Array.isArray(stored.categories)) {
       const categories = stored.categories
-        .map(normalizeCategory)
+        .map((entry) => normalizeCategory(entry, defaultCategoryName))
         .filter((category): category is StoredCategory => category !== null);
       if (categories.length > 0) return { categories, anchored };
       return null;
     }
     if (Array.isArray(stored.rows)) {
-      return { categories: [mkUncategorized((stored.rows as unknown[]).flatMap(cleanRow))], anchored };
+      return {
+        categories: [
+          mkUncategorized((stored.rows as unknown[]).flatMap(cleanRow), defaultCategoryName),
+        ],
+        anchored,
+      };
     }
   }
   return null;
@@ -268,7 +281,11 @@ function parseStoredLayout(raw: string): { categories: StoredCategory[]; anchore
  * 對齊目前的卡片清單：清掉已不存在的卡片、跨分類去重，
  * 新增的卡片補進「未分類」末行；「未分類」不在清單中時自動補建。
  */
-function reconcileCategories(source: StoredCategory[], ids: string[]): StoredCategory[] {
+function reconcileCategories(
+  source: StoredCategory[],
+  ids: string[],
+  defaultCategoryName = "未分類"
+): StoredCategory[] {
   const known = new Set(ids);
   const seen = new Set<string>();
   const result: StoredCategory[] = [];
@@ -284,7 +301,7 @@ function reconcileCategories(source: StoredCategory[], ids: string[]): StoredCat
   }
   let uncategorized = result.find((category) => category.id === UNCATEGORIZED_ID);
   if (!uncategorized) {
-    uncategorized = mkUncategorized([]);
+    uncategorized = mkUncategorized([], defaultCategoryName);
     result.unshift(uncategorized);
   }
   const missing = ids.filter((id) => !seen.has(id));
@@ -382,6 +399,9 @@ export default function DraggableModuleGrid({
   hint = DEFAULT_HINT,
   gridClassName = `${AREA_WIDTH_CLASS} relative flex flex-wrap gap-6 items-start mb-8`,
   anchorAfter,
+  defaultCategoryName = "未分類",
+  alwaysShowHeadings = false,
+  defaultCategoryNote,
 }: {
   items: ModuleCardItem[];
   storageKey: string;
@@ -393,11 +413,17 @@ export default function DraggableModuleGrid({
    * 只在使用者尚未自行拖曳該卡片時套用——一旦拖過就以拖曳結果為準並記住。
    */
   anchorAfter?: Record<string, string>;
+  /** 預設分類（不可刪除的退回容器）名稱；未指定時沿用「未分類」 */
+  defaultCategoryName?: string;
+  /** 分類標題列一律顯示（即使只有一個分類、或該分類目前沒有卡片） */
+  alwaysShowHeadings?: boolean;
+  /** 預設分類標題下方的簡要說明（可放不同主題色的文字片段） */
+  defaultCategoryNote?: ReactNode;
 }) {
   const router = useRouter();
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [categories, setCategories] = useState<StoredCategory[]>(() => [
-    mkUncategorized(items.map((item) => item.id)),
+    mkUncategorized(items.map((item) => item.id), defaultCategoryName),
   ]);
   const catsRef = useRef<StoredCategory[]>(categories);
   /** 已被使用者自行拖曳定位的錨點子卡片（不再套用排版規則），隨版面一起存進 localStorage */
@@ -475,10 +501,22 @@ export default function DraggableModuleGrid({
       return;
     }
     if (!raw) return;
-    const stored = parseStoredLayout(raw);
+    const stored = parseStoredLayout(raw, defaultCategoryName);
     if (!stored) return; // 資料毀損時維持預設版面
     anchoredRef.current = new Set(stored.anchored);
-    const reconciled = reconcileCategories(stored.categories, items.map((item) => item.id));
+    // 舊版預設分類名稱為「未分類」：指定自訂名稱時一併升級，避免沿用舊標題
+    const categories = stored.categories.map((category) =>
+      category.id === UNCATEGORIZED_ID &&
+      category.name === "未分類" &&
+      defaultCategoryName !== "未分類"
+        ? { ...category, name: defaultCategoryName }
+        : category
+    );
+    const reconciled = reconcileCategories(
+      categories,
+      items.map((item) => item.id),
+      defaultCategoryName
+    );
     if (reconciled.length === 0) return;
     const next = applyAnchorRules(reconciled);
     catsRef.current = next;
@@ -491,11 +529,17 @@ export default function DraggableModuleGrid({
 
   // 卡片有增減時（例如功能改版）同步到版面：新卡片補進「未分類」末行，再套排版規則
   useEffect(() => {
-    const next = applyAnchorRules(reconcileCategories(catsRef.current, items.map((item) => item.id)));
+    const next = applyAnchorRules(
+      reconcileCategories(
+        catsRef.current,
+        items.map((item) => item.id),
+        defaultCategoryName
+      )
+    );
     if (JSON.stringify(next) === JSON.stringify(catsRef.current)) return;
     catsRef.current = next;
     setCategories(next);
-  }, [items]);
+  }, [items, defaultCategoryName]);
 
   function locateCard(id: string): { category: string; row: number; index: number } | null {
     for (const category of catsRef.current) {
@@ -818,6 +862,11 @@ export default function DraggableModuleGrid({
     }
     // 編輯模式下點卡片不導頁（避免編輯時誤入功能）
     if (editMode) return;
+    // 有自訂動作的卡片（如遊戲卡開啟視窗）優先執行，不導頁
+    if (item.onClick) {
+      item.onClick();
+      return;
+    }
     // 無入口頁的卡片（如休閒歡樂誠：入口為首頁浮動遊戲按鈕）不導頁
     if (!item.href) return;
     router.push(item.href);
@@ -1056,16 +1105,23 @@ export default function DraggableModuleGrid({
     applyCategories(next);
   }
 
-  /** 目前要顯示的分類：一般模式隱藏空白分類（含空白的未分類），編輯模式全部顯示（才能拖入） */
+  /**
+   * 目前要顯示的分類：一般模式隱藏空白分類（含空白的預設分類），編輯模式全部顯示（才能拖入）；
+   * alwaysShowHeadings 時預設分類即使空白也保留（名稱永遠顯示）。
+   */
   const visibleCategories = useMemo(
     () =>
       editMode
         ? categories
-        : categories.filter((category) => category.rows.some((row) => row.length > 0)),
-    [categories, editMode]
+        : categories.filter(
+            (category) =>
+              category.rows.some((row) => row.length > 0) ||
+              (alwaysShowHeadings && category.id === UNCATEGORIZED_ID)
+          ),
+    [categories, editMode, alwaysShowHeadings]
   );
-  /** 只有一個分類時不顯示標題列（畫面與無分類時相同）；編輯模式一律顯示（改名/收合入口） */
-  const showHeadings = editMode || visibleCategories.length > 1;
+  /** 只有一個分類時不顯示標題列（畫面與無分類時相同）；編輯模式與 alwaysShowHeadings 一律顯示 */
+  const showHeadings = editMode || alwaysShowHeadings || visibleCategories.length > 1;
   const deleteTarget = deleteId === null ? null : categories.find((c) => c.id === deleteId) ?? null;
 
   return (
@@ -1325,6 +1381,11 @@ export default function DraggableModuleGrid({
                         </button>
                       )}
                     </span>
+                )}
+                {defaultCategoryNote && category.id === UNCATEGORIZED_ID && (
+                  <span className="w-full pl-9 text-xs leading-relaxed">
+                    {defaultCategoryNote}
+                  </span>
                 )}
               </summary>
               {rowsBlock}

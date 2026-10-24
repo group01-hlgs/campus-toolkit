@@ -299,7 +299,18 @@ function drawChangE(ctx: CanvasRenderingContext2D, x: number, y: number, width: 
   ctx.drawImage(img, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
 }
 
-export default function HomepageCornerChangE() {
+export default function HomepageCornerChangE({
+  hideLauncher = false,
+  openSignal = 0,
+  launcherTop,
+}: {
+  /** 不顯示左上角浮動按鈕（改由外部卡片開啟） */
+  hideLauncher?: boolean;
+  /** 外部開啟訊號：數值遞增即開啟遊戲視窗 */
+  openSignal?: number;
+  /** 浮動按鈕的上緣位置（px）；未指定時沿用預設值 */
+  launcherTop?: number;
+}) {
   const [open, setOpen] = useState(false);
   const [score, setScore] = useState(0);
   const [changEsLeft, setChangEsLeft] = useState(CONFIG.startingChangEs);
@@ -331,6 +342,11 @@ export default function HomepageCornerChangE() {
   const loggedInRef = useRef(false);
   const sessionReadyRef = useRef(false);
   const syncedScoreRef = useRef<number | null>(null);
+
+  // 外部卡片開啟：訊號遞增即開啟遊戲視窗
+  useEffect(() => {
+    if (openSignal > 0) setOpen(true);
+  }, [openSignal]);
 
   const closeOverlay = useCallback(() => {
     setOpen(false);
@@ -741,27 +757,30 @@ export default function HomepageCornerChangE() {
 
   return (
     <>
-      <button
-        type="button"
-        title="嫦娥奔月"
-        onClick={() => setOpen(true)}
-        className="fixed left-4 top-[88px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
-        aria-label="開啟嫦娥奔月"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          width={18}
-          height={18}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
+      {!hideLauncher && (
+        <button
+          type="button"
+          title="嫦娥奔月"
+          onClick={() => setOpen(true)}
+          style={launcherTop !== undefined ? { top: launcherTop } : undefined}
+          className="fixed left-4 top-[88px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
+          aria-label="開啟嫦娥奔月"
         >
-          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-        </svg>
-      </button>
+          <svg
+            viewBox="0 0 24 24"
+            width={18}
+            height={18}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+          </svg>
+        </button>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-[90] bg-black/50 flex items-center justify-center px-3 py-4">
