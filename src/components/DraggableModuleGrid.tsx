@@ -1153,7 +1153,7 @@ export default function DraggableModuleGrid({
                               {item.id === "recreation" ? (
                                 <>
                                   休閒歡樂
-                                  <span className="inline-block rotate-45">誠</span>
+                                  <span className="inline-block rotate-[30deg] ml-[3px]">誠</span>
                                 </>
                               ) : (
                                 item.label
