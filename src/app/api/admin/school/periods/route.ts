@@ -10,8 +10,10 @@ import { invalidateAdminListCache } from "@/lib/list-cache";
 import { cachedSettingDoc } from "@/lib/read-cache";
 import {
   PERIODS_DOC_ID,
+  defaultSchoolPeriods,
   readSchoolPeriods,
   validateSchoolPeriods,
+  type SchoolPeriodsSetting,
 } from "@/types/school-periods";
 
 const PERIODS_DOC = { collection: SETTINGS_COLLECTION, id: PERIODS_DOC_ID };
@@ -43,10 +45,22 @@ export async function GET(request: NextRequest) {
 
     // 課表作息時間：30 秒快取（setting-doc key），
     // PUT 成功後由 invalidateAdminListCache() 失效
-    const snap = await cachedSettingDoc(PERIODS_DOC_ID, () =>
-      getAdminDb().collection(PERIODS_DOC.collection).doc(PERIODS_DOC.id).get()
-    );
-    const setting = readSchoolPeriods(snap.exists ? snap.data() : null);
+    const ref = getAdminDb().collection(PERIODS_DOC.collection).doc(PERIODS_DOC.id);
+    const snap = await cachedSettingDoc(PERIODS_DOC_ID, () => ref.get());
+    let setting: SchoolPeriodsSetting;
+    if (snap.exists) {
+      setting = readSchoolPeriods(snap.data());
+    } else {
+      // 首次使用：把畫面看到的內建預設（每日八節＋午休）實際寫入資料庫，
+      // 避免「表單有資料、資料庫卻沒有」讓新學校誤以為已完成設定，
+      // 也讓其他模組（如自主學習計畫）能讀到同一份作息。
+      setting = defaultSchoolPeriods();
+      await ref.set({
+        schoolDays: setting.schoolDays,
+        periods: setting.periods.map((row) => ({ ...row })),
+      });
+      await invalidateAdminListCache();
+    }
     return NextResponse.json({ success: true, setting }, { headers: noStore });
   } catch (error) {
     console.error("School periods GET error:", error);
