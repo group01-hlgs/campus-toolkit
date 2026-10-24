@@ -323,7 +323,15 @@ function intersects(a: { x: number; y: number; w: number; h: number }, b: { x: n
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
-export default function HomepageCornerExam() {
+export default function HomepageCornerExam({
+  hideLauncher = false,
+  openSignal = 0,
+}: {
+  /** 不顯示左上角浮動按鈕（改由外部卡片開啟） */
+  hideLauncher?: boolean;
+  /** 外部開啟訊號：數值遞增即開啟遊戲視窗 */
+  openSignal?: number;
+}) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<GamePhase>("select");
   const [selectedSubjects, setSelectedSubjects] = useState<Subject[]>([]);
@@ -357,6 +365,11 @@ export default function HomepageCornerExam() {
   const loggedInRef = useRef(false);
   const sessionReadyRef = useRef(false);
   const syncedRateRef = useRef<number | null>(null);
+
+  // 外部卡片開啟：訊號遞增即開啟遊戲視窗
+  useEffect(() => {
+    if (openSignal > 0) setOpen(true);
+  }, [openSignal]);
 
   const closeOverlay = useCallback(() => {
     setOpen(false);
@@ -860,29 +873,31 @@ export default function HomepageCornerExam() {
 
   return (
     <>
-      <button
-        type="button"
-        title="學測滿級分"
-        onClick={() => setOpen(true)}
-        className="fixed left-4 top-[124px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
-        aria-label="開啟學測滿級分"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          width={18}
-          height={18}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
+      {!hideLauncher && (
+        <button
+          type="button"
+          title="學測滿級分"
+          onClick={() => setOpen(true)}
+          className="fixed left-4 top-[124px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
+          aria-label="開啟學測滿級分"
         >
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <path d="M14 2v6h6" />
-          <path d="m9 15 2 2 4-4" />
-        </svg>
-      </button>
+          <svg
+            viewBox="0 0 24 24"
+            width={18}
+            height={18}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="m9 15 2 2 4-4" />
+          </svg>
+        </button>
+      )}
 
       {/* 行動裝置小螢幕：外層可垂直捲動，內容用 my-auto 安全置中，避免超出畫面時上下被裁切 */}
       {open && (

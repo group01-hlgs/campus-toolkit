@@ -18,6 +18,8 @@ export interface ModuleCardItem {
   icon: ReactNode;
   label: string;
   href: string;
+  /** 點擊卡片時改為執行此動作（如開啟遊戲視窗），不導頁；有提供時優先於 href */
+  onClick?: () => void;
 }
 
 const DEFAULT_HINT =
@@ -818,6 +820,11 @@ export default function DraggableModuleGrid({
     }
     // 編輯模式下點卡片不導頁（避免編輯時誤入功能）
     if (editMode) return;
+    // 有自訂動作的卡片（如遊戲卡開啟視窗）優先執行，不導頁
+    if (item.onClick) {
+      item.onClick();
+      return;
+    }
     // 無入口頁的卡片（如休閒歡樂誠：入口為首頁浮動遊戲按鈕）不導頁
     if (!item.href) return;
     router.push(item.href);

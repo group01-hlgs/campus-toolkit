@@ -279,7 +279,15 @@ function drawWrench(ctx: CanvasRenderingContext2D, x: number, y: number, width: 
   ctx.restore();
 }
 
-export default function HomepageCornerWrench() {
+export default function HomepageCornerWrench({
+  hideLauncher = false,
+  openSignal = 0,
+}: {
+  /** 不顯示左上角浮動按鈕（改由外部卡片開啟） */
+  hideLauncher?: boolean;
+  /** 外部開啟訊號：數值遞增即開啟遊戲視窗 */
+  openSignal?: number;
+}) {
   const [open, setOpen] = useState(false);
   const [score, setScore] = useState(0);
   const [wrenchesLeft, setWrenchesLeft] = useState(CONFIG.startingWrenches);
@@ -311,6 +319,11 @@ export default function HomepageCornerWrench() {
   const loggedInRef = useRef(false);
   const sessionReadyRef = useRef(false);
   const syncedScoreRef = useRef<number | null>(null);
+
+  // 外部卡片開啟：訊號遞增即開啟遊戲視窗
+  useEffect(() => {
+    if (openSignal > 0) setOpen(true);
+  }, [openSignal]);
 
   const closeOverlay = useCallback(() => {
     setOpen(false);
@@ -710,13 +723,14 @@ export default function HomepageCornerWrench() {
 
   return (
     <>
-      <button
-        type="button"
-        title="維護工具"
-        onClick={() => setOpen(true)}
-        className="fixed left-4 top-[52px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
-        aria-label="開啟維護工具"
-      >
+      {!hideLauncher && (
+        <button
+          type="button"
+          title="維護工具"
+          onClick={() => setOpen(true)}
+          className="fixed left-4 top-[52px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
+          aria-label="開啟維護工具"
+        >
         <svg
           viewBox="0 0 24 24"
           width={18}
@@ -730,7 +744,8 @@ export default function HomepageCornerWrench() {
         >
           <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
         </svg>
-      </button>
+        </button>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-[90] bg-black/50 flex items-center justify-center px-3 py-4">
