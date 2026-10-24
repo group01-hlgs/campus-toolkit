@@ -401,6 +401,7 @@ export default function DraggableModuleGrid({
   anchorAfter,
   defaultCategoryName = "未分類",
   alwaysShowHeadings = false,
+  defaultCategoryNote,
 }: {
   items: ModuleCardItem[];
   storageKey: string;
@@ -416,6 +417,8 @@ export default function DraggableModuleGrid({
   defaultCategoryName?: string;
   /** 分類標題列一律顯示（即使只有一個分類、或該分類目前沒有卡片） */
   alwaysShowHeadings?: boolean;
+  /** 預設分類標題下方的簡要說明（可放不同主題色的文字片段） */
+  defaultCategoryNote?: ReactNode;
 }) {
   const router = useRouter();
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -1378,6 +1381,11 @@ export default function DraggableModuleGrid({
                         </button>
                       )}
                     </span>
+                )}
+                {defaultCategoryNote && category.id === UNCATEGORIZED_ID && (
+                  <span className="w-full pl-9 text-xs leading-relaxed">
+                    {defaultCategoryNote}
+                  </span>
                 )}
               </summary>
               {rowsBlock}

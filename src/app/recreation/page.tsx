@@ -146,6 +146,14 @@ export default function RecreationHomePage() {
         storageKey={GAME_SHORTCUT_STORAGE_KEY}
         defaultCategoryName={GAME_SHORTCUT_CATEGORY_NAME}
         alwaysShowHeadings
+        defaultCategoryNote={
+          <>
+            <span className="font-medium text-warning">最多放 3 個遊戲</span>
+            <span className="text-t2">，會顯示在</span>
+            <span className="font-medium text-primary">各身分功能首頁</span>
+            <span className="text-t2">，方便使用。</span>
+          </>
+        }
       />
 
       <hr className="content-width border-themed mb-4" />
