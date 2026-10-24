@@ -818,6 +818,8 @@ export default function DraggableModuleGrid({
     }
     // 編輯模式下點卡片不導頁（避免編輯時誤入功能）
     if (editMode) return;
+    // 無入口頁的卡片（如休閒歡樂誠：入口為首頁浮動遊戲按鈕）不導頁
+    if (!item.href) return;
     router.push(item.href);
   }
 
@@ -1148,7 +1150,14 @@ export default function DraggableModuleGrid({
                               className="font-medium text-t2 truncate shrink-0"
                               style={{ width: LABEL_WIDTH }}
                             >
-                              {item.label}
+                              {item.id === "recreation" ? (
+                                <>
+                                  休閒歡樂
+                                  <span className="inline-block rotate-[30deg] ml-[3px]">誠</span>
+                                </>
+                              ) : (
+                                item.label
+                              )}
                             </span>
                             <span
                               onPointerDown={(event) => handlePointerDown(event, item.id)}

@@ -864,7 +864,7 @@ export default function HomepageCornerExam() {
         type="button"
         title="學測滿級分"
         onClick={() => setOpen(true)}
-        className="fixed left-4 top-[88px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
+        className="fixed left-4 top-[124px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
         aria-label="開啟學測滿級分"
       >
         <svg

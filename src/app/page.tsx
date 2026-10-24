@@ -13,6 +13,7 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import HomepageCornerCastle from "@/components/HomepageCornerCastle";
 import AnnouncementSurface from "@/components/AnnouncementSurface";
 import CalendarSurface from "@/components/CalendarSurface";
 import { fetchSettings } from "@/lib/settings-client";
@@ -420,6 +421,7 @@ export default function Home() {
   // 因此首頁一律保留登入入口，僅在表單上方加一行文字提醒。
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-page px-4 pt-[20px]">
+      <HomepageCornerCastle />
       <HomepageCornerWrench />
       <HomepageCornerChangE />
       <HomepageCornerExam />

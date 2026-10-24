@@ -408,9 +408,9 @@ function BuiltinRow({
               onToggle={() => onToggleHelp(item.value)}
             />
           </span>
-        </td>
-        <td className="px-3 py-2 whitespace-nowrap">
-          <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
+          <span className="mt-0.5 block">
+            <Badge text={FEATURE_MODULE_STATUS_LABELS[item.status]} className="text-t3" />
+          </span>
         </td>
         <RoleCells item={item} switches={switches} disabled={disabled} disabledTitle={disabledTitle} onToggle={onToggleRole} />
         <td className="px-3 py-2 whitespace-nowrap text-right">
@@ -437,8 +437,8 @@ function BuiltinRow({
           </span>
         </td>
       </tr>
-      <DescriptionRow item={item} open={open} colSpan={6} />
-      <ManagerPanelRow item={item} open={managersOpen} colSpan={6} />
+      <DescriptionRow item={item} open={open} colSpan={5} />
+      <ManagerPanelRow item={item} open={managersOpen} colSpan={5} />
     </>
   );
 }
@@ -1245,7 +1245,6 @@ export default function ModulesPage() {
               <thead className="border-b border-themed">
                 <tr className="text-t2">
                   <th className="px-3 py-2 font-medium whitespace-nowrap">模組名稱</th>
-                  <th className="px-3 py-2 font-medium whitespace-nowrap">狀態</th>
                   {ENTRY_ROLES.map((role) => (
                     <th key={role} className="px-3 py-2 font-medium whitespace-nowrap text-center">
                       {ROLE_LABELS[role]}
@@ -1257,13 +1256,13 @@ export default function ModulesPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
+                    <td colSpan={5} className="px-3 py-6 text-center text-t3">
                       {loadingText}
                     </td>
                   </tr>
                 ) : builtins.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-t3">
+                    <td colSpan={5} className="px-3 py-6 text-center text-t3">
                       沒有內建功能模組
                     </td>
                   </tr>

@@ -10,6 +10,7 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import HomepageCornerCastle from "@/components/HomepageCornerCastle";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import ModuleIcon from "@/components/ModuleIcon";
@@ -141,6 +142,16 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
           },
         ]
       : []),
+    ...(recreationVisible
+      ? [
+          {
+            icon: <ModuleIcon value="recreation" />,
+            label: "休閒歡樂誠",
+            id: "recreation",
+            href: "/recreation",
+          },
+        ]
+      : []),
   ];
   // 選用（外掛）功能模組卡：visibleModules 已含 provides＋顯示開關＋總開關（0.392）；
   // href 取該身分的入口（掃描器由 routes 映射的 roleHrefs）；無此身分頁面者不出卡
@@ -163,6 +174,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
       {recreationVisible && (
         <>
+          <HomepageCornerCastle />
           <HomepageCornerWrench />
           <HomepageCornerChangE />
           <HomepageCornerExam />

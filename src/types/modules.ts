@@ -191,10 +191,10 @@ const HAND_MODULES = [
     value: "recreation",
     label: "休閒歡樂誠",
     category: "系統與紀錄",
-    description: "課餘休閒小遊戲；四種身分功能首頁左上角浮動按鈕進入，無獨立管理頁。",
+    description: "課餘休閒小遊戲；四種身分功能首頁左上角城堡圖示與入口卡進入。",
     scope: "core",
     status: "built",
-    href: "",
+    href: "/recreation",
     children: [],
   },
 ] as const satisfies readonly ModuleMeta[];
