@@ -606,7 +606,7 @@ function OptionalRow({
 }
 
 /**
- * 管理人員指派區（選用模組展開列，僅模組有 managerPermissions 時顯示）：
+ * 管理人員指派區（模組展開列，僅模組有 managerPermissions 時顯示）：
  * 搜尋當期名冊帳號 → 勾選子權限 → 指派；列表顯示已指派者，可改權限或移除。
  * 資料落於各身分名冊條目 managedModules（政策修改書 §6）。
  */

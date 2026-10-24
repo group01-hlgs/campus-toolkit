@@ -33,6 +33,7 @@ import { MODULES, type ModuleStatus } from "./modules";
 import { GENERATED_MODULE_VALUES } from "./modules.generated";
 import { GENERATED_FEATURE_MODULES } from "./feature-modules.generated";
 import { ALL_ROLES, SUPER_ONLY_ADMIN_MODULES, type UserRole } from "./users";
+import { CALENDAR_MANAGER_PERMISSIONS } from "./calendar";
 
 /** 內建（隨主程式提供、一律啟用）／選用（由超級管理員決定是否啟用） */
 export type FeatureModuleKind = "builtin" | "optional";
@@ -216,6 +217,8 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
       staff: true,
       admin: true,
     },
+    // 行事曆可指定非管理員管理人員，子權限分開授權（管理行程／批次匯入／刪除／設定）
+    managerPermissions: CALENDAR_MANAGER_PERMISSIONS,
   },
   {
     value: "personalInfo",

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import {
@@ -11,7 +11,7 @@ import {
   listAdminCalendarEvents,
   purgeDownCalendarEvents,
 } from "@/lib/calendar";
-import { parseCalendarAudience } from "@/types/calendar";
+import { calendarAccessOf, parseCalendarAudience } from "@/types/calendar";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -26,8 +26,9 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar");
     if (denial) return toAuthResponse(denial);
+    const access = calendarAccessOf(context.kind === "admin" ? null : context.permissions);
 
     const settings = await getCalendarSettings();
     // 下架原則＝真實刪除：清單載入時掃描已取消行程並刪除（含個人提醒）
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
       await purgeDownCalendarEvents();
     }
     const events = await listAdminCalendarEvents();
-    return NextResponse.json({ success: true, events, settings }, { headers: noStore });
+    return NextResponse.json({ success: true, events, settings, access }, { headers: noStore });
   } catch (error) {
     console.error("List calendar events error:", error);
     return NextResponse.json(
@@ -59,8 +60,9 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar", "manage");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) {
@@ -95,13 +97,13 @@ export async function POST(request: NextRequest) {
       createdBy: {
         uid: session.uid,
         name: session.displayName || session.account,
-        role: "admin",
+        role: session.role,
       },
     });
 
     await logActivity({
       userId: session.uid,
-      role: "admin",
+      role: session.role,
       action: "calendar_created",
       ip: getClientIp(request),
       details: `建立行程（id=${id}，閱讀權限=${

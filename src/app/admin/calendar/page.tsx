@@ -12,6 +12,7 @@ import {
   DEFAULT_CALENDAR_POLICIES,
   DEFAULT_CALENDAR_SETTINGS,
   type AdminCalendarEventRow,
+  type CalendarAccess,
   type CalendarCategory,
   type CalendarEventStatus,
   type CalendarPolicies,
@@ -70,6 +71,8 @@ interface AdminListResponse {
   settings?: CalendarSettings;
   orgUnits?: OrgUnitOption[];
   spaceOptions?: SpaceOption[];
+  /** 目前帳號的行事曆子權限（管理員恆全權） */
+  access?: CalendarAccess;
 }
 
 interface FormState {
@@ -164,6 +167,14 @@ function formatRange(item: {
 export default function AdminCalendarPage() {
   const { ready: settingsReady, saverOn } = useDataSaver();
   const [settings, setSettings] = useState<CalendarSettings>(DEFAULT_CALENDAR_SETTINGS);
+  // 目前帳號可操作的功能（管理員恆全權；被指派者依子權限分開授權）
+  const [access, setAccess] = useState<CalendarAccess>({
+    manage: false,
+    import: false,
+    delete: false,
+    settings: false,
+  });
+  const selectable = access.manage || access.delete;
   const [items, setItems] = useState<AdminCalendarEventRow[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
   const gating = saverOn && !listLoaded;
@@ -260,6 +271,7 @@ export default function AdminCalendarPage() {
       const res = await fetch("/api/admin/calendar/settings", { cache: "no-store" });
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (data?.success && data.settings) applySettings(data.settings);
+      if (data?.success && data.access) setAccess(data.access);
       if (data?.success && Array.isArray(data.orgUnits)) setOrgUnits(data.orgUnits);
       if (data?.success && Array.isArray(data.spaceOptions)) setSpaceOptions(data.spaceOptions);
     } catch {
@@ -280,6 +292,7 @@ export default function AdminCalendarPage() {
       if (data?.success) {
         setItems(data.events ?? []);
         if (data.settings) applySettings(data.settings);
+        if (data.access) setAccess(data.access);
         setListLoaded(true);
       } else {
         setToast({ kind: "error", text: data?.message || "載入行程失敗" });
@@ -425,9 +438,11 @@ export default function AdminCalendarPage() {
 
   async function setStatus(id: string, status: CalendarEventStatus) {
     if (saving) return;
+    // 沒有刪除權限者即使啟用「下架行程真實刪除」也只會軟取消（伺服器同步把關）
+    const hardDelete = policies.hardDeleteCancelled && access.delete;
     const confirmText =
       status === "cancelled"
-        ? policies.hardDeleteCancelled
+        ? hardDelete
           ? "確定要下架此行程？（已啟用「下架行程真實刪除」：將連同個人提醒一併刪除，無法恢復）"
           : "確定要取消此行程？（文件會保留，但不再顯示給任何身分）"
         : "確定要恢復此行程？";
@@ -552,7 +567,8 @@ export default function AdminCalendarPage() {
   function batchCancel() {
     if (saving || selectedIds.size === 0) return;
     const count = selectedIds.size;
-    const confirmText = policies.hardDeleteCancelled
+    const hardDelete = policies.hardDeleteCancelled && access.delete;
+    const confirmText = hardDelete
       ? `確定要批次下架選取的 ${count} 筆行程？（已啟用「下架行程真實刪除」：將連同個人提醒一併刪除，無法恢復）`
       : `確定要批次取消選取的 ${count} 筆行程？（文件會保留，但不再顯示給任何身分）`;
     askConfirm(confirmText, () => void runBatch("cancel"));
@@ -692,6 +708,7 @@ export default function AdminCalendarPage() {
       <Toast message={toast} onClose={() => setToast(null)} />
 
       {/* 1. 設定管理（預設收合）：收納規則設定／顯示位置／行程類型三張卡片 */}
+      {access.settings && (
       <SettingsCard
         title="設定管理"
         open={cardOpen.settings}
@@ -955,8 +972,10 @@ export default function AdminCalendarPage() {
           </SettingsCard>
         </div>
       </SettingsCard>
+      )}
 
       {/* 2. 建立／編輯行程（預設收合） */}
+      {access.manage && (
       <details
         open={formOpen}
         onToggle={(event) => {
@@ -1242,8 +1261,10 @@ export default function AdminCalendarPage() {
           </div>
         )}
       </details>
+      )}
 
       {/* 2-5. 批次新增（xlsx/xls 匯入：下載範例 → 上傳預覽 → 確認建立） */}
+      {access.import && (
       <details
         open={batchOpen}
         onToggle={(e) => setBatchOpen(e.currentTarget.open)}
@@ -1391,6 +1412,7 @@ export default function AdminCalendarPage() {
           </div>
         )}
       </details>
+      )}
 
       {/* 3. 行程清單（月份切換、搜尋、狀態篩選；省流啟用時預設不載入） */}
       <section>
@@ -1462,17 +1484,20 @@ export default function AdminCalendarPage() {
           </div>
         </div>
         {/* 批次操作列：有勾選時出現 */}
-        {!gating && listLoaded && selectedIds.size > 0 && (
+        {selectable && !gating && listLoaded && selectedIds.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 mb-3 px-1">
             <span className="text-sm text-t2">已選取 {selectedIds.size} 筆</span>
+            {access.manage && (
             <button
               type="button"
               onClick={batchCancel}
               disabled={saving}
               className="btn-theme rounded-lg px-3 py-1.5 text-sm cursor-pointer disabled:opacity-50"
             >
-              {policies.hardDeleteCancelled ? "批次下架" : "批次取消"}
+              {policies.hardDeleteCancelled && access.delete ? "批次下架" : "批次取消"}
             </button>
+            )}
+            {access.delete && (
             <button
               type="button"
               onClick={batchRemove}
@@ -1481,6 +1506,7 @@ export default function AdminCalendarPage() {
             >
               批次刪除
             </button>
+            )}
             <button
               type="button"
               onClick={() => setSelectedIds(new Set())}
@@ -1509,6 +1535,7 @@ export default function AdminCalendarPage() {
               <thead className="border-b border-themed">
                 <tr className="text-t2">
                   <th className="px-3 py-2 font-medium w-10">
+                    {selectable && (
                     <input
                       type="checkbox"
                       aria-label="全選目前清單"
@@ -1519,6 +1546,7 @@ export default function AdminCalendarPage() {
                       onChange={toggleSelectAll}
                       className="cursor-pointer"
                     />
+                    )}
                   </th>
                   <th className="px-3 py-2 font-medium">標題</th>
                   <th className="px-3 py-2 font-medium">時間</th>
@@ -1533,7 +1561,7 @@ export default function AdminCalendarPage() {
               <tbody>
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-t3">
+                    <td colSpan={selectable ? 9 : 8} className="px-3 py-6 text-center text-t3">
                       尚無符合條件的行程
                     </td>
                   </tr>
@@ -1541,6 +1569,7 @@ export default function AdminCalendarPage() {
                   filteredItems.map((item) => (
                     <tr key={item.id} className="border-b border-themed last:border-0 text-t1">
                       <td className="px-3 py-2 align-top">
+                        {selectable && (
                         <input
                           type="checkbox"
                           aria-label={`選取「${item.title}」`}
@@ -1548,6 +1577,7 @@ export default function AdminCalendarPage() {
                           onChange={() => toggleSelect(item.id)}
                           className="cursor-pointer mt-1"
                         />
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <span className="font-medium">{item.title}</span>
@@ -1585,7 +1615,10 @@ export default function AdminCalendarPage() {
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         <div className="inline-flex flex-col items-end gap-1">
+                          {(access.manage || access.delete) && (
                           <div className="flex gap-1.5">
+                            {access.manage && (
+                            <>
                             <button
                               type="button"
                               onClick={() => edit(item)}
@@ -1600,7 +1633,7 @@ export default function AdminCalendarPage() {
                                 disabled={saving}
                                 className="btn-danger rounded px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
                               >
-                                {policies.hardDeleteCancelled ? "下架" : "取消"}
+                                {policies.hardDeleteCancelled && access.delete ? "下架" : "取消"}
                               </button>
                             ) : (
                               <button
@@ -1612,7 +1645,11 @@ export default function AdminCalendarPage() {
                                 恢復
                               </button>
                             )}
+                            </>
+                            )}
                           </div>
+                          )}
+                          {access.delete && (
                           <div className="flex gap-1.5">
                             <button
                               type="button"
@@ -1623,6 +1660,7 @@ export default function AdminCalendarPage() {
                               刪除
                             </button>
                           </div>
+                          )}
                         </div>
                       </td>
                     </tr>

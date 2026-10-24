@@ -10,7 +10,7 @@ import { managedModulesOf } from "@/lib/roster";
 import { featureModuleMeta } from "@/types/feature-modules";
 import { ROSTER_ROLES, isRosterRole, rosterCollection, RosterRole } from "@/types/roster";
 
-/** 可被指派管理的功能模組：選用模組且有 managerPermissions 宣告（未宣告＝僅管理員） */
+/** 可被指派管理的功能模組：有 managerPermissions 宣告（不分內建／選用；未宣告＝僅管理員） */
 function assignableModuleOrError(value: string) {
   const meta = value ? featureModuleMeta(value) : undefined;
   if (!meta) return { error: "請求內容無效" as const };
