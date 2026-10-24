@@ -8,6 +8,7 @@ import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
+import HomepageCornerCastle from "@/components/HomepageCornerCastle";
 import DraggableModuleGrid from "@/components/DraggableModuleGrid";
 import ModuleIcon from "@/components/ModuleIcon";
 import RoleSwitcher from "@/components/RoleSwitcher";
@@ -131,25 +132,20 @@ export default function AdminPage() {
     user.adminModules == null || user.adminModules.length === 0
       ? visibleModules === null || visibleModules.includes("personalInfo")
       : true;
-  // 休閒歡樂誠：首頁左上角遊戲浮動按鈕（依功能入口開關顯示；管理員恆可見）
+  // 休閒歡樂誠：首頁左上角城堡浮動按鈕（依功能入口開關顯示；管理員恆可見）。
+  // 卡片由 moduleCards 派生（MODULES 的 href=/recreation），不另加手刻卡避免重複。
   const recreationVisible = visibleModules === null || visibleModules.includes("recreation");
-  const recreationCard: ModuleCard = {
-    id: "recreation",
-    icon: <ModuleIcon value="recreation" />,
-    label: "休閒歡樂誠",
-    href: "",
-  };
   const visibleModulesCards = [
     ...gatedModules,
     ...(personalVisible ? [personalCard] : []),
     ...(personalInfoVisible ? [personalInfoCard] : []),
-    ...(recreationVisible ? [recreationCard] : []),
   ];
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
       {recreationVisible && (
         <>
+          <HomepageCornerCastle />
           <HomepageCornerWrench />
           <HomepageCornerChangE />
           <HomepageCornerExam />

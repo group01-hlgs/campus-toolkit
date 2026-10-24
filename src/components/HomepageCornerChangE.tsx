@@ -745,7 +745,7 @@ export default function HomepageCornerChangE() {
         type="button"
         title="嫦娥奔月"
         onClick={() => setOpen(true)}
-        className="fixed left-4 top-[52px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
+        className="fixed left-4 top-[88px] z-20 p-1 rounded border border-themed bg-card/80 hover:bg-surface transition-colors cursor-pointer"
         aria-label="開啟嫦娥奔月"
       >
         <svg

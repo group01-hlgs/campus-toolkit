@@ -6,6 +6,7 @@ import { normalizeEmail } from "@/lib/validation";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import HomepageCornerWrench from "@/components/HomepageCornerWrench";
+import HomepageCornerCastle from "@/components/HomepageCornerCastle";
 import HomepageCornerChangE from "@/components/HomepageCornerChangE";
 import HomepageCornerExam from "@/components/HomepageCornerExam";
 import { fetchSettings } from "@/lib/settings-client";
@@ -103,6 +104,7 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-page px-4 pt-[20px]">
+      <HomepageCornerCastle />
       <HomepageCornerWrench />
       <HomepageCornerChangE />
       <HomepageCornerExam />

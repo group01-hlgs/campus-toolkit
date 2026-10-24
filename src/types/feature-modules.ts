@@ -237,8 +237,8 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     label: "休閒歡樂誠",
     kind: "builtin",
     status: "live",
-    description: "課餘休閒小遊戲；四種身分功能首頁左上角浮動按鈕進入，無獨立管理頁。",
-    href: "",
+    description: "課餘休閒小遊戲；四種身分功能首頁左上角城堡圖示與入口卡進入。",
+    href: "/recreation",
     author: DEFAULT_MODULE_AUTHOR,
     provides: {
       student: true,
