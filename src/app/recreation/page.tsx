@@ -62,7 +62,6 @@ export default function RecreationHomePage() {
         <h2 className="text-2xl font-bold text-t1">
           休閒歡樂<span className="inline-block rotate-[30deg] ml-[3px]">誠</span>
         </h2>
-        <p className="text-sm text-t3 mt-1">功能建構中，陸續開放。</p>
       </div>
 
       {/* 操作按鈕 */}
