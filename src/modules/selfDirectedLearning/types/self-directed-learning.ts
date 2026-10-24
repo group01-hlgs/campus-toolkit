@@ -5,10 +5,62 @@ export const SELF_DIRECTED_LEARNING_SETTINGS_DOC_ID = "global";
 
 export const WEEKDAY_LABELS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"] as const;
 
+/** 指定審查的個別學生（denormalize 姓名與班級，省去顯示時的額外讀取） */
+export interface ReviewerStudentRef {
+  uid: string;
+  name: string;
+  classCode: string;
+}
+
 /** 審核人員（候選取自當期教職員名冊；uid 供 staff 端鑑權比對） */
 export interface ReviewerEntry {
   uid: string;
   name: string;
+  /** 指定審查班級（勾選後才顯示班級清單；未勾選且未指定個人＝全校） */
+  classScoped?: boolean;
+  /** classScoped＝true 時審查的班級代碼 */
+  classCodes?: string[];
+  /** 另指定個別學生（例外需求；勾選後才顯示學生選擇） */
+  studentScoped?: boolean;
+  /** studentScoped＝true 時審查的個別學生 */
+  students?: ReviewerStudentRef[];
+}
+
+/** 審查範圍（供 staff 端查詢與審核權限檢查使用） */
+export interface ReviewScope {
+  /** true＝全校（不限制） */
+  all: boolean;
+  classCodes: string[];
+  studentUids: string[];
+}
+
+/** 由審核人員設定解析出實際審查範圍（未勾選任何指定＝全校） */
+export function reviewerScopeOf(reviewer: ReviewerEntry | null | undefined): ReviewScope {
+  const classCodes = reviewer?.classScoped ? (reviewer.classCodes ?? []) : [];
+  const studentUids = reviewer?.studentScoped
+    ? (reviewer.students ?? []).map((student) => student.uid)
+    : [];
+  return {
+    all: !reviewer?.classScoped && !reviewer?.studentScoped,
+    classCodes: [...classCodes],
+    studentUids,
+  };
+}
+
+/** 名冊班級候選（審查對象「班級」與「個人」選擇用） */
+export interface ClassOption {
+  code: string;
+  name: string;
+  grade: string;
+}
+
+/** 名冊學生候選（審查對象「個人」選擇用；僅載入指定班級） */
+export interface StudentOption {
+  uid: string;
+  name: string;
+  classCode: string;
+  className: string;
+  grade: string;
 }
 
 /** 教職員名冊候選人（審核人員選擇用） */
@@ -107,6 +159,27 @@ function asEpoch(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function asReviewerStudents(value: unknown): ReviewerStudentRef[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const students: ReviewerStudentRef[] = [];
+  for (const item of value) {
+    if (students.length >= 100) break;
+    if (!item || typeof item !== "object") continue;
+    const student = item as Record<string, unknown>;
+    const uid = typeof student.uid === "string" ? student.uid.trim() : "";
+    if (!uid || seen.has(uid)) continue;
+    seen.add(uid);
+    students.push({
+      uid: uid.slice(0, 128),
+      name: (typeof student.name === "string" ? student.name.trim() : "").slice(0, 128),
+      classCode:
+        typeof student.classCode === "string" ? student.classCode.trim().slice(0, 20) : "",
+    });
+  }
+  return students;
+}
+
 /** 讀 Firestore 原始資料後正規化（防欄位缺漏／型別損毀） */
 export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
   const source = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
@@ -130,7 +203,25 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
           const uid = typeof reviewer.uid === "string" ? reviewer.uid.trim() : "";
           if (!uid) return null;
           const name = typeof reviewer.name === "string" ? reviewer.name.trim() : "";
-          return { uid: uid.slice(0, 128), name: name.slice(0, 128) };
+          const classCodes = asStringArray(reviewer.classCodes, 30, 20);
+          const students = asReviewerStudents(reviewer.students);
+          // 相容 0.0.20 以前的單一 scope 欄位（classes／students／all）
+          const classScoped =
+            typeof reviewer.classScoped === "boolean"
+              ? reviewer.classScoped
+              : reviewer.scope === "classes";
+          const studentScoped =
+            typeof reviewer.studentScoped === "boolean"
+              ? reviewer.studentScoped
+              : reviewer.scope === "students";
+          return {
+            uid: uid.slice(0, 128),
+            name: name.slice(0, 128),
+            classScoped,
+            classCodes,
+            studentScoped,
+            students,
+          };
         })
         .filter((reviewer): reviewer is ReviewerEntry => reviewer !== null)
         .slice(0, 50)

@@ -9,6 +9,7 @@ import {
   periodLabelOf,
   planDocIdOf,
   type PlanReview,
+  type ReviewScope,
   type SelfDirectedLearningPlan,
   type SelfDirectedLearningSettings,
 } from "../types/self-directed-learning";
@@ -198,6 +199,62 @@ export async function listSubmittedPlans(
   return plans;
 }
 
+/**
+ * 依審查範圍載入待審計畫（省流）：
+ * - 班級：每個指定班級各下一筆等值查詢（不掃全校）。
+ * - 個人（例外）：以計畫 doc id（period_uid）精準 getAll，只讀指定學生的計畫。
+ * - 兩者同時指定時取聯集去重；未限制＝沿用既有全校待審查詢。
+ */
+export async function listSubmittedPlansForScope(
+  period: string,
+  scope: ReviewScope,
+  limit = 100
+): Promise<SelfDirectedLearningPlan[]> {
+  if (scope.all) return listSubmittedPlans(period, limit);
+
+  const merged = new Map<string, SelfDirectedLearningPlan>();
+
+  const classCodes = [...new Set(scope.classCodes)].slice(0, 30);
+  if (classCodes.length > 0) {
+    const snaps = await Promise.all(
+      classCodes.map((classCode) =>
+        plansRef()
+          .where("period", "==", period)
+          .where("status", "==", "submitted")
+          .where("classCode", "==", classCode)
+          .limit(limit)
+          .get()
+      )
+    );
+    for (const snap of snaps) {
+      for (const plan of readPlansFromSnapshot(snap)) merged.set(plan.id, plan);
+    }
+  }
+
+  const uids = [...new Set(scope.studentUids)].slice(0, 100);
+  for (let index = 0; index < uids.length; index += 30) {
+    const chunk = uids.slice(index, index + 30);
+    const docs = await getAdminDb().getAll(
+      ...chunk.map((uid) => plansRef().doc(planDocIdOf(period, uid)))
+    );
+    for (const doc of docs) {
+      if (!doc.exists) continue;
+      const plan = readPlan(doc.id, (doc.data() || {}) as Record<string, unknown>);
+      if (plan.status === "submitted") merged.set(plan.id, plan);
+    }
+  }
+
+  return [...merged.values()]
+    .sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0))
+    .slice(0, limit);
+}
+
+/** 計畫是否落在審查範圍內 */
+export function planInReviewScope(plan: SelfDirectedLearningPlan, scope: ReviewScope): boolean {
+  if (scope.all) return true;
+  return scope.classCodes.includes(plan.classCode) || scope.studentUids.includes(plan.studentUid);
+}
+
 /** 兼導師瀏覽全班（當期＋班級代碼，limit 有界） */
 export async function listClassPlans(
   period: string,
@@ -216,7 +273,7 @@ export async function listClassPlans(
 
 export type ApplyReviewResult =
   | { ok: true; plan: SelfDirectedLearningPlan }
-  | { ok: false; status: 404 | 409; message: string };
+  | { ok: false; status: 403 | 404 | 409; message: string };
 
 /**
  * 套用審核結果（transaction：僅 submitted 可審，寫 review＋更新狀態）。
@@ -228,6 +285,8 @@ export async function applyReview(input: {
   note: string;
   reviewerUid: string;
   reviewerName: string;
+  /** 審查範圍；未提供＝全校（管理員或未設定範圍的審核人員） */
+  scope?: ReviewScope;
 }): Promise<ApplyReviewResult> {
   const db = getAdminDb();
   const planRef = plansRef().doc(input.planId);
@@ -237,6 +296,9 @@ export async function applyReview(input: {
     const snap = await tx.get(planRef);
     if (!snap.exists) return { kind: "missing" as const };
     const current = readPlan(planRef.id, (snap.data() || {}) as Record<string, unknown>);
+    if (input.scope && !planInReviewScope(current, input.scope)) {
+      return { kind: "outOfScope" as const };
+    }
     if (current.status !== "submitted") return { kind: "badStatus" as const };
     const now = Date.now();
     const status: SelfDirectedLearningPlan["status"] =
@@ -258,6 +320,9 @@ export async function applyReview(input: {
 
   if (outcome.kind === "missing") {
     return { ok: false, status: 404, message: "查無此計畫" };
+  }
+  if (outcome.kind === "outOfScope") {
+    return { ok: false, status: 403, message: "此計畫不在你的審查對象範圍內" };
   }
   if (outcome.kind === "badStatus") {
     return { ok: false, status: 409, message: "此計畫不在待審核狀態" };

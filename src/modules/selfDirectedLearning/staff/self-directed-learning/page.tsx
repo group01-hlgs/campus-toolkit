@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import AdSense from "@/components/AdSense";
+import Copyright from "@/components/Copyright";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { fetchSettings } from "@/lib/settings-client";
+import { logout } from "@/lib/session";
+import { Settings, defaultSettings } from "@/types/settings";
 import {
   MAINTENANCE_HINT,
   MAINTENANCE_TITLE,
@@ -40,6 +46,8 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 export default function StaffSelfDirectedLearningPage() {
+  const router = useRouter();
+  const [systemSettings, setSystemSettings] = useState<Settings>(defaultSettings);
   const [roles, setRoles] = useState<StaffRoles | null>(null);
   const [plans, setPlans] = useState<SelfDirectedLearningPlan[]>([]);
   const [tab, setTab] = useState<Tab>("review");
@@ -76,6 +84,23 @@ export default function StaffSelfDirectedLearningPage() {
   useEffect(() => {
     void load(tab);
   }, [tab, load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await fetchSettings();
+        if (!cancelled && data?.success && data.settings) {
+          setSystemSettings({ ...defaultSettings, ...data.settings });
+        }
+      } catch {
+        // 設定讀取失敗時沿用預設值顯示
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const switchTab = (next: Tab) => {
     setTab(next);
@@ -118,45 +143,99 @@ export default function StaffSelfDirectedLearningPage() {
     roles?.isReviewer || roles?.isTutor || (roles?.permissions?.length ?? 0) > 0
   );
 
+  const roleSummary = [
+    roles?.isReviewer ? "你具有審核資格。" : "",
+    roles?.isTutor ? `兼導師班級：${roles.classCode}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const actionButtons = (
+    <>
+      <button
+        type="button"
+        onClick={() => router.push("/staff")}
+        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+      >
+        返回功能首頁
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void logout();
+          router.push("/");
+        }}
+        className="btn-theme rounded-lg px-4 py-2 text-sm cursor-pointer"
+      >
+        登出
+      </button>
+    </>
+  );
+
+  /** 頁面外殼：與「升學考試與模擬考校內報名」教職員頁一致（內容顯示區由 inner 帶入） */
+  const renderShell = (inner: ReactNode) => (
+    <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
+      <Toast message={toast} onClose={() => setToast(null)} />
+
+      <div className="text-center mb-2">
+        <h1 className="text-4xl font-bold mb-2">
+          {systemSettings.systemName || "數位校園工具箱"}
+        </h1>
+        <p className="text-xl text-t2">{systemSettings.schoolFullName || "學校名稱"}</p>
+        <p className="text-lg text-t3">
+          {systemSettings.academicYear} 學年度 第{systemSettings.semester}學期
+        </p>
+      </div>
+
+      <div className="content-width mt-4 mb-6 text-center">
+        <h2 className="text-2xl font-bold text-t1">自主學習計畫－審核與檢視</h2>
+        {roleSummary && <p className="text-sm text-t2 mt-2">{roleSummary}</p>}
+      </div>
+
+      <div className="content-width flex justify-end gap-3 mb-4">{actionButtons}</div>
+      <hr className="content-width border-themed mb-4" />
+
+      {/* 被指派管理者：同一頁內提供被授權的管理功能（未被指派者不顯示） */}
+      <SelfDirectedLearningManagerPanel />
+
+      <div className="content-width space-y-4 mb-8">{inner}</div>
+
+      <hr className="content-width border-themed mb-4" />
+      <div className="content-width flex justify-start gap-3 mb-8">{actionButtons}</div>
+
+      {systemSettings.sponsorAdEnabled && (
+        <div className="content-width">
+          <AdSense />
+        </div>
+      )}
+
+      <div className="content-width mt-auto">
+        <Copyright mode={systemSettings.copyrightNotice ? "啟用" : "關閉"} />
+      </div>
+    </div>
+  );
+
   // 總開關關閉：只見維護說明（計畫清單不呈現、審核不開放）
   if (!loading && maintenance) {
-    return (
-      <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
-        <h1 className="text-xl text-t1">自主學習計畫－審核與檢視</h1>
-        <div className="border-themed bg-card space-y-2 rounded-lg p-6 text-center">
-          <p className="text-t1 text-lg font-medium">{MAINTENANCE_TITLE}</p>
-          <p className="text-t2 text-sm">{MAINTENANCE_HINT}</p>
-        </div>
-        <Toast message={toast} onClose={() => setToast(null)} />
-      </section>
+    return renderShell(
+      <div className="border-themed bg-card space-y-2 rounded-lg p-6 text-center">
+        <p className="text-t1 text-lg font-medium">{MAINTENANCE_TITLE}</p>
+        <p className="text-t2 text-sm">{MAINTENANCE_HINT}</p>
+      </div>
     );
   }
 
   if (!loading && !hasAnyRole) {
-    return (
-      <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
-        <h1 className="text-xl text-t1">自主學習計畫－審核與檢視</h1>
-        <div className="border-themed bg-card text-t2 rounded-lg p-4 text-sm">
-          你的帳號不在本模組的審核人員名單內，也未具兼導師身分。
-          若需審核權限，請洽管理員在「管理規則」中加入審核人員名單。
-        </div>
-        <Toast message={toast} onClose={() => setToast(null)} />
-      </section>
+    return renderShell(
+      <div className="border-themed bg-card text-t2 rounded-lg p-4 text-sm">
+        你的帳號不在本模組的審核人員名單內，也未具兼導師身分。
+        若需審核權限，請洽管理員在「管理規則」中加入審核人員名單。
+      </div>
     );
   }
 
-  return (
+  return renderShell(
     <>
-      <SelfDirectedLearningManagerPanel />
-      <section className="mx-auto content-width space-y-4 p-4 sm:p-6">
-      <header className="space-y-1">
-        <h1 className="text-xl text-t1">自主學習計畫－審核與檢視</h1>
-        <p className="text-t2 text-sm">
-          {roles?.isReviewer ? "你具有審核資格。" : ""}
-          {roles?.isTutor ? ` 兼導師班級：${roles.classCode}` : ""}
-        </p>
-      </header>
-
       {roles?.isReviewer && roles?.isTutor && (
         <div className="border-themed bg-card flex gap-2 rounded-lg p-2" role="tablist" aria-label="檢視模式">
           <button
@@ -318,9 +397,6 @@ export default function StaffSelfDirectedLearningPage() {
           </div>
         </div>
       )}
-
-      <Toast message={toast} onClose={() => setToast(null)} />
-      </section>
     </>
   );
 }

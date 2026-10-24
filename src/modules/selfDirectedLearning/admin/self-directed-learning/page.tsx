@@ -7,12 +7,15 @@ import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
   WEEKDAY_LABELS,
   openStateOf,
+  type ClassOption,
   type FlexibleSlot,
   type PeriodOption,
   type ReviewerEntry,
+  type ReviewerStudentRef,
   type SelfDirectedLearningSettings,
   type SpaceOption,
   type StaffCandidate,
+  type StudentOption,
 } from "../../types/self-directed-learning";
 
 function toDateTimeLocal(epoch: number | null): string {
@@ -90,6 +93,17 @@ export default function SelfDirectedLearningSettingsPage({
   /** 下限週數輸入框的暫存字串：允許清空後重打，失焦時回復現值 */
   const [minWeeksInput, setMinWeeksInput] = useState<string | null>(null);
 
+  /** 班級候選（主程式年段班級設定） */
+  const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
+  /** 正在設定審查對象的審核人員 uid（一次只展開一位） */
+  const [scopeEditorUid, setScopeEditorUid] = useState<string | null>(null);
+  /** 個人模式目前選取載入的班級 */
+  const [targetClassCode, setTargetClassCode] = useState("");
+  /** 已載入的班級學生（按班級快取，避免重複讀取） */
+  const [classStudents, setClassStudents] = useState<Record<string, StudentOption[]>>({});
+  const [studentLoading, setStudentLoading] = useState(false);
+  const [studentError, setStudentError] = useState("");
+
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/admin/self-directed-learning", { cache: "no-store" });
@@ -107,6 +121,7 @@ export default function SelfDirectedLearningSettingsPage({
           : [1, 2, 3, 4, 5]
       );
       setSpaceOptions(Array.isArray(data.spaceOptions) ? (data.spaceOptions as SpaceOption[]) : []);
+      setClassOptions(Array.isArray(data.classOptions) ? (data.classOptions as ClassOption[]) : []);
       setStaffCandidates(
         Array.isArray(data.staffCandidates) ? (data.staffCandidates as StaffCandidate[]) : []
       );
@@ -147,6 +162,18 @@ export default function SelfDirectedLearningSettingsPage({
       return true;
     });
   }, [staffCandidates, settings.reviewers, staffAttribute, staffNameQuery]);
+
+  /** 班級依年級分組（維持主程式年段順序）；避免每個班級都重複顯示年級名稱 */
+  const classGroups = useMemo(() => {
+    const groups = new Map<string, ClassOption[]>();
+    for (const option of classOptions) {
+      const key = option.grade || "其他";
+      const list = groups.get(key) ?? [];
+      list.push(option);
+      groups.set(key, list);
+    }
+    return [...groups.entries()].map(([grade, classes]) => ({ grade, classes }));
+  }, [classOptions]);
 
   /** 格狀表格勾選：day=星期代碼、periodName=節次名稱，即時寫入 slots */
   const toggleScheduleCell = (day: number, periodName: string, checked: boolean) => {
@@ -195,13 +222,149 @@ export default function SelfDirectedLearningSettingsPage({
       setToast({ kind: "error", text: "此人已在名單中" });
       return;
     }
-    const entry: ReviewerEntry = { uid: candidate.uid, name: candidate.name || candidate.uid };
+    const entry: ReviewerEntry = {
+      uid: candidate.uid,
+      name: candidate.name || candidate.uid,
+      classScoped: false,
+      classCodes: [],
+      studentScoped: false,
+      students: [],
+    };
     patch({ reviewers: [...settings.reviewers, entry] });
     setSelectedStaffUid("");
   };
 
   const removeReviewer = (uid: string) => {
     patch({ reviewers: settings.reviewers.filter((reviewer) => reviewer.uid !== uid) });
+    if (scopeEditorUid === uid) setScopeEditorUid(null);
+  };
+
+  const patchReviewer = (uid: string, partial: Partial<ReviewerEntry>) => {
+    patch({
+      reviewers: settings.reviewers.map((reviewer) =>
+        reviewer.uid === uid ? { ...reviewer, ...partial } : reviewer
+      ),
+    });
+  };
+
+  /** 展開／收合某位審核人員的對象設定（一次只展開一位，避免多筆誤按） */
+  const toggleScopeEditor = (uid: string) => {
+    setScopeEditorUid((current) => (current === uid ? null : uid));
+    setTargetClassCode("");
+    setStudentError("");
+  };
+
+  const toggleReviewerClassScope = (reviewer: ReviewerEntry) => {
+    patchReviewer(reviewer.uid, { classScoped: !reviewer.classScoped });
+  };
+
+  const toggleReviewerStudentScope = (reviewer: ReviewerEntry) => {
+    patchReviewer(reviewer.uid, { studentScoped: !reviewer.studentScoped });
+    setStudentError("");
+  };
+
+  const toggleReviewerClass = (reviewer: ReviewerEntry, classCode: string) => {
+    const current = reviewer.classCodes ?? [];
+    patchReviewer(reviewer.uid, {
+      classCodes: current.includes(classCode)
+        ? current.filter((code) => code !== classCode)
+        : [...current, classCode].slice(0, 30),
+    });
+  };
+
+  /** 整年級全選／取消（受 30 班上限限制） */
+  const toggleReviewerGrade = (reviewer: ReviewerEntry, classes: ClassOption[]) => {
+    const current = new Set(reviewer.classCodes ?? []);
+    const allSelected = classes.every((option) => current.has(option.code));
+    if (allSelected) {
+      for (const option of classes) current.delete(option.code);
+    } else {
+      for (const option of classes) current.add(option.code);
+    }
+    patchReviewer(reviewer.uid, { classCodes: [...current].slice(0, 30) });
+  };
+
+  const toggleReviewerStudent = (reviewer: ReviewerEntry, student: StudentOption) => {
+    const current = reviewer.students ?? [];
+    const exists = current.some((item) => item.uid === student.uid);
+    patchReviewer(reviewer.uid, {
+      students: exists
+        ? current.filter((item) => item.uid !== student.uid)
+        : [
+            ...current,
+            {
+              uid: student.uid,
+              name: student.name || student.uid,
+              classCode: student.classCode,
+            } satisfies ReviewerStudentRef,
+          ].slice(0, 100),
+    });
+  };
+
+  const removeReviewerStudent = (reviewer: ReviewerEntry, uid: string) => {
+    patchReviewer(reviewer.uid, {
+      students: (reviewer.students ?? []).filter((student) => student.uid !== uid),
+    });
+  };
+
+  /** 個人模式：只在選班級時載入該班學生（同一班只讀一次，存在記憶體） */
+  const loadClassStudents = async (classCode: string) => {
+    setTargetClassCode(classCode);
+    setStudentError("");
+    if (!classCode || classStudents[classCode]) return;
+    setStudentLoading(true);
+    try {
+      const response = await fetch(
+        `/api/admin/self-directed-learning/students?classCode=${encodeURIComponent(classCode)}`,
+        { cache: "no-store" }
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setStudentError(data.message || "讀取學生名單失敗");
+        return;
+      }
+      setClassStudents((prev) => ({
+        ...prev,
+        [classCode]: Array.isArray(data.students) ? (data.students as StudentOption[]) : [],
+      }));
+    } catch {
+      setStudentError("讀取學生名單失敗");
+    } finally {
+      setStudentLoading(false);
+    }
+  };
+
+  const reviewerScopeLabel = (reviewer: ReviewerEntry): string => {
+    const parts: string[] = [];
+    if (reviewer.classScoped) {
+      const codes = reviewer.classCodes ?? [];
+      if (codes.length === 0) {
+        parts.push("班級（尚未選擇）");
+      } else {
+        const grouped = new Map<string, string[]>();
+        for (const code of codes) {
+          const option = classOptions.find((item) => item.code === code);
+          const grade = option?.grade || "其他";
+          const names = grouped.get(grade) ?? [];
+          names.push(option ? option.name || option.code : code);
+          grouped.set(grade, names);
+        }
+        parts.push(
+          `班級：${[...grouped.entries()]
+            .map(([grade, names]) => `${grade}：${names.join("、")}`)
+            .join("；")}`
+        );
+      }
+    }
+    if (reviewer.studentScoped) {
+      const students = reviewer.students ?? [];
+      parts.push(
+        students.length
+          ? `個人：${students.map((student) => student.name || student.uid).join("、")}`
+          : "個人（尚未選擇）"
+      );
+    }
+    return parts.length ? parts.join("；") : "全校";
   };
 
   const setInstructions = (value: string) => {
@@ -209,6 +372,18 @@ export default function SelfDirectedLearningSettingsPage({
   };
 
   const save = async () => {
+    const emptyScopeReviewer = settings.reviewers.find(
+      (reviewer) =>
+        (reviewer.classScoped && (reviewer.classCodes ?? []).length === 0) ||
+        (reviewer.studentScoped && (reviewer.students ?? []).length === 0)
+    );
+    if (emptyScopeReviewer) {
+      setToast({
+        kind: "error",
+        text: `${emptyScopeReviewer.name} 已選擇指定對象，但尚未勾選任何班級或學生`,
+      });
+      return;
+    }
     const openAt = fromDateTimeLocal(toDateTimeLocal(settings.openAt));
     const closeAt = fromDateTimeLocal(toDateTimeLocal(settings.closeAt));
     const payload = {
@@ -592,30 +767,7 @@ export default function SelfDirectedLearningSettingsPage({
           審核人員
         </summary>
         <div className="space-y-4 px-4 pb-4">
-          {settings.reviewers.length === 0 ? (
-            <p className="text-t3 text-sm">尚未指定審核人員（管理員恆可審核）。</p>
-          ) : (
-            <ul className="space-y-2">
-              {settings.reviewers.map((reviewer) => (
-                <li
-                  key={reviewer.uid}
-                  className="border-themed bg-surface flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
-                >
-                  <span className="text-t1 text-sm">
-                    {reviewer.name}
-                    <span className="text-t3 ml-2 text-xs">{reviewer.uid}</span>
-                  </span>
-                  <button
-                    type="button"
-                    className="btn-danger btn-theme h-8 px-3 text-sm"
-                    onClick={() => removeReviewer(reviewer.uid)}
-                  >
-                    移除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* 搜尋與加入（置於名單上方） */}
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-t2 block space-y-1 text-sm">
               <span>屬性</span>
@@ -670,6 +822,219 @@ export default function SelfDirectedLearningSettingsPage({
               加入
             </button>
           </div>
+
+          <p className="text-t3 text-xs">
+            加入後可於下方設定審查對象（班級或個人）；未設定者為全校。個人模式僅在選擇班級後載入該班學生，避免一次讀取全校名冊。
+          </p>
+
+          {settings.reviewers.length === 0 ? (
+            <p className="text-t3 text-sm">尚未指定審核人員（管理員恆可審核）。</p>
+          ) : (
+            <ul className="space-y-2">
+              {settings.reviewers.map((reviewer) => (
+                <li key={reviewer.uid} className="border-themed bg-surface space-y-2 rounded-md px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-t1 text-sm">
+                        {reviewer.name}
+                        <span className="text-t3 ml-2 text-xs">{reviewer.uid}</span>
+                      </span>
+                      <p className="text-t3 mt-0.5 text-xs">
+                        審查對象：{reviewerScopeLabel(reviewer)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn-theme h-8 px-3 text-sm"
+                        onClick={() => toggleScopeEditor(reviewer.uid)}
+                      >
+                        {scopeEditorUid === reviewer.uid ? "收合對象" : "設定對象"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-danger btn-theme h-8 px-3 text-sm"
+                        onClick={() => removeReviewer(reviewer.uid)}
+                      >
+                        移除
+                      </button>
+                    </div>
+                  </div>
+
+                  {scopeEditorUid === reviewer.uid && (
+                    <div className="border border-themed space-y-3 rounded-md p-3">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-4">
+                          <label className="text-t2 flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer"
+                              checked={reviewer.classScoped === true}
+                              onChange={() => toggleReviewerClassScope(reviewer)}
+                            />
+                            指定審查班級
+                          </label>
+                          <label className="text-t2 flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer"
+                              checked={reviewer.studentScoped === true}
+                              onChange={() => toggleReviewerStudentScope(reviewer)}
+                            />
+                            另指定個別學生（例外需求）
+                          </label>
+                        </div>
+                        <p className="text-t3 text-xs">
+                          未勾選以上項目＝全校。原則上以班級指派；個別學生僅供特殊需求使用。
+                        </p>
+                      </div>
+
+                      {reviewer.classScoped && (
+                        <div className="space-y-2">
+                          {classOptions.length === 0 ? (
+                            <p className="text-t3 text-sm">
+                              尚無班級資料，請先至「學校基本設定 → 年段班級設定」建立班級。
+                            </p>
+                          ) : (
+                            <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                              {classGroups.map(({ grade, classes }) => {
+                                const selectedCount = classes.filter((option) =>
+                                  (reviewer.classCodes ?? []).includes(option.code)
+                                ).length;
+                                const allSelected = selectedCount === classes.length;
+                                return (
+                                  <div key={grade} className="border border-themed rounded-md p-3">
+                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                      <span className="text-t1 text-sm font-medium">
+                                        {grade}
+                                        <span className="text-t3 ml-1 text-xs">
+                                          （{classes.length} 班，已選 {selectedCount}）
+                                        </span>
+                                      </span>
+                                      <label className="text-t2 flex cursor-pointer items-center gap-2 text-xs">
+                                        <input
+                                          type="checkbox"
+                                          className="h-4 w-4 cursor-pointer"
+                                          checked={allSelected}
+                                          onChange={() => toggleReviewerGrade(reviewer, classes)}
+                                        />
+                                        全選
+                                      </label>
+                                    </div>
+                                    <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                                      {classes.map((option) => (
+                                        <label
+                                          key={option.code}
+                                          className="text-t2 flex items-center gap-2 text-sm"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            className="h-4 w-4 cursor-pointer"
+                                            checked={(reviewer.classCodes ?? []).includes(option.code)}
+                                            onChange={() => toggleReviewerClass(reviewer, option.code)}
+                                          />
+                                          <span className="min-w-0 truncate">
+                                            {option.name || option.code}
+                                            <span className="text-t3 text-xs">（{option.code}）</span>
+                                          </span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <p className="text-t3 text-xs">
+                            已選 {(reviewer.classCodes ?? []).length} 班（最多 30 班）。
+                          </p>
+                        </div>
+                      )}
+
+                      {reviewer.studentScoped && (
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-end gap-2">
+                            <label className="text-t2 block space-y-1 text-sm">
+                              <span>載入班級</span>
+                              <select
+                                className="input-theme w-56 rounded px-3 py-2 text-sm"
+                                value={targetClassCode}
+                                onChange={(event) => void loadClassStudents(event.target.value)}
+                              >
+                                <option value="">請選擇班級…</option>
+                                {classGroups.map(({ grade, classes }) => (
+                                  <optgroup key={grade} label={grade}>
+                                    {classes.map((option) => (
+                                      <option key={option.code} value={option.code}>
+                                        {option.name || option.code}（{option.code}）
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </label>
+                            {studentLoading && <p className="text-t3 text-sm">學生載入中…</p>}
+                            {studentError && <p className="text-danger text-sm">{studentError}</p>}
+                          </div>
+
+                          {(reviewer.students ?? []).length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(reviewer.students ?? []).map((student) => (
+                                <span
+                                  key={student.uid}
+                                  className="border border-themed text-t2 inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs"
+                                >
+                                  {student.name || student.uid}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeReviewerStudent(reviewer, student.uid)}
+                                    aria-label={`移除 ${student.name || student.uid}`}
+                                    className="text-t3 hover:text-danger cursor-pointer"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {targetClassCode && classStudents[targetClassCode] && (
+                            <div className="border border-themed grid max-h-56 gap-1 overflow-y-auto rounded-md p-2 sm:grid-cols-2 lg:grid-cols-3">
+                              {classStudents[targetClassCode].map((student) => (
+                                <label
+                                  key={student.uid}
+                                  className="text-t2 flex items-center gap-2 text-sm"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 cursor-pointer"
+                                    checked={(reviewer.students ?? []).some(
+                                      (item) => item.uid === student.uid
+                                    )}
+                                    onChange={() => toggleReviewerStudent(reviewer, student)}
+                                  />
+                                  <span className="min-w-0 truncate">
+                                    {student.name || student.uid}
+                                    {student.className ? `（${student.className}）` : ""}
+                                  </span>
+                                </label>
+                              ))}
+                              {classStudents[targetClassCode].length === 0 && (
+                                <p className="text-t3 text-sm">此班目前沒有有效學生。</p>
+                              )}
+                            </div>
+                          )}
+                          <p className="text-t3 text-xs">
+                            已選 {(reviewer.students ?? []).length} 人（最多 100 人）。切換班級才會載入該班學生，不會一次讀取全校。
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </details>
 

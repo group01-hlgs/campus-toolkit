@@ -13,7 +13,7 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.18",
+    "version": "0.0.23",
     "releasedAt": "2026-10-24"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -25,6 +25,7 @@
   "routes": [
     { "kind": "page", "path": "/admin/self-directed-learning" },
     { "kind": "api", "path": "/api/admin/self-directed-learning" },
+    { "kind": "api", "path": "/api/admin/self-directed-learning/students" },
     { "kind": "page", "path": "/student/self-directed-learning" },
     { "kind": "api", "path": "/api/student/self-directed-learning" },
     { "kind": "page", "path": "/staff/self-directed-learning" },
@@ -53,6 +54,43 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.23",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "審查對象的班級清單改依年級分組，每年級獨立區塊並提供「全選」；個人模式的班級下拉改用年級群組，避免年級名稱重複出現干擾閱讀"
+      ]
+    },
+    {
+      "version": "0.0.22",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "審查對象改以班級指派為原則：勾選「指定審查班級」才展開班級清單；個別學生改為例外選項，需另勾選才顯示學生選擇，兩者可同時指定（聯集）"
+      ]
+    },
+    {
+      "version": "0.0.21",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "儲存管理規則前檢查審查對象：選擇「指定班級／指定個人」但未勾選任何對象時阻擋儲存，避免空範圍被回退為全校"
+      ]
+    },
+    {
+      "version": "0.0.20",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "審核人員卡片改為先搜尋再加入，加入後可設定審查對象：全校、指定班級（可多選）或指定個人（先選班級再勾選學生）",
+        "省流機制：班級審查以各班的 period／status／classCode 等值查詢精準載入待審計畫；個人審查以計畫 doc id 精準讀取指定學生；管理端只在選擇班級時載入該班學生並在記憶體快取，不一次讀取全校名冊",
+        "審核 API 於交易內比對審查範圍，範圍外的計畫無法以 planId 直接審核；舊資料未設定範圍者維持全校"
+      ]
+    },
+    {
+      "version": "0.0.19",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "教職員端自主學習計畫頁版面比照「升學考試與模擬考校內報名」教職員頁：系統抬頭、功能標題與兼導師班級副標、上下操作按鈕、分隔線、管理功能面板位置、廣告與版權一致；內容顯示區維持原審核與檢視功能"
+      ]
+    },
     {
       "version": "0.0.18",
       "releasedAt": "2026-10-24",

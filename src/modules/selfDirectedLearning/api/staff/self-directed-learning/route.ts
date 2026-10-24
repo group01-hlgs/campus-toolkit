@@ -9,13 +9,15 @@ import { getSettings } from "../../../lib/self-directed-learning";
 import {
   applyReview,
   listClassPlans,
-  listSubmittedPlans,
+  listSubmittedPlansForScope,
 } from "../../../lib/self-directed-learning-plans";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import {
   MAINTENANCE_TITLE,
   parseReviewInput,
   periodLabelOf,
+  reviewerScopeOf,
+  type ReviewScope,
   type SelfDirectedLearningSettings,
 } from "../../../types/self-directed-learning";
 
@@ -31,8 +33,10 @@ interface StaffRoles {
   isReviewer: boolean;
   isTutor: boolean;
   classCode: string;
-  /** 被指派的管理子權限（功能模組管理頁指派；管理員不走此欄） */
+  /** 被指派的管理子權限（功能模組管理頁指派的管理者走此欄） */
   permissions: string[];
+  /** 審核人員的審查對象範圍（未設定＝全校） */
+  scope: ReviewScope;
 }
 
 /**
@@ -43,7 +47,9 @@ async function staffRolesOf(
   session: VerifiedSession,
   settings: SelfDirectedLearningSettings
 ): Promise<StaffRoles> {
-  const isReviewerList = settings.reviewers.some((reviewer) => reviewer.uid === session.uid);
+  const reviewerEntry =
+    settings.reviewers.find((reviewer) => reviewer.uid === session.uid) ?? null;
+  const isReviewerList = reviewerEntry !== null;
   const grant = managedModulesOf(session.__entry).find(
     (item) => item.module === "selfDirectedLearning"
   );
@@ -57,6 +63,8 @@ async function staffRolesOf(
     isTutor: attribute === "兼導師" && Boolean(classCode),
     classCode,
     permissions,
+    // 被指派 review 但不在審核名單者沒有範圍設定＝全校
+    scope: reviewerScopeOf(reviewerEntry),
   };
 }
 
@@ -112,7 +120,7 @@ export async function GET(request: NextRequest) {
         { status: 403, headers: noStore }
       );
     }
-    const plans = await listSubmittedPlans(period);
+    const plans = await listSubmittedPlansForScope(period, roles.scope);
     return NextResponse.json(
       { success: true, mode, roles, period, plans },
       { headers: noStore }
@@ -176,6 +184,7 @@ export async function POST(request: NextRequest) {
       note: parsed.value.note,
       reviewerUid: session.uid,
       reviewerName,
+      scope: roles.scope,
     });
     if (!result.ok) {
       return NextResponse.json(

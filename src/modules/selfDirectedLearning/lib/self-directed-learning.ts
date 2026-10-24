@@ -9,6 +9,7 @@ import {
   SELF_DIRECTED_LEARNING_SETTINGS_DOC_ID,
   countWeeksBetween,
   normalizeSettings,
+  type ClassOption,
   type PeriodOption,
   type SelfDirectedLearningSettings,
   type SpaceOption,
@@ -189,6 +190,38 @@ export async function getSpaceOptions(): Promise<SpaceOption[]> {
     return units
       .filter((unit) => !hasChild.has(unit.code) && unit.name)
       .map((unit) => ({ name: unit.name, floor: unit.floor }));
+  });
+}
+
+const CLASS_OPTIONS_CACHE_KEY = "selfDirectedLearning:classOptions";
+
+/** 班級候選：讀主程式「學校基本設定 → 年段班級設定」（settings/schoolClasses），單文件快取 */
+export async function getClassOptions(): Promise<ClassOption[]> {
+  return cachedRead(CLASS_OPTIONS_CACHE_KEY, await settingsTtlMs(), async () => {
+    const snap = await getAdminDb().collection("settings").doc("schoolClasses").get();
+    if (!snap.exists) return [];
+    const data = (snap.data() || {}) as Record<string, unknown>;
+    const grades = Array.isArray(data.grades) ? data.grades : [];
+    const options: ClassOption[] = [];
+    for (const gradeItem of grades) {
+      if (!gradeItem || typeof gradeItem !== "object") continue;
+      const grade = gradeItem as Record<string, unknown>;
+      const gradeName = typeof grade.name === "string" ? grade.name.trim().slice(0, 20) : "";
+      const classes = Array.isArray(grade.classes) ? grade.classes : [];
+      for (const classItem of classes) {
+        if (!classItem || typeof classItem !== "object") continue;
+        const cls = classItem as Record<string, unknown>;
+        const code = typeof cls.code === "string" ? cls.code.trim().slice(0, 20) : "";
+        if (!code) continue;
+        options.push({
+          code,
+          name: typeof cls.name === "string" ? cls.name.trim().slice(0, 40) : "",
+          grade: gradeName,
+        });
+        if (options.length >= 300) return options;
+      }
+    }
+    return options;
   });
 }
 
