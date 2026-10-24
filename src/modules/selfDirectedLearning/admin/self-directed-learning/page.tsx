@@ -268,11 +268,11 @@ export default function SelfDirectedLearningSettingsPage({
     patchReviewer(reviewer.uid, {
       classCodes: current.includes(classCode)
         ? current.filter((code) => code !== classCode)
-        : [...current, classCode].slice(0, 30),
+        : [...current, classCode],
     });
   };
 
-  /** 整年級全選／取消（受 30 班上限限制） */
+  /** 整年級全選／取消（受指派上限限制） */
   const toggleReviewerGrade = (reviewer: ReviewerEntry, classes: ClassOption[]) => {
     const current = new Set(reviewer.classCodes ?? []);
     const allSelected = classes.every((option) => current.has(option.code));
@@ -281,7 +281,7 @@ export default function SelfDirectedLearningSettingsPage({
     } else {
       for (const option of classes) current.add(option.code);
     }
-    patchReviewer(reviewer.uid, { classCodes: [...current].slice(0, 30) });
+    patchReviewer(reviewer.uid, { classCodes: [...current] });
   };
 
   const toggleReviewerStudent = (reviewer: ReviewerEntry, student: StudentOption) => {
@@ -946,7 +946,7 @@ export default function SelfDirectedLearningSettingsPage({
                             </div>
                           )}
                           <p className="text-t3 text-xs">
-                            已選 {(reviewer.classCodes ?? []).length} 班（最多 30 班）。
+                            已選 {(reviewer.classCodes ?? []).length} 班。若為全校，可直接不勾選「指定審查班級」，以單一查詢載入。
                           </p>
                         </div>
                       )}
@@ -1025,7 +1025,7 @@ export default function SelfDirectedLearningSettingsPage({
                             </div>
                           )}
                           <p className="text-t3 text-xs">
-                            已選 {(reviewer.students ?? []).length} 人（最多 100 人）。切換班級才會載入該班學生，不會一次讀取全校。
+                            已選 {(reviewer.students ?? []).length} 人。切換班級才會載入該班學生，不會一次讀取全校。
                           </p>
                         </div>
                       )}

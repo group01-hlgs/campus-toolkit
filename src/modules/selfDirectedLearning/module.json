@@ -13,7 +13,7 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.23",
+    "version": "0.0.25",
     "releasedAt": "2026-10-24"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -54,6 +54,21 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.25",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "移除審核人員選擇班級與學生的數量上限（僅保留伺服器防濫用上限），不再以選擇數量當作省流手段",
+        "省流聚焦候選名單載入：個人模式只在管理人員選擇班級時讀取該班學生（單班上限 60 筆），不會一次讀取全校名冊"
+      ]
+    },
+    {
+      "version": "0.0.24",
+      "releasedAt": "2026-10-24",
+      "notes": [
+        "單一審核人員可指派的班級上限由 30 提高至 100（全校範圍建議使用預設「全校」，以單一查詢載入，較逐班查詢省流）"
+      ]
+    },
     {
       "version": "0.0.23",
       "releasedAt": "2026-10-24",

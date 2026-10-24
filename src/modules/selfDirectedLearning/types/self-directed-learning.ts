@@ -5,6 +5,12 @@ export const SELF_DIRECTED_LEARNING_SETTINGS_DOC_ID = "global";
 
 export const WEEKDAY_LABELS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"] as const;
 
+/** 單一審核人員可指派班級數的伺服器防濫用上限（＝主程式班級上限，實務上等同無限制） */
+export const MAX_REVIEWER_CLASSES = 300;
+
+/** 單一審核人員可指定個別學生數的伺服器防濫用上限 */
+export const MAX_REVIEWER_STUDENTS = 500;
+
 /** 指定審查的個別學生（denormalize 姓名與班級，省去顯示時的額外讀取） */
 export interface ReviewerStudentRef {
   uid: string;
@@ -164,7 +170,7 @@ function asReviewerStudents(value: unknown): ReviewerStudentRef[] {
   const seen = new Set<string>();
   const students: ReviewerStudentRef[] = [];
   for (const item of value) {
-    if (students.length >= 100) break;
+    if (students.length >= MAX_REVIEWER_STUDENTS) break;
     if (!item || typeof item !== "object") continue;
     const student = item as Record<string, unknown>;
     const uid = typeof student.uid === "string" ? student.uid.trim() : "";
@@ -203,7 +209,7 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
           const uid = typeof reviewer.uid === "string" ? reviewer.uid.trim() : "";
           if (!uid) return null;
           const name = typeof reviewer.name === "string" ? reviewer.name.trim() : "";
-          const classCodes = asStringArray(reviewer.classCodes, 30, 20);
+          const classCodes = asStringArray(reviewer.classCodes, MAX_REVIEWER_CLASSES, 20);
           const students = asReviewerStudents(reviewer.students);
           // 相容 0.0.20 以前的單一 scope 欄位（classes／students／all）
           const classScoped =

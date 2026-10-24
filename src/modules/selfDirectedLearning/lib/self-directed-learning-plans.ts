@@ -214,7 +214,7 @@ export async function listSubmittedPlansForScope(
 
   const merged = new Map<string, SelfDirectedLearningPlan>();
 
-  const classCodes = [...new Set(scope.classCodes)].slice(0, 30);
+  const classCodes = [...new Set(scope.classCodes)];
   if (classCodes.length > 0) {
     const snaps = await Promise.all(
       classCodes.map((classCode) =>
@@ -231,7 +231,7 @@ export async function listSubmittedPlansForScope(
     }
   }
 
-  const uids = [...new Set(scope.studentUids)].slice(0, 100);
+  const uids = [...new Set(scope.studentUids)];
   for (let index = 0; index < uids.length; index += 30) {
     const chunk = uids.slice(index, index + 30);
     const docs = await getAdminDb().getAll(
