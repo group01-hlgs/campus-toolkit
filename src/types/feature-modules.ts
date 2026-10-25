@@ -80,6 +80,11 @@ export interface FeatureModuleMeta {
   /** 模組入口路由（""＝尚未建頁） */
   href: string;
   /**
+   * 被指派管理人員的專用管理頁（選填）：未指定時沿用 href。
+   * 內建模組若提供獨立的非管理員管理頁，在此宣告。
+   */
+  managerHref?: string;
+  /**
    * 各身分入口（掃描器由 routes 的 page 路徑自動映射，選用模組才有）：
    * 非管理員首頁（RoleHome）以它組選用模組卡；無該身分頁面者不出卡。
    */
@@ -209,6 +214,7 @@ const RAW_FEATURE_MODULES: readonly FeatureModuleMeta[] = [
     status: "live",
     description: "校務行事曆與各類日程的建立、發佈與檢視。",
     href: "/admin/calendar",
+    managerHref: "/calendar/manage",
     author: DEFAULT_MODULE_AUTHOR,
     // 行事曆對四身分皆提供（檢視）；管理端另受「指定功能模組」把關
     provides: {
