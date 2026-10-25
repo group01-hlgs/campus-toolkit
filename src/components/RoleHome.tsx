@@ -183,7 +183,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
     icon: <ModuleIcon value={item.value} />,
     label: `${item.label}管理`,
     id: `manage:${item.value}`,
-    href: item.href,
+    href: item.managerHref ?? item.href,
   }));
 
   return (
