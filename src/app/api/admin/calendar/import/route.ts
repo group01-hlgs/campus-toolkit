@@ -216,7 +216,7 @@ function parseSchoolActivityCell(
   }
 
   const tokens = levelText
-    .split(/[,、;；\s]+/)
+    .split(/[,，、;；\s]+/)
     .map((token) => token.trim())
     .filter(Boolean);
   if (tokens.some((token) => WHOLE_SCHOOL_VALUES.has(token.toLowerCase()))) {
@@ -277,7 +277,7 @@ function parseSchoolActivityCell(
           return { ok: false, reason: `找不到年級「${gradeName}」` };
         }
         const codes = match[2]
-          .split(/[,、\s]+/)
+          .split(/[,，、\s]+/)
           .map((code) => code.trim())
           .filter(Boolean);
         const knownCodes = new Set(gradeOption.classes.map((cls) => cls.code));
@@ -320,7 +320,7 @@ function parseSchoolActivityCell(
     const classCodes = [
       ...new Set(
         classText
-          .split(/[,、;；\s]+/)
+          .split(/[,，、;；\s]+/)
           .map((code) => code.trim())
           .filter(Boolean)
       ),
