@@ -27,12 +27,18 @@ interface ModuleCard {
   href: string;
 }
 
+/** 管理員首頁卡片名稱覆寫：公告／行事曆為管理入口，名稱加「管理」與一般功能區隔 */
+const ADMIN_HOME_LABEL_OVERRIDES: Record<string, string> = {
+  announcements: "系統公告管理",
+  calendar: "行事曆管理",
+};
+
 /** 功能模組入口卡片：由模組註冊表（types/modules.ts）派生——僅列出已建入口（href 非空）的模組，
  * 尚未建頁的模組（如稽核紀錄）不顯示；顯示與否再依 session.adminModules 過濾（見下方 fail-closed 邏輯）。 */
 const moduleCards: ModuleCard[] = MODULES.filter((item) => item.href !== "").map((item) => ({
   id: item.value,
   icon: <ModuleIcon value={item.value} />,
-  label: item.label,
+  label: ADMIN_HOME_LABEL_OVERRIDES[item.value] ?? item.label,
   href: item.href,
 }));
 
