@@ -54,6 +54,8 @@ interface CalendarImportRow {
   action: "create" | "skip";
   reason?: string;
   categoryName?: string;
+  /** 學校活動層級顯示文字（未指定＝省略） */
+  schoolActivity?: string;
 }
 
 interface CalendarImportPreview {
@@ -132,6 +134,58 @@ function parseDatetimeLocal(value: string): number | null {
   if (!value) return null;
   const t = Date.parse(value);
   return Number.isFinite(t) ? t : null;
+}
+
+/** 取 datetime-local 值的日期部分（YYYY-MM-DD）；格式不符回空字串 */
+function datePartOf(value: string): string {
+  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
+interface PeriodRangeTexts {
+  startAtText: string;
+  endAtText: string;
+  crossDay: boolean;
+}
+
+/**
+ * 課表節次 → 開始／結束 datetime-local 值。
+ * 開始節次套在開始日期，結束節次套在結束日期（未填結束日期＝與開始同日），
+ * 因此支援跨日區間（如 11/12 第一節 → 11/13 第七節）。
+ * 日期格式錯誤、結束早於開始或結束時間未晚於開始時間時回錯誤訊息。
+ */
+function buildPeriodRangeTexts(
+  startPeriod: SchoolPeriodRow,
+  endPeriod: SchoolPeriodRow,
+  startAtText: string,
+  endAtText: string,
+  now: number = Date.now()
+): { ok: true; value: PeriodRangeTexts } | { ok: false; message: string } {
+  const startInput = startAtText.trim();
+  if (startInput && !datePartOf(startInput)) {
+    return { ok: false, message: "開始時間格式不正確，請重新選擇" };
+  }
+  const endInput = endAtText.trim();
+  if (endInput && !datePartOf(endInput)) {
+    return { ok: false, message: "結束時間格式不正確，請重新選擇或清空" };
+  }
+
+  const today = toDatetimeLocal(now).slice(0, 10);
+  const startDate = datePartOf(startInput) || today;
+  const endDate = datePartOf(endInput) || startDate;
+  if (endDate < startDate) {
+    return { ok: false, message: "結束日期不得早於開始日期" };
+  }
+
+  const startValue = `${startDate}T${startPeriod.start}`;
+  const endValue = `${endDate}T${endPeriod.end}`;
+  if (endValue <= startValue) {
+    return { ok: false, message: "結束時間必須晚於開始時間" };
+  }
+  return {
+    ok: true,
+    value: { startAtText: startValue, endAtText: endValue, crossDay: endDate !== startDate },
+  };
 }
 
 function monthKey(ms: number): string {
@@ -650,7 +704,10 @@ export default function AdminCalendarPage() {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  /** 套用課表作息：以開始時間的日期（未填則今天）帶入所選節次的起訖時間 */
+  /**
+   * 套用課表作息：開始節次套在開始日期，結束節次套在結束日期
+   * （結束日期未填＝與開始同日），支援跨日；未填開始日期時用今天。
+   */
   function applyPeriodTimes() {
     const startPeriod = periodByCode.get(periodStartCode);
     if (!startPeriod) {
@@ -658,22 +715,31 @@ export default function AdminCalendarPage() {
       return;
     }
     const endPeriod = periodByCode.get(periodEndCode) ?? startPeriod;
-    if (endPeriod.end <= startPeriod.start) {
-      setToast({ kind: "error", text: "結束節次必須晚於開始節次" });
-      return;
-    }
-    const datePart = form.startAtText.slice(0, 10) || toDatetimeLocal(Date.now()).slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
-      setToast({ kind: "error", text: "請先選擇開始日期" });
+    const range = buildPeriodRangeTexts(
+      startPeriod,
+      endPeriod,
+      form.startAtText,
+      form.endAtText
+    );
+    if (!range.ok) {
+      setToast({ kind: "error", text: range.message });
       return;
     }
     setForm((prev) => ({
       ...prev,
       allDay: false,
-      startAtText: `${datePart}T${startPeriod.start}`,
-      endAtText: `${datePart}T${endPeriod.end}`,
+      startAtText: range.value.startAtText,
+      endAtText: range.value.endAtText,
     }));
-    setToast({ kind: "success", text: `已套用 ${startPeriod.name}～${endPeriod.name} 的課表時間` });
+    if (range.value.crossDay) {
+      const label = (value: string) => datePartOf(value).replace(/-/g, "/");
+      setToast({
+        kind: "success",
+        text: `已套用 ${startPeriod.name}（${label(range.value.startAtText)}）～${endPeriod.name}（${label(range.value.endAtText)}）的課表時間`,
+      });
+    } else {
+      setToast({ kind: "success", text: `已套用 ${startPeriod.name}～${endPeriod.name} 的課表時間` });
+    }
   }
 
   function edit(item: AdminCalendarEventRow) {
@@ -1284,9 +1350,19 @@ export default function AdminCalendarPage() {
                               setPeriodStartCode(code);
                               const start = periodByCode.get(code);
                               const end = periodByCode.get(periodEndCode);
+                              const startDate = datePartOf(form.startAtText);
+                              const endDate = datePartOf(form.endAtText);
+                              const today = toDatetimeLocal(Date.now()).slice(0, 10);
+                              const effectiveStart = startDate || today;
+                              const effectiveEnd = endDate || effectiveStart;
+                              // 同一天才自動把結束節次對齊到不早於開始節次；
+                              // 跨日時結束節次可以比開始節次早（如 11/12 第七節 → 11/13 第一節）。
+                              const sameDay = effectiveStart === effectiveEnd;
                               if (
                                 code &&
-                                (!periodEndCode || !end || (start && end.start < start.start))
+                                (!periodEndCode ||
+                                  !end ||
+                                  (sameDay && start && end.start < start.start))
                               ) {
                                 setPeriodEndCode(code);
                               }
@@ -1323,7 +1399,7 @@ export default function AdminCalendarPage() {
                           </button>
                         </div>
                         <p className="text-t3 text-xs">
-                          以開始時間的日期套用（尚未填日期時用今天）；套用後仍可手動微調。
+                          以開始／結束欄位的日期套用：結束日期晚於開始日期時，結束節次會套在結束日期（支援跨日）；未填日期時用今天。套用後仍可手動微調。
                         </p>
                       </div>
                     )}
@@ -1532,7 +1608,7 @@ export default function AdminCalendarPage() {
           <div>
             <h3 className="text-base font-bold text-t1">批次新增行程</h3>
             <p className="text-xs text-t3 mt-0.5">
-              上傳試算表（xlsx／xls）批次建立行程；含全天、時段、跨日日期、跨日日期時間與課表節次範例。
+              上傳試算表（xlsx／xls）批次建立行程；含全天、時段、跨日日期、跨日日期時間、課表節次與學校活動層級範例。
             </p>
           </div>
           <DisclosureArrow />
@@ -1572,7 +1648,8 @@ export default function AdminCalendarPage() {
             <div className="rounded-lg border border-themed bg-surface px-4 py-3 text-xs text-t2 space-y-1">
               <p>1. 下載範例檔，照格式填寫行程（全天＝僅單日；跨日請用日期／日期時間區間，結束不帶時間＝補到當日結束）。</p>
               <p>2. 使用課表節次時，「開始」欄只需填日期，並在「開始節次／結束節次」填節次（代碼、名稱或編號均可）；只填開始節次＝單一節次。</p>
-              <p>3. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
+              <p>3. 學校活動層級：「學校活動層級」填「全校」或年級名稱（多個年級以逗號／頓號分隔）；「學校活動班級」選填：單一年級直接填班級代碼（留空＝全年級），多個年級要指定班級時用「年級:班級」分號分隔（例：一年級:101,102;二年級:201）；年級與班級須為學校已設定者，兩欄留空＝無。</p>
+              <p>4. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1637,12 +1714,13 @@ export default function AdminCalendarPage() {
                   {batchPreview.creatable === 0 ? "（無可新增列，請修正錯誤後重新預覽）" : ""}
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[36rem] text-sm text-left">
+                  <table className="w-full min-w-[44rem] text-sm text-left">
                     <thead className="border-b border-themed bg-surface text-t2">
                       <tr>
                         <th className="px-4 py-2 font-medium">列</th>
                         <th className="px-4 py-2 font-medium">標題</th>
                         <th className="px-4 py-2 font-medium">類型</th>
+                        <th className="px-4 py-2 font-medium">學校活動</th>
                         <th className="px-4 py-2 font-medium">時間</th>
                         <th className="px-4 py-2 font-medium">結果</th>
                       </tr>
@@ -1653,6 +1731,7 @@ export default function AdminCalendarPage() {
                           <td className="px-4 py-2 text-t3">{row.row}</td>
                           <td className="px-4 py-2">{row.title || "—"}</td>
                           <td className="px-4 py-2 text-t2">{row.categoryName ?? "—"}</td>
+                          <td className="px-4 py-2 text-t2">{row.schoolActivity ?? "—"}</td>
                           <td className="px-4 py-2 text-t2">{row.timeText}</td>
                           <td className="px-4 py-2">
                             {row.action === "create" ? (
