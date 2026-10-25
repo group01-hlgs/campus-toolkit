@@ -945,6 +945,14 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
                   const existing = managers?.find(
                     (m) => m.uid === person.uid && m.role === person.role
                   );
+                  const allChecked =
+                    permissionDefs.length > 0 &&
+                    permissionDefs.every(
+                      (def) =>
+                        draftPerms[`${person.uid}:${def.value}`] ??
+                        existing?.permissions.includes(def.value) ??
+                        false
+                    );
                   const meta =
                     person.role === "staff"
                       ? [person.attribute, person.unit, person.title].filter(Boolean).join("／")
@@ -972,7 +980,25 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
                         {meta && <span className="text-t3 ml-1 text-xs">{meta}</span>}
                         {existing && <span className="text-warning ml-1 text-xs">已指派</span>}
                       </span>
-                      <span className="flex flex-wrap gap-x-3 gap-y-1">
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {permissionDefs.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftPerms((current) => {
+                                const next = { ...current };
+                                for (const def of permissionDefs) {
+                                  next[`${person.uid}:${def.value}`] = !allChecked;
+                                }
+                                return next;
+                              })
+                            }
+                            disabled={busy}
+                            className="btn-soft rounded px-2 py-0.5 text-xs cursor-pointer disabled:opacity-50"
+                          >
+                            {allChecked ? "取消全選" : "全選"}
+                          </button>
+                        )}
                         {permissionDefs.map((def) => (
                           <label
                             key={def.value}
