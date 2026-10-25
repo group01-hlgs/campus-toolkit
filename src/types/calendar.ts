@@ -41,6 +41,88 @@ export interface CalendarCategory {
   enabled: boolean;
 }
 
+/** 年級／班級候選（學校活動層級勾選用） */
+export interface CalendarGradeOption {
+  grade: string;
+  classes: { code: string; name: string }[];
+}
+
+/** 學校活動層級：受影響的年級（classCodes 空＝全年級） */
+export interface CalendarSchoolActivityGrade {
+  grade: string;
+  classCodes: string[];
+}
+
+/**
+ * 學校活動層級（用於日後衝堂比對，如自主學習計畫撰寫）：
+ * - school＝全校活動；grades＝受影響的年級／班級（可多選）。
+ * - 兩者皆空＝無（預設）。
+ */
+export interface CalendarSchoolActivity {
+  school: boolean;
+  grades: CalendarSchoolActivityGrade[];
+}
+
+/** 無學校活動層級（預設值；每次回傳新物件避免共用參照） */
+export function emptySchoolActivity(): CalendarSchoolActivity {
+  return { school: false, grades: [] };
+}
+
+/** 寬容解析學校活動層級（去重、去空白、限制長度與筆數） */
+export function normalizeSchoolActivity(value: unknown): CalendarSchoolActivity {
+  if (!value || typeof value !== "object") return emptySchoolActivity();
+  const data = value as Record<string, unknown>;
+  const school = data.school === true;
+  const rawGrades = Array.isArray(data.grades) ? data.grades : [];
+  const grades: CalendarSchoolActivityGrade[] = [];
+  const byGrade = new Map<string, CalendarSchoolActivityGrade>();
+  for (const item of rawGrades) {
+    if (grades.length >= 24) break;
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const grade = typeof row.grade === "string" ? row.grade.trim().slice(0, 40) : "";
+    if (!grade) continue;
+    const codes = Array.isArray(row.classCodes)
+      ? [
+          ...new Set(
+            (row.classCodes as unknown[])
+              .filter((code): code is string => typeof code === "string" && code.trim() !== "")
+              .map((code) => code.trim().slice(0, 32))
+          ),
+        ].slice(0, 100)
+      : [];
+    const existing = byGrade.get(grade);
+    if (existing) {
+      // 同一年的多筆合併：任一筆為全年級（空陣列）＝全年級
+      if (existing.classCodes.length === 0 || codes.length === 0) {
+        existing.classCodes = [];
+      } else {
+        for (const code of codes) {
+          if (!existing.classCodes.includes(code)) existing.classCodes.push(code);
+        }
+      }
+      continue;
+    }
+    const entry = { grade, classCodes: codes };
+    byGrade.set(grade, entry);
+    grades.push(entry);
+  }
+  return { school, grades };
+}
+
+/** 學校活動層級顯示文字（無＝空字串） */
+export function schoolActivityText(activity: CalendarSchoolActivity | null | undefined): string {
+  if (!activity) return "";
+  if (activity.school) return "全校";
+  return activity.grades
+    .map((entry) =>
+      entry.classCodes.length === 0
+        ? `${entry.grade}（全年級）`
+        : `${entry.grade}（${entry.classCodes.join("、")}）`
+    )
+    .join("、");
+}
+
 /**
  * 行程顯示位置（5 處，比照系統公告）：
  * 系統首頁登入表單上方＋四種身分功能首頁（切換身分下拉選單下方、第一個登出按鈕上方）。
@@ -194,6 +276,8 @@ export interface CalendarEventRecord {
   /** "YYYY-MM-DD"；全天事件用（此時 startAt 為當日本地零時） */
   allDayDate?: string;
   important: boolean; // 重要性標記（預設 false）
+  /** 學校活動層級（衝堂比對用；無活動＝空層級） */
+  schoolActivity: CalendarSchoolActivity;
   /** 行事曆分類（settings/calendar 的 categories 之一） */
   categoryId: string;
   sourceModule: string; // 必填：來源模組代碼；行事曆自己建＝"calendar"
@@ -225,6 +309,8 @@ export interface CalendarEventItem {
   categoryName: string;
   sourceModule: string;
   sourceRef?: string;
+  /** 學校活動層級（衝堂比對用） */
+  schoolActivity?: CalendarSchoolActivity;
   audienceRoles: UserRole[];
   classScoped: boolean;
   classCodes: string[];
@@ -281,8 +367,7 @@ export type AdminCalendarEventRow = CalendarEventRecord & {
   categoryName: string;
 };
 
-/** 不限班級的受眾 */
-export function schoolWideAudience(roles: UserRole[]): CalendarAudience {
+/** 不限班級的受眾 */export function schoolWideAudience(roles: UserRole[]): CalendarAudience {
   return { roles: [...roles], classCodes: [ALL_CLASSES_SENTINEL] };
 }
 
@@ -374,6 +459,8 @@ export interface CalendarEventInput {
   allDay?: boolean;
   allDayDate?: string;
   important?: boolean;
+  /** 學校活動層級（衝堂比對用；未提供＝無） */
+  schoolActivity?: CalendarSchoolActivity;
   categoryId?: string;
   /** 發佈單位（如：教務處）；缺省＝沿用現值（upsert 時） */
   publishUnit?: string;
@@ -392,6 +479,7 @@ export interface ValidatedCalendarEventInput {
   endAt?: number;
   allDayDate?: string;
   important: boolean;
+  schoolActivity: CalendarSchoolActivity;
   categoryId: string;
   publishUnit?: string;
   audience: CalendarAudience;
@@ -459,6 +547,7 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
   const description = text(input.description, DESCRIPTION_MAX);
   const location = text(input.location, LOCATION_MAX);
   const important = input.important === true;
+  const schoolActivity = normalizeSchoolActivity(input.schoolActivity);
   const categoryId =
     text(input.categoryId, CATEGORY_ID_MAX) || CALENDAR_FALLBACK_CATEGORY_ID;
   const publishUnit = text(input.publishUnit, PUBLISH_UNIT_MAX) || undefined;
@@ -484,6 +573,7 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
         endAt: startAt + 24 * 60 * 60 * 1000 - 1,
         allDayDate,
         important,
+        schoolActivity,
         categoryId,
         publishUnit,
         audience: normalizedAudience,
@@ -522,6 +612,7 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
       startAt,
       endAt,
       important,
+      schoolActivity,
       categoryId,
       publishUnit,
       audience: normalizedAudience,
@@ -577,6 +668,7 @@ export function readCalendarEventRecord(
         ? raw.allDayDate
         : undefined,
     important: raw.important === true,
+    schoolActivity: normalizeSchoolActivity(raw.schoolActivity),
     categoryId: typeof raw.categoryId === "string" ? raw.categoryId : "",
     publishUnit:
       typeof raw.publishUnit === "string" && raw.publishUnit ? raw.publishUnit : undefined,
@@ -614,6 +706,7 @@ export function calendarEventToFirestore(
     ...(record.endAt ? { endAt: record.endAt } : {}),
     ...(record.allDayDate ? { allDayDate: record.allDayDate } : {}),
     important: record.important === true,
+    schoolActivity: record.schoolActivity,
     categoryId: record.categoryId,
     sourceModule: record.sourceModule,
     ...(record.sourceRef ? { sourceRef: record.sourceRef } : {}),
@@ -644,6 +737,7 @@ export function calendarEventToItem(
     endAt: record.endAt,
     allDayDate: record.allDayDate,
     important: record.important,
+    schoolActivity: record.schoolActivity,
     categoryId: record.categoryId,
     categoryName,
     sourceModule: record.sourceModule,

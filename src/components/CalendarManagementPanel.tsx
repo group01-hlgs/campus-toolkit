@@ -15,10 +15,14 @@ import {
   type CalendarAccess,
   type CalendarCategory,
   type CalendarEventStatus,
+  type CalendarGradeOption,
   type CalendarPolicies,
+  type CalendarSchoolActivity,
   type CalendarSettings,
   type CalendarSurfaces,
   calendarPermissionText,
+  emptySchoolActivity,
+  schoolActivityText,
 } from "@/types/calendar";
 import { normalizeCategoryId } from "@/types/category";
 import { ROLE_LABELS, ALL_ROLES, type UserRole } from "@/types/users";
@@ -76,6 +80,8 @@ interface AdminListResponse {
   access?: CalendarAccess;
   /** 學校課表作息（套用節次時間用） */
   schoolPeriods?: SchoolPeriodRow[];
+  /** 年級／班級（學校活動層級勾選用） */
+  classGrades?: CalendarGradeOption[];
 }
 
 interface FormState {
@@ -88,6 +94,8 @@ interface FormState {
   startAtText: string;
   endAtText: string;
   important: boolean;
+  /** 學校活動層級（多選年級／班級；皆空＝無） */
+  schoolActivity: CalendarSchoolActivity;
   categoryId: string;
   publishUnit: string;
   roles: UserRole[];
@@ -105,6 +113,7 @@ const emptyForm: FormState = {
   startAtText: "",
   endAtText: "",
   important: false,
+  schoolActivity: emptySchoolActivity(),
   categoryId: DEFAULT_CALENDAR_SETTINGS.categories[0].id,
   publishUnit: "",
   roles: ["student", "parent", "staff", "admin"],
@@ -202,6 +211,8 @@ export default function AdminCalendarPage() {
   const [spaceOptions, setSpaceOptions] = useState<SpaceOption[]>([]);
   // 學校課表作息（settings GET 一併回傳）：表單可套用節次起訖時間
   const [schoolPeriods, setSchoolPeriods] = useState<SchoolPeriodRow[]>([]);
+  // 年級／班級（settings GET 一併回傳）：學校活動層級勾選用
+  const [classGrades, setClassGrades] = useState<CalendarGradeOption[]>([]);
   // 表單選擇的課表節次（套用後才寫入開始／結束時間）
   const [periodStartCode, setPeriodStartCode] = useState("");
   const [periodEndCode, setPeriodEndCode] = useState("");
@@ -293,6 +304,9 @@ export default function AdminCalendarPage() {
       if (data?.success && data.access) setAccess(data.access);
       if (data?.success && Array.isArray(data.schoolPeriods)) {
         setSchoolPeriods(data.schoolPeriods);
+      }
+      if (data?.success && Array.isArray(data.classGrades)) {
+        setClassGrades(data.classGrades);
       }
       if (data?.success && Array.isArray(data.orgUnits)) setOrgUnits(data.orgUnits);
       if (data?.success && Array.isArray(data.spaceOptions)) setSpaceOptions(data.spaceOptions);
@@ -432,6 +446,7 @@ export default function AdminCalendarPage() {
         startAt: form.allDay ? undefined : startAt,
         endAt: form.allDay ? null : (parseDatetimeLocal(form.endAtText) ?? null),
         important: form.important,
+        schoolActivity: form.schoolActivity,
         categoryId: formCategoryId,
         publishUnit: form.publishUnit.trim(),
         audience: {
@@ -682,6 +697,7 @@ export default function AdminCalendarPage() {
       startAtText: toDatetimeLocal(item.startAt),
       endAtText: toDatetimeLocal(item.endAt),
       important: item.important === true,
+      schoolActivity: item.schoolActivity ?? emptySchoolActivity(),
       categoryId: item.categoryId,
       publishUnit: item.publishUnit ?? "",
       roles: item.isPublic
@@ -746,6 +762,50 @@ export default function AdminCalendarPage() {
       roles: prev.roles.includes(role)
         ? prev.roles.filter((r) => r !== role)
         : [...prev.roles, role],
+    }));
+  }
+
+  function toggleSchoolActivitySchool(checked: boolean) {
+    setForm((prev) => ({
+      ...prev,
+      schoolActivity: {
+        school: checked,
+        grades: checked ? [] : prev.schoolActivity.grades,
+      },
+    }));
+  }
+
+  function toggleSchoolActivityGrade(grade: string, checked: boolean) {
+    setForm((prev) => ({
+      ...prev,
+      schoolActivity: {
+        ...prev.schoolActivity,
+        grades: checked
+          ? [
+              ...prev.schoolActivity.grades.filter((entry) => entry.grade !== grade),
+              { grade, classCodes: [] },
+            ]
+          : prev.schoolActivity.grades.filter((entry) => entry.grade !== grade),
+      },
+    }));
+  }
+
+  function toggleSchoolActivityClass(grade: string, classCode: string, checked: boolean) {
+    setForm((prev) => ({
+      ...prev,
+      schoolActivity: {
+        ...prev.schoolActivity,
+        grades: prev.schoolActivity.grades.map((entry) =>
+          entry.grade === grade
+            ? {
+                ...entry,
+                classCodes: checked
+                  ? [...new Set([...entry.classCodes, classCode])]
+                  : entry.classCodes.filter((code) => code !== classCode),
+              }
+            : entry
+        ),
+      },
     }));
   }
 
@@ -1309,6 +1369,78 @@ export default function AdminCalendarPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                <span className="text-t2 sm:w-40 shrink-0">學校活動層級</span>
+                <div className="flex-1 space-y-2">
+                  <p className="text-t3 text-xs">用於日後衝堂比對；未勾選任何層級＝無。</p>
+                  <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                    <input
+                      type="checkbox"
+                      checked={form.schoolActivity.school}
+                      onChange={(e) => toggleSchoolActivitySchool(e.target.checked)}
+                    />
+                    全校
+                  </label>
+                  {classGrades.length === 0 ? (
+                    <p className="text-t3 text-xs">學校尚未設定年段班級。</p>
+                  ) : (
+                    <div
+                      className={`space-y-2${form.schoolActivity.school ? " opacity-50" : ""}`}
+                    >
+                      {classGrades.map((gradeOption) => {
+                        const selected = form.schoolActivity.grades.find(
+                          (entry) => entry.grade === gradeOption.grade
+                        );
+                        return (
+                          <div
+                            key={gradeOption.grade}
+                            className="border-themed bg-surface rounded-md p-2"
+                          >
+                            <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(selected)}
+                                disabled={form.schoolActivity.school}
+                                onChange={(e) =>
+                                  toggleSchoolActivityGrade(gradeOption.grade, e.target.checked)
+                                }
+                              />
+                              {gradeOption.grade}
+                            </label>
+                            {selected && !form.schoolActivity.school && (
+                              <div className="mt-1 ml-6 space-y-1">
+                                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                  {gradeOption.classes.map((cls) => (
+                                    <label
+                                      key={cls.code}
+                                      className="text-t2 inline-flex items-center gap-1 text-xs"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={selected.classCodes.includes(cls.code)}
+                                        onChange={(e) =>
+                                          toggleSchoolActivityClass(
+                                            gradeOption.grade,
+                                            cls.code,
+                                            e.target.checked
+                                          )
+                                        }
+                                      />
+                                      {cls.name || cls.code}
+                                    </label>
+                                  ))}
+                                </div>
+                                <p className="text-t3 text-xs">未勾選班級＝全年級。</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-start gap-2">
                 <span className="text-t2 sm:w-40 shrink-0">閱讀權限</span>
                 <div className="flex-1">
                   <div className="flex flex-wrap gap-3">
@@ -1714,6 +1846,11 @@ export default function AdminCalendarPage() {
                         <span className="ml-1.5 text-xs text-t3">
                           行事曆類型：{item.categoryName}
                         </span>
+                        {schoolActivityText(item.schoolActivity) && (
+                          <span className="ml-1.5 text-xs text-warning">
+                            學校活動：{schoolActivityText(item.schoolActivity)}
+                          </span>
+                        )}
                         {item.sourceModule !== "calendar" && (
                           <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>
                         )}

@@ -11,7 +11,7 @@ import {
   listAdminCalendarEvents,
   purgeDownCalendarEvents,
 } from "@/lib/calendar";
-import { calendarAccessOf, parseCalendarAudience } from "@/types/calendar";
+import { calendarAccessOf, parseCalendarAudience, type CalendarSchoolActivity } from "@/types/calendar";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
       allDay: body.allDay === true,
       allDayDate: typeof body.allDayDate === "string" ? body.allDayDate : undefined,
       important: body.important === true,
+      schoolActivity: body.schoolActivity as CalendarSchoolActivity | undefined,
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
       publishUnit: typeof body.publishUnit === "string" ? body.publishUnit : undefined,
       audience,

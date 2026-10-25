@@ -7,7 +7,7 @@ import { serverErrorMessage } from "@/lib/api-error";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedSettingDoc } from "@/lib/read-cache";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
-import { getCalendarSettings, getSchoolPeriods, saveCalendarSettings } from "@/lib/calendar";
+import { getCalendarSettings, getSchoolClassOptions, getSchoolPeriods, saveCalendarSettings } from "@/lib/calendar";
 import { ORG_DOC_ID, readOrgStructure } from "@/types/org";
 import { SPACES_DOC_ID, readSpaceStructure } from "@/types/school-spaces";
 import type { CalendarCategory, CalendarPolicies, CalendarSurfaces } from "@/types/calendar";
@@ -36,10 +36,12 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
     const access = calendarAccessOf(context.kind === "admin" ? null : context.permissions);
 
-    const [settings, schoolPeriods, orgSnap, spacesSnap] = await Promise.all([
+    const [settings, schoolPeriods, classGrades, orgSnap, spacesSnap] = await Promise.all([
       getCalendarSettings(),
       // 課表作息：表單「套用課表時間」與批次匯入的節次來源
       getSchoolPeriods(),
+      // 年段班級：學校活動層級（年級／班級勾選）
+      getSchoolClassOptions(),
       // 單位層級／樓層空間設定 30 秒快取（setting-doc key，同源失效）
       cachedSettingDoc(ORG_DOC_ID, () =>
         getAdminDb().collection(SETTINGS_COLLECTION).doc(ORG_DOC_ID).get()
@@ -55,7 +57,7 @@ export async function GET(request: NextRequest) {
       ({ code, name, parent }) => ({ code, name, parent })
     );
     return NextResponse.json(
-      { success: true, settings, schoolPeriods, orgUnits, spaceOptions, access },
+      { success: true, settings, schoolPeriods, classGrades, orgUnits, spaceOptions, access },
       { headers: noStore }
     );
   } catch (error) {

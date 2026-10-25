@@ -14,8 +14,10 @@ import {
   CalendarEventItem,
   CalendarEventRecord,
   CalendarEventStatus,
+  CalendarGradeOption,
   CalendarPolicies,
   CalendarReminderItem,
+  CalendarSchoolActivity,
   CalendarSettings,
   CalendarEventInput,
   CalendarSurface,
@@ -50,6 +52,7 @@ import {
   readSchoolPeriods,
   type SchoolPeriodRow,
 } from "@/types/school-periods";
+import { CLASSES_DOC_ID, readSchoolClasses } from "@/types/school-classes";
 
 /**
  * 行事曆功能模組（server-only）。
@@ -116,6 +119,22 @@ export async function getSchoolPeriods(): Promise<SchoolPeriodRow[]> {
   }
 }
 
+/** 年級／班級候選（學校活動層級用） */
+export async function getSchoolClassOptions(): Promise<CalendarGradeOption[]> {
+  try {
+    const raw = await cachedSettingDoc(CLASSES_DOC_ID, async () => {
+      const snap = await getAdminDb().collection("settings").doc(CLASSES_DOC_ID).get();
+      return snap.exists ? snap.data() ?? null : null;
+    });
+    return readSchoolClasses(raw).grades.map((grade) => ({
+      grade: grade.name,
+      classes: grade.classes.map((row) => ({ code: row.code, name: row.name })),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** 行程／設定變更後：清 `calendar:` 前綴讀快取（含設定文件的 `setting-doc:calendar`） */
 export function invalidateCalendarCache(): void {
   invalidateReadCache(LIST_CACHE_PREFIX);
@@ -135,6 +154,8 @@ export interface PublishScheduleFromModuleInput {
   allDay?: boolean;
   allDayDate?: string;
   important?: boolean;
+  /** 學校活動層級（衝堂比對用；未提供＝沿用現值） */
+  schoolActivity?: CalendarSchoolActivity;
   categoryId?: string;
   /** 發佈單位（如：教務處）；缺省＝沿用現值 */
   publishUnit?: string;
@@ -163,6 +184,7 @@ function mergeScheduleInput(
     allDay,
     allDayDate: allDay ? (input.allDayDate ?? existing?.allDayDate) : undefined,
     important: input.important ?? existing?.important ?? false,
+    schoolActivity: input.schoolActivity ?? existing?.schoolActivity,
     categoryId: input.categoryId ?? existing?.categoryId,
     publishUnit: input.publishUnit ?? existing?.publishUnit,
     audience: input.audience ?? existing?.audience ?? { roles: [], classCodes: [] },
@@ -220,6 +242,7 @@ export async function publishScheduleFromModule(
     endAt: validation.value.endAt,
     allDayDate: validation.value.allDayDate,
     important: validation.value.important,
+    schoolActivity: validation.value.schoolActivity,
     categoryId: validation.value.categoryId,
     publishUnit: validation.value.publishUnit,
     sourceModule,
@@ -288,6 +311,7 @@ export async function updateCalendarEvent(
     endAt: validation.value.endAt,
     allDayDate: validation.value.allDayDate,
     important: validation.value.important,
+    schoolActivity: validation.value.schoolActivity,
     categoryId: validation.value.categoryId,
     publishUnit: validation.value.publishUnit,
     audience: validation.value.audience,
