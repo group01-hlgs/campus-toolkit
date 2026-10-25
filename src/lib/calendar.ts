@@ -14,8 +14,10 @@ import {
   CalendarEventItem,
   CalendarEventRecord,
   CalendarEventStatus,
+  CalendarGradeOption,
   CalendarPolicies,
   CalendarReminderItem,
+  CalendarSchoolActivity,
   CalendarSettings,
   CalendarEventInput,
   CalendarSurface,
@@ -45,6 +47,12 @@ import {
 } from "@/types/calendar";
 import type { UserRole } from "@/types/users";
 import { ensureFallbackCategory } from "@/types/category";
+import {
+  PERIODS_DOC_ID,
+  readSchoolPeriods,
+  type SchoolPeriodRow,
+} from "@/types/school-periods";
+import { CLASSES_DOC_ID, readSchoolClasses } from "@/types/school-classes";
 
 /**
  * 行事曆功能模組（server-only）。
@@ -81,8 +89,7 @@ const IN_QUERY_CHUNK = 30;
 const PURGE_SCAN_LIMIT = 200;
 
 /** 讀取行事曆模組設定（settings/calendar，30 秒快取） */
-export async function getCalendarSettings(): Promise<CalendarSettings> {
-  try {
+export async function getCalendarSettings(): Promise<CalendarSettings> {  try {
     const raw = await cachedSettingDoc(CALENDAR_SETTINGS_DOC_ID, async () => {
       const snap = await getAdminDb()
         .collection("settings")
@@ -96,6 +103,35 @@ export async function getCalendarSettings(): Promise<CalendarSettings> {
       ...DEFAULT_CALENDAR_SETTINGS,
       categories: [...DEFAULT_CALENDAR_CATEGORIES],
     };
+  }
+}
+
+/** 讀取學校課表作息（settings/schoolPeriods，30 秒快取）；行事曆表單與批次匯入共用 */
+export async function getSchoolPeriods(): Promise<SchoolPeriodRow[]> {
+  try {
+    const raw = await cachedSettingDoc(PERIODS_DOC_ID, async () => {
+      const snap = await getAdminDb().collection("settings").doc(PERIODS_DOC_ID).get();
+      return snap.exists ? snap.data() ?? null : null;
+    });
+    return readSchoolPeriods(raw).periods;
+  } catch {
+    return readSchoolPeriods(null).periods;
+  }
+}
+
+/** 年級／班級候選（學校活動層級用） */
+export async function getSchoolClassOptions(): Promise<CalendarGradeOption[]> {
+  try {
+    const raw = await cachedSettingDoc(CLASSES_DOC_ID, async () => {
+      const snap = await getAdminDb().collection("settings").doc(CLASSES_DOC_ID).get();
+      return snap.exists ? snap.data() ?? null : null;
+    });
+    return readSchoolClasses(raw).grades.map((grade) => ({
+      grade: grade.name,
+      classes: grade.classes.map((row) => ({ code: row.code, name: row.name })),
+    }));
+  } catch {
+    return [];
   }
 }
 
@@ -118,6 +154,8 @@ export interface PublishScheduleFromModuleInput {
   allDay?: boolean;
   allDayDate?: string;
   important?: boolean;
+  /** 學校活動層級（衝堂比對用；未提供＝沿用現值） */
+  schoolActivity?: CalendarSchoolActivity;
   categoryId?: string;
   /** 發佈單位（如：教務處）；缺省＝沿用現值 */
   publishUnit?: string;
@@ -146,6 +184,7 @@ function mergeScheduleInput(
     allDay,
     allDayDate: allDay ? (input.allDayDate ?? existing?.allDayDate) : undefined,
     important: input.important ?? existing?.important ?? false,
+    schoolActivity: input.schoolActivity ?? existing?.schoolActivity,
     categoryId: input.categoryId ?? existing?.categoryId,
     publishUnit: input.publishUnit ?? existing?.publishUnit,
     audience: input.audience ?? existing?.audience ?? { roles: [], classCodes: [] },
@@ -203,6 +242,7 @@ export async function publishScheduleFromModule(
     endAt: validation.value.endAt,
     allDayDate: validation.value.allDayDate,
     important: validation.value.important,
+    schoolActivity: validation.value.schoolActivity,
     categoryId: validation.value.categoryId,
     publishUnit: validation.value.publishUnit,
     sourceModule,
@@ -271,6 +311,7 @@ export async function updateCalendarEvent(
     endAt: validation.value.endAt,
     allDayDate: validation.value.allDayDate,
     important: validation.value.important,
+    schoolActivity: validation.value.schoolActivity,
     categoryId: validation.value.categoryId,
     publishUnit: validation.value.publishUnit,
     audience: validation.value.audience,

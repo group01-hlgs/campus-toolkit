@@ -12,7 +12,7 @@ import {
   listAdminCalendarEvents,
   updateCalendarEvent,
 } from "@/lib/calendar";
-import { parseCalendarAudience } from "@/types/calendar";
+import { parseCalendarAudience, type CalendarSchoolActivity } from "@/types/calendar";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -107,6 +107,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       allDay: typeof body.allDay === "boolean" ? body.allDay : undefined,
       allDayDate: typeof body.allDayDate === "string" ? body.allDayDate : undefined,
       important: typeof body.important === "boolean" ? body.important : undefined,
+      schoolActivity: body.schoolActivity as CalendarSchoolActivity | undefined,
       categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
       publishUnit:
         typeof body.publishUnit === "string" ? body.publishUnit : undefined,

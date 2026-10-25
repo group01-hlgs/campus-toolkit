@@ -15,13 +15,18 @@ import {
   type CalendarAccess,
   type CalendarCategory,
   type CalendarEventStatus,
+  type CalendarGradeOption,
   type CalendarPolicies,
+  type CalendarSchoolActivity,
   type CalendarSettings,
   type CalendarSurfaces,
   calendarPermissionText,
+  emptySchoolActivity,
+  schoolActivityText,
 } from "@/types/calendar";
 import { normalizeCategoryId } from "@/types/category";
 import { ROLE_LABELS, ALL_ROLES, type UserRole } from "@/types/users";
+import type { SchoolPeriodRow } from "@/types/school-periods";
 import { useDataSaver } from "@/lib/data-saver";
 import RevealListCard from "@/components/RevealListCard";
 import Toast, { type ToastMessage } from "@/components/Toast";
@@ -73,6 +78,10 @@ interface AdminListResponse {
   spaceOptions?: SpaceOption[];
   /** 目前帳號的行事曆子權限（管理員恆全權） */
   access?: CalendarAccess;
+  /** 學校課表作息（套用節次時間用） */
+  schoolPeriods?: SchoolPeriodRow[];
+  /** 年級／班級（學校活動層級勾選用） */
+  classGrades?: CalendarGradeOption[];
 }
 
 interface FormState {
@@ -85,6 +94,8 @@ interface FormState {
   startAtText: string;
   endAtText: string;
   important: boolean;
+  /** 學校活動層級（多選年級／班級；皆空＝無） */
+  schoolActivity: CalendarSchoolActivity;
   categoryId: string;
   publishUnit: string;
   roles: UserRole[];
@@ -102,6 +113,7 @@ const emptyForm: FormState = {
   startAtText: "",
   endAtText: "",
   important: false,
+  schoolActivity: emptySchoolActivity(),
   categoryId: DEFAULT_CALENDAR_SETTINGS.categories[0].id,
   publishUnit: "",
   roles: ["student", "parent", "staff", "admin"],
@@ -197,6 +209,24 @@ export default function AdminCalendarPage() {
   const [orgUnits, setOrgUnits] = useState<OrgUnitOption[]>([]);
   // 樓層空間設定選項（settings GET 一併回傳，供「地點」下拉建議）
   const [spaceOptions, setSpaceOptions] = useState<SpaceOption[]>([]);
+  // 學校課表作息（settings GET 一併回傳）：表單可套用節次起訖時間
+  const [schoolPeriods, setSchoolPeriods] = useState<SchoolPeriodRow[]>([]);
+  // 年級／班級（settings GET 一併回傳）：學校活動層級勾選用
+  const [classGrades, setClassGrades] = useState<CalendarGradeOption[]>([]);
+  // 表單選擇的課表節次（套用後才寫入開始／結束時間）
+  const [periodStartCode, setPeriodStartCode] = useState("");
+  const [periodEndCode, setPeriodEndCode] = useState("");
+  const sortedSchoolPeriods = useMemo(
+    () =>
+      [...schoolPeriods].sort(
+        (a, b) => a.start.localeCompare(b.start) || a.period - b.period
+      ),
+    [schoolPeriods]
+  );
+  const periodByCode = useMemo(
+    () => new Map(schoolPeriods.map((period) => [period.code, period] as const)),
+    [schoolPeriods]
+  );
   // 省流模式的輕量統計（count 聚合，僅在省流啟用時取一次）
   const [counts, setCounts] = useState<{ active: number; cancelled: number } | null>(null);
   const [cardOpen, setCardOpen] = useState({
@@ -272,6 +302,12 @@ export default function AdminCalendarPage() {
       const data: AdminListResponse | null = await res.json().catch(() => null);
       if (data?.success && data.settings) applySettings(data.settings);
       if (data?.success && data.access) setAccess(data.access);
+      if (data?.success && Array.isArray(data.schoolPeriods)) {
+        setSchoolPeriods(data.schoolPeriods);
+      }
+      if (data?.success && Array.isArray(data.classGrades)) {
+        setClassGrades(data.classGrades);
+      }
       if (data?.success && Array.isArray(data.orgUnits)) setOrgUnits(data.orgUnits);
       if (data?.success && Array.isArray(data.spaceOptions)) setSpaceOptions(data.spaceOptions);
     } catch {
@@ -410,6 +446,7 @@ export default function AdminCalendarPage() {
         startAt: form.allDay ? undefined : startAt,
         endAt: form.allDay ? null : (parseDatetimeLocal(form.endAtText) ?? null),
         important: form.important,
+        schoolActivity: form.schoolActivity,
         categoryId: formCategoryId,
         publishUnit: form.publishUnit.trim(),
         audience: {
@@ -427,6 +464,8 @@ export default function AdminCalendarPage() {
       if (!res.ok || !data?.success) throw new Error(data?.message || "儲存失敗");
       applyListFromResponse(data);
       setForm(emptyForm);
+      setPeriodStartCode("");
+      setPeriodEndCode("");
       setFormOpen(false);
       setToast({ kind: "success", text: data.message || "已儲存" });
     } catch (error) {
@@ -605,7 +644,49 @@ export default function AdminCalendarPage() {
     }
   }
 
+  function timeOfDay(ms: number): string {
+    const d = new Date(ms);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  /** 套用課表作息：以開始時間的日期（未填則今天）帶入所選節次的起訖時間 */
+  function applyPeriodTimes() {
+    const startPeriod = periodByCode.get(periodStartCode);
+    if (!startPeriod) {
+      setToast({ kind: "error", text: "請先選擇開始節次" });
+      return;
+    }
+    const endPeriod = periodByCode.get(periodEndCode) ?? startPeriod;
+    if (endPeriod.end <= startPeriod.start) {
+      setToast({ kind: "error", text: "結束節次必須晚於開始節次" });
+      return;
+    }
+    const datePart = form.startAtText.slice(0, 10) || toDatetimeLocal(Date.now()).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+      setToast({ kind: "error", text: "請先選擇開始日期" });
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      allDay: false,
+      startAtText: `${datePart}T${startPeriod.start}`,
+      endAtText: `${datePart}T${endPeriod.end}`,
+    }));
+    setToast({ kind: "success", text: `已套用 ${startPeriod.name}～${endPeriod.name} 的課表時間` });
+  }
+
   function edit(item: AdminCalendarEventRow) {
+    const startMatch = item.allDayDate
+      ? undefined
+      : sortedSchoolPeriods.find((period) => period.start === timeOfDay(item.startAt));
+    const endAt = item.endAt;
+    const endMatch =
+      endAt && !item.allDayDate
+        ? sortedSchoolPeriods.find((period) => period.end === timeOfDay(endAt))
+        : undefined;
+    setPeriodStartCode(startMatch?.code ?? "");
+    setPeriodEndCode(endMatch?.code ?? "");
     setForm({
       id: item.id,
       title: item.title,
@@ -616,6 +697,7 @@ export default function AdminCalendarPage() {
       startAtText: toDatetimeLocal(item.startAt),
       endAtText: toDatetimeLocal(item.endAt),
       important: item.important === true,
+      schoolActivity: item.schoolActivity ?? emptySchoolActivity(),
       categoryId: item.categoryId,
       publishUnit: item.publishUnit ?? "",
       roles: item.isPublic
@@ -632,6 +714,8 @@ export default function AdminCalendarPage() {
 
   function cancelEdit() {
     setForm(emptyForm);
+    setPeriodStartCode("");
+    setPeriodEndCode("");
     setFormOpen(false);
   }
 
@@ -678,6 +762,50 @@ export default function AdminCalendarPage() {
       roles: prev.roles.includes(role)
         ? prev.roles.filter((r) => r !== role)
         : [...prev.roles, role],
+    }));
+  }
+
+  function toggleSchoolActivitySchool(checked: boolean) {
+    setForm((prev) => ({
+      ...prev,
+      schoolActivity: {
+        school: checked,
+        grades: checked ? [] : prev.schoolActivity.grades,
+      },
+    }));
+  }
+
+  function toggleSchoolActivityGrade(grade: string, checked: boolean) {
+    setForm((prev) => ({
+      ...prev,
+      schoolActivity: {
+        ...prev.schoolActivity,
+        grades: checked
+          ? [
+              ...prev.schoolActivity.grades.filter((entry) => entry.grade !== grade),
+              { grade, classCodes: [] },
+            ]
+          : prev.schoolActivity.grades.filter((entry) => entry.grade !== grade),
+      },
+    }));
+  }
+
+  function toggleSchoolActivityClass(grade: string, classCode: string, checked: boolean) {
+    setForm((prev) => ({
+      ...prev,
+      schoolActivity: {
+        ...prev.schoolActivity,
+        grades: prev.schoolActivity.grades.map((entry) =>
+          entry.grade === grade
+            ? {
+                ...entry,
+                classCodes: checked
+                  ? [...new Set([...entry.classCodes, classCode])]
+                  : entry.classCodes.filter((code) => code !== classCode),
+              }
+            : entry
+        ),
+      },
     }));
   }
 
@@ -1115,6 +1243,7 @@ export default function AdminCalendarPage() {
                       />
                     </div>
                   ) : (
+                    <>
                     <div className="grid gap-2 sm:grid-cols-2">
                       <div>
                         <label className="block text-xs text-t2 mb-1" htmlFor="cal-start">
@@ -1142,6 +1271,63 @@ export default function AdminCalendarPage() {
                         />
                       </div>
                     </div>
+                    {sortedSchoolPeriods.length > 0 && (
+                      <div className="border-themed bg-surface space-y-1 rounded-md p-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-t2 text-xs">課表作息</span>
+                          <select
+                            aria-label="開始節次"
+                            className="input-theme rounded px-2 py-1 text-xs"
+                            value={periodStartCode}
+                            onChange={(e) => {
+                              const code = e.target.value;
+                              setPeriodStartCode(code);
+                              const start = periodByCode.get(code);
+                              const end = periodByCode.get(periodEndCode);
+                              if (
+                                code &&
+                                (!periodEndCode || !end || (start && end.start < start.start))
+                              ) {
+                                setPeriodEndCode(code);
+                              }
+                            }}
+                          >
+                            <option value="">開始節次</option>
+                            {sortedSchoolPeriods.map((period) => (
+                              <option key={period.code} value={period.code}>
+                                {period.name}（{period.start}–{period.end}）
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-t3 text-xs">～</span>
+                          <select
+                            aria-label="結束節次"
+                            className="input-theme rounded px-2 py-1 text-xs"
+                            value={periodEndCode}
+                            onChange={(e) => setPeriodEndCode(e.target.value)}
+                          >
+                            <option value="">結束節次（同開始）</option>
+                            {sortedSchoolPeriods.map((period) => (
+                              <option key={period.code} value={period.code}>
+                                {period.name}（{period.start}–{period.end}）
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={applyPeriodTimes}
+                            disabled={!periodStartCode}
+                            className="btn-soft rounded px-2 py-1 text-xs cursor-pointer disabled:opacity-50"
+                          >
+                            套用課表時間
+                          </button>
+                        </div>
+                        <p className="text-t3 text-xs">
+                          以開始時間的日期套用（尚未填日期時用今天）；套用後仍可手動微調。
+                        </p>
+                      </div>
+                    )}
+                    </>
                   )}
                 </div>
               </div>
@@ -1179,6 +1365,78 @@ export default function AdminCalendarPage() {
                     />
                     以星號標記
                   </label>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                <span className="text-t2 sm:w-40 shrink-0">學校活動層級</span>
+                <div className="flex-1 space-y-2">
+                  <p className="text-t3 text-xs">用於日後衝堂比對；未勾選任何層級＝無。</p>
+                  <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                    <input
+                      type="checkbox"
+                      checked={form.schoolActivity.school}
+                      onChange={(e) => toggleSchoolActivitySchool(e.target.checked)}
+                    />
+                    全校
+                  </label>
+                  {classGrades.length === 0 ? (
+                    <p className="text-t3 text-xs">學校尚未設定年段班級。</p>
+                  ) : (
+                    <div
+                      className={`space-y-2${form.schoolActivity.school ? " opacity-50" : ""}`}
+                    >
+                      {classGrades.map((gradeOption) => {
+                        const selected = form.schoolActivity.grades.find(
+                          (entry) => entry.grade === gradeOption.grade
+                        );
+                        return (
+                          <div
+                            key={gradeOption.grade}
+                            className="border-themed bg-surface rounded-md p-2"
+                          >
+                            <label className="inline-flex items-center gap-1.5 text-sm text-t1">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(selected)}
+                                disabled={form.schoolActivity.school}
+                                onChange={(e) =>
+                                  toggleSchoolActivityGrade(gradeOption.grade, e.target.checked)
+                                }
+                              />
+                              {gradeOption.grade}
+                            </label>
+                            {selected && !form.schoolActivity.school && (
+                              <div className="mt-1 ml-6 space-y-1">
+                                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                  {gradeOption.classes.map((cls) => (
+                                    <label
+                                      key={cls.code}
+                                      className="text-t2 inline-flex items-center gap-1 text-xs"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={selected.classCodes.includes(cls.code)}
+                                        onChange={(e) =>
+                                          toggleSchoolActivityClass(
+                                            gradeOption.grade,
+                                            cls.code,
+                                            e.target.checked
+                                          )
+                                        }
+                                      />
+                                      {cls.name || cls.code}
+                                    </label>
+                                  ))}
+                                </div>
+                                <p className="text-t3 text-xs">未勾選班級＝全年級。</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1274,7 +1532,7 @@ export default function AdminCalendarPage() {
           <div>
             <h3 className="text-base font-bold text-t1">批次新增行程</h3>
             <p className="text-xs text-t3 mt-0.5">
-              上傳試算表（xlsx／xls）批次建立行程；含全天、時段、跨日日期與跨日日期時間範例。
+              上傳試算表（xlsx／xls）批次建立行程；含全天、時段、跨日日期、跨日日期時間與課表節次範例。
             </p>
           </div>
           <DisclosureArrow />
@@ -1313,7 +1571,8 @@ export default function AdminCalendarPage() {
 
             <div className="rounded-lg border border-themed bg-surface px-4 py-3 text-xs text-t2 space-y-1">
               <p>1. 下載範例檔，照格式填寫行程（全天＝僅單日；跨日請用日期／日期時間區間，結束不帶時間＝補到當日結束）。</p>
-              <p>2. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
+              <p>2. 使用課表節次時，「開始」欄只需填日期，並在「開始節次／結束節次」填節次（代碼、名稱或編號均可）；只填開始節次＝單一節次。</p>
+              <p>3. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1587,6 +1846,11 @@ export default function AdminCalendarPage() {
                         <span className="ml-1.5 text-xs text-t3">
                           行事曆類型：{item.categoryName}
                         </span>
+                        {schoolActivityText(item.schoolActivity) && (
+                          <span className="ml-1.5 text-xs text-warning">
+                            學校活動：{schoolActivityText(item.schoolActivity)}
+                          </span>
+                        )}
                         {item.sourceModule !== "calendar" && (
                           <span className="ml-1.5 text-xs text-t3">[{item.sourceModule}]</span>
                         )}
