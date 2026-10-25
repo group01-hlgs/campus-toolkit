@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import { countCalendarEventsByStatus } from "@/lib/calendar";
 
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("calendar");
+    const { denial } = await requireModulePermission("calendar");
     if (denial) return toAuthResponse(denial);
 
     const counts = await countCalendarEventsByStatus();

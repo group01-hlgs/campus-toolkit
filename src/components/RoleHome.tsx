@@ -44,6 +44,8 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
   const [displayName, setDisplayName] = useState("");
   // 可見功能模組清單；null＝尚未載入（先顯示既有卡片，避免閃爍）
   const [visibleModules, setVisibleModules] = useState<string[] | null>(null);
+  /** 被指派管理的功能模組（如行事曆）：首頁提供「管理」入口卡 */
+  const [delegatedModules, setDelegatedModules] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +56,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
         return;
       }
       setDisplayName(session.displayName);
+      setDelegatedModules((session.delegatedModules ?? []).map((grant) => grant.module));
     });
     return () => {
       cancelled = true;
@@ -168,6 +171,21 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
           href: item.roleHrefs?.[role] as string,
         }));
 
+  // 被指派管理且為內建模組（如行事曆）：提供直接進入管理頁的卡片
+  const managementCards = FEATURE_MODULES.filter(
+    (item) =>
+      item.kind === "builtin" &&
+      item.href !== "" &&
+      Array.isArray(item.managerPermissions) &&
+      item.managerPermissions.length > 0 &&
+      delegatedModules.includes(item.value)
+  ).map((item) => ({
+    icon: <ModuleIcon value={item.value} />,
+    label: `${item.label}管理`,
+    id: `manage:${item.value}`,
+    href: item.href,
+  }));
+
   return (
     <div className="min-h-screen flex flex-col items-center bg-page px-4 pt-[20px]">
       {recreationVisible && (
@@ -212,7 +230,7 @@ export default function RoleHome({ role }: { role: Exclude<UserRole, "admin"> })
 
       {/* 提示文字 + 可拖曳排序的功能卡片（順序存入此瀏覽器的 localStorage） */}
       <DraggableModuleGrid
-        items={[...entryCards, ...optionalCards]}
+        items={[...entryCards, ...managementCards, ...optionalCards]}
         storageKey={`campusCardOrder.${role}`}
         itemsReady={visibleModules !== null}
       />

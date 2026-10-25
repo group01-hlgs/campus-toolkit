@@ -241,10 +241,15 @@ export async function createCalendarEvent(
   return publishScheduleFromModule({ ...input, sourceModule: input.sourceModule || "calendar" });
 }
 
-/** 更新行程（僅改可編輯欄位；id、來源與建立者固定）。回傳 `deleted=true` 表示因下架原則被真實刪除 */
+/**
+ * 更新行程（僅改可編輯欄位；id、來源與建立者固定）。回傳 `deleted=true` 表示因下架原則被真實刪除。
+ * `allowHardDelete=false` 時即使「下架行程真實刪除」開啟也只做軟取消（供只有行程管理權、
+ * 沒有刪除權的被指派者使用，避免以取消名義永久刪除）。
+ */
 export async function updateCalendarEvent(
   id: string,
-  patch: PublishScheduleFromModuleInput
+  patch: PublishScheduleFromModuleInput,
+  options?: { allowHardDelete?: boolean }
 ): Promise<{ deleted: boolean }> {
   const db = getAdminDb();
   const ref = db.collection(CALENDAR_COLLECTION).doc(id);
@@ -276,7 +281,7 @@ export async function updateCalendarEvent(
     updatedAt: now,
   };
   // 下架原則＝真實刪除：取消的行程連同個人提醒直接刪除（不可恢復）
-  if (next.status === "cancelled") {
+  if (next.status === "cancelled" && options?.allowHardDelete !== false) {
     const settings = await getCalendarSettings();
     if (settings.policies.hardDeleteCancelled) {
       await hardDeleteCalendarEvent(id);
@@ -290,8 +295,11 @@ export async function updateCalendarEvent(
 }
 
 /** 取消行程。回傳 `deleted=true` 表示因下架原則被真實刪除 */
-export async function cancelCalendarEvent(id: string): Promise<{ deleted: boolean }> {
-  return updateCalendarEvent(id, { sourceModule: "calendar", status: "cancelled" });
+export async function cancelCalendarEvent(
+  id: string,
+  options?: { allowHardDelete?: boolean }
+): Promise<{ deleted: boolean }> {
+  return updateCalendarEvent(id, { sourceModule: "calendar", status: "cancelled" }, options);
 }
 
 /**
@@ -312,12 +320,13 @@ const BATCH_IDS_MAX = 200;
  * 回傳實際取消與真實刪除的筆數（查無者略過）。
  */
 export async function batchCancelCalendarEvents(
-  ids: string[]
+  ids: string[],
+  options?: { allowHardDelete?: boolean }
 ): Promise<{ cancelled: number; deleted: number }> {
   const unique = [...new Set(ids)].slice(0, BATCH_IDS_MAX);
   if (unique.length === 0) return { cancelled: 0, deleted: 0 };
   const settings = await getCalendarSettings();
-  if (settings.policies.hardDeleteCancelled) {
+  if (settings.policies.hardDeleteCancelled && options?.allowHardDelete !== false) {
     const deleted = await batchDeleteCalendarEventsHard(unique);
     return { cancelled: 0, deleted };
   }

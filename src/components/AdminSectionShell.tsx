@@ -3,6 +3,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, defaultSettings } from "@/types/settings";
+import { ROLE_HOME, type UserRole } from "@/types/users";
 import { fetchSession, logout } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
 import Copyright from "@/components/Copyright";
@@ -42,6 +43,8 @@ export default function AdminSectionShell({
   const [adminModules, setAdminModules] = useState<string[] | null>(null);
   // 非管理員身分被指定管理的模組（政策修改書 G3；管理員不看此欄）
   const [delegatedModules, setDelegatedModules] = useState<string[]>([]);
+  // 目前身分：非管理員的被指派者在「返回功能首頁」時回到自己的身分首頁
+  const [role, setRole] = useState<UserRole | null>(null);
   const allowed =
     (adminModules !== null && adminModules.includes(moduleKey)) ||
     delegatedModules.includes(moduleKey);
@@ -53,6 +56,7 @@ export default function AdminSectionShell({
       .then((session) => {
         if (cancelled) return;
         setAdminModules(session?.adminModules ?? []);
+        setRole(session?.role ?? null);
         setDelegatedModules(
           (session?.delegatedModules ?? []).map((grant) => grant.module)
         );
@@ -77,7 +81,7 @@ export default function AdminSectionShell({
   }, []);
 
   function handleBack() {
-    router.push("/admin");
+    router.push(role && role !== "admin" ? ROLE_HOME[role] : "/admin");
   }
 
   function handleLogout() {

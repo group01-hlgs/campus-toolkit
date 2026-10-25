@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
   batchCancelCalendarEvents,
@@ -44,8 +44,9 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = body.action === "cancel" ? "cancel" : body.action === "delete" ? "delete" : null;
@@ -56,11 +57,21 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    // 子權限分開授權：批次刪除需 delete、批次取消需 manage（管理員恆全權）
+    const needed = action === "delete" ? "delete" : "manage";
+    if (context.kind === "delegated" && !context.permissions.includes(needed)) {
+      return NextResponse.json(
+        { success: false, message: "此帳號未被指派該項操作權限" },
+        { status: 403 }
+      );
+    }
 
     let message: string;
     let auditDetails: string;
     if (action === "cancel") {
-      const result = await batchCancelCalendarEvents(ids);
+      const allowHardDelete =
+        context.kind === "admin" || context.permissions.includes("delete");
+      const result = await batchCancelCalendarEvents(ids, { allowHardDelete });
       const total = result.cancelled + result.deleted;
       message =
         result.deleted > 0
@@ -75,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     await logActivity({
       userId: session.uid,
-      role: "admin",
+      role: session.role,
       action: action === "delete" ? "calendar_deleted" : "calendar_cancelled",
       ip: getClientIp(request),
       details: auditDetails,

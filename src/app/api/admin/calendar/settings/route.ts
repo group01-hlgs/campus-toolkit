@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { cachedSettingDoc } from "@/lib/read-cache";
@@ -15,6 +15,7 @@ import {
   CALENDAR_SURFACES,
   CALENDAR_SURFACE_LIMIT_DEFAULT,
   DEFAULT_CALENDAR_POLICIES,
+  calendarAccessOf,
   normalizePublicPastMonths,
 } from "@/types/calendar";
 
@@ -31,8 +32,9 @@ export async function GET(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar");
     if (denial) return toAuthResponse(denial);
+    const access = calendarAccessOf(context.kind === "admin" ? null : context.permissions);
 
     const [settings, orgSnap, spacesSnap] = await Promise.all([
       getCalendarSettings(),
@@ -50,7 +52,7 @@ export async function GET(request: NextRequest) {
     const spaceOptions = readSpaceStructure(spacesSnap.exists ? spacesSnap.data() : null).units.map(
       ({ code, name, parent }) => ({ code, name, parent })
     );
-    return NextResponse.json({ success: true, settings, orgUnits, spaceOptions }, {
+    return NextResponse.json({ success: true, settings, orgUnits, spaceOptions, access }, {
       headers: noStore,
     });
   } catch (error) {
@@ -76,8 +78,9 @@ export async function PUT(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar", "settings");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
@@ -141,7 +144,7 @@ export async function PUT(request: NextRequest) {
 
     await logActivity({
       userId: session.uid,
-      role: "admin",
+      role: session.role,
       action: "calendar_settings_updated",
       ip: getClientIp(request),
       details: `更新行事曆模組設定（分類 ${settings.categories.length} 筆，顯示位置啟用 ${

@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
   createCalendarEvent,
@@ -293,7 +293,7 @@ function parseWorkbook(buffer: Buffer): Record<string, unknown>[] {
 /** GET：下載範例檔（含4種時間格式範例列；上傳前請刪除【範例】列） */
 export async function GET(request: NextRequest) {
   try {
-    const { denial } = await requireAdminModule("calendar");
+    const { denial } = await requireModulePermission("calendar", "import");
     if (denial) return toAuthResponse(denial);
 
     const sampleRows = [
@@ -408,8 +408,9 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar", "import");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
     const formData = await request.formData().catch(() => null);
     if (!formData) {
@@ -468,7 +469,7 @@ export async function POST(request: NextRequest) {
     const createdBy = {
       uid: session.uid,
       name: session.displayName || session.account,
-      role: "admin" as const,
+      role: session.role,
     };
     let created = 0;
     const skipped: Array<{ row: number; reason: string }> = [];
@@ -491,7 +492,7 @@ export async function POST(request: NextRequest) {
 
     await logActivity({
       userId: session.uid,
-      role: "admin",
+      role: session.role,
       action: "calendar_created",
       ip: getClientIp(request),
       details: `批次新增行程（成功 ${created} 筆、略過 ${skipped.length} 筆，檔名=${file.name}）`,

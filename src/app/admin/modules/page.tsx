@@ -13,7 +13,7 @@ import {
   type FeatureModuleRolesMap,
   type FeatureModulesEnabledMap,
 } from "@/types/feature-modules";
-import { ALL_ROLES, ROLE_LABELS, type UserRole } from "@/types/users";
+import { ALL_ROLES, ROLE_LABELS, STAFF_ATTRIBUTES, type UserRole } from "@/types/users";
 import { ROSTER_ROLES, type RosterRole } from "@/types/roster";
 import Toast, { type ToastMessage } from "@/components/Toast";
 
@@ -22,6 +22,13 @@ const ENTRY_ROLES: UserRole[] = ALL_ROLES.filter((role) => role !== "admin");
 
 /** 可被指派管理的身分（管理員恆全權、不列入指派） */
 const DELEGATABLE_ROLES = ROSTER_ROLES.filter((roster) => roster.value !== "admin");
+
+/** 學生候選搜尋欄位（班號／學號／姓名） */
+const STUDENT_SEARCH_FIELDS = [
+  { value: "rollNo", label: "班號" },
+  { value: "studentId", label: "學號" },
+  { value: "name", label: "姓名" },
+] as const;
 
 interface FeatureModulesResponse {
   success?: boolean;
@@ -46,6 +53,15 @@ interface ManagerRow {
   email: string;
   account: string;
   permissions: string[];
+  attribute?: string;
+  unit?: string;
+  title?: string;
+  grade?: string;
+  classCode?: string;
+  className?: string;
+  studentId?: string;
+  rollNo?: string;
+  studentName?: string;
 }
 
 function parseComparableVersion(value: string): { parts: number[]; prerelease: string[] } | null {
@@ -606,7 +622,7 @@ function OptionalRow({
 }
 
 /**
- * 管理人員指派區（選用模組展開列，僅模組有 managerPermissions 時顯示）：
+ * 管理人員指派區（模組展開列，僅模組有 managerPermissions 時顯示）：
  * 搜尋當期名冊帳號 → 勾選子權限 → 指派；列表顯示已指派者，可改權限或移除。
  * 資料落於各身分名冊條目 managedModules（政策修改書 §6）。
  */
@@ -617,6 +633,9 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
   const [busy, setBusy] = useState(false);
   const [searchRole, setSearchRole] = useState<RosterRole>("staff");
   const [searchQ, setSearchQ] = useState("");
+  const [searchField, setSearchField] =
+    useState<(typeof STUDENT_SEARCH_FIELDS)[number]["value"]>("name");
+  const [staffAttribute, setStaffAttribute] = useState("");
   const [candidates, setCandidates] = useState<ManagerRow[] | null>(null);
   const [draftPerms, setDraftPerms] = useState<Record<string, boolean>>({});
 
@@ -661,8 +680,14 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
     setBusy(true);
     setError("");
     try {
+      const params = new URLSearchParams({
+        module: item.value,
+        role: searchRole,
+        q,
+      });
+      if (searchRole === "student") params.set("field", searchField);
       const res = await fetch(
-        `/api/admin/feature-modules/managers?module=${encodeURIComponent(item.value)}&role=${searchRole}&q=${encodeURIComponent(q)}`,
+        `/api/admin/feature-modules/managers?${params.toString()}`,
         { cache: "no-store" }
       );
       const data = await res.json().catch(() => null);
@@ -677,6 +702,37 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
       setBusy(false);
     }
   }
+
+  /** 教職員候選名單：列出當期名冊，可依屬性篩選（不需輸入關鍵字） */
+  async function loadStaffCandidates(attribute: string) {
+    setBusy(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ module: item.value, role: "staff" });
+      if (attribute) params.set("attribute", attribute);
+      const res = await fetch(
+        `/api/admin/feature-modules/managers?${params.toString()}`,
+        { cache: "no-store" }
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `載入候選名單失敗（HTTP ${res.status}）`);
+      }
+      setCandidates(Array.isArray(data.people) ? data.people : []);
+    } catch (e) {
+      setCandidates([]);
+      setError(e instanceof Error ? e.message : "載入候選名單失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 選擇「教職員」時自動載入候選名單（切換屬性即重新篩選）
+  useEffect(() => {
+    if (searchRole !== "staff") return;
+    void loadStaffCandidates(staffAttribute);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchRole, staffAttribute, item.value]);
 
   /** 指派／更新一個人的子權限：以呼叫端算好的 permissions 為準（候選區草稿已含 uid 前綴） */
   async function assign(person: ManagerRow) {
@@ -803,7 +859,12 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <select
               value={searchRole}
-              onChange={(event) => setSearchRole(event.target.value as RosterRole)}
+              onChange={(event) => {
+                const next = event.target.value as RosterRole;
+                setSearchRole(next);
+                setCandidates(null);
+                setSearchQ("");
+              }}
               className="input-theme rounded px-2 py-1 text-sm"
               disabled={busy}
             >
@@ -813,32 +874,99 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
                 </option>
               ))}
             </select>
-            <input
-              type="text"
-              value={searchQ}
-              onChange={(event) => setSearchQ(event.target.value)}
-              placeholder="輸入帳號或姓名（精確比對）"
-              className="input-theme rounded px-2 py-1 text-sm flex-1"
-              disabled={busy}
-            />
-            <button
-              type="button"
-              onClick={() => void search()}
-              disabled={busy || !searchQ.trim()}
-              className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
-            >
-              搜尋
-            </button>
+            {searchRole === "staff" ? (
+              <>
+                <select
+                  value={staffAttribute}
+                  onChange={(event) => setStaffAttribute(event.target.value)}
+                  className="input-theme rounded px-2 py-1 text-sm"
+                  disabled={busy}
+                  aria-label="依屬性篩選教職員"
+                >
+                  <option value="">全部屬性</option>
+                  {STAFF_ATTRIBUTES.map((attribute) => (
+                    <option key={attribute} value={attribute}>
+                      {attribute}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-t3">候選人員名單（依屬性篩選）</span>
+              </>
+            ) : (
+              <>
+                {searchRole === "student" && (
+                  <select
+                    value={searchField}
+                    onChange={(event) =>
+                      setSearchField(
+                        event.target.value as (typeof STUDENT_SEARCH_FIELDS)[number]["value"]
+                      )
+                    }
+                    className="input-theme rounded px-2 py-1 text-sm"
+                    disabled={busy}
+                    aria-label="選擇搜尋欄位"
+                  >
+                    {STUDENT_SEARCH_FIELDS.map((field) => (
+                      <option key={field.value} value={field.value}>
+                        {field.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <input
+                  type="text"
+                  value={searchQ}
+                  onChange={(event) => setSearchQ(event.target.value)}
+                  placeholder={
+                    searchRole === "student"
+                      ? `輸入${STUDENT_SEARCH_FIELDS.find((field) => field.value === searchField)?.label ?? "姓名"}（精確比對）`
+                      : "輸入帳號或姓名（精確比對）"
+                  }
+                  className="input-theme rounded px-2 py-1 text-sm flex-1"
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  onClick={() => void search()}
+                  disabled={busy || !searchQ.trim()}
+                  className="btn-theme rounded px-3 py-1 text-xs cursor-pointer disabled:opacity-50"
+                >
+                  搜尋
+                </button>
+              </>
+            )}
           </div>
           {candidates !== null &&
             (candidates.length === 0 ? (
               <p className="text-xs text-t3">查無符合的當期名冊條目。</p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-2 max-h-96 overflow-y-auto">
                 {candidates.map((person) => {
                   const existing = managers?.find(
                     (m) => m.uid === person.uid && m.role === person.role
                   );
+                  const allChecked =
+                    permissionDefs.length > 0 &&
+                    permissionDefs.every(
+                      (def) =>
+                        draftPerms[`${person.uid}:${def.value}`] ??
+                        existing?.permissions.includes(def.value) ??
+                        false
+                    );
+                  const meta =
+                    person.role === "staff"
+                      ? [person.attribute, person.unit, person.title].filter(Boolean).join("／")
+                      : person.role === "student"
+                        ? [
+                            person.className || person.classCode,
+                            person.studentId ? `學號 ${person.studentId}` : "",
+                            person.rollNo ? `班號 ${person.rollNo}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join("／")
+                        : person.studentName
+                          ? `子女：${person.studentName}`
+                          : "";
                   return (
                     <li
                       key={`${person.role}:${person.uid}`}
@@ -849,9 +977,28 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
                         <span className="text-t3 ml-1 text-xs">
                           {person.account || person.email}
                         </span>
+                        {meta && <span className="text-t3 ml-1 text-xs">{meta}</span>}
                         {existing && <span className="text-warning ml-1 text-xs">已指派</span>}
                       </span>
-                      <span className="flex flex-wrap gap-x-3 gap-y-1">
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {permissionDefs.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftPerms((current) => {
+                                const next = { ...current };
+                                for (const def of permissionDefs) {
+                                  next[`${person.uid}:${def.value}`] = !allChecked;
+                                }
+                                return next;
+                              })
+                            }
+                            disabled={busy}
+                            className="btn-soft rounded px-2 py-0.5 text-xs cursor-pointer disabled:opacity-50"
+                          >
+                            {allChecked ? "取消全選" : "全選"}
+                          </button>
+                        )}
                         {permissionDefs.map((def) => (
                           <label
                             key={def.value}

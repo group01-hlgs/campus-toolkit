@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { requireAdminModule, toAuthResponse } from "@/lib/dal";
+import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
   cancelCalendarEvent,
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     );
     if (limited) return limited;
 
-    const { denial } = await requireAdminModule("calendar");
+    const { denial } = await requireModulePermission("calendar");
     if (denial) return toAuthResponse(denial);
 
     const { id } = await params;
@@ -61,8 +61,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar", "manage");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
+    // 只有同時具備 delete 子權限（或管理員）才能因「下架即刪除」原則永久刪除
+    const allowHardDelete =
+      context.kind === "admin" || context.permissions.includes("delete");
 
     const { id } = await params;
     const existing = await getCalendarEvent(id);
@@ -109,12 +113,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       audience: audience ?? undefined,
       isPublic,
       status,
-    });
+    }, { allowHardDelete });
 
     const cancelled = status === "cancelled";
     await logActivity({
       userId: session.uid,
-      role: "admin",
+      role: session.role,
       action: cancelled ? "calendar_cancelled" : "calendar_updated",
       ip: getClientIp(request),
       details: `${cancelled ? (deleted ? "下架（真實刪除）" : "取消") : "更新"}行程 id=${id}`,
@@ -160,19 +164,22 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar", "manage");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
+    const allowHardDelete =
+      context.kind === "admin" || context.permissions.includes("delete");
 
     const { id } = await params;
     const existing = await getCalendarEvent(id);
     if (!existing) {
       return NextResponse.json({ success: false, message: "查無此行程" }, { status: 404 });
     }
-    const { deleted } = await cancelCalendarEvent(id);
+    const { deleted } = await cancelCalendarEvent(id, { allowHardDelete });
 
     await logActivity({
       userId: session.uid,
-      role: "admin",
+      role: session.role,
       action: "calendar_cancelled",
       ip: getClientIp(request),
       details: `${deleted ? "下架（真實刪除）" : "取消"}行程 id=${id}`,
@@ -218,8 +225,9 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     );
     if (limited) return limited;
 
-    const { session, denial } = await requireAdminModule("calendar");
+    const { context, denial } = await requireModulePermission("calendar", "delete");
     if (denial) return toAuthResponse(denial);
+    const session = context.session;
 
     const { id } = await params;
     const existing = await getCalendarEvent(id);
@@ -230,7 +238,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     await deleteCalendarEventHard(id);
     await logActivity({
       userId: session.uid,
-      role: "admin",
+      role: session.role,
       action: "calendar_deleted",
       ip: getClientIp(request),
       details: `真實刪除行程 id=${id}（${existing.title}）`,

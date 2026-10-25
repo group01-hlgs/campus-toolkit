@@ -768,3 +768,34 @@ export function parseCalendarAudience(
     : [];
   return { roles, classCodes };
 }
+
+/** 行事曆管理子權限（功能模組 calendar 的 managerPermissions；管理員恆全權） */
+export type CalendarManagerPermission = "manage" | "import" | "delete" | "settings";
+
+export const CALENDAR_MANAGER_PERMISSIONS: {
+  value: CalendarManagerPermission;
+  label: string;
+}[] = [
+  { value: "manage", label: "管理行程（建立、編輯、取消／恢復）" },
+  { value: "import", label: "批次匯入行程" },
+  { value: "delete", label: "刪除行程（永久刪除）" },
+  { value: "settings", label: "行事曆設定（類型、顯示位置、規則）" },
+];
+
+/** 目前帳號在行事曆可操作的功能（由被指派的子權限解析） */
+export interface CalendarAccess {
+  manage: boolean;
+  import: boolean;
+  delete: boolean;
+  settings: boolean;
+}
+
+/** 由子權限解析可操作範圍；permissions=null 代表管理員（恆全權） */
+export function calendarAccessOf(permissions: readonly string[] | null): CalendarAccess {
+  return {
+    manage: permissions === null || permissions.includes("manage"),
+    import: permissions === null || permissions.includes("import"),
+    delete: permissions === null || permissions.includes("delete"),
+    settings: permissions === null || permissions.includes("settings"),
+  };
+}
