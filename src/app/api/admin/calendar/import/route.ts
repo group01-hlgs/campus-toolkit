@@ -8,6 +8,7 @@ import { serverErrorMessage } from "@/lib/api-error";
 import {
   createCalendarEvent,
   getCalendarSettings,
+  getSchoolPeriods,
   listAdminCalendarEvents,
 } from "@/lib/calendar";
 import {
@@ -21,6 +22,7 @@ import {
   type CalendarCategory,
   type CalendarEventInput,
 } from "@/types/calendar";
+import type { SchoolPeriodRow } from "@/types/school-periods";
 
 const noStore = { "Cache-Control": "no-store" };
 export const maxDuration = 300;
@@ -35,6 +37,9 @@ const HEADER_ALIASES: Record<string, string[]> = {
   allDay: ["全天"],
   start: ["開始", "開始時間"],
   end: ["結束", "結束時間"],
+  startPeriod: ["開始節次", "起始節次", "startperiod", "start period"],
+  endPeriod: ["結束節次", "endperiod", "end period"],
+  period: ["節次", "period"],
   location: ["地點"],
   publishUnit: ["發佈單位", "單位"],
   description: ["說明", "描述"],
@@ -132,6 +137,29 @@ function endOfDay(ms: number): number {
   return d.getTime();
 }
 
+/** 以指定日期（保留年月日）加上課表節次的 HH:MM */
+function combineDateAndTime(dateMs: number, time: string): number | null {
+  const match = time.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  const d = new Date(dateMs);
+  d.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return d.getTime();
+}
+
+/** 解析節次：接受節次代碼（P1）、名稱（第一節）或編號（1） */
+function resolveSchoolPeriod(value: string, periods: SchoolPeriodRow[]): SchoolPeriodRow | null {
+  const key = value.trim().toLowerCase().replace(/\s+/g, "");
+  if (!key) return null;
+  return (
+    periods.find(
+      (period) =>
+        period.code.trim().toLowerCase() === key ||
+        period.name.trim().toLowerCase().replace(/\s+/g, "") === key ||
+        String(period.period) === key
+    ) ?? null
+  );
+}
+
 function parseRolesCell(value: string): UserRole[] | null {
   if (!value.trim()) return [...ALL_ROLES];
   const parts = value.split(/[,、;；\s]+/).map((p) => p.trim()).filter(Boolean);
@@ -177,7 +205,8 @@ function timeTextOf(input: CalendarEventInput): string {
 function buildRowInput(
   rowNumber: number,
   cells: Record<string, string>,
-  categories: CalendarCategory[]
+  categories: CalendarCategory[],
+  periods: SchoolPeriodRow[]
 ): ParsedRow {
   const title = cells.title?.trim() ?? "";
   const draft: ParsedRow = {
@@ -207,6 +236,31 @@ function buildRowInput(
     return draft;
   }
 
+  // 課表節次（選填）：開始節次可單獨使用（結束同開始）；也可指定開始／結束節次範圍
+  const startPeriodText = (cells.startPeriod ?? cells.period ?? "").trim();
+  const endPeriodText = (cells.endPeriod ?? "").trim() || startPeriodText;
+  let startPeriod: SchoolPeriodRow | null = null;
+  let endPeriod: SchoolPeriodRow | null = null;
+  if (startPeriodText) {
+    startPeriod = resolveSchoolPeriod(startPeriodText, periods);
+    if (!startPeriod) {
+      draft.reason = `找不到開始節次「${startPeriodText}」（可用節次代碼、名稱或編號）`;
+      return draft;
+    }
+    endPeriod = resolveSchoolPeriod(endPeriodText, periods);
+    if (!endPeriod) {
+      draft.reason = `找不到結束節次「${endPeriodText}」（可用節次代碼、名稱或編號）`;
+      return draft;
+    }
+    if (endPeriod.start < startPeriod.start) {
+      draft.reason = "結束節次不得早於開始節次";
+      return draft;
+    }
+  } else if (endPeriodText) {
+    draft.reason = "填了結束節次但沒有開始節次";
+    return draft;
+  }
+
   let input: CalendarEventInput;
   if (allDay) {
     if (end && formatDateOnly(end.ms) !== formatDateOnly(start.ms)) {
@@ -226,14 +280,26 @@ function buildRowInput(
       isPublic,
     };
   } else {
-    let startAt = start.ms;
+    let startAt: number;
     let endAt: number | undefined;
-    if (end) {
-      // 結束僅日期（無時間）＝補到當日 23:59；結束含時間＝原值
-      endAt = end.dateOnly ? endOfDay(end.ms) : end.ms;
-      if (endAt < startAt) {
-        draft.reason = "結束不得早於開始";
+    if (startPeriod && endPeriod) {
+      const startMs = combineDateAndTime(start.ms, startPeriod.start);
+      const endMs = combineDateAndTime(start.ms, endPeriod.end);
+      if (startMs === null || endMs === null) {
+        draft.reason = "課表節次時間格式錯誤";
         return draft;
+      }
+      startAt = startMs;
+      endAt = endMs;
+    } else {
+      startAt = start.ms;
+      if (end) {
+        // 結束僅日期（無時間）＝補到當日 23:59；結束含時間＝原值
+        endAt = end.dateOnly ? endOfDay(end.ms) : end.ms;
+        if (endAt < startAt) {
+          draft.reason = "結束不得早於開始";
+          return draft;
+        }
       }
     }
     const roles = parseRolesCell(cells.roles ?? "");
@@ -303,6 +369,8 @@ export async function GET(request: NextRequest) {
         全天: "是",
         開始: "2026/10/25",
         結束: "",
+        開始節次: "",
+        結束節次: "",
         地點: "運動場",
         發佈單位: "學務處",
         說明: "全天行程：僅填開始日期，全天欄填「是」。",
@@ -317,6 +385,8 @@ export async function GET(request: NextRequest) {
         全天: "",
         開始: "2026/10/10 08:00",
         結束: "2026/10/10 10:00",
+        開始節次: "",
+        結束節次: "",
         地點: "禮堂",
         發佈單位: "",
         說明: "同一天的時間段：開始與結束同日、帶時間。",
@@ -331,6 +401,8 @@ export async function GET(request: NextRequest) {
         全天: "",
         開始: "2026/10/10",
         結束: "2026/10/12",
+        開始節次: "",
+        結束節次: "",
         地點: "",
         發佈單位: "教務處",
         說明: "跨日日期：開始與結束皆不帶時間，自動涵蓋至結束當日結束。",
@@ -345,6 +417,8 @@ export async function GET(request: NextRequest) {
         全天: "",
         開始: "2026/10/10 08:00",
         結束: "2026/10/12 12:00",
+        開始節次: "",
+        結束節次: "",
         地點: "會議室",
         發佈單位: "",
         說明: "跨日日期時間：開始與結束皆帶日期與時間。",
@@ -353,15 +427,33 @@ export async function GET(request: NextRequest) {
         班級代碼: "101,102",
         公開: "",
       },
+      {
+        標題: "【範例】課表節次（第一節至第三節）",
+        行事曆類型: "學期初",
+        全天: "",
+        開始: "2026/10/10",
+        結束: "",
+        開始節次: "1",
+        結束節次: "3",
+        地點: "禮堂",
+        發佈單位: "",
+        說明: "課表節次：開始填日期（時間可留空），以開始／結束節次帶入課表作息的起訖時間；只填開始節次＝單一節次。",
+        重要: "",
+        閱讀權限: "學生,教職員",
+        班級代碼: "",
+        公開: "",
+      },
     ];
 
     const worksheet = XLSX.utils.json_to_sheet(sampleRows);
     worksheet["!cols"] = [
-      { wch: 28 },
+      { wch: 32 },
       { wch: 10 },
       { wch: 6 },
       { wch: 18 },
       { wch: 18 },
+      { wch: 10 },
+      { wch: 10 },
       { wch: 10 },
       { wch: 10 },
       { wch: 40 },
@@ -437,11 +529,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const settings = await getCalendarSettings();
+    const [settings, schoolPeriods] = await Promise.all([
+      getCalendarSettings(),
+      getSchoolPeriods(),
+    ]);
     const enabledCategories = settings.categories.filter((c) => c.enabled);
 
     const parsed: ParsedRow[] = sheetRows.map((row, index) =>
-      buildRowInput(index + 2, mapHeaders(row), enabledCategories)
+      buildRowInput(index + 2, mapHeaders(row), enabledCategories, schoolPeriods)
     );
     const creatable = parsed.filter((r) => r.action === "create" && r.input);
 

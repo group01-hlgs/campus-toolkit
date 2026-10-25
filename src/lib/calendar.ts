@@ -45,6 +45,11 @@ import {
 } from "@/types/calendar";
 import type { UserRole } from "@/types/users";
 import { ensureFallbackCategory } from "@/types/category";
+import {
+  PERIODS_DOC_ID,
+  readSchoolPeriods,
+  type SchoolPeriodRow,
+} from "@/types/school-periods";
 
 /**
  * 行事曆功能模組（server-only）。
@@ -81,8 +86,7 @@ const IN_QUERY_CHUNK = 30;
 const PURGE_SCAN_LIMIT = 200;
 
 /** 讀取行事曆模組設定（settings/calendar，30 秒快取） */
-export async function getCalendarSettings(): Promise<CalendarSettings> {
-  try {
+export async function getCalendarSettings(): Promise<CalendarSettings> {  try {
     const raw = await cachedSettingDoc(CALENDAR_SETTINGS_DOC_ID, async () => {
       const snap = await getAdminDb()
         .collection("settings")
@@ -96,6 +100,19 @@ export async function getCalendarSettings(): Promise<CalendarSettings> {
       ...DEFAULT_CALENDAR_SETTINGS,
       categories: [...DEFAULT_CALENDAR_CATEGORIES],
     };
+  }
+}
+
+/** 讀取學校課表作息（settings/schoolPeriods，30 秒快取）；行事曆表單與批次匯入共用 */
+export async function getSchoolPeriods(): Promise<SchoolPeriodRow[]> {
+  try {
+    const raw = await cachedSettingDoc(PERIODS_DOC_ID, async () => {
+      const snap = await getAdminDb().collection("settings").doc(PERIODS_DOC_ID).get();
+      return snap.exists ? snap.data() ?? null : null;
+    });
+    return readSchoolPeriods(raw).periods;
+  } catch {
+    return readSchoolPeriods(null).periods;
   }
 }
 
