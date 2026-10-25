@@ -136,6 +136,58 @@ function parseDatetimeLocal(value: string): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** 取 datetime-local 值的日期部分（YYYY-MM-DD）；格式不符回空字串 */
+function datePartOf(value: string): string {
+  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
+interface PeriodRangeTexts {
+  startAtText: string;
+  endAtText: string;
+  crossDay: boolean;
+}
+
+/**
+ * 課表節次 → 開始／結束 datetime-local 值。
+ * 開始節次套在開始日期，結束節次套在結束日期（未填結束日期＝與開始同日），
+ * 因此支援跨日區間（如 11/12 第一節 → 11/13 第七節）。
+ * 日期格式錯誤、結束早於開始或結束時間未晚於開始時間時回錯誤訊息。
+ */
+function buildPeriodRangeTexts(
+  startPeriod: SchoolPeriodRow,
+  endPeriod: SchoolPeriodRow,
+  startAtText: string,
+  endAtText: string,
+  now: number = Date.now()
+): { ok: true; value: PeriodRangeTexts } | { ok: false; message: string } {
+  const startInput = startAtText.trim();
+  if (startInput && !datePartOf(startInput)) {
+    return { ok: false, message: "開始時間格式不正確，請重新選擇" };
+  }
+  const endInput = endAtText.trim();
+  if (endInput && !datePartOf(endInput)) {
+    return { ok: false, message: "結束時間格式不正確，請重新選擇或清空" };
+  }
+
+  const today = toDatetimeLocal(now).slice(0, 10);
+  const startDate = datePartOf(startInput) || today;
+  const endDate = datePartOf(endInput) || startDate;
+  if (endDate < startDate) {
+    return { ok: false, message: "結束日期不得早於開始日期" };
+  }
+
+  const startValue = `${startDate}T${startPeriod.start}`;
+  const endValue = `${endDate}T${endPeriod.end}`;
+  if (endValue <= startValue) {
+    return { ok: false, message: "結束時間必須晚於開始時間" };
+  }
+  return {
+    ok: true,
+    value: { startAtText: startValue, endAtText: endValue, crossDay: endDate !== startDate },
+  };
+}
+
 function monthKey(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -652,7 +704,10 @@ export default function AdminCalendarPage() {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  /** 套用課表作息：以開始時間的日期（未填則今天）帶入所選節次的起訖時間 */
+  /**
+   * 套用課表作息：開始節次套在開始日期，結束節次套在結束日期
+   * （結束日期未填＝與開始同日），支援跨日；未填開始日期時用今天。
+   */
   function applyPeriodTimes() {
     const startPeriod = periodByCode.get(periodStartCode);
     if (!startPeriod) {
@@ -660,22 +715,31 @@ export default function AdminCalendarPage() {
       return;
     }
     const endPeriod = periodByCode.get(periodEndCode) ?? startPeriod;
-    if (endPeriod.end <= startPeriod.start) {
-      setToast({ kind: "error", text: "結束節次必須晚於開始節次" });
-      return;
-    }
-    const datePart = form.startAtText.slice(0, 10) || toDatetimeLocal(Date.now()).slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
-      setToast({ kind: "error", text: "請先選擇開始日期" });
+    const range = buildPeriodRangeTexts(
+      startPeriod,
+      endPeriod,
+      form.startAtText,
+      form.endAtText
+    );
+    if (!range.ok) {
+      setToast({ kind: "error", text: range.message });
       return;
     }
     setForm((prev) => ({
       ...prev,
       allDay: false,
-      startAtText: `${datePart}T${startPeriod.start}`,
-      endAtText: `${datePart}T${endPeriod.end}`,
+      startAtText: range.value.startAtText,
+      endAtText: range.value.endAtText,
     }));
-    setToast({ kind: "success", text: `已套用 ${startPeriod.name}～${endPeriod.name} 的課表時間` });
+    if (range.value.crossDay) {
+      const label = (value: string) => datePartOf(value).replace(/-/g, "/");
+      setToast({
+        kind: "success",
+        text: `已套用 ${startPeriod.name}（${label(range.value.startAtText)}）～${endPeriod.name}（${label(range.value.endAtText)}）的課表時間`,
+      });
+    } else {
+      setToast({ kind: "success", text: `已套用 ${startPeriod.name}～${endPeriod.name} 的課表時間` });
+    }
   }
 
   function edit(item: AdminCalendarEventRow) {
@@ -1286,9 +1350,19 @@ export default function AdminCalendarPage() {
                               setPeriodStartCode(code);
                               const start = periodByCode.get(code);
                               const end = periodByCode.get(periodEndCode);
+                              const startDate = datePartOf(form.startAtText);
+                              const endDate = datePartOf(form.endAtText);
+                              const today = toDatetimeLocal(Date.now()).slice(0, 10);
+                              const effectiveStart = startDate || today;
+                              const effectiveEnd = endDate || effectiveStart;
+                              // 同一天才自動把結束節次對齊到不早於開始節次；
+                              // 跨日時結束節次可以比開始節次早（如 11/12 第七節 → 11/13 第一節）。
+                              const sameDay = effectiveStart === effectiveEnd;
                               if (
                                 code &&
-                                (!periodEndCode || !end || (start && end.start < start.start))
+                                (!periodEndCode ||
+                                  !end ||
+                                  (sameDay && start && end.start < start.start))
                               ) {
                                 setPeriodEndCode(code);
                               }
@@ -1325,7 +1399,7 @@ export default function AdminCalendarPage() {
                           </button>
                         </div>
                         <p className="text-t3 text-xs">
-                          以開始時間的日期套用（尚未填日期時用今天）；套用後仍可手動微調。
+                          以開始／結束欄位的日期套用：結束日期晚於開始日期時，結束節次會套在結束日期（支援跨日）；未填日期時用今天。套用後仍可手動微調。
                         </p>
                       </div>
                     )}
