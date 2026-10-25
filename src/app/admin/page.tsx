@@ -31,6 +31,7 @@ interface ModuleCard {
 const ADMIN_HOME_LABEL_OVERRIDES: Record<string, string> = {
   announcements: "系統公告管理",
   calendar: "行事曆管理",
+  selfDirectedLearning: "自主學習計畫管理",
 };
 
 /** 功能模組入口卡片：由模組註冊表（types/modules.ts）派生——僅列出已建入口（href 非空）的模組，
@@ -54,7 +55,7 @@ const personalCard: ModuleCard = {
 const personalInfoCard: ModuleCard = {
   id: "personalInfo",
   icon: <ModuleIcon value="personalInfo" />,
-  label: "學生個人資料",
+  label: "學生個人資料管理",
   href: "/admin/personal-info",
 };
 
