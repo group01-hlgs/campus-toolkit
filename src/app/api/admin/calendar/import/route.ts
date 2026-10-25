@@ -8,6 +8,7 @@ import { serverErrorMessage } from "@/lib/api-error";
 import {
   createCalendarEvent,
   getCalendarSettings,
+  getSchoolClassOptions,
   getSchoolPeriods,
   listAdminCalendarEvents,
 } from "@/lib/calendar";
@@ -17,10 +18,14 @@ import {
   type UserRole,
 } from "@/types/users";
 import {
+  emptySchoolActivity,
   parseCalendarAudience,
+  schoolActivityText,
   validateCalendarInput,
   type CalendarCategory,
   type CalendarEventInput,
+  type CalendarGradeOption,
+  type CalendarSchoolActivity,
 } from "@/types/calendar";
 import type { SchoolPeriodRow } from "@/types/school-periods";
 
@@ -44,6 +49,8 @@ const HEADER_ALIASES: Record<string, string[]> = {
   publishUnit: ["發佈單位", "單位"],
   description: ["說明", "描述"],
   important: ["重要", "星號"],
+  schoolActivity: ["學校活動層級", "活動層級", "學校活動"],
+  schoolActivityClasses: ["學校活動班級", "活動層級班級", "活動班級"],
   roles: ["閱讀權限", "身分", "權限"],
   classCodes: ["班級代碼", "班級"],
   isPublic: ["公開", "無需登入"],
@@ -73,6 +80,8 @@ interface ParsedRow {
   reason?: string;
   input?: CalendarEventInput;
   categoryName?: string;
+  /** 學校活動層級顯示文字（未指定＝省略） */
+  schoolActivity?: string;
 }
 
 function normalizeHeader(value: string): string {
@@ -182,6 +191,163 @@ function resolveCategoryByName(
   return hit?.id;
 }
 
+/** 「全校」在「學校活動層級」欄的可接受寫法 */
+const WHOLE_SCHOOL_VALUES = new Set(["全校", "全校活動", "school", "all"]);
+
+/**
+ * 解析學校活動層級（兩欄）：
+ * - 「學校活動層級」：全校 或 年級名稱（多個以逗號／頓號／分號分隔）；留空＝無。
+ * - 「學校活動班級」：單一年級直接填班級代碼（多個以逗號／頓號分隔，留空＝全年級）；
+ *   多個年級要分別指定班級時填「年級:班級,班級;年級:班級」，未列出的年級＝全年級。
+ * 年級與班級皆須存在於學校設定的年段班級，避免錯字使衝堂比對失真。
+ */
+function parseSchoolActivityCell(
+  levelCell: string,
+  classCell: string,
+  classGrades: CalendarGradeOption[]
+): { ok: true; value: CalendarSchoolActivity } | { ok: false; reason: string } {
+  const levelText = levelCell.trim();
+  const classText = classCell.trim();
+  if (!levelText) {
+    if (classText) {
+      return { ok: false, reason: "填了「學校活動班級」但沒有填「學校活動層級」" };
+    }
+    return { ok: true, value: emptySchoolActivity() };
+  }
+
+  const tokens = levelText
+    .split(/[,、;；\s]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.some((token) => WHOLE_SCHOOL_VALUES.has(token.toLowerCase()))) {
+    if (tokens.length > 1) {
+      return { ok: false, reason: "「全校」不可與年級併填" };
+    }
+    if (classText) {
+      return { ok: false, reason: "學校活動層級為「全校」時不可再指定班級" };
+    }
+    return { ok: true, value: { school: true, grades: [] } };
+  }
+
+  if (classGrades.length === 0) {
+    return {
+      ok: false,
+      reason: "學校尚未設定年段班級，無法指定年級（可改填「全校」或留空）",
+    };
+  }
+
+  const gradeNames: string[] = [];
+  for (const token of tokens) {
+    if (!gradeNames.includes(token)) gradeNames.push(token);
+  }
+  const availableGrades = classGrades.map((option) => option.grade);
+  const unknownGrades = gradeNames.filter((name) => !availableGrades.includes(name));
+  if (unknownGrades.length > 0) {
+    return {
+      ok: false,
+      reason: `找不到年級「${unknownGrades.join("、")}」（可用：${availableGrades.join("、")}）`,
+    };
+  }
+
+  if (classText) {
+    // 多個年級要分別指定班級時，班級欄以「年級:班級,班級;年級:班級」表示
+    if (/[:：]/.test(classText)) {
+      const groups = new Map<string, string[]>();
+      const segments = classText
+        .split(/[;；]+/)
+        .map((segment) => segment.trim())
+        .filter(Boolean);
+      for (const segment of segments) {
+        const match = segment.match(/^([^:：]+)[:：](.*)$/);
+        if (!match) {
+          return {
+            ok: false,
+            reason: `「${segment}」格式錯誤（多個年級請用「年級:班級」，例：一年級:101,102;二年級:201）`,
+          };
+        }
+        const gradeName = match[1].trim();
+        if (!gradeNames.includes(gradeName)) {
+          return {
+            ok: false,
+            reason: `班級欄的年級「${gradeName}」未列在「學校活動層級」`,
+          };
+        }
+        const gradeOption = classGrades.find((option) => option.grade === gradeName);
+        if (!gradeOption) {
+          return { ok: false, reason: `找不到年級「${gradeName}」` };
+        }
+        const codes = match[2]
+          .split(/[,、\s]+/)
+          .map((code) => code.trim())
+          .filter(Boolean);
+        const knownCodes = new Set(gradeOption.classes.map((cls) => cls.code));
+        const unknownCodes = codes.filter((code) => !knownCodes.has(code));
+        if (unknownCodes.length > 0) {
+          return {
+            ok: false,
+            reason: `年級「${gradeName}」找不到班級「${unknownCodes.join("、")}」`,
+          };
+        }
+        const current = groups.get(gradeName) ?? [];
+        for (const code of codes) {
+          if (!current.includes(code)) current.push(code);
+        }
+        groups.set(gradeName, current);
+      }
+      return {
+        ok: true,
+        value: {
+          school: false,
+          grades: gradeNames.map((grade) => ({
+            grade,
+            classCodes: groups.get(grade) ?? [],
+          })),
+        },
+      };
+    }
+
+    if (gradeNames.length > 1) {
+      return {
+        ok: false,
+        reason:
+          "多個年級若要指定班級，請用「年級:班級」格式（例：一年級:101,102;二年級:201）；不指定班級請留空",
+      };
+    }
+    const gradeOption = classGrades.find((option) => option.grade === gradeNames[0]);
+    if (!gradeOption) {
+      return { ok: false, reason: `找不到年級「${gradeNames[0]}」` };
+    }
+    const classCodes = [
+      ...new Set(
+        classText
+          .split(/[,、;；\s]+/)
+          .map((code) => code.trim())
+          .filter(Boolean)
+      ),
+    ];
+    const knownCodes = new Set(gradeOption.classes.map((cls) => cls.code));
+    const unknownCodes = classCodes.filter((code) => !knownCodes.has(code));
+    if (unknownCodes.length > 0) {
+      return {
+        ok: false,
+        reason: `年級「${gradeOption.grade}」找不到班級「${unknownCodes.join("、")}」`,
+      };
+    }
+    return {
+      ok: true,
+      value: { school: false, grades: [{ grade: gradeOption.grade, classCodes }] },
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      school: false,
+      grades: gradeNames.map((grade) => ({ grade, classCodes: [] })),
+    },
+  };
+}
+
 function timeTextOf(input: CalendarEventInput): string {
   if (input.allDay && input.allDayDate) {
     return `全天（${input.allDayDate}）`;
@@ -206,7 +372,8 @@ function buildRowInput(
   rowNumber: number,
   cells: Record<string, string>,
   categories: CalendarCategory[],
-  periods: SchoolPeriodRow[]
+  periods: SchoolPeriodRow[],
+  classGrades: CalendarGradeOption[]
 ): ParsedRow {
   const title = cells.title?.trim() ?? "";
   const draft: ParsedRow = {
@@ -261,6 +428,17 @@ function buildRowInput(
     return draft;
   }
 
+  // 學校活動層級（選填）：全校／年級；班級僅限單一年級
+  const schoolActivity = parseSchoolActivityCell(
+    cells.schoolActivity ?? "",
+    cells.schoolActivityClasses ?? "",
+    classGrades
+  );
+  if (!schoolActivity.ok) {
+    draft.reason = schoolActivity.reason;
+    return draft;
+  }
+
   let input: CalendarEventInput;
   if (allDay) {
     if (end && formatDateOnly(end.ms) !== formatDateOnly(start.ms)) {
@@ -274,6 +452,7 @@ function buildRowInput(
       allDay: true,
       allDayDate: formatDateOnly(start.ms),
       important,
+      schoolActivity: schoolActivity.value,
       categoryId: resolveCategoryByName(cells.category ?? "", categories),
       publishUnit: cells.publishUnit || undefined,
       audience: { roles: [...ALL_ROLES], classCodes: [] },
@@ -324,6 +503,7 @@ function buildRowInput(
       endAt: endAt ?? null,
       allDay: false,
       important,
+      schoolActivity: schoolActivity.value,
       categoryId: resolveCategoryByName(cells.category ?? "", categories),
       publishUnit: cells.publishUnit || undefined,
       audience,
@@ -342,6 +522,8 @@ function buildRowInput(
   draft.timeText = timeTextOf(input);
   draft.categoryName =
     categories.find((c) => c.id === (input.categoryId ?? "other"))?.name ?? "其他";
+  const activityText = schoolActivityText(validation.value.schoolActivity);
+  if (activityText) draft.schoolActivity = activityText;
   return draft;
 }
 
@@ -356,7 +538,7 @@ function parseWorkbook(buffer: Buffer): Record<string, unknown>[] {
   });
 }
 
-/** GET：下載範例檔（含4種時間格式範例列；上傳前請刪除【範例】列） */
+/** GET：下載範例檔（含 5 種時間格式與學校活動層級範例列；上傳前請刪除【範例】列） */
 export async function GET(request: NextRequest) {
   try {
     const { denial } = await requireModulePermission("calendar", "import");
@@ -373,8 +555,10 @@ export async function GET(request: NextRequest) {
         結束節次: "",
         地點: "運動場",
         發佈單位: "學務處",
-        說明: "全天行程：僅填開始日期，全天欄填「是」。",
+        說明: "全天行程：僅填開始日期，全天欄填「是」；學校活動層級填「全校」。",
         重要: "",
+        學校活動層級: "全校",
+        學校活動班級: "",
         閱讀權限: "",
         班級代碼: "",
         公開: "",
@@ -389,8 +573,10 @@ export async function GET(request: NextRequest) {
         結束節次: "",
         地點: "禮堂",
         發佈單位: "",
-        說明: "同一天的時間段：開始與結束同日、帶時間。",
+        說明: "同一天的時間段：開始與結束同日、帶時間；學校活動層級填年級與班級代碼。",
         重要: "",
+        學校活動層級: "一年級",
+        學校活動班級: "101,102",
         閱讀權限: "學生,教職員",
         班級代碼: "",
         公開: "",
@@ -405,8 +591,10 @@ export async function GET(request: NextRequest) {
         結束節次: "",
         地點: "",
         發佈單位: "教務處",
-        說明: "跨日日期：開始與結束皆不帶時間，自動涵蓋至結束當日結束。",
+        說明: "跨日日期：開始與結束皆不帶時間，自動涵蓋至結束當日結束；學校活動層級可填多個年級。",
         重要: "是",
+        學校活動層級: "一年級,二年級",
+        學校活動班級: "",
         閱讀權限: "",
         班級代碼: "",
         公開: "",
@@ -421,8 +609,10 @@ export async function GET(request: NextRequest) {
         結束節次: "",
         地點: "會議室",
         發佈單位: "",
-        說明: "跨日日期時間：開始與結束皆帶日期與時間。",
+        說明: "跨日日期時間：開始與結束皆帶日期與時間；未指定學校活動層級時兩欄留空。",
         重要: "",
+        學校活動層級: "",
+        學校活動班級: "",
         閱讀權限: "家長,教職員",
         班級代碼: "101,102",
         公開: "",
@@ -437,8 +627,10 @@ export async function GET(request: NextRequest) {
         結束節次: "3",
         地點: "禮堂",
         發佈單位: "",
-        說明: "課表節次：開始填日期（時間可留空），以開始／結束節次帶入課表作息的起訖時間；只填開始節次＝單一節次。",
+        說明: "課表節次：開始填日期（時間可留空），以開始／結束節次帶入課表作息的起訖時間；只填開始節次＝單一節次；學校活動層級填年級＝全年級。",
         重要: "",
+        學校活動層級: "一年級",
+        學校活動班級: "",
         閱讀權限: "學生,教職員",
         班級代碼: "",
         公開: "",
@@ -458,6 +650,8 @@ export async function GET(request: NextRequest) {
       { wch: 10 },
       { wch: 40 },
       { wch: 6 },
+      { wch: 16 },
+      { wch: 16 },
       { wch: 16 },
       { wch: 12 },
       { wch: 6 },
@@ -486,6 +680,7 @@ export async function GET(request: NextRequest) {
  * POST：批次新增行程。
  * `dryRun=true`＝只解析並回預覽（不寫入）；否則逐列建立。
  * 欄位定義見 GET 範例檔；全天＝僅單日；跨日以日期／日期時間區間表示。
+ * 學校活動層級＝「全校」或年級名稱（年級可多選），班級僅限單一年級且須存在於學校設定。
  */
 export async function POST(request: NextRequest) {
   try {
@@ -529,14 +724,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const [settings, schoolPeriods] = await Promise.all([
+    const [settings, schoolPeriods, classGrades] = await Promise.all([
       getCalendarSettings(),
       getSchoolPeriods(),
+      getSchoolClassOptions(),
     ]);
     const enabledCategories = settings.categories.filter((c) => c.enabled);
 
     const parsed: ParsedRow[] = sheetRows.map((row, index) =>
-      buildRowInput(index + 2, mapHeaders(row), enabledCategories, schoolPeriods)
+      buildRowInput(index + 2, mapHeaders(row), enabledCategories, schoolPeriods, classGrades)
     );
     const creatable = parsed.filter((r) => r.action === "create" && r.input);
 

@@ -54,6 +54,8 @@ interface CalendarImportRow {
   action: "create" | "skip";
   reason?: string;
   categoryName?: string;
+  /** 學校活動層級顯示文字（未指定＝省略） */
+  schoolActivity?: string;
 }
 
 interface CalendarImportPreview {
@@ -1532,7 +1534,7 @@ export default function AdminCalendarPage() {
           <div>
             <h3 className="text-base font-bold text-t1">批次新增行程</h3>
             <p className="text-xs text-t3 mt-0.5">
-              上傳試算表（xlsx／xls）批次建立行程；含全天、時段、跨日日期、跨日日期時間與課表節次範例。
+              上傳試算表（xlsx／xls）批次建立行程；含全天、時段、跨日日期、跨日日期時間、課表節次與學校活動層級範例。
             </p>
           </div>
           <DisclosureArrow />
@@ -1572,7 +1574,8 @@ export default function AdminCalendarPage() {
             <div className="rounded-lg border border-themed bg-surface px-4 py-3 text-xs text-t2 space-y-1">
               <p>1. 下載範例檔，照格式填寫行程（全天＝僅單日；跨日請用日期／日期時間區間，結束不帶時間＝補到當日結束）。</p>
               <p>2. 使用課表節次時，「開始」欄只需填日期，並在「開始節次／結束節次」填節次（代碼、名稱或編號均可）；只填開始節次＝單一節次。</p>
-              <p>3. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
+              <p>3. 學校活動層級：「學校活動層級」填「全校」或年級名稱（多個年級以逗號／頓號分隔）；「學校活動班級」選填：單一年級直接填班級代碼（留空＝全年級），多個年級要指定班級時用「年級:班級」分號分隔（例：一年級:101,102;二年級:201）；年級與班級須為學校已設定者，兩欄留空＝無。</p>
+              <p>4. 選擇檔案 →「解析預覽」確認列內容 →「確認新增」才會寫入。</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1637,12 +1640,13 @@ export default function AdminCalendarPage() {
                   {batchPreview.creatable === 0 ? "（無可新增列，請修正錯誤後重新預覽）" : ""}
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[36rem] text-sm text-left">
+                  <table className="w-full min-w-[44rem] text-sm text-left">
                     <thead className="border-b border-themed bg-surface text-t2">
                       <tr>
                         <th className="px-4 py-2 font-medium">列</th>
                         <th className="px-4 py-2 font-medium">標題</th>
                         <th className="px-4 py-2 font-medium">類型</th>
+                        <th className="px-4 py-2 font-medium">學校活動</th>
                         <th className="px-4 py-2 font-medium">時間</th>
                         <th className="px-4 py-2 font-medium">結果</th>
                       </tr>
@@ -1653,6 +1657,7 @@ export default function AdminCalendarPage() {
                           <td className="px-4 py-2 text-t3">{row.row}</td>
                           <td className="px-4 py-2">{row.title || "—"}</td>
                           <td className="px-4 py-2 text-t2">{row.categoryName ?? "—"}</td>
+                          <td className="px-4 py-2 text-t2">{row.schoolActivity ?? "—"}</td>
                           <td className="px-4 py-2 text-t2">{row.timeText}</td>
                           <td className="px-4 py-2">
                             {row.action === "create" ? (
