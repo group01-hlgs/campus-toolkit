@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { clipText } from "@/types/announcements";
+import { stripHtmlToText } from "@/lib/rich-text";
 import PinIcon from "@/components/PinIcon";
 import type {
   AnnouncementSurface as AnnouncementSurfaceKey,
@@ -253,7 +254,9 @@ function BannerRow({
           <ExternalLinkIcon />
         </a>
       </div>
-      <p className={`${sizes.body} text-t2 mt-0.5 truncate`}>{clipText(item.body, 40)}</p>
+      <p className={`${sizes.body} text-t2 mt-0.5 truncate`}>
+        {clipText(stripHtmlToText(item.body), 40)}
+      </p>
       <p className={`${sizes.meta} text-t3 mt-0.5`}>
         {pinnedMarkOnMetaLine && item.pinned && (
           <>

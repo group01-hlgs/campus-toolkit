@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { fetchSession } from "@/lib/session";
 import { fetchSettings } from "@/lib/settings-client";
 import { clipText } from "@/types/announcements";
+import { stripHtmlToText } from "@/lib/rich-text";
 import type {
   AnnouncementSurfaceMethod,
   AnnouncementInboxItem,
@@ -12,6 +13,7 @@ import type {
 import { ROLE_LABELS, type UserRole } from "@/types/users";
 import PinIcon from "@/components/PinIcon";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { RichTextEditor, RichTextContent } from "@/components/RichTextEditor";
 import Toast, { type ToastMessage } from "@/components/Toast";
 
 type FontSize = "small" | "medium" | "large";
@@ -274,16 +276,15 @@ export default function AnnouncementsInbox({
               />
             </div>
             <div>
-              <label className="block text-xs text-t2 mb-1" htmlFor="post-body">
+              <label className="block text-xs text-t2 mb-1">
                 內容
               </label>
-              <textarea
-                id="post-body"
-                className="w-full border border-themed rounded px-3 py-2 text-sm bg-card text-t1 min-h-24"
+              <RichTextEditor
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
-                required
+                onChange={setBody}
+                placeholder="請輸入公告內容"
                 maxLength={5000}
+                ariaLabel="公告內容"
               />
             </div>
             <div>
@@ -425,9 +426,10 @@ export default function AnnouncementsInbox({
                     {item.categoryName}｜{item.authorName}
                     {item.classScoped ? "｜班級" : "｜校級"}
                   </p>
-                  <p className={`${FONT_SIZE_CLASSES[fontSize].body} text-t2 mt-2 whitespace-pre-wrap`}>
-                    {item.body}
-                  </p>
+                  <RichTextContent
+                    html={item.body}
+                    className={`${FONT_SIZE_CLASSES[fontSize].body} text-t2 mt-2`}
+                  />
                 </div>
               ))}
 
@@ -509,7 +511,9 @@ function PinnedBannerRow({
         </span>
         <span className={`${sizes.title} font-bold text-t1 truncate`}>{clipText(item.title, 20)}</span>
       </div>
-      <p className={`${sizes.body} text-t2 mt-1 truncate`}>{clipText(item.body, 40)}</p>
+      <p className={`${sizes.body} text-t2 mt-1 truncate`}>
+        {clipText(stripHtmlToText(item.body), 40)}
+      </p>
       <p className={`${sizes.meta} text-t3 mt-1.5`}>
         {item.categoryName}｜{item.authorName}｜
         {new Date(item.publishAt).toLocaleDateString("zh-TW")}
@@ -559,7 +563,7 @@ function AnnouncementCard({
         {item.classScoped ? `｜班級公告` : "｜校級"}
         {item.publishAt ? `｜${new Date(item.publishAt).toLocaleString("zh-TW")}` : ""}
       </p>
-      <p className={`${sizes.body} text-t2 mt-2 whitespace-pre-wrap`}>{item.body}</p>
+      <RichTextContent html={item.body} className={`${sizes.body} text-t2 mt-2`} />
       {remindersEnabled && (
         <div className="mt-3">
           <button
@@ -634,7 +638,7 @@ function AnnouncementCompactRow({
                 </span>
               ) : null}
             </p>
-            <p className={`${sizes.body} text-t2 whitespace-pre-wrap`}>{item.body}</p>
+            <RichTextContent html={item.body} className={`${sizes.body} text-t2`} />
             {remindersEnabled && (
               <div className="mt-3">
                 <button

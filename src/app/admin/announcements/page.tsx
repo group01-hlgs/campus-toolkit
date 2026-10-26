@@ -26,7 +26,9 @@ import { normalizeCategoryId } from "@/types/category";
 import { useDataSaver } from "@/lib/data-saver";
 import RevealListCard from "@/components/RevealListCard";
 import PinIcon from "@/components/PinIcon";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import Toast, { type ToastMessage } from "@/components/Toast";
+import { stripHtmlToText } from "@/lib/rich-text";
 
 interface AdminListResponse {
   success?: boolean;
@@ -470,7 +472,7 @@ export default function AdminAnnouncementsPage() {
     // 下架（封存／到期）公告不進入搜尋結果——僅供上方清單管理
     if (!isAnnouncementReadable(item)) return false;
     const haystack =
-      `${item.title}\n${item.body}\n${categoryName(item.categoryId)}\n${item.authorName}`.toLowerCase();
+      `${item.title}\n${stripHtmlToText(item.body)}\n${categoryName(item.categoryId)}\n${item.authorName}`.toLowerCase();
     return haystack.includes(searchKeyword);
   });
 
@@ -779,17 +781,18 @@ export default function AdminAnnouncementsPage() {
                 />
               </div>
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">
-                <label className="text-t2 sm:w-40 shrink-0" htmlFor="ann-body">
+                <label className="text-t2 sm:w-40 shrink-0">
                   內容
                 </label>
-                <textarea
-                  id="ann-body"
-                  className="flex-1 input-theme rounded px-3 py-2 min-h-28"
-                  value={form.body}
-                  onChange={(e) => setForm({ ...form, body: e.target.value })}
-                  required
-                  maxLength={5000}
-                />
+                <div className="flex-1 min-w-0">
+                  <RichTextEditor
+                    value={form.body}
+                    onChange={(html) => setForm((prev) => ({ ...prev, body: html }))}
+                    placeholder="請輸入公告內容"
+                    maxLength={5000}
+                    ariaLabel="公告內容"
+                  />
+                </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>

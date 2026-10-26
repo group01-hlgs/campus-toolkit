@@ -7,6 +7,7 @@ import { defaultSettings } from "@/types/settings";
 import { ROLE_HOME, type UserRole } from "@/types/users";
 import { fetchSession } from "@/lib/session";
 import { clipText, type AnnouncementArchiveItem } from "@/types/announcements";
+import { stripHtmlToText } from "@/lib/rich-text";
 import ListPagination, { paginate, totalPagesOf } from "@/components/ListPagination";
 import PinIcon from "@/components/PinIcon";
 import Copyright from "@/components/Copyright";
@@ -157,7 +158,9 @@ export default function AnnouncementArchivePage() {
                   <p className="text-base font-bold text-t1 group-hover:text-primary">
                     {item.title}
                   </p>
-                  <p className="text-sm text-t2 mt-0.5 line-clamp-2">{clipText(item.body, 60)}</p>
+                  <p className="text-sm text-t2 mt-0.5 line-clamp-2">
+                    {clipText(stripHtmlToText(item.body), 60)}
+                  </p>
                 </Link>
               </li>
             ))}
