@@ -12,6 +12,7 @@
 
 import { ALL_ROLES, ROLE_LABELS, UserRole } from "./users";
 import { ensureFallbackCategory, resolveCategoryName } from "./category";
+import { normalizeRichHtmlField, stripHtmlToText } from "@/lib/rich-text";
 
 export const CALENDAR_COLLECTION = "calendarEvents";
 export const CALENDAR_SETTINGS_DOC_ID = "calendar";
@@ -544,7 +545,9 @@ export function validateCalendarInput(input: CalendarEventInput): CalendarValida
   const normalizedAudience: CalendarAudience =
     classCodes.length === 0 ? schoolWideAudience(roles) : { roles, classCodes };
 
-  const description = text(input.description, DESCRIPTION_MAX);
+  // 行程說明為富文本：先白名單淨化；只有標籤、沒有可見文字時視為未填
+  const descriptionHtml = normalizeRichHtmlField(input.description, DESCRIPTION_MAX);
+  const description = stripHtmlToText(descriptionHtml).trim() ? descriptionHtml : "";
   const location = text(input.location, LOCATION_MAX);
   const important = input.important === true;
   const schoolActivity = normalizeSchoolActivity(input.schoolActivity);

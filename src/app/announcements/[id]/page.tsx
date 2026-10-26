@@ -7,6 +7,7 @@ import { defaultSettings } from "@/types/settings";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
 import PinIcon from "@/components/PinIcon";
+import { RichTextContent } from "@/components/RichTextEditor";
 
 interface AnnouncementDetail {
   id: string;
@@ -197,11 +198,10 @@ export default function AnnouncementDetailPage() {
             </p>
 
             {/* 內文 */}
-            <div
-              className={`${sizes.body} text-t2 whitespace-pre-wrap leading-relaxed`}
-            >
-              {announcement.body}
-            </div>
+            <RichTextContent
+              html={announcement.body}
+              className={`${sizes.body} text-t2 leading-relaxed`}
+            />
 
             {/* 到期資訊 */}
             {announcement.expireAt && (

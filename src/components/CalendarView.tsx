@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { RichTextEditor, RichTextContent } from "@/components/RichTextEditor";
 import Toast, { type ToastMessage } from "@/components/Toast";
+import { stripHtmlToText } from "@/lib/rich-text";
 import { fetchSession } from "@/lib/session";
 import {
   calendarEventEnd,
@@ -198,7 +200,7 @@ export default function CalendarView() {
     const sorted = [...items].sort((a, b) => a.startAt - b.startAt);
     if (!kw) return sorted;
     return sorted.filter((item) =>
-      `${item.title}\n${item.description ?? ""}\n${item.location ?? ""}\n${
+      `${item.title}\n${stripHtmlToText(item.description ?? "")}\n${item.location ?? ""}\n${
         item.categoryName || categoryName(item.categoryId)
       }`
         .toLowerCase()
@@ -387,15 +389,15 @@ export default function CalendarView() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-t2 mb-1" htmlFor="cv-desc">
+                <label className="block text-xs text-t2 mb-1">
                   說明（選填）
                 </label>
-                <textarea
-                  id="cv-desc"
-                  className="w-full input-theme rounded px-3 py-2 text-sm min-h-20"
+                <RichTextEditor
                   value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  onChange={(html) => setForm((prev) => ({ ...prev, description: html }))}
+                  placeholder="請輸入行程說明（選填）"
                   maxLength={2000}
+                  ariaLabel="行程說明"
                 />
               </div>
               <div>
@@ -778,7 +780,10 @@ function EventCard({
           </p>
           <p className={`${sizes.meta} text-t3 mt-0.5`}>{formatRange(item)}</p>
           {item.description && (
-            <p className={`${sizes.body} text-t2 mt-2 whitespace-pre-wrap`}>{item.description}</p>
+            <RichTextContent
+              html={item.description}
+              className={`${sizes.body} text-t2 mt-2`}
+            />
           )}
           {remindersEnabled && (
             <div className="mt-3">

@@ -7,6 +7,7 @@ import { defaultSettings } from "@/types/settings";
 import type { CalendarEventItem } from "@/types/calendar";
 import Copyright from "@/components/Copyright";
 import AdSense from "@/components/AdSense";
+import { RichTextContent } from "@/components/RichTextEditor";
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -151,9 +152,11 @@ export default function CalendarEventDetailPage() {
             </p>
 
             {/* 內文 */}
-            <div className="text-base text-t2 whitespace-pre-wrap leading-relaxed">
-              {event.description || "（此行程沒有補充說明）"}
-            </div>
+            <RichTextContent
+              html={event.description ?? ""}
+              className="text-base text-t2 leading-relaxed"
+              emptyText="（此行程沒有補充說明）"
+            />
 
             {/* 建立資訊 */}
             <p className="text-sm text-t3 mt-4 pt-4 border-t border-themed">

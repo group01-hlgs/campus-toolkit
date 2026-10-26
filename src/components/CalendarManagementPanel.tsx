@@ -28,7 +28,9 @@ import { normalizeCategoryId } from "@/types/category";
 import { ROLE_LABELS, ALL_ROLES, type UserRole } from "@/types/users";
 import type { SchoolPeriodRow } from "@/types/school-periods";
 import { useDataSaver } from "@/lib/data-saver";
+import { stripHtmlToText } from "@/lib/rich-text";
 import RevealListCard from "@/components/RevealListCard";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import Toast, { type ToastMessage } from "@/components/Toast";
 
 /** 單位層級設定選項（settings GET 一併回傳，供「發佈單位」下拉建議） */
@@ -889,7 +891,7 @@ export default function AdminCalendarPage() {
     if (month && monthKey(item.startAt) !== month) return false;
     if (!searchKeyword) return true;
     const haystack =
-      `${item.title}\n${item.description ?? ""}\n${item.location ?? ""}\n${item.categoryName}\n${item.publishUnit ?? ""}\n${item.createdBy.name}`.toLowerCase();
+      `${item.title}\n${stripHtmlToText(item.description ?? "")}\n${item.location ?? ""}\n${item.categoryName}\n${item.publishUnit ?? ""}\n${item.createdBy.name}`.toLowerCase();
     return haystack.includes(searchKeyword);
   });
 
@@ -1201,16 +1203,18 @@ export default function AdminCalendarPage() {
                 />
               </div>
               <div className="flex flex-col sm:flex-row sm:items-start gap-2">
-                <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-desc">
+                <label className="text-t2 sm:w-40 shrink-0">
                   說明（選填）
                 </label>
-                <textarea
-                  id="cal-desc"
-                  className="flex-1 input-theme rounded px-3 py-2 min-h-24"
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  maxLength={2000}
-                />
+                <div className="flex-1 min-w-0">
+                  <RichTextEditor
+                    value={form.description}
+                    onChange={(html) => setForm((prev) => ({ ...prev, description: html }))}
+                    placeholder="請輸入行程說明（選填）"
+                    maxLength={2000}
+                    ariaLabel="行程說明"
+                  />
+                </div>
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <label className="text-t2 sm:w-40 shrink-0" htmlFor="cal-location">

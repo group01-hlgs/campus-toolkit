@@ -10,6 +10,7 @@
 
 import { ALL_ROLES, ROLE_LABELS, UserRole } from "./users";
 import { ensureFallbackCategory, resolveCategoryName } from "./category";
+import { normalizeRichHtmlField, stripHtmlToText } from "@/lib/rich-text";
 
 export const ANNOUNCEMENTS_COLLECTION = "announcements";
 export const ANNOUNCEMENT_SETTINGS_DOC_ID = "announcements";
@@ -398,8 +399,9 @@ export function validateAnnouncementInput(
 ): AnnouncementValidation {
   const title = text(input.title, TITLE_MAX);
   if (!title) return { ok: false, message: "請填寫公告標題" };
-  const body = text(input.body, BODY_MAX);
-  if (!body) return { ok: false, message: "請填寫公告內容" };
+  // 公告內容為富文本：先白名單淨化，再以可見文字判斷必填
+  const body = normalizeRichHtmlField(input.body, BODY_MAX);
+  if (!stripHtmlToText(body).trim()) return { ok: false, message: "請填寫公告內容" };
 
   const allowed = options?.allowedRoles ?? ALL_ROLES;
   // 閱讀權限「無」＝公開：任何身分皆可見，且不套班級限制（訪客沒有班級）
