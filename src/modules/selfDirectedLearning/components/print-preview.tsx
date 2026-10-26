@@ -1,0 +1,265 @@
+"use client";
+
+import {
+  WEEKDAY_LABELS,
+  type PrintPreviewPayload,
+  type PrintPreviewWeek,
+} from "../types/self-directed-learning";
+import { RichTextContent } from "./rich-text-editor";
+
+/** 學期識別（如 115-1）轉為易讀文字 */
+function periodText(period: string): string {
+  const [year, semester] = period.split("-");
+  if (!year || !semester) return period || "—";
+  return `${year} 學年度第 ${semester} 學期`;
+}
+
+function monthDayText(date: string): string {
+  const [, month, day] = date.split("-");
+  if (!month || !day) return date;
+  return `${Number(month)}/${Number(day)}`;
+}
+
+function formatGeneratedAt(epoch: number): string {
+  const date = new Date(epoch);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function blockedNamesOf(week: PrintPreviewWeek): string {
+  return [
+    ...new Set(
+      week.slots
+        .map((slot) => slot.blockedBy)
+        .filter((name): name is string => Boolean(name))
+    ),
+  ].join("、");
+}
+
+/**
+ * 紙張樣式：列印預覽刻意固定為白底黑字（與螢幕主題無關），
+ * 確保深色主題下預覽與實際列印仍是紙張閱讀的樣子。
+ */
+const PRINT_SHEET_STYLES = `
+.sdl-print-sheet {
+  background: #ffffff;
+  color: #111827;
+  width: 100%;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 12mm 10mm;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.sdl-print-sheet h1 {
+  margin: 0 0 2px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.sdl-print-sub {
+  margin: 0 0 14px;
+  text-align: center;
+  font-size: 12px;
+  color: #4b5563;
+}
+.sdl-print-meta,
+.sdl-print-weeks {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.sdl-print-meta {
+  margin-bottom: 12px;
+}
+.sdl-print-meta th,
+.sdl-print-meta td,
+.sdl-print-weeks th,
+.sdl-print-weeks td {
+  border: 1px solid #9ca3af;
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.sdl-print-meta th,
+.sdl-print-weeks th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+.sdl-print-meta th {
+  width: 14%;
+  white-space: nowrap;
+}
+.sdl-print-weeks thead {
+  display: table-header-group;
+}
+.sdl-print-weeks tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.sdl-print-week {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sdl-print-slots {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #374151;
+}
+.sdl-print-blocked {
+  margin: 0;
+  color: #b91c1c;
+  font-weight: 600;
+}
+.sdl-print-note {
+  margin: 2px 0 0;
+  color: #4b5563;
+  font-size: 11px;
+}
+.sdl-print-sheet p {
+  margin: 2px 0;
+}
+.sdl-print-sheet ul,
+.sdl-print-sheet ol {
+  margin: 2px 0;
+  padding-left: 1.4em;
+}
+.sdl-print-sheet li {
+  margin: 1px 0;
+}
+.sdl-print-sheet blockquote {
+  margin: 4px 0;
+  padding-left: 8px;
+  border-left: 3px solid #9ca3af !important;
+  color: #374151 !important;
+}
+.sdl-print-footer {
+  margin-top: 12px;
+  font-size: 10px;
+  color: #6b7280;
+  text-align: right;
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+  html,
+  body {
+    background: #ffffff !important;
+  }
+  .sdl-print-page {
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+  .sdl-print-toolbar {
+    display: none !important;
+  }
+  .sdl-print-sheet {
+    max-width: none;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+}
+`;
+
+export function PrintPreviewSheet({ payload }: { payload: PrintPreviewPayload }) {
+  return (
+    <div className="sdl-print-sheet">
+      <style>{PRINT_SHEET_STYLES}</style>
+
+      <h1>自主學習計畫</h1>
+      <p className="sdl-print-sub">{periodText(payload.period)}</p>
+
+      <table className="sdl-print-meta">
+        <tbody>
+          <tr>
+            <th scope="row">學生</th>
+            <td>{payload.studentName || "—"}</td>
+            <th scope="row">班級</th>
+            <td>{payload.className || "—"}</td>
+          </tr>
+          <tr>
+            <th scope="row">主題</th>
+            <td colSpan={3}>{payload.topic || "—"}</td>
+          </tr>
+          <tr>
+            <th scope="row">學群</th>
+            <td>{payload.studyGroup || "—"}</td>
+            <th scope="row">指導老師</th>
+            <td>{payload.advisor || "未指定"}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table className="sdl-print-weeks">
+        <thead>
+          <tr>
+            <th scope="col" style={{ width: "22%" }}>
+              週次／日期／節次
+            </th>
+            <th scope="col">學習安排</th>
+            <th scope="col" style={{ width: "16%" }}>
+              場地
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {payload.weeks.map((week) => {
+            const blockedNames = blockedNamesOf(week);
+            return (
+              <tr key={week.week}>
+                <td>
+                  <div className="sdl-print-week">第 {week.week} 週</div>
+                  {week.slots.length === 0 ? (
+                    <div className="sdl-print-slots">—</div>
+                  ) : (
+                    week.slots.map((slot) => (
+                      <div key={`${slot.date}-${slot.day}`} className="sdl-print-slots">
+                        <div>
+                          {monthDayText(slot.date)} {WEEKDAY_LABELS[slot.day - 1]}
+                        </div>
+                        <div>
+                          {slot.periods.length > 0 ? slot.periods.join("、") : "—"}
+                          {slot.blockedBy && <span>（{slot.blockedBy}）</span>}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </td>
+                <td>
+                  {week.blocked ? (
+                    <>
+                      <p className="sdl-print-blocked">{blockedNames || "學校活動"}</p>
+                      <p className="sdl-print-note">
+                        本週彈性學習時間為學校活動，不提供撰寫。
+                      </p>
+                      {week.content && (
+                        <RichTextContent html={week.content} className="text-sm" />
+                      )}
+                    </>
+                  ) : (
+                    <RichTextContent html={week.content} className="text-sm" />
+                  )}
+                </td>
+                <td>{week.venue || "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <p className="sdl-print-footer">
+        本預覽為目前編輯內容（含尚未儲存的變更）｜產生時間：
+        {formatGeneratedAt(payload.generatedAt)}
+      </p>
+    </div>
+  );
+}

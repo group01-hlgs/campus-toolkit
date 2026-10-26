@@ -96,6 +96,10 @@ export interface PeriodOption {
   code: string;
   name: string;
   period: number;
+  /** 開始 `HH:MM`（學生端逐週時段推算用） */
+  start: string;
+  /** 結束 `HH:MM` */
+  end: string;
 }
 
 /** 場域候選（取自主程式樓層空間設定的葉子空間；管理端開放場域選擇用） */
@@ -125,6 +129,8 @@ export interface SelfDirectedLearningSettings {
   slots: FlexibleSlot[];
   /** 開放場域 */
   venues: string[];
+  /** 是否開放學生自行輸入場地名稱（false＝只能從 `venues` 清單選擇，送審會檢查） */
+  venueEditable: boolean;
   /** 審核人員名單 */
   reviewers: ReviewerEntry[];
   /** 自主學習實施說明（給學生、家長的總說明） */
@@ -146,6 +152,7 @@ export const DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS: SelfDirectedLearningSettin
   minWeeks: 6,
   slots: [],
   venues: [],
+  venueEditable: true,
   reviewers: [],
   instructions: "",
   writingInstructions: "",
@@ -250,6 +257,10 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
     minWeeks: Math.min(Math.max(minWeeksRaw, 1), MAX_PLAN_WEEKS),
     slots,
     venues: asStringArray(source.venues, 60, 80),
+    venueEditable:
+      typeof source.venueEditable === "boolean"
+        ? source.venueEditable
+        : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.venueEditable,
     reviewers,
     instructions:
       typeof source.instructions === "string" ? source.instructions.slice(0, 4000) : "",
@@ -303,6 +314,9 @@ export function parseSettingsInput(raw: unknown): ParseResult {
   if ("publishCalendar" in body && typeof body.publishCalendar !== "boolean") {
     return { ok: false, message: "行事曆同步設定格式錯誤" };
   }
+  if ("venueEditable" in body && typeof body.venueEditable !== "boolean") {
+    return { ok: false, message: "場地輸入設定格式錯誤" };
+  }
   return { ok: true, value };
 }
 
@@ -346,6 +360,43 @@ export interface PlanWeek {
   content: string;
   venue: string;
   timing: PlanTiming;
+}
+
+/* ——— 列印預覽（學生端新分頁；以 postMessage 傳遞目前編輯內容） ——— */
+
+/** 預覽頁載入完成 → 撰寫頁回傳目前草稿 */
+export const PRINT_PREVIEW_READY = "selfDirectedLearning:print-ready";
+/** 撰寫頁 → 預覽頁的資料訊息 */
+export const PRINT_PREVIEW_DATA = "selfDirectedLearning:print-data";
+
+export interface PrintPreviewSlot {
+  /** 實際日期 `YYYY-MM-DD` */
+  date: string;
+  /** 1=週一…7=週日 */
+  day: number;
+  periods: string[];
+  /** 衝堂的學校活動名稱；null＝無 */
+  blockedBy: string | null;
+}
+
+export interface PrintPreviewWeek {
+  week: number;
+  content: string;
+  venue: string;
+  slots: PrintPreviewSlot[];
+  blocked: boolean;
+}
+
+/** 列印預覽內容（目前編輯中的草稿；不必先儲存） */
+export interface PrintPreviewPayload {
+  period: string;
+  studentName: string;
+  className: string;
+  topic: string;
+  studyGroup: string;
+  advisor: string;
+  generatedAt: number;
+  weeks: PrintPreviewWeek[];
 }
 
 export interface SelfDirectedLearningPlan {
@@ -418,6 +469,383 @@ export function countWeeksBetween(start: string, end: string): number | null {
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+/* ——— 逐週彈性學習時間（日期／節次）與學校活動衝堂 ——— */
+
+/** 節次的起訖時鐘（取自主程式課表作息） */
+export interface PeriodClock {
+  /** 節次名稱（管理端節次行程勾選的就是這個名稱） */
+  name: string;
+  /** 開始 `HH:MM` */
+  start: string;
+  /** 結束 `HH:MM` */
+  end: string;
+}
+
+/** 衝堂比對用的行事曆學校活動（只取必要欄位，避免相依主程式型別） */
+export interface SchoolActivityOccurrence {
+  title: string;
+  startAt: number;
+  endAt: number | null;
+  /** true＝全校 */
+  school: boolean;
+  /** 適用年級與班級（classCodes 空＝該年級全年級） */
+  grades: { grade: string; classCodes: string[] }[];
+}
+
+/** 某一週的單一彈性學習時段（日期＋節次） */
+export interface WeekSlotSchedule {
+  /** 1=週一…7=週日 */
+  day: number;
+  /** 實際日期 `YYYY-MM-DD` */
+  date: string;
+  /** 節次名稱（管理端勾選的顯示文字；可能為空） */
+  periods: string[];
+  /** 衝堂的學校活動名稱；null＝可用 */
+  blockedBy: string | null;
+}
+
+/** 某一週的彈性學習時間；日期由學期起訖與節次行程推算 */
+export interface WeekSchedule {
+  week: number;
+  /** 該週週日／週六 `YYYY-MM-DD`（與 `countWeeksBetween` 的週計算一致） */
+  startDate: string;
+  endDate: string;
+  slots: WeekSlotSchedule[];
+  /** 該週所有彈性學習時段皆與學校活動衝堂（整週不提供撰寫、不列入必填） */
+  blocked: boolean;
+}
+
+const MS_PER_DAY = 86_400_000;
+const CLOCK_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function dateOnlyMs(value: string): number | null {
+  if (!DATE_PATTERN.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
+function formatDateOnly(ms: number): string {
+  const date = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function clockMs(date: string, clock: string): number | null {
+  if (!CLOCK_PATTERN.test(clock)) return null;
+  const base = dateOnlyMs(date);
+  if (base === null) return null;
+  const date_ = new Date(base);
+  const [hour, minute] = clock.split(":").map(Number);
+  date_.setHours(hour, minute, 0, 0);
+  return date_.getTime();
+}
+
+/** 學校活動是否涵蓋該學生（全校，或該年級／該班級） */
+function coversStudent(
+  event: SchoolActivityOccurrence,
+  grade: string,
+  classCode: string
+): boolean {
+  if (event.school) return true;
+  return event.grades.some((entry) => {
+    if (entry.grade !== grade) return false;
+    if (entry.classCodes.length === 0) return true;
+    return Boolean(classCode) && entry.classCodes.includes(classCode);
+  });
+}
+
+/**
+ * 推算逐週的彈性學習時間（日期＋節次），並比對行事曆的學校活動衝堂。
+ *
+ * - 週次與 `countWeeksBetween` 一致：每週以週日～週六為一週，第一週回退到所在週的週日。
+ * - 節次行程以「週幾＋節次名稱」設定；名稱對應課表作息後換算成實際起訖時間。
+ * - 只比對有學校活動層級且涵蓋該學生（全校／年級／班級）的行事曆行程；
+ *   該週所有時段皆衝堂時 `blocked=true`（該週不提供撰寫）。
+ * - 學期起訖未設定或格式錯誤時回空陣列（前端顯示為無法推算）。
+ */
+export function buildWeekSchedule(input: {
+  semesterStart: string;
+  semesterEnd: string;
+  weeks: number;
+  slots: FlexibleSlot[];
+  periods: PeriodClock[];
+  events: SchoolActivityOccurrence[];
+  grade: string;
+  classCode: string;
+}): WeekSchedule[] {
+  const startMs = dateOnlyMs(input.semesterStart);
+  const endMs = dateOnlyMs(input.semesterEnd);
+  if (startMs === null || endMs === null || endMs < startMs) return [];
+  const totalWeeks = Math.min(Math.max(Math.round(input.weeks) || 0, 0), MAX_PLAN_WEEKS);
+  if (totalWeeks === 0) return [];
+
+  const weekOneSunday = startMs - new Date(startMs).getDay() * MS_PER_DAY;
+  const applicable = input.events.filter((event) =>
+    coversStudent(event, input.grade, input.classCode)
+  );
+  const clockByName = new Map(input.periods.map((period) => [period.name, period]));
+  const orderedSlots = [...input.slots].sort((a, b) => a.day - b.day);
+
+  const rows: WeekSchedule[] = [];
+  for (let index = 0; index < totalWeeks; index += 1) {
+    const sundayMs = weekOneSunday + index * 7 * MS_PER_DAY;
+    const slots: WeekSlotSchedule[] = [];
+    for (const slot of orderedSlots) {
+      // day：1=週一…7=週日；該週由週日起算，故週日（7）偏移 0、週一偏移 1
+      const dateMs = sundayMs + (slot.day % 7) * MS_PER_DAY;
+      if (dateMs < startMs || dateMs > endMs) continue;
+      const date = formatDateOnly(dateMs);
+      let blockedBy: string | null = null;
+      for (const periodName of slot.periods) {
+        const clock = clockByName.get(periodName);
+        if (!clock) continue;
+        const slotStart = clockMs(date, clock.start);
+        const slotEnd = clockMs(date, clock.end);
+        if (slotStart === null || slotEnd === null) continue;
+        for (const event of applicable) {
+          const eventEnd = Math.max(event.endAt ?? event.startAt, event.startAt + 60_000);
+          if (slotStart < eventEnd && event.startAt < slotEnd) {
+            blockedBy = event.title;
+            break;
+          }
+        }
+        if (blockedBy) break;
+      }
+      slots.push({ day: slot.day, date, periods: [...slot.periods], blockedBy });
+    }
+    rows.push({
+      week: index + 1,
+      startDate: formatDateOnly(sundayMs),
+      endDate: formatDateOnly(sundayMs + 6 * MS_PER_DAY),
+      slots,
+      blocked: slots.length > 0 && slots.every((slot) => slot.blockedBy !== null),
+    });
+  }
+  return rows;
+}
+
+/* ——— 學習安排富文本：純 TypeScript 白名單淨化（前端與伺服器共用） ——— */
+
+/** 允許的富文本標籤；其他標籤一律丟棄外殼、保留文字內容 */
+const RICH_TEXT_TAGS = new Set([
+  "b",
+  "strong",
+  "i",
+  "em",
+  "u",
+  "s",
+  "strike",
+  "del",
+  "span",
+  "font",
+  "p",
+  "div",
+  "br",
+  "ul",
+  "ol",
+  "li",
+  "blockquote",
+]);
+
+/** 需連同內容整段移除的危險元素（含未閉合標籤） */
+const RICH_TEXT_DROP_ELEMENTS =
+  "script|style|iframe|object|embed|svg|math|template|noscript|title|textarea|select|option|form|link|meta|audio|video|source|picture|canvas";
+
+/** 允許保留的 CSS 屬性（其餘一律丟棄） */
+const RICH_TEXT_STYLE_PROPS = new Set([
+  "color",
+  "font-family",
+  "font-size",
+  "text-align",
+  "margin-left",
+  "padding-left",
+]);
+
+const RICH_TEXT_SAFE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\(\s*[\d.%,\s]+\)|[a-z]{3,20})$/i;
+const RICH_TEXT_SAFE_FONT_SIZE =
+  /^(\d+(\.\d+)?(px|pt|em|rem|%)|xx-small|x-small|small|medium|large|x-large|xx-large)$/i;
+const RICH_TEXT_SAFE_FONT_FAMILY = /^[\p{L}\p{N}\s,"'_.-]+$/u;
+const RICH_TEXT_SAFE_SPACING = /^-?\d+(\.\d+)?(px|pt|em|rem|%)$/i;
+const RICH_TEXT_SAFE_ALIGN = /^(left|right|center|justify)$/i;
+
+/** 是否為允許的 CSS 值（避免 url()、expression 等危險構造） */
+function isSafeRichStyleValue(property: string, value: string): boolean {
+  switch (property) {
+    case "color":
+      return RICH_TEXT_SAFE_COLOR.test(value);
+    case "font-size":
+      return RICH_TEXT_SAFE_FONT_SIZE.test(value);
+    case "font-family":
+      return value.length <= 120 && RICH_TEXT_SAFE_FONT_FAMILY.test(value);
+    case "text-align":
+      return RICH_TEXT_SAFE_ALIGN.test(value);
+    case "margin-left":
+    case "padding-left":
+      return RICH_TEXT_SAFE_SPACING.test(value);
+    default:
+      return false;
+  }
+}
+
+/** 過濾單一 style 屬性的宣告，只留白名單內且值安全的樣式 */
+function sanitizeRichStyle(raw: string): string | null {
+  const declarations: string[] = [];
+  for (const part of raw.split(";")) {
+    const colon = part.indexOf(":");
+    if (colon < 0) continue;
+    const property = part.slice(0, colon).trim().toLowerCase();
+    const value = part.slice(colon + 1).trim();
+    if (!property || !value || !RICH_TEXT_STYLE_PROPS.has(property)) continue;
+    if (/url\s*\(|expression|javascript:|@import|[<>\\]/i.test(value)) continue;
+    if (!isSafeRichStyleValue(property, value)) continue;
+    declarations.push(`${property}:${value}`);
+  }
+  return declarations.length > 0 ? declarations.join(";") : null;
+}
+
+/** 保留合法實體（如 &nbsp;、&amp;），其餘 < > & 一律跳脫，避免純文字被當成標籤 */
+function escapeRichText(text: string): string {
+  let output = "";
+  let index = 0;
+  while (index < text.length) {
+    const amp = text.indexOf("&", index);
+    if (amp < 0) {
+      output += text.slice(index).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      break;
+    }
+    output += text.slice(index, amp).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const rest = text.slice(amp);
+    const entity = rest.match(/^&(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/);
+    if (entity) {
+      output += entity[0];
+      index = amp + entity[0].length;
+    } else {
+      output += "&amp;";
+      index = amp + 1;
+    }
+  }
+  return output;
+}
+
+/** 解析並重建標籤屬性：只留白名單屬性，事件屬性與危險樣式一律丟棄 */
+function sanitizeRichAttributes(tag: string, raw: string): string {
+  const attributes: string[] = [];
+  const pattern =
+    /([a-zA-Z][a-zA-Z0-9-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(raw))) {
+    const name = match[1].toLowerCase();
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    if (name.startsWith("on")) continue;
+    if (name === "style") {
+      const style = sanitizeRichStyle(value);
+      if (style) {
+        attributes.push(`style="${style.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`);
+      }
+      continue;
+    }
+    if (
+      (tag === "p" || tag === "div" || tag === "blockquote" || tag === "li") &&
+      name === "align" &&
+      RICH_TEXT_SAFE_ALIGN.test(value)
+    ) {
+      attributes.push(`align="${value.toLowerCase()}"`);
+      continue;
+    }
+    if (tag !== "font") continue;
+    if (name === "size" && /^[1-7]$/.test(value)) {
+      attributes.push(`size="${value}"`);
+    } else if (name === "color" && RICH_TEXT_SAFE_COLOR.test(value)) {
+      attributes.push(`color="${value}"`);
+    } else if (name === "face" && value.length <= 120 && RICH_TEXT_SAFE_FONT_FAMILY.test(value)) {
+      attributes.push(`face="${value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`);
+    }
+  }
+  return attributes.length > 0 ? ` ${attributes.join(" ")}` : "";
+}
+
+/**
+ * 富文本白名單淨化：只留安全標籤（粗體、斜體、底線、刪除線、顏色／字級、
+ * 段落、清單、引用等）與安全屬性；移除 script／iframe／事件屬性／javascript:／url()。
+ * 純文字輸入會被跳脫，因此可安全地以 `dangerouslySetInnerHTML` 呈現。
+ */
+export function sanitizeRichHtml(input: string): string {
+  if (typeof input !== "string" || !input) return "";
+  let html = input.replace(/<!--[\s\S]*?-->/g, "").replace(/<![^>]*>/g, "");
+  // 先整段移除危險元素（含內容），再移除殘留的未閉合標籤
+  html = html.replace(
+    new RegExp(`<(${RICH_TEXT_DROP_ELEMENTS})\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>`, "gi"),
+    ""
+  );
+  html = html.replace(new RegExp(`<\\/?(?:${RICH_TEXT_DROP_ELEMENTS})\\b[^>]*>`, "gi"), "");
+
+  const pattern = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:"[^"]*"|'[^']*'|[^"'>])*)\/?>/g;
+  let output = "";
+  let index = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html))) {
+    output += escapeRichText(html.slice(index, match.index));
+    index = pattern.lastIndex;
+    const closing = match[1] === "/";
+    const tag = match[2].toLowerCase();
+    if (!RICH_TEXT_TAGS.has(tag)) continue;
+    if (tag === "br") {
+      if (!closing) output += "<br>";
+      continue;
+    }
+    if (closing) {
+      output += `</${tag}>`;
+      continue;
+    }
+    output += `<${tag}${sanitizeRichAttributes(tag, match[3] ?? "")}>`;
+  }
+  output += escapeRichText(html.slice(index));
+  return output;
+}
+
+function decodeCodePoint(code: number, fallback: string): string {
+  if (!Number.isFinite(code) || code < 1 || code > 0x10ffff) return fallback;
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return fallback;
+  }
+}
+
+/** 依長度上限截斷富文本：切在最後一個完整標籤邊界，避免留下破損標籤 */
+function capRichHtmlLength(html: string, maxLength: number): string {
+  if (html.length <= maxLength) return html;
+  const sliced = html.slice(0, maxLength);
+  const boundary = sliced.lastIndexOf(">");
+  if (boundary < 0) return "";
+  return sanitizeRichHtml(sliced.slice(0, boundary + 1));
+}
+
+/**
+ * 取得富文本的可見純文字：`<br>`、`</p>`、`</div>`、`</li>` 視為換行，
+ * 其餘標籤剝除，並還原常見實體（`&nbsp;`、`&amp;`、`&lt;`、`&gt;`）。
+ * 用於必填判空、字數計算與舊版純文字內容顯示。
+ */
+export function stripHtmlToText(input: string): string {
+  if (typeof input !== "string" || !input) return "";
+  return input
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li|blockquote|h[1-6])>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (match, code: string) => decodeCodePoint(Number(code), match))
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex: string) =>
+      decodeCodePoint(Number.parseInt(hex, 16), match)
+    )
+    .replace(/&amp;/gi, "&")
+    .replace(/\r\n?/g, "\n");
+}
+
 export type PlanParseResult =
   | { ok: true; value: Omit<SelfDirectedLearningPlan, "id" | "period" | "studentUid" | "studentName" | "grade" | "classCode" | "className" | "status" | "submittedAt" | "updatedAt"> }
   | { ok: false; message: string };
@@ -428,6 +856,12 @@ export function parsePlanDraft(
   rules: Pick<SelfDirectedLearningSettings, "weekMode" | "minWeeks"> & {
     /** 程式判斷的學期總週數（兩種形式的填寫上限；null＝學校尚未設定起訖） */
     fullWeeks: number | null;
+    /** 與學校活動衝堂、不提供撰寫的週次（送審時不列入必填） */
+    blockedWeeks?: number[];
+    /** 是否開放學生自行輸入場地名稱（預設 true；false＝只能從 `venueOptions` 選擇） */
+    venueEditable?: boolean;
+    /** 學校開放的固定場域清單（`venueEditable` 為 false 時送審據此驗證） */
+    venueOptions?: string[];
   },
   action: "save" | "submit"
 ): PlanParseResult {
@@ -474,6 +908,9 @@ export function parsePlanDraft(
   }
   const weeks: PlanWeek[] = [];
   const seen = new Set<number>();
+  const blockedWeeks = new Set(rules.blockedWeeks ?? []);
+  const venueEditable = rules.venueEditable !== false;
+  const venueOptions = new Set(rules.venueOptions ?? []);
   for (const item of body.weeks) {
     if (!item || typeof item !== "object") return { ok: false, message: "每週安排格式錯誤" };
     const week = item as Record<string, unknown>;
@@ -483,11 +920,34 @@ export function parsePlanDraft(
     }
     if (seen.has(weekNo)) return { ok: false, message: `第 ${weekNo} 週重複` };
     seen.add(weekNo);
-    const content = typeof week.content === "string" ? week.content.trim().slice(0, 600) : "";
+    const rawContent = typeof week.content === "string" ? week.content : "";
+    // 富文本存檔前先淨化；純文字長度以「實際可見文字」計算
+    const sanitizedContent = sanitizeRichHtml(rawContent);
+    const plainContent = stripHtmlToText(sanitizedContent).trim();
+    const content = plainContent ? capRichHtmlLength(sanitizedContent, 6000) : "";
     const venue = typeof week.venue === "string" ? week.venue.trim().slice(0, 120) : "";
+    // 與學校活動衝堂的週次不提供撰寫，送審時也不列入必填
+    const blocked = blockedWeeks.has(weekNo);
     // 草稿可留白（進度可分次完成）；送審時每一週的學習安排與場地都必填
-    if (action === "submit" && !content) return { ok: false, message: `第 ${weekNo} 週未填寫學習安排` };
-    if (action === "submit" && !venue) return { ok: false, message: `第 ${weekNo} 週未填寫場地` };
+    if (action === "submit" && !blocked && !plainContent) {
+      return { ok: false, message: `第 ${weekNo} 週未填寫學習安排` };
+    }
+    if (!blocked && plainContent.length > 600) {
+      return {
+        ok: false,
+        message: `第 ${weekNo} 週學習安排超過 600 字上限（目前 ${plainContent.length} 字）`,
+      };
+    }
+    if (action === "submit" && !blocked && !venue) {
+      return { ok: false, message: `第 ${weekNo} 週未填寫場地` };
+    }
+    // 未開放自行輸入時，場地必須是學校開放的固定場域之一
+    if (action === "submit" && !blocked && !venueEditable && !venueOptions.has(venue)) {
+      return {
+        ok: false,
+        message: `第 ${weekNo} 週場地「${venue}」不在學校開放的場域清單，請重新選擇`,
+      };
+    }
     const timing: PlanTiming = isTiming(week.timing) ? week.timing : "flexible";
     weeks.push({ week: weekNo, content, venue, timing });
   }

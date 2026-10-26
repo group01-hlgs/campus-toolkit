@@ -1,5 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { listCalendarEvents } from "@/lib/calendar";
 import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
 import { getCacheTtlSeconds, getCurrentPeriod } from "@/lib/settings-server";
 import { isActiveEntry, loadPeriodEntries } from "@/lib/roster";
@@ -7,13 +8,16 @@ import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
   SELF_DIRECTED_LEARNING_SETTINGS_COLLECTION,
   SELF_DIRECTED_LEARNING_SETTINGS_DOC_ID,
+  buildWeekSchedule,
   countWeeksBetween,
   normalizeSettings,
   type ClassOption,
   type PeriodOption,
+  type SchoolActivityOccurrence,
   type SelfDirectedLearningSettings,
   type SpaceOption,
   type StaffCandidate,
+  type WeekSchedule,
 } from "../types/self-directed-learning";
 
 const SETTINGS_CACHE_KEY = "selfDirectedLearning:settings";
@@ -36,6 +40,27 @@ interface RawSchoolPeriodRow {
   code: string;
   period: number;
   name: string;
+  /** 開始 `HH:MM` */
+  start: string;
+  /** 結束 `HH:MM` */
+  end: string;
+}
+
+/** 課表作息內建預設（與主程式一致：每日八節＋午休；文件不存在時使用） */
+const DEFAULT_PERIODS: RawSchoolPeriodRow[] = [
+  { code: "P1", period: 1, name: "第一節", start: "08:00", end: "08:50" },
+  { code: "P2", period: 2, name: "第二節", start: "09:20", end: "10:10" },
+  { code: "P3", period: 3, name: "第三節", start: "10:20", end: "11:10" },
+  { code: "P4", period: 4, name: "第四節", start: "11:20", end: "12:10" },
+  { code: "N", period: 0, name: "午休", start: "12:40", end: "13:10" },
+  { code: "P5", period: 5, name: "第五節", start: "13:20", end: "14:10" },
+  { code: "P6", period: 6, name: "第六節", start: "14:20", end: "15:10" },
+  { code: "P7", period: 7, name: "第七節", start: "15:20", end: "16:10" },
+  { code: "P8", period: 8, name: "第八節", start: "16:20", end: "17:10" },
+];
+
+function defaultPeriods(): RawSchoolPeriodRow[] {
+  return DEFAULT_PERIODS.map((row) => ({ ...row }));
 }
 
 function readSchoolDays(value: unknown): number[] {
@@ -49,17 +74,17 @@ function readSchoolDays(value: unknown): number[] {
   return [...days].sort((a, b) => a - b);
 }
 
-/** 讀回主程式課表作息（寬容）：只保留可用節次，缺漏時回預設上課星期 */
+/** 讀回主程式課表作息（寬容）：文件缺漏時用內建八節＋午休（與主程式一致） */
 function readSchoolPeriods(raw: unknown): {
   schoolDays: number[];
   periods: RawSchoolPeriodRow[];
 } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { schoolDays: [...DEFAULT_SCHOOL_DAYS], periods: [] };
+    return { schoolDays: [...DEFAULT_SCHOOL_DAYS], periods: defaultPeriods() };
   }
   const record = raw as Record<string, unknown>;
   if (!Array.isArray(record.periods)) {
-    return { schoolDays: [...DEFAULT_SCHOOL_DAYS], periods: [] };
+    return { schoolDays: [...DEFAULT_SCHOOL_DAYS], periods: defaultPeriods() };
   }
   const periods: RawSchoolPeriodRow[] = [];
   for (const item of record.periods.slice(0, 50)) {
@@ -73,7 +98,7 @@ function readSchoolPeriods(raw: unknown): {
     if (!code || !name || code.length > 20 || name.length > 40) continue;
     if (!Number.isInteger(period)) continue;
     if (!PERIOD_TIME_PATTERN.test(start) || !PERIOD_TIME_PATTERN.test(end)) continue;
-    periods.push({ code, period, name });
+    periods.push({ code, period, name, start, end });
   }
   return { schoolDays: readSchoolDays(record.schoolDays), periods };
 }
@@ -129,25 +154,54 @@ export async function saveSettings(
 }
 
 const FULL_WEEKS_CACHE_KEY = "selfDirectedLearning:fullWeeks";
+const SEMESTER_WINDOW_CACHE_KEY = "selfDirectedLearning:semesterWindow";
+
+/** 學期起訖（`YYYY-MM-DD`），用於推算週次與逐週彈性學習時間 */
+export interface SemesterWindow {
+  start: string;
+  end: string;
+}
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function pickWindow(
+  data: Record<string, unknown>,
+  startKey: string,
+  endKey: string
+): SemesterWindow | null {
+  const start = typeof data[startKey] === "string" ? data[startKey].trim() : "";
+  const end = typeof data[endKey] === "string" ? data[endKey].trim() : "";
+  if (!DATE_PATTERN.test(start) || !DATE_PATTERN.test(end)) return null;
+  return countWeeksBetween(start, end) === null ? null : { start, end };
+}
 
 /**
- * 全學期形式的須填週數：依主程式「學校基本設定 → 學期起訖設定」推算——
- * **優先上課日起訖**（實際授课期間，以週日～週六為一週、未滿七日仍計一週，
- * 台灣學校通常為 21 或 22 週），其次學期起訖、再次學年度起訖；
- * 學校尚未設定起訖時回 null。
+ * 學期起訖：依主程式「學校基本設定 → 學期起訖設定」推算——
+ * **優先上課日起訖**，其次學期起訖、再次學年度起訖；皆未設定時回 null。
  * 只讀主程式的 `settings/system` 日期欄位，不寫入。
  */
-export async function getFullWeeks(): Promise<number | null> {
-  return cachedRead(FULL_WEEKS_CACHE_KEY, await settingsTtlMs(), async () => {
+export async function getSemesterWindow(): Promise<SemesterWindow | null> {
+  return cachedRead(SEMESTER_WINDOW_CACHE_KEY, await settingsTtlMs(), async () => {
     const snap = await getAdminDb().collection("settings").doc("system").get();
     const data = (snap.exists ? snap.data() : {}) as Record<string, unknown>;
-    const str = (value: unknown) => (typeof value === "string" ? value : "");
     return (
-      countWeeksBetween(str(data.classDayStart), str(data.classDayEnd)) ??
-      countWeeksBetween(str(data.semesterStart), str(data.semesterEnd)) ??
-      countWeeksBetween(str(data.academicYearStart), str(data.academicYearEnd))
+      pickWindow(data, "classDayStart", "classDayEnd") ??
+      pickWindow(data, "semesterStart", "semesterEnd") ??
+      pickWindow(data, "academicYearStart", "academicYearEnd")
     );
   });
+}
+
+/**
+ * 全學期形式的須填週數：依學期起訖推算（以週日～週六為一週、未滿七日仍計一週，
+ * 台灣學校通常為 21 或 22 週）；學校尚未設定起訖時回 null。
+ */
+export async function getFullWeeks(): Promise<number | null> {
+  const window = await getSemesterWindow();
+  if (!window) return null;
+  return cachedRead(FULL_WEEKS_CACHE_KEY, await settingsTtlMs(), async () =>
+    countWeeksBetween(window.start, window.end)
+  );
 }
 
 const PERIOD_OPTIONS_CACHE_KEY = "selfDirectedLearning:periodOptions";
@@ -174,9 +228,70 @@ export async function getSchoolScheduleOptions(): Promise<SchoolScheduleOptions>
         code: row.code,
         name: row.name,
         period: row.period,
+        start: row.start,
+        end: row.end,
       })),
     };
   });
+}
+
+/** 本地時區的該日零時（epoch ms）；格式錯誤回 0 */
+function localDateMs(date: string): number {
+  const [year, month, day] = date.split("-").map(Number);
+  const ms = new Date(year, month - 1, day).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * 逐週彈性學習時間（日期／節次）與學校活動衝堂：學生端「撰寫計畫」表格用。
+ * 節次行程取自模組設定，節次起訖取自主程式課表作息；
+ * 衝堂只比對行事曆中「有學校活動層級且涵蓋該學生」的行程（可見性沿用學生身分）。
+ */
+export async function getWeekSchedule(
+  grade: string,
+  classCode: string
+): Promise<WeekSchedule[]> {
+  const window = await getSemesterWindow();
+  if (!window) return [];
+  const weeks = countWeeksBetween(window.start, window.end);
+  if (!weeks) return [];
+
+  const [settings, schedule] = await Promise.all([getSettings(), getSchoolScheduleOptions()]);
+  const base = {
+    semesterStart: window.start,
+    semesterEnd: window.end,
+    weeks,
+    periods: schedule.periods,
+    grade,
+    classCode,
+  };
+  if (settings.slots.length === 0) {
+    return buildWeekSchedule({ ...base, slots: [], events: [] });
+  }
+
+  const events = await listCalendarEvents({
+    role: "student",
+    classCode,
+    from: localDateMs(window.start),
+  });
+  const occurrences: SchoolActivityOccurrence[] = [];
+  for (const event of events) {
+    const activity = event.schoolActivity;
+    if (!activity) continue;
+    if (!activity.school && activity.grades.length === 0) continue;
+    occurrences.push({
+      title: event.title,
+      startAt: event.startAt,
+      endAt: typeof event.endAt === "number" ? event.endAt : null,
+      school: activity.school,
+      grades: activity.grades.map((entry) => ({
+        grade: entry.grade,
+        classCodes: [...entry.classCodes],
+      })),
+    });
+  }
+
+  return buildWeekSchedule({ ...base, slots: settings.slots, events: occurrences });
 }
 
 /** 場域候選清單：主程式「學校基本設定 → 樓層空間設定」的葉子空間（無下層者） */

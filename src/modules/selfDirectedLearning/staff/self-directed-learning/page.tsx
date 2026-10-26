@@ -6,6 +6,7 @@ import AdSense from "@/components/AdSense";
 import Copyright from "@/components/Copyright";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { RichTextContent } from "../../components/rich-text-editor";
 import { fetchSettings } from "@/lib/settings-client";
 import { logout } from "@/lib/session";
 import { Settings, defaultSettings } from "@/types/settings";
@@ -308,7 +309,7 @@ export default function StaffSelfDirectedLearningPage() {
                         <span>{PLAN_TIMING_LABELS[week.timing]}</span>
                         <span className="text-t3">{week.venue}</span>
                       </div>
-                      <p className="whitespace-pre-wrap">{week.content}</p>
+                      <RichTextContent html={week.content} />
                     </li>
                   ))}
                 </ul>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { RichTextContent } from "../../components/rich-text-editor";
 import {
   MAINTENANCE_HINT,
   MAINTENANCE_TITLE,
@@ -157,7 +158,7 @@ export default function ParentSelfDirectedLearningPage() {
                     <span>{PLAN_TIMING_LABELS[week.timing]}</span>
                     <span className="text-t3">{week.venue}</span>
                   </div>
-                  <p className="text-t2 whitespace-pre-wrap text-sm">{week.content}</p>
+                  <RichTextContent html={week.content} />
                 </li>
               ))}
             </ul>

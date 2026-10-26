@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import AdSense from "@/components/AdSense";
 import Copyright from "@/components/Copyright";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { RichTextContent, RichTextEditor } from "../../components/rich-text-editor";
 import { fetchSettings } from "@/lib/settings-client";
 import { logout } from "@/lib/session";
 import { Settings, defaultSettings } from "@/types/settings";
@@ -16,14 +17,24 @@ import {
   MAX_PLAN_WEEKS,
   PLAN_STATUS_LABELS,
   PLAN_TIMING_LABELS,
+  PRINT_PREVIEW_DATA,
+  PRINT_PREVIEW_READY,
+  WEEKDAY_LABELS,
   openStateOf,
   type PlanStatus,
   type PlanTiming,
   type PlanWeek,
   type PlanReview,
+  type PrintPreviewPayload,
   type SelfDirectedLearningPlan,
   type SelfDirectedLearningSettings,
+  type WeekSchedule,
 } from "../../types/self-directed-learning";
+
+interface StudentInfo {
+  name: string;
+  className: string;
+}
 
 interface Draft {
   topic: string;
@@ -55,6 +66,13 @@ function formatDateTime(epoch: number | null): string {
   const d = new Date(epoch);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 逐週表格的短日期（`YYYY-MM-DD` → `M/D`） */
+function monthDayText(date: string): string {
+  const [, month, day] = date.split("-");
+  if (!month || !day) return date;
+  return `${Number(month)}/${Number(day)}`;
 }
 
 /** 學期識別（如 115-1）轉為易讀文字 */
@@ -113,6 +131,10 @@ export default function StudentSelfDirectedLearningPage() {
   const [maintenance, setMaintenance] = useState(false);
   /** 全學期形式的須填週數（由學期起訖自動判斷；null＝學校尚未設定起訖） */
   const [fullWeeks, setFullWeeks] = useState<number | null>(null);
+  /** 逐週彈性學習時間（日期／節次）與學校活動衝堂 */
+  const [weekSchedule, setWeekSchedule] = useState<WeekSchedule[]>([]);
+  /** 學生姓名／班級（列印預覽表頭用） */
+  const [studentInfo, setStudentInfo] = useState<StudentInfo | null>(null);
   /** 撰寫計畫區塊是否展開（預設隱藏；發起新計畫或編輯草稿才顯示） */
   const [formOpen, setFormOpen] = useState(false);
   /** 正在編輯的草稿 id；null＝新計畫 */
@@ -123,11 +145,21 @@ export default function StudentSelfDirectedLearningPage() {
     ? plans.find((plan) => plan.id === editingPlanId) ?? null
     : null;
   const locked = editingPlan?.status === "submitted" || editingPlan?.status === "approved";
+  /** 場地是否開放學生輸入（舊資料沒有此欄位時視為開放，避免誤鎖） */
+  const venueEditable = settings.venueEditable !== false;
   const formalPlans = plans.filter((plan) => plan.status === "approved");
   const draftPlans = plans.filter((plan) => plan.status !== "approved");
   const currentApproved = plans.some(
     (plan) => plan.status === "approved" && plan.period === currentPeriod
   );
+  /** 週次 → 該週彈性學習時間與衝堂資訊 */
+  const weekScheduleByNo = useMemo(
+    () => new Map(weekSchedule.map((row) => [row.week, row])),
+    [weekSchedule]
+  );
+  /** 列印預覽分頁與最近一次送出的預覽內容 */
+  const previewWindowRef = useRef<Window | null>(null);
+  const printPayloadRef = useRef<PrintPreviewPayload | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -141,6 +173,21 @@ export default function StudentSelfDirectedLearningPage() {
       const nextFullWeeks = typeof data.fullWeeks === "number" ? data.fullWeeks : null;
       setSettings(nextSettings);
       setFullWeeks(nextFullWeeks);
+      setWeekSchedule(Array.isArray(data.weekSchedule) ? (data.weekSchedule as WeekSchedule[]) : []);
+      setStudentInfo(
+        data.student && typeof data.student === "object"
+          ? {
+              name:
+                typeof (data.student as StudentInfo).name === "string"
+                  ? (data.student as StudentInfo).name
+                  : "",
+              className:
+                typeof (data.student as StudentInfo).className === "string"
+                  ? (data.student as StudentInfo).className
+                  : "",
+            }
+          : null
+      );
       setMaintenance(Boolean(data.maintenance));
       setWithinWindow(Boolean(data.withinWindow));
       setCurrentPeriod(typeof data.currentPeriod === "string" ? data.currentPeriod : "");
@@ -160,6 +207,25 @@ export default function StudentSelfDirectedLearningPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 列印預覽分頁載入後會送出 ready，這裡回傳目前編輯中的草稿（含未儲存變更）
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const target = previewWindowRef.current;
+      if (!target || event.source !== target) return;
+      if (!event.data || event.data.type !== PRINT_PREVIEW_READY) return;
+      const payload = printPayloadRef.current;
+      if (!payload) return;
+      try {
+        target.postMessage({ type: PRINT_PREVIEW_DATA, payload }, window.location.origin);
+      } catch {
+        // 分頁已關閉或瀏覽器限制時忽略
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,6 +297,43 @@ export default function StudentSelfDirectedLearningPage() {
   const closeForm = () => {
     setFormOpen(false);
     setEditingPlanId(null);
+  };
+
+  /** 開新分頁列印預覽：把目前草稿（含尚未儲存的變更）交給預覽頁 */
+  const openPrintPreview = () => {
+    const payload: PrintPreviewPayload = {
+      period: currentPeriod,
+      studentName: studentInfo?.name || editingPlan?.studentName || "",
+      className: studentInfo?.className || editingPlan?.className || "",
+      topic: draft.topic,
+      studyGroup: draft.studyGroup,
+      advisor: draft.advisor,
+      generatedAt: Date.now(),
+      weeks: draft.weeks.map((week) => {
+        const scheduleRow = weekScheduleByNo.get(week.week);
+        const slots = scheduleRow?.slots ?? [];
+        return {
+          week: week.week,
+          content: week.content,
+          venue: week.venue,
+          slots: slots.map((slot) => ({
+            date: slot.date,
+            day: slot.day,
+            periods: [...slot.periods],
+            blockedBy: slot.blockedBy,
+          })),
+          blocked: scheduleRow?.blocked ?? false,
+        };
+      }),
+    };
+    printPayloadRef.current = payload;
+    const preview = window.open("/student/self-directed-learning/print", "_blank");
+    if (!preview) {
+      setToast({ kind: "error", text: "瀏覽器封鎖了新分頁，請允許彈出視窗後再試" });
+      return;
+    }
+    previewWindowRef.current = preview;
+    preview.focus();
   };
 
   const submit = async (action: "save" | "submit") => {
@@ -375,7 +478,7 @@ export default function StudentSelfDirectedLearningPage() {
                   <span>{PLAN_TIMING_LABELS[week.timing]}</span>
                   <span>{week.venue || "—"}</span>
                 </div>
-                <p className="text-t2 whitespace-pre-wrap text-xs">{week.content || "—"}</p>
+                <RichTextContent html={week.content} className="text-t2 text-xs" />
               </li>
             ))}
           </ul>
@@ -549,7 +652,7 @@ export default function StudentSelfDirectedLearningPage() {
               ) : (
                 <p className="text-t2 text-sm">
                   {fullWeeks !== null
-                    ? `全學期 ${fullWeeks} 週（全學期空白週數都須填寫）`
+                    ? `全學期 ${fullWeeks} 週（空白週數都須填寫；學校活動衝堂週次不列入）`
                     : "全學期形式：學校尚未設定上課日／學期起訖，暫無法判斷週數"}
                 </p>
               )}
@@ -561,57 +664,143 @@ export default function StudentSelfDirectedLearningPage() {
               ))}
             </datalist>
 
-            <div className="space-y-3">
-              {draft.weeks.map((week) => (
-                <div key={week.week} className="border-themed bg-surface rounded-md p-3">
-                  <div className="text-t1 mb-2 text-sm font-medium">第 {week.week} 週</div>
-                  <div className="grid gap-3">
-                    <label className="text-t2 block space-y-1 text-sm">
-                      <span>學習安排</span>
-                      <textarea
-                        className="input-theme min-h-20 w-full rounded px-3 py-2 text-sm"
-                        value={week.content}
-                        maxLength={600}
-                        disabled={locked}
-                        onChange={(event) => patchWeek(week.week, { content: event.target.value })}
-                        placeholder="本週預計學習的內容、進度與方式"
-                      />
-                    </label>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="text-t2 block space-y-1 text-sm">
-                        <span>場地</span>
-                        <input
-                          type="text"
-                          className="input-theme w-full rounded px-3 py-2 text-sm"
-                          value={week.venue}
-                          list="sdl-venues"
-                          maxLength={120}
-                          disabled={locked}
-                          onChange={(event) => patchWeek(week.week, { venue: event.target.value })}
-                          placeholder="圖書館自習室（可輸入或點選開放場域）"
-                        />
-                      </label>
-                      <label className="text-t2 block space-y-1 text-sm">
-                        <span>時段</span>
-                        <select
-                          className="input-theme w-full rounded px-3 py-2 text-sm"
-                          value={week.timing}
-                          disabled={locked}
-                          onChange={(event) =>
-                            patchWeek(week.week, { timing: event.target.value as PlanTiming })
-                          }
-                        >
-                          {(["flexible", "afterSchool"] as const).map((timing) => (
-                            <option key={timing} value={timing}>
-                              {PLAN_TIMING_LABELS[timing]}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <ol className="text-t3 list-decimal space-y-1 pl-5 text-xs">
+              <li>週次日期依學校學期起訖與彈性學習節次推算。</li>
+              <li>與學校活動衝堂的週次會標示活動名稱，不提供撰寫，也不列入必填。</li>
+              <li>
+                課餘時間另行處理；場地
+                {venueEditable
+                  ? "可自行輸入，或從學校開放的場域清單選擇。"
+                  : settings.venues.length > 0
+                    ? "請從學校開放的場域清單選擇。"
+                    : "尚未設定開放場域，請聯繫管理人員。"}
+              </li>
+            </ol>
+
+            <div className="overflow-x-auto">
+              <table
+                className="w-full text-left text-sm"
+                style={{ minWidth: "40rem" }}
+              >
+                <thead className="text-t2">
+                  <tr className="border-themed border-b">
+                    <th scope="col" className="align-top px-2 py-2 font-medium whitespace-nowrap">
+                      週次／日期／節次
+                    </th>
+                    <th scope="col" className="align-top px-2 py-2 font-medium">學習安排</th>
+                    <th scope="col" className="align-top px-2 py-2 font-medium whitespace-nowrap">場地</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draft.weeks.map((week) => {
+                    const scheduleRow = weekScheduleByNo.get(week.week);
+                    const slots = scheduleRow?.slots ?? [];
+                    const blocked = scheduleRow?.blocked ?? false;
+                    const conflictNames = [
+                      ...new Set(
+                        slots
+                          .map((slot) => slot.blockedBy)
+                          .filter((name): name is string => Boolean(name))
+                      ),
+                    ];
+                    return (
+                      <tr key={week.week} className="border-themed border-b last:border-0 align-top">
+                        <td className="align-top px-2 py-3 whitespace-nowrap">
+                          <div className="text-t1 font-medium">第 {week.week} 週</div>
+                          {slots.length === 0 ? (
+                            <div className="text-t3 mt-1 text-xs">—</div>
+                          ) : (
+                            slots.map((slot) => (
+                              <div
+                                key={`${slot.date}-${slot.day}`}
+                                className="text-t2 mt-1 text-xs"
+                              >
+                                <div>
+                                  {monthDayText(slot.date)} {WEEKDAY_LABELS[slot.day - 1]}
+                                </div>
+                                <div className={slot.blockedBy ? "text-danger" : ""}>
+                                  {slot.periods.length > 0 ? slot.periods.join("、") : "—"}
+                                  {slot.blockedBy && (
+                                    <span className="text-danger block">{slot.blockedBy}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </td>
+                        {blocked ? (
+                          <td colSpan={2} className="align-top px-2 py-3">
+                            <p className="text-danger text-sm font-medium">
+                              {conflictNames.join("、") || "學校活動"}
+                            </p>
+                            <p className="text-t3 mt-1 text-xs">
+                              本週彈性學習時間為學校活動，不提供撰寫（不列入必填）。
+                            </p>
+                            {week.content && (
+                              <div className="text-t3 mt-1 text-xs">
+                                <p>原內容：</p>
+                                <RichTextContent html={week.content} className="text-t3 text-xs" />
+                              </div>
+                            )}
+                          </td>
+                        ) : (
+                          <>
+                            <td className="align-top px-2 py-3" style={{ minWidth: "20rem" }}>
+                              <RichTextEditor
+                                value={week.content}
+                                onChange={(content) => patchWeek(week.week, { content })}
+                                disabled={locked}
+                                maxLength={600}
+                                placeholder="本週預計學習的內容、進度與方式"
+                                ariaLabel={`第 ${week.week} 週學習安排`}
+                              />
+                            </td>
+                            <td className="align-top px-2 py-3" style={{ minWidth: "9rem" }}>
+                              {venueEditable ? (
+                                <input
+                                  type="text"
+                                  className="input-theme w-full rounded px-3 py-2 text-sm"
+                                  value={week.venue}
+                                  list="sdl-venues"
+                                  maxLength={120}
+                                  disabled={locked}
+                                  onChange={(event) =>
+                                    patchWeek(week.week, { venue: event.target.value })
+                                  }
+                                  placeholder="圖書館自習室"
+                                  aria-label={`第 ${week.week} 週場地`}
+                                />
+                              ) : (
+                                <select
+                                  className="input-theme w-full rounded px-3 py-2 text-sm"
+                                  value={week.venue}
+                                  disabled={locked}
+                                  onChange={(event) =>
+                                    patchWeek(week.week, { venue: event.target.value })
+                                  }
+                                  aria-label={`第 ${week.week} 週場地（限學校開放場域）`}
+                                >
+                                  <option value="">請選擇場地</option>
+                                  {settings.venues.map((venue) => (
+                                    <option key={venue} value={venue}>
+                                      {venue}
+                                    </option>
+                                  ))}
+                                  {week.venue && !settings.venues.includes(week.venue) && (
+                                    <option value={week.venue}>
+                                      {week.venue}（不在開放清單，請重新選擇）
+                                    </option>
+                                  )}
+                                </select>
+                              )}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -635,6 +824,41 @@ export default function StudentSelfDirectedLearningPage() {
             </button>
           </div>
         </section>
+      )}
+
+      {formOpen && (
+        <button
+          type="button"
+          onClick={openPrintPreview}
+          title="列印預覽（新分頁）"
+          aria-label="在新分頁預覽列印"
+          className="border-themed bg-surface text-t1 hover:bg-card flex items-center justify-center border px-2 py-3 shadow-md"
+          style={{
+            position: "fixed",
+            left: 0,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 40,
+            borderLeftWidth: 0,
+          }}
+        >
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 9V3h12v6" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect x="6" y="14" width="12" height="8" rx="1" />
+            <path d="M18 12h.01" />
+          </svg>
+        </button>
       )}
     </>
   );

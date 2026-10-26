@@ -4,7 +4,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { requireFeatureModuleEnabled } from "@/lib/module-gate";
-import { getFullWeeks, getSettings } from "../../../lib/self-directed-learning";
+import { getFullWeeks, getSettings, getWeekSchedule } from "../../../lib/self-directed-learning";
 import {
   getLatestReviews,
   getStudentPlans,
@@ -67,7 +67,10 @@ export async function GET(request: NextRequest) {
     }
 
     const settings = await getSettings();
-    const fullWeeks = await getFullWeeks();
+    const [fullWeeks, weekSchedule] = await Promise.all([
+      getFullWeeks(),
+      getWeekSchedule(student.grade, student.classCode),
+    ]);
     const currentPeriod = periodLabelOf(await getCurrentPeriod());
     // 總開關關閉：非管理端只回維護旗標（計畫與審查意見不回傳）
     if (!settings.enabled) {
@@ -76,6 +79,8 @@ export async function GET(request: NextRequest) {
           success: true,
           settings,
           fullWeeks,
+          weekSchedule: [],
+          student: { name: student.name, className: student.className },
           maintenance: true,
           plans: [],
           reviews: {},
@@ -95,6 +100,8 @@ export async function GET(request: NextRequest) {
         success: true,
         settings,
         fullWeeks,
+        weekSchedule,
+        student: { name: student.name, className: student.className },
         plans,
         reviews,
         currentPeriod,
@@ -154,7 +161,20 @@ export async function POST(request: NextRequest) {
       );
     }
     const fullWeeks = await getFullWeeks();
-    const parsed = parsePlanDraft(body?.draft, { ...settings, fullWeeks }, action);
+    // 與學校活動衝堂的週次不提供撰寫（送審時不列入必填）
+    const weekSchedule = await getWeekSchedule(student.grade, student.classCode);
+    const blockedWeeks = weekSchedule.filter((week) => week.blocked).map((week) => week.week);
+    const parsed = parsePlanDraft(
+      body?.draft,
+      {
+        ...settings,
+        fullWeeks,
+        blockedWeeks,
+        venueEditable: settings.venueEditable,
+        venueOptions: settings.venues,
+      },
+      action
+    );
     if (!parsed.ok) {
       return NextResponse.json(
         { success: false, message: parsed.message },
