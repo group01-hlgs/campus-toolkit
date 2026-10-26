@@ -8,8 +8,8 @@ import { publishFromModule, updateFromModule } from "@/lib/announcements";
 import { publishScheduleFromModule } from "@/lib/calendar";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { schoolWideAudience } from "@/types/announcements";
-import { getClassOptions, getFullWeeks, getSchoolScheduleOptions, getSettings, getSpaceOptions, getStaffCandidates, saveSettings } from "../../../lib/self-directed-learning";
-import { parseSettingsInput } from "../../../types/self-directed-learning";
+import { getAvailableWeeks, getClassOptions, getFullWeeks, getSchoolScheduleOptions, getSettings, getSpaceOptions, getStaffCandidates, saveSettings } from "../../../lib/self-directed-learning";
+import { parseSettingsInput, stripHtmlToText } from "../../../types/self-directed-learning";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -54,9 +54,9 @@ async function syncWindowHooks(
     if (openAt !== null && closeAt !== null) {
       const title = "自主學習計畫開放撰寫";
       const window = `開放撰寫時間：${formatDateTime(openAt)} ～ ${formatDateTime(closeAt)}。`;
-      const body = settings.instructions.trim()
-        ? `${window}\n${settings.instructions.trim()}`
-        : window;
+      // 說明可能含富文本格式：公告／行事曆內容一律轉為純文字
+      const instructionsText = stripHtmlToText(settings.instructions).trim();
+      const body = instructionsText ? `${window}\n${instructionsText}` : window;
 
       if (options.announcement) {
         const updated = await updateFromModule({
@@ -138,9 +138,10 @@ export async function GET(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
 
     const settings = await getSettings();
-    const [fullWeeks, scheduleOptions, spaceOptions, staffCandidates, classOptions] =
+    const [fullWeeks, availableWeeks, scheduleOptions, spaceOptions, staffCandidates, classOptions] =
       await Promise.all([
         getFullWeeks(),
+        getAvailableWeeks(settings.slots),
         getSchoolScheduleOptions(),
         getSpaceOptions(),
         getStaffCandidates(),
@@ -151,6 +152,7 @@ export async function GET(request: NextRequest) {
         success: true,
         settings,
         fullWeeks,
+        availableWeeks,
         periodOptions: scheduleOptions.periods,
         schoolDays: scheduleOptions.schoolDays,
         spaceOptions,
@@ -187,6 +189,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: parsed.message }, { status: 400, headers: noStore });
     }
 
+    // 下限週數不可超過實際可寫週數（全校層級活動；班級個別活動由學生端即時檢核）
+    const available = await getAvailableWeeks(parsed.value.slots);
+    if (
+      parsed.value.weekMode === "flexible" &&
+      available &&
+      parsed.value.minWeeks > available.available
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `可寫週數只有 ${available.available} 週（總週數 ${available.total} 週），下限 ${parsed.value.minWeeks} 週會使學生無法填滿；請降低下限或調整節次行程／學校活動。`,
+        },
+        { status: 400, headers: noStore }
+      );
+    }
+
     const settings = await saveSettings(parsed.value);
     // 公告與行事曆只由管理人員分別勾選後才同步；未勾選一律不自動發送
     const hookWarning =
@@ -211,7 +229,7 @@ export async function POST(request: NextRequest) {
       }、同步行事曆：${settings.publishCalendar ? "是" : "否"}）`,
     });
     return NextResponse.json(
-      { success: true, settings, ...(hookWarning ? { hookWarning } : {}) },
+      { success: true, settings, availableWeeks: available, ...(hookWarning ? { hookWarning } : {}) },
       { headers: noStore }
     );
   } catch (error) {

@@ -6,10 +6,12 @@ import { rosterCollection } from "@/types/roster";
 import {
   SELF_DIRECTED_LEARNING_PLANS_COLLECTION,
   SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION,
+  normalizeWeekNotes,
   periodLabelOf,
   planDocIdOf,
   openStateOf,
   type PlanReview,
+  type PlanWeekReview,
   type ReviewScope,
   type SelfDirectedLearningPlan,
   type SelfDirectedLearningSettings,
@@ -66,8 +68,10 @@ function readPlan(id: string, raw: Record<string, unknown>): SelfDirectedLearnin
     topic: str(raw.topic),
     studyGroup: str(raw.studyGroup),
     advisor: str(raw.advisor),
+    learningGoals: str(raw.learningGoals),
     weeks,
     status,
+    deletedAt: typeof raw.deletedAt === "number" ? raw.deletedAt : null,
     submittedAt: typeof raw.submittedAt === "number" ? raw.submittedAt : null,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
   };
@@ -92,6 +96,7 @@ function readReview(id: string, raw: Record<string, unknown>): PlanReview {
     reviewerName: typeof raw.reviewerName === "string" ? raw.reviewerName : "",
     decision: raw.decision === "returned" ? ("returned" as const) : ("approved" as const),
     note: typeof raw.note === "string" ? raw.note : "",
+    weekNotes: normalizeWeekNotes(raw.weekNotes),
     reviewedAt: typeof raw.reviewedAt === "number" ? raw.reviewedAt : 0,
   };
 }
@@ -165,6 +170,7 @@ export async function saveStudentPlan(input: {
     topic: string;
     studyGroup: string;
     advisor: string;
+    learningGoals: string;
     weeks: SelfDirectedLearningPlan["weeks"];
   };
   action: SaveAction;
@@ -184,6 +190,9 @@ export async function saveStudentPlan(input: {
     target = readPlan(requestedId, (snap.data() || {}) as Record<string, unknown>);
     if (target.studentUid !== input.student.uid) {
       return { ok: false, status: 403, message: "無權修改此計畫" };
+    }
+    if (target.deletedAt) {
+      return { ok: false, status: 409, message: "此計畫在垃圾桶，請先還原後再編輯" };
     }
     if (target.status === "approved") {
       return { ok: false, status: 409, message: "計畫已通過審核，不可再修改" };
@@ -227,13 +236,116 @@ export async function saveStudentPlan(input: {
     topic: input.draft.topic,
     studyGroup: input.draft.studyGroup,
     advisor: input.draft.advisor,
+    learningGoals: input.draft.learningGoals,
     weeks: input.draft.weeks,
     status: input.action === "submit" ? "submitted" : "draft",
+    deletedAt: null,
     submittedAt: input.action === "submit" ? now : target?.submittedAt ?? null,
     updatedAt: now,
   };
   await plansRef().doc(id).set(next, { merge: true });
   return { ok: true, plan: next };
+}
+
+export type PlanTrashResult =
+  | { ok: true; plan: SelfDirectedLearningPlan }
+  | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/**
+ * 假性刪除／還原：只允許本人操作，且只針對草稿或退回修改的計畫。
+ * 審核中與已通過的計畫不可移至垃圾桶，避免正式紀錄消失。
+ */
+export async function setStudentPlanDeleted(input: {
+  planId: string;
+  studentUid: string;
+  deleted: boolean;
+  now?: number;
+}): Promise<PlanTrashResult> {
+  const snap = await plansRef().doc(input.planId).get();
+  if (!snap.exists) return { ok: false, status: 404, message: "查無此計畫" };
+  const plan = readPlan(input.planId, (snap.data() || {}) as Record<string, unknown>);
+  if (plan.studentUid !== input.studentUid) {
+    return { ok: false, status: 403, message: "無權操作此計畫" };
+  }
+  if (input.deleted) {
+    if (plan.status === "submitted" || plan.status === "approved") {
+      return {
+        ok: false,
+        status: 409,
+        message: "審核中或已通過的計畫不可移至垃圾桶",
+      };
+    }
+    if (plan.deletedAt) return { ok: true, plan };
+  } else if (!plan.deletedAt) {
+    return { ok: true, plan };
+  }
+  const now = input.now ?? Date.now();
+  const next: SelfDirectedLearningPlan = {
+    ...plan,
+    deletedAt: input.deleted ? now : null,
+    updatedAt: now,
+  };
+  await plansRef()
+    .doc(plan.id)
+    .set({ deletedAt: next.deletedAt, updatedAt: now }, { merge: true });
+  return { ok: true, plan: next };
+}
+
+export type WithdrawPlanResult =
+  | { ok: true; plan: SelfDirectedLearningPlan }
+  | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/**
+ * 學生抽回審核中的計畫（限開放撰寫期間、限本學期）：
+ * 抽回後回到草稿狀態，可修改後重新送出。
+ * 以 transaction 重讀確認仍是 submitted，避免與審核人員同時處理。
+ */
+export async function withdrawStudentPlan(input: {
+  planId: string;
+  studentUid: string;
+  /** 目前學期識別（只允許抽回本學期的計畫） */
+  period: string;
+  settings: SelfDirectedLearningSettings;
+  now?: number;
+}): Promise<WithdrawPlanResult> {
+  const now = input.now ?? Date.now();
+  if (openStateOf(input.settings, now) !== "open") {
+    return { ok: false, status: 400, message: "目前非開放撰寫期間，無法抽回計畫" };
+  }
+  const db = getAdminDb();
+  const planRef = plansRef().doc(input.planId);
+  const outcome = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(planRef);
+    if (!snap.exists) return { kind: "missing" as const };
+    const plan = readPlan(planRef.id, (snap.data() || {}) as Record<string, unknown>);
+    if (plan.studentUid !== input.studentUid) return { kind: "forbidden" as const };
+    if (plan.deletedAt) return { kind: "deleted" as const };
+    if (plan.status !== "submitted") return { kind: "badStatus" as const };
+    if (plan.period !== input.period) return { kind: "wrongPeriod" as const };
+    const next: SelfDirectedLearningPlan = {
+      ...plan,
+      status: "draft",
+      submittedAt: null,
+      updatedAt: now,
+    };
+    tx.set(planRef, { status: "draft", submittedAt: null, updatedAt: now }, { merge: true });
+    return { kind: "ok" as const, plan: next };
+  });
+
+  switch (outcome.kind) {
+    case "missing":
+      return { ok: false, status: 404, message: "查無此計畫" };
+    case "forbidden":
+      return { ok: false, status: 403, message: "無權操作此計畫" };
+    case "deleted":
+      return { ok: false, status: 409, message: "此計畫在垃圾桶，無法抽回" };
+    case "badStatus":
+      return { ok: false, status: 409, message: "只有審核中的計畫可以抽回修改" };
+    case "wrongPeriod":
+      return { ok: false, status: 409, message: "只能抽回本學期的計畫" };
+    default:
+      return { ok: true, plan: outcome.plan };
+  }
 }
 
 /* ——— 教職員端：審核佇列與全班瀏覽 ——— */
@@ -258,7 +370,7 @@ export async function listSubmittedPlans(
     .get();
   const plans = readPlansFromSnapshot(snap);
   plans.sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
-  return plans;
+  return plans.filter((plan) => !plan.deletedAt);
 }
 
 /**
@@ -289,7 +401,9 @@ export async function listSubmittedPlansForScope(
       )
     );
     for (const snap of snaps) {
-      for (const plan of readPlansFromSnapshot(snap)) merged.set(plan.id, plan);
+      for (const plan of readPlansFromSnapshot(snap)) {
+        if (!plan.deletedAt) merged.set(plan.id, plan);
+      }
     }
   }
 
@@ -299,7 +413,9 @@ export async function listSubmittedPlansForScope(
     // 同一學生可能有數筆草稿／正式計畫，改用 studentUid 等值查詢（單一欄位索引）
     const snap = await plansRef().where("studentUid", "in", chunk).limit(300).get();
     for (const plan of readPlansFromSnapshot(snap)) {
-      if (plan.period === period && plan.status === "submitted") merged.set(plan.id, plan);
+      if (plan.period === period && plan.status === "submitted" && !plan.deletedAt) {
+        merged.set(plan.id, plan);
+      }
     }
   }
 
@@ -314,6 +430,53 @@ export function planInReviewScope(plan: SelfDirectedLearningPlan, scope: ReviewS
   return scope.classCodes.includes(plan.classCode) || scope.studentUids.includes(plan.studentUid);
 }
 
+/**
+ * 待審件數（省流模式的輕量總數）：以 Firestore count 聚合計算，不載入任何計畫內容。
+ * - 全校／僅班級／僅個人：各以 `count()` 精準計算（`in` 30 值／批）。
+ * - 班級與個人同時指定：涉及聯集去重，改用既有待審清單（上限 100 筆）計數。
+ * 審核中的計畫不可移至垃圾桶，故不必再過濾 `deletedAt`。
+ */
+export async function countSubmittedPlansForScope(
+  period: string,
+  scope: ReviewScope
+): Promise<number> {
+  if (scope.all) {
+    const snap = await plansRef()
+      .where("period", "==", period)
+      .where("status", "==", "submitted")
+      .count()
+      .get();
+    return snap.data().count;
+  }
+
+  const classCodes = [...new Set(scope.classCodes)];
+  const studentUids = [...new Set(scope.studentUids)];
+  if (classCodes.length > 0 && studentUids.length > 0) {
+    return (await listSubmittedPlansForScope(period, scope)).length;
+  }
+
+  let total = 0;
+  for (let index = 0; index < classCodes.length; index += 30) {
+    const snap = await plansRef()
+      .where("period", "==", period)
+      .where("status", "==", "submitted")
+      .where("classCode", "in", classCodes.slice(index, index + 30))
+      .count()
+      .get();
+    total += snap.data().count;
+  }
+  for (let index = 0; index < studentUids.length; index += 30) {
+    const snap = await plansRef()
+      .where("period", "==", period)
+      .where("status", "==", "submitted")
+      .where("studentUid", "in", studentUids.slice(index, index + 30))
+      .count()
+      .get();
+    total += snap.data().count;
+  }
+  return total;
+}
+
 /** 兼導師瀏覽全班（當期＋班級代碼，limit 有界） */
 export async function listClassPlans(
   period: string,
@@ -325,7 +488,7 @@ export async function listClassPlans(
     .where("classCode", "==", classCode)
     .limit(limit)
     .get();
-  const plans = readPlansFromSnapshot(snap);
+  const plans = readPlansFromSnapshot(snap).filter((plan) => !plan.deletedAt);
   plans.sort((a, b) => a.studentName.localeCompare(b.studentName, "zh-Hant"));
   return plans;
 }
@@ -342,6 +505,8 @@ export async function applyReview(input: {
   planId: string;
   action: "approve" | "return";
   note: string;
+  /** 逐週審查意見（富文本；可留空） */
+  weekNotes?: PlanWeekReview[];
   reviewerUid: string;
   reviewerName: string;
   /** 審查範圍；未提供＝全校（管理員或未設定範圍的審核人員） */
@@ -358,6 +523,7 @@ export async function applyReview(input: {
     if (input.scope && !planInReviewScope(current, input.scope)) {
       return { kind: "outOfScope" as const };
     }
+    if (current.deletedAt) return { kind: "badStatus" as const };
     if (current.status !== "submitted") return { kind: "badStatus" as const };
     if (input.action === "approve") {
       // 同一學生同一學期僅能有一份正式計畫：審核當下再檢查一次，避免兩筆待審先後通過
@@ -381,6 +547,7 @@ export async function applyReview(input: {
       reviewerName: input.reviewerName,
       decision: input.action === "approve" ? "approved" : "returned",
       note: input.note,
+      weekNotes: input.weekNotes ?? [],
       reviewedAt: now,
     });
     return {

@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import DisclosureArrow from "@/components/DisclosureArrow";
+import { RichTextEditor } from "../../components/rich-text-editor";
 import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
   WEEKDAY_LABELS,
   openStateOf,
+  reviewStateOf,
   type ClassOption,
   type FlexibleSlot,
   type PeriodOption,
@@ -44,31 +46,22 @@ const STATE_LABEL: Record<string, string> = {
   ended: "已截止",
 };
 
-/** 範例說明（插入後可再修改；空行不標號，其餘行自動 1. 2. 3. …） */
-const INSTRUCTIONS_TEMPLATE = [
-  "請於開放期間內完成填報並送出審核。",
-  "逐週學習安排與場地皆須填寫完整。",
-  "送出後請等待審核；退回時可依意見修改後再送。",
-].join("\n");
+const REVIEW_STATE_LABEL: Record<string, string> = {
+  unset: "尚未設定審核期限",
+  closed: "尚未開始審核",
+  open: "審核進行中",
+  ended: "已超過審核期限",
+};
 
-/** 實施說明範例（給學生、家長的總說明） */
-const IMPLEMENTATION_TEMPLATE = [
-  "自主學習計畫請於學校開放的期間內填報並送出審核。",
-  "學習活動請於學校規定的時間與場地實施。",
-  "計畫經審核通過後，始得依計畫內容實施。",
-].join("\n");
+/** 撰寫說明範例（富文本；以編號清單呈現，插入後可再修改） */
+const INSTRUCTIONS_TEMPLATE =
+  "<ol><li>請於開放期間內完成填報並送出審核。</li><li>逐週學習安排與場地皆須填寫完整。</li><li>送出後請等待審核；退回時可依意見修改後再送。</li></ol>";
 
-/** 依行自動標號：先去掉行首既有數字標號再重編；空行保留不編號 */
-function renumberInstructions(raw: string): string {
-  let index = 0;
-  const lines = raw.split(/\r?\n/).map((line) => {
-    if (!line.trim()) return "";
-    index += 1;
-    const body = line.replace(/^\s*\d{1,3}[.、]\s*/, "").trim();
-    return `${index}. ${body}`;
-  });
-  return lines.join("\n");
-}
+/** 實施說明範例（給學生、家長的總說明；富文本） */
+const IMPLEMENTATION_TEMPLATE =
+  "<ol><li>自主學習計畫請於學校開放的期間內填報並送出審核。</li><li>學習活動請於學校規定的時間與場地實施。</li><li>計畫經審核通過後，始得依計畫內容實施。</li></ol>";
+
+/** 依行自動標號的功能已移除：說明改為富文本編輯器，編號清單由工具列處理 */
 
 /** 對象名單圖示 */
 function TargetListIcon() {
@@ -107,6 +100,11 @@ export default function SelfDirectedLearningSettingsPage({
   const [settings, setSettings] = useState<SelfDirectedLearningSettings>(DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS);
   /** 全學期形式的須填週數（由學期起訖自動判斷；null＝學校尚未設定起訖） */
   const [fullWeeks, setFullWeeks] = useState<number | null>(null);
+  /** 實際可寫週數（全校層級活動；供下限週數檢核） */
+  const [availableWeeks, setAvailableWeeks] = useState<{
+    total: number;
+    available: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -155,6 +153,17 @@ export default function SelfDirectedLearningSettingsPage({
       }
       setSettings(data.settings as SelfDirectedLearningSettings);
       setFullWeeks(typeof data.fullWeeks === "number" ? data.fullWeeks : null);
+      setAvailableWeeks(
+        data.availableWeeks &&
+          typeof data.availableWeeks === "object" &&
+          typeof data.availableWeeks.total === "number" &&
+          typeof data.availableWeeks.available === "number"
+          ? {
+              total: data.availableWeeks.total,
+              available: data.availableWeeks.available,
+            }
+          : null
+      );
       setPeriodOptions(Array.isArray(data.periodOptions) ? (data.periodOptions as PeriodOption[]) : []);
       setSchoolDays(
         Array.isArray(data.schoolDays) && data.schoolDays.length
@@ -399,15 +408,36 @@ export default function SelfDirectedLearningSettingsPage({
     }
     const openAt = fromDateTimeLocal(toDateTimeLocal(settings.openAt));
     const closeAt = fromDateTimeLocal(toDateTimeLocal(settings.closeAt));
+    const reviewStartAt = fromDateTimeLocal(toDateTimeLocal(settings.reviewStartAt));
+    const reviewEndAt = fromDateTimeLocal(toDateTimeLocal(settings.reviewEndAt));
     const payload = {
       ...settings,
       openAt,
       closeAt,
-      instructions: renumberInstructions(settings.instructions),
-      writingInstructions: renumberInstructions(settings.writingInstructions),
+      reviewStartAt,
+      reviewEndAt,
     };
     if (payload.openAt !== null && payload.closeAt !== null && payload.closeAt <= payload.openAt) {
       setToast({ kind: "error", text: "截止時間必須晚於開始時間" });
+      return;
+    }
+    if (
+      payload.reviewStartAt !== null &&
+      payload.reviewEndAt !== null &&
+      payload.reviewEndAt <= payload.reviewStartAt
+    ) {
+      setToast({ kind: "error", text: "審核截止時間必須晚於審核開始時間" });
+      return;
+    }
+    if (
+      settings.weekMode === "flexible" &&
+      availableWeeks &&
+      settings.minWeeks > availableWeeks.available
+    ) {
+      setToast({
+        kind: "error",
+        text: `可寫週數只有 ${availableWeeks.available} 週，下限 ${settings.minWeeks} 週會使學生無法填滿；請降低下限或調整節次行程／學校活動。`,
+      });
       return;
     }
     setSaving(true);
@@ -423,6 +453,17 @@ export default function SelfDirectedLearningSettingsPage({
         return;
       }
       setSettings(data.settings as SelfDirectedLearningSettings);
+      if (
+        data.availableWeeks &&
+        typeof data.availableWeeks === "object" &&
+        typeof data.availableWeeks.total === "number" &&
+        typeof data.availableWeeks.available === "number"
+      ) {
+        setAvailableWeeks({
+          total: data.availableWeeks.total,
+          available: data.availableWeeks.available,
+        });
+      }
       if (data.hookWarning) {
         setToast({ kind: "error", text: String(data.hookWarning) });
       } else {
@@ -436,6 +477,20 @@ export default function SelfDirectedLearningSettingsPage({
   };
 
   const state = openStateOf(settings);
+  const reviewState = reviewStateOf(settings);
+  const reviewRemainingDays =
+    settings.reviewEndAt !== null
+      ? Math.ceil((settings.reviewEndAt - Date.now()) / 86_400_000)
+      : null;
+  const reviewOverdueDays =
+    settings.reviewEndAt !== null
+      ? Math.floor((Date.now() - settings.reviewEndAt) / 86_400_000)
+      : null;
+  /** 彈性形式的下限週數是否超過實際可寫週數 */
+  const minWeeksInvalid =
+    settings.weekMode === "flexible" &&
+    availableWeeks !== null &&
+    settings.minWeeks > availableWeeks.available;
 
   /** 重新讀取／儲存設定：標題列（上）與頁尾（下）共用同一組按鈕 */
   const actionButtons = (
@@ -452,7 +507,8 @@ export default function SelfDirectedLearningSettingsPage({
         type="button"
         className="btn-primary btn-theme h-10 px-6 text-sm cursor-pointer disabled:opacity-50"
         onClick={() => void save()}
-        disabled={loading || saving}
+        disabled={loading || saving || minWeeksInvalid}
+        title={minWeeksInvalid ? "下限週數超過可寫週數，請先調整" : ""}
       >
         {saving ? "儲存中…" : "儲存設定"}
       </button>
@@ -588,24 +644,37 @@ export default function SelfDirectedLearningSettingsPage({
               </span>
             </label>
             {settings.weekMode === "flexible" && (
-              <label className="text-t2 block space-y-1 text-sm">
-                <span>下限週數（學生至少須填寫；建議至少 6 週）</span>
-                <input
-                  type="number"
-                  min={1}
-                  className="input-theme w-32 rounded px-3 py-2 text-sm"
-                  value={minWeeksInput ?? String(settings.minWeeks)}
-                  onChange={(event) => {
-                    const text = event.target.value;
-                    setMinWeeksInput(text);
-                    const parsed = Number(text);
-                    if (text.trim() !== "" && Number.isInteger(parsed)) {
-                      patch({ minWeeks: parsed });
-                    }
-                  }}
-                  onBlur={() => setMinWeeksInput(null)}
-                />
-              </label>
+              <div className="space-y-2">
+                <label className="text-t2 block space-y-1 text-sm">
+                  <span>下限週數（學生至少須填寫；建議至少 6 週）</span>
+                  <input
+                    type="number"
+                    min={1}
+                    className="input-theme w-32 rounded px-3 py-2 text-sm"
+                    value={minWeeksInput ?? String(settings.minWeeks)}
+                    onChange={(event) => {
+                      const text = event.target.value;
+                      setMinWeeksInput(text);
+                      const parsed = Number(text);
+                      if (text.trim() !== "" && Number.isInteger(parsed)) {
+                        patch({ minWeeks: parsed });
+                      }
+                    }}
+                    onBlur={() => setMinWeeksInput(null)}
+                  />
+                </label>
+                <p className={`text-xs ${minWeeksInvalid ? "text-danger" : "text-t3"}`}>
+                  {availableWeeks
+                    ? `目前可寫週數：${availableWeeks.available} 週（總週數 ${availableWeeks.total} 週；依目前儲存的節次行程與學校活動計算）。下限不可超過可寫週數；班級個別活動造成的衝堂會由學生端即時檢核。`
+                    : "學校尚未設定學期起訖，暫無法檢核可寫週數。"}
+                </p>
+                {minWeeksInvalid && (
+                  <p className="text-danger text-xs">
+                    下限 {settings.minWeeks} 週超過可寫週數 {availableWeeks?.available} 週——另外的週次要寫在哪裡？
+                    請降低下限，或調整節次行程／學校活動。
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -814,6 +883,59 @@ export default function SelfDirectedLearningSettingsPage({
               加入
             </button>
           </div>
+        </div>
+      </details>
+
+      <details className="border-themed bg-card rounded-lg" open>
+        <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
+          <DisclosureArrow />
+          審核期限
+        </summary>
+        <div className="space-y-4 px-4 pb-4">
+          <p className="text-t3 text-xs">
+            設定審核起訖後，審核人員的頁面會顯示期限、剩餘天數與逾期提醒，以督促於期限內完成審核。
+            期限僅供提示，逾期仍可審核；留空表示不設期限。
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-t2 block space-y-1 text-sm">
+              <span>審核開始時間</span>
+              <input
+                type="datetime-local"
+                className="input-theme w-full rounded px-3 py-2 text-sm"
+                value={toDateTimeLocal(settings.reviewStartAt)}
+                onChange={(event) =>
+                  patch({ reviewStartAt: fromDateTimeLocal(event.target.value) })
+                }
+              />
+            </label>
+            <label className="text-t2 block space-y-1 text-sm">
+              <span>審核截止時間</span>
+              <input
+                type="datetime-local"
+                className="input-theme w-full rounded px-3 py-2 text-sm"
+                value={toDateTimeLocal(settings.reviewEndAt)}
+                onChange={(event) => patch({ reviewEndAt: fromDateTimeLocal(event.target.value) })}
+              />
+            </label>
+          </div>
+          <p className="text-t3 text-sm">
+            目前設定：{formatDateTime(settings.reviewStartAt)} ～{" "}
+            {formatDateTime(settings.reviewEndAt)}（{REVIEW_STATE_LABEL[reviewState]}
+            {reviewState === "open" && reviewRemainingDays !== null
+              ? `，剩餘 ${Math.max(reviewRemainingDays, 0)} 天`
+              : ""}
+            {reviewState === "ended" && reviewOverdueDays !== null
+              ? `，已逾期 ${Math.max(reviewOverdueDays, 0)} 天`
+              : ""}
+            ）
+          </p>
+          {settings.reviewStartAt !== null &&
+            settings.closeAt !== null &&
+            settings.reviewStartAt < settings.closeAt && (
+              <p className="text-warning text-xs">
+                審核開始時間早於開放撰寫截止時間：審核人員可能在學生仍可送出或抽回時就開始審核。
+              </p>
+            )}
         </div>
       </details>
 
@@ -1114,22 +1236,22 @@ export default function SelfDirectedLearningSettingsPage({
         <div className="space-y-2 px-4 pb-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-t3 text-xs">
-              給學生、家長的總說明；按 Enter 分段，將自動標號 1. 2. 3. …
+              給學生、家長的總說明；可使用工具列格式化、字型、顏色與編號清單。
             </p>
             <button
               type="button"
               className="btn-theme h-8 px-3 text-sm"
-              onClick={() => setInstructions(renumberInstructions(IMPLEMENTATION_TEMPLATE))}
+              onClick={() => setInstructions(IMPLEMENTATION_TEMPLATE)}
             >
               插入範本
             </button>
           </div>
-          <textarea
-            className="input-theme min-h-32 w-full rounded px-3 py-2 text-sm"
+          <RichTextEditor
             value={settings.instructions}
-            onChange={(event) => patch({ instructions: event.target.value })}
-            onBlur={() => setInstructions(renumberInstructions(settings.instructions))}
-            placeholder="按 Enter 分段，儲存時自動標號…"
+            onChange={setInstructions}
+            maxLength={4000}
+            placeholder="輸入自主學習實施說明…"
+            ariaLabel="自主學習實施說明"
           />
         </div>
       </details>
@@ -1142,26 +1264,22 @@ export default function SelfDirectedLearningSettingsPage({
         <div className="space-y-2 px-4 pb-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-t3 text-xs">
-              給學生發起新計畫、編輯草稿時的撰寫說明；按 Enter 分段，將自動標號 1. 2. 3. …
+              給學生發起新計畫、編輯草稿時的撰寫說明；可使用工具列格式化與編號清單。
             </p>
             <button
               type="button"
               className="btn-theme h-8 px-3 text-sm"
-              onClick={() =>
-                setWritingInstructions(renumberInstructions(INSTRUCTIONS_TEMPLATE))
-              }
+              onClick={() => setWritingInstructions(INSTRUCTIONS_TEMPLATE)}
             >
               插入範本
             </button>
           </div>
-          <textarea
-            className="input-theme min-h-32 w-full rounded px-3 py-2 text-sm"
+          <RichTextEditor
             value={settings.writingInstructions}
-            onChange={(event) => patch({ writingInstructions: event.target.value })}
-            onBlur={() =>
-              setWritingInstructions(renumberInstructions(settings.writingInstructions))
-            }
-            placeholder="按 Enter 分段，儲存時自動標號…"
+            onChange={setWritingInstructions}
+            maxLength={4000}
+            placeholder="輸入自主學習計畫撰寫說明…"
+            ariaLabel="自主學習計畫撰寫說明"
           />
         </div>
       </details>

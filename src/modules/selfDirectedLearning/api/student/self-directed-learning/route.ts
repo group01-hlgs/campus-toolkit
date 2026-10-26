@@ -9,6 +9,8 @@ import {
   getLatestReviews,
   getStudentPlans,
   saveStudentPlan,
+  setStudentPlanDeleted,
+  withdrawStudentPlan,
   type StudentIdentityLite,
 } from "../../../lib/self-directed-learning-plans";
 import { getCurrentPeriod } from "@/lib/settings-server";
@@ -151,6 +153,7 @@ export async function POST(request: NextRequest) {
       planId?: unknown;
     } | null;
     const action = body?.action === "submit" ? "submit" : "save";
+    const requestedAction = body?.action;
     const planId = typeof body?.planId === "string" ? body.planId.trim().slice(0, 200) : "";
 
     const settings = await getSettings();
@@ -160,6 +163,83 @@ export async function POST(request: NextRequest) {
         { status: 403, headers: noStore }
       );
     }
+
+    // 假性刪除／還原：只處理垃圾桶狀態，不需解析草稿內容
+    if (requestedAction === "trash" || requestedAction === "restore") {
+      if (!planId) {
+        return NextResponse.json(
+          { success: false, message: "缺少計畫識別" },
+          { status: 400, headers: noStore }
+        );
+      }
+      const deleted = requestedAction === "trash";
+      const trashResult = await setStudentPlanDeleted({
+        planId,
+        studentUid: student.uid,
+        deleted,
+      });
+      if (!trashResult.ok) {
+        return NextResponse.json(
+          { success: false, message: trashResult.message },
+          { status: trashResult.status, headers: noStore }
+        );
+      }
+      await logActivity({
+        userId: student.uid,
+        role: session.role,
+        action: deleted
+          ? "self_directed_learning_plan_trashed"
+          : "self_directed_learning_plan_restored",
+        ip: getClientIp(request),
+        details: `${deleted ? "移至垃圾桶" : "還原"}：${trashResult.plan.topic}`,
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          plan: trashResult.plan,
+          message: deleted ? "已移至垃圾桶" : "已還原",
+        },
+        { headers: noStore }
+      );
+    }
+
+    // 抽回審核中的計畫（限開放撰寫期間）：回到草稿後可修改再送出
+    if (requestedAction === "withdraw") {
+      if (!planId) {
+        return NextResponse.json(
+          { success: false, message: "缺少計畫識別" },
+          { status: 400, headers: noStore }
+        );
+      }
+      const withdrawResult = await withdrawStudentPlan({
+        planId,
+        studentUid: student.uid,
+        period: periodLabelOf(await getCurrentPeriod()),
+        settings,
+      });
+      if (!withdrawResult.ok) {
+        return NextResponse.json(
+          { success: false, message: withdrawResult.message },
+          { status: withdrawResult.status, headers: noStore }
+        );
+      }
+      await logActivity({
+        userId: student.uid,
+        role: session.role,
+        action: "self_directed_learning_plan_withdrawn",
+        ip: getClientIp(request),
+        details: `抽回自主學習計畫：${withdrawResult.plan.topic}`,
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          plan: withdrawResult.plan,
+          message: "已抽回，可在草稿匣修改後重新送出",
+        },
+        { headers: noStore }
+      );
+    }
+
     const fullWeeks = await getFullWeeks();
     // 與學校活動衝堂的週次不提供撰寫（送審時不列入必填）
     const weekSchedule = await getWeekSchedule(student.grade, student.classCode);

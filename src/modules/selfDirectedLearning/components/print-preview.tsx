@@ -50,7 +50,6 @@ const PRINT_SHEET_STYLES = `
   max-width: 210mm;
   margin: 0 auto;
   padding: 12mm 10mm;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
@@ -149,9 +148,27 @@ const PRINT_SHEET_STYLES = `
     size: A4;
     margin: 14mm;
   }
+  /* 列印輸出只保留紙張內容：按鈕、SVG 浮動圖示與任何陰影都不輸出 */
+  button,
+  svg {
+    display: none !important;
+  }
+  * {
+    box-shadow: none !important;
+  }
   html,
   body {
     background: #ffffff !important;
+  }
+  /* 只輸出紙張：紙張以外的元素（含瀏覽器擴充套件注入的浮動按鈕、
+     陰影與固定定位面板）一律隱藏，避免被帶進 PDF。
+     使用 visibility 而非 display，避免影響紙張版面。 */
+  :where(body:has(.sdl-print-sheet)) * {
+    visibility: hidden !important;
+  }
+  .sdl-print-sheet,
+  .sdl-print-sheet * {
+    visibility: visible !important;
   }
   .sdl-print-page {
     padding: 0 !important;
@@ -165,7 +182,7 @@ const PRINT_SHEET_STYLES = `
     width: auto;
     margin: 0;
     padding: 0;
-    box-shadow: none;
+    box-shadow: none !important;
   }
 }
 `;
@@ -195,6 +212,12 @@ export function PrintPreviewSheet({ payload }: { payload: PrintPreviewPayload })
             <td>{payload.studyGroup || "—"}</td>
             <th scope="row">指導老師</th>
             <td>{payload.advisor || "未指定"}</td>
+          </tr>
+          <tr>
+            <th scope="row">學習目標</th>
+            <td colSpan={3}>
+              <RichTextContent html={payload.learningGoals || ""} className="text-xs" />
+            </td>
           </tr>
         </tbody>
       </table>

@@ -121,6 +121,10 @@ export interface SelfDirectedLearningSettings {
   openAt: number | null;
   /** 開放撰寫截止（epoch ms；null＝尚未設定） */
   closeAt: number | null;
+  /** 審核期限開始（epoch ms；null＝未設定，僅供提示與督促，不阻止審核） */
+  reviewStartAt: number | null;
+  /** 審核期限截止（epoch ms；null＝未設定，僅供提示與督促，不阻止審核） */
+  reviewEndAt: number | null;
   /** 週數填寫形式（full＝全學期皆須填寫，週數由行事曆自動判斷；flexible＝至少填到下限週數） */
   weekMode: WeekMode;
   /** 彈性形式的下限週數（建議至少 6 週；全學期形式不使用） */
@@ -148,6 +152,8 @@ export const DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS: SelfDirectedLearningSettin
   enabled: true,
   openAt: null,
   closeAt: null,
+  reviewStartAt: null,
+  reviewEndAt: null,
   weekMode: "full",
   minWeeks: 6,
   slots: [],
@@ -173,6 +179,12 @@ function asStringArray(value: unknown, maxItems: number, maxLength: number): str
 
 function asEpoch(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** 多行說明／審查意見等富文本欄位：先白名單淨化，再限制 HTML 長度 */
+function normalizeRichHtmlField(value: unknown, maxHtml: number): string {
+  if (typeof value !== "string" || !value) return "";
+  return capRichHtmlLength(sanitizeRichHtml(value), maxHtml);
 }
 
 function asReviewerStudents(value: unknown): ReviewerStudentRef[] {
@@ -253,6 +265,8 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
         : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.enabled,
     openAt: asEpoch(source.openAt),
     closeAt: asEpoch(source.closeAt),
+    reviewStartAt: asEpoch(source.reviewStartAt),
+    reviewEndAt: asEpoch(source.reviewEndAt),
     weekMode: source.weekMode === "flexible" ? "flexible" : "full",
     minWeeks: Math.min(Math.max(minWeeksRaw, 1), MAX_PLAN_WEEKS),
     slots,
@@ -262,12 +276,8 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
         ? source.venueEditable
         : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.venueEditable,
     reviewers,
-    instructions:
-      typeof source.instructions === "string" ? source.instructions.slice(0, 4000) : "",
-    writingInstructions:
-      typeof source.writingInstructions === "string"
-        ? source.writingInstructions.slice(0, 4000)
-        : "",
+    instructions: normalizeRichHtmlField(source.instructions, 20000),
+    writingInstructions: normalizeRichHtmlField(source.writingInstructions, 20000),
     // 舊版單一開關（syncAnnouncementAndCalendar）一併視為兩者皆開啟，避免既有勾選失效
     publishAnnouncement:
       typeof source.publishAnnouncement === "boolean"
@@ -293,12 +303,31 @@ export function parseSettingsInput(raw: unknown): ParseResult {
   const body = raw as Record<string, unknown>;
   const openAt = asEpoch(body.openAt);
   const closeAt = asEpoch(body.closeAt);
+  const reviewStartAt = asEpoch(body.reviewStartAt);
+  const reviewEndAt = asEpoch(body.reviewEndAt);
   if (body.openAt !== null && openAt === null) return { ok: false, message: "開放開始時間格式錯誤" };
   if (body.closeAt !== null && closeAt === null) return { ok: false, message: "開放截止時間格式錯誤" };
+  if (body.reviewStartAt !== null && reviewStartAt === null) {
+    return { ok: false, message: "審核開始時間格式錯誤" };
+  }
+  if (body.reviewEndAt !== null && reviewEndAt === null) {
+    return { ok: false, message: "審核截止時間格式錯誤" };
+  }
   if (openAt !== null && closeAt !== null && closeAt <= openAt) {
     return { ok: false, message: "截止時間必須晚於開始時間" };
   }
+  if (reviewStartAt !== null && reviewEndAt !== null && reviewEndAt <= reviewStartAt) {
+    return { ok: false, message: "審核截止時間必須晚於審核開始時間" };
+  }
   const value = normalizeSettings(body);
+  const instructionsPlain = stripHtmlToText(value.instructions).trim();
+  if (instructionsPlain.length > 4000) {
+    return { ok: false, message: "自主學習實施說明超過 4000 字上限" };
+  }
+  const writingPlain = stripHtmlToText(value.writingInstructions).trim();
+  if (writingPlain.length > 4000) {
+    return { ok: false, message: "自主學習計畫撰寫說明超過 4000 字上限" };
+  }
   if ("enabled" in body && typeof body.enabled !== "boolean") {
     return { ok: false, message: "功能總開關格式錯誤" };
   }
@@ -331,6 +360,17 @@ export function openStateOf(
   return "open";
 }
 
+/** 審核期限狀態：unset（未設定）／closed（未開始）／open（進行中）／ended（已截止） */
+export function reviewStateOf(
+  settings: Pick<SelfDirectedLearningSettings, "reviewStartAt" | "reviewEndAt">,
+  now: number = Date.now()
+): "unset" | "closed" | "open" | "ended" {
+  if (settings.reviewStartAt === null || settings.reviewEndAt === null) return "unset";
+  if (now < settings.reviewStartAt) return "closed";
+  if (now > settings.reviewEndAt) return "ended";
+  return "open";
+}
+
 /* ——— 學生計畫（selfDirectedLearningPlans） ——— */
 
 export const SELF_DIRECTED_LEARNING_PLANS_COLLECTION = "selfDirectedLearningPlans";
@@ -353,6 +393,28 @@ export const PLAN_TIMING_LABELS: Record<PlanTiming, string> = {
   flexible: "學校彈性學習時間",
   afterSchool: "課餘時間",
 };
+
+/** 教育部 18 學群（大學招生分類；學生可從中選擇，或自行填寫說明） */
+export const STUDY_GROUPS = [
+  "資訊學群",
+  "工程學群",
+  "數理化學群",
+  "醫藥衛生學群",
+  "生命科學學群",
+  "生物資源學群",
+  "地球與環境學群",
+  "建築與設計學群",
+  "藝術學群",
+  "社會與心理學群",
+  "大眾傳播學群",
+  "外語學群",
+  "文史哲學群",
+  "教育學群",
+  "法政學群",
+  "管理學群",
+  "財經學群",
+  "遊憩與運動學群",
+] as const;
 
 /** 每週課程安排 */
 export interface PlanWeek {
@@ -395,6 +457,8 @@ export interface PrintPreviewPayload {
   topic: string;
   studyGroup: string;
   advisor: string;
+  /** 學習目標（富文本） */
+  learningGoals: string;
   generatedAt: number;
   weeks: PrintPreviewWeek[];
 }
@@ -415,10 +479,20 @@ export interface SelfDirectedLearningPlan {
   studyGroup: string;
   /** 指導老師（非必填） */
   advisor: string;
+  /** 學習目標（富文本；送出審核時必填） */
+  learningGoals: string;
   weeks: PlanWeek[];
   status: PlanStatus;
+  /** 移至垃圾桶的時間（epoch ms）；null＝不在垃圾桶 */
+  deletedAt: number | null;
   submittedAt: number | null;
   updatedAt: number;
+}
+
+/** 單週審查意見（富文本；只存有填寫的週次） */
+export interface PlanWeekReview {
+  week: number;
+  note: string;
 }
 
 /** 審查意見（staff 端寫入；學生端讀最新一筆） */
@@ -429,7 +503,10 @@ export interface PlanReview {
   reviewerName: string;
   /** "approved" | "returned" */
   decision: "approved" | "returned";
+  /** 整體審查意見（富文本） */
   note: string;
+  /** 逐週審查意見（富文本；沒有填寫的週次不會出現） */
+  weekNotes: PlanWeekReview[];
   reviewedAt: number;
 }
 
@@ -513,6 +590,8 @@ export interface WeekSchedule {
   slots: WeekSlotSchedule[];
   /** 該週所有彈性學習時段皆與學校活動衝堂（整週不提供撰寫、不列入必填） */
   blocked: boolean;
+  /** 該週是否有可撰寫的彈性學習時段（未設定節次行程時全部視為可寫） */
+  writable: boolean;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -586,6 +665,7 @@ export function buildWeekSchedule(input: {
   );
   const clockByName = new Map(input.periods.map((period) => [period.name, period]));
   const orderedSlots = [...input.slots].sort((a, b) => a.day - b.day);
+  const hasSlots = input.slots.length > 0;
 
   const rows: WeekSchedule[] = [];
   for (let index = 0; index < totalWeeks; index += 1) {
@@ -614,12 +694,14 @@ export function buildWeekSchedule(input: {
       }
       slots.push({ day: slot.day, date, periods: [...slot.periods], blockedBy });
     }
+    const blocked = slots.length > 0 && slots.every((slot) => slot.blockedBy !== null);
     rows.push({
       week: index + 1,
       startDate: formatDateOnly(sundayMs),
       endDate: formatDateOnly(sundayMs + 6 * MS_PER_DAY),
       slots,
-      blocked: slots.length > 0 && slots.every((slot) => slot.blockedBy !== null),
+      blocked,
+      writable: hasSlots ? slots.length > 0 && !blocked : true,
     });
   }
   return rows;
@@ -655,6 +737,7 @@ const RICH_TEXT_DROP_ELEMENTS =
 /** 允許保留的 CSS 屬性（其餘一律丟棄） */
 const RICH_TEXT_STYLE_PROPS = new Set([
   "color",
+  "background-color",
   "font-family",
   "font-size",
   "text-align",
@@ -673,6 +756,7 @@ const RICH_TEXT_SAFE_ALIGN = /^(left|right|center|justify)$/i;
 function isSafeRichStyleValue(property: string, value: string): boolean {
   switch (property) {
     case "color":
+    case "background-color":
       return RICH_TEXT_SAFE_COLOR.test(value);
     case "font-size":
       return RICH_TEXT_SAFE_FONT_SIZE.test(value);
@@ -758,6 +842,8 @@ function sanitizeRichAttributes(tag: string, raw: string): string {
       attributes.push(`size="${value}"`);
     } else if (name === "color" && RICH_TEXT_SAFE_COLOR.test(value)) {
       attributes.push(`color="${value}"`);
+    } else if (name === "bgcolor" && RICH_TEXT_SAFE_COLOR.test(value)) {
+      attributes.push(`bgcolor="${value}"`);
     } else if (name === "face" && value.length <= 120 && RICH_TEXT_SAFE_FONT_FAMILY.test(value)) {
       attributes.push(`face="${value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`);
     }
@@ -766,7 +852,7 @@ function sanitizeRichAttributes(tag: string, raw: string): string {
 }
 
 /**
- * 富文本白名單淨化：只留安全標籤（粗體、斜體、底線、刪除線、顏色／字級、
+ * 富文本白名單淨化：只留安全標籤（粗體、斜體、底線、刪除線、顏色／底色／字級、
  * 段落、清單、引用等）與安全屬性；移除 script／iframe／事件屬性／javascript:／url()。
  * 純文字輸入會被跳脫，因此可安全地以 `dangerouslySetInnerHTML` 呈現。
  */
@@ -847,7 +933,7 @@ export function stripHtmlToText(input: string): string {
 }
 
 export type PlanParseResult =
-  | { ok: true; value: Omit<SelfDirectedLearningPlan, "id" | "period" | "studentUid" | "studentName" | "grade" | "classCode" | "className" | "status" | "submittedAt" | "updatedAt"> }
+  | { ok: true; value: Omit<SelfDirectedLearningPlan, "id" | "period" | "studentUid" | "studentName" | "grade" | "classCode" | "className" | "status" | "deletedAt" | "submittedAt" | "updatedAt"> }
   | { ok: false; message: string };
 
 /** 學生計畫草稿輸入驗證（送審與草稿共用；草稿寬鬆、送審才套週數形式與每週必填） */
@@ -872,6 +958,22 @@ export function parsePlanDraft(
   const advisor = typeof body.advisor === "string" ? body.advisor.trim().slice(0, 100) : "";
   if (!topic) return { ok: false, message: "請填寫主題" };
   if (!studyGroup) return { ok: false, message: "請填寫學群" };
+
+  // 學習目標（富文本）：送出審核時必填，草稿可先留白
+  const goalsHtml = sanitizeRichHtml(
+    typeof body.learningGoals === "string" ? body.learningGoals : ""
+  );
+  const goalsPlain = stripHtmlToText(goalsHtml).trim();
+  if (action === "submit" && !goalsPlain) {
+    return { ok: false, message: "請填寫學習目標" };
+  }
+  if (goalsPlain.length > 600) {
+    return {
+      ok: false,
+      message: `學習目標超過 600 字上限（目前 ${goalsPlain.length} 字）`,
+    };
+  }
+  const learningGoals = goalsPlain ? capRichHtmlLength(goalsHtml, 6000) : "";
 
   if (!Array.isArray(body.weeks) || body.weeks.length < 1) {
     return { ok: false, message: "請至少填寫一週的課程安排" };
@@ -952,18 +1054,46 @@ export function parsePlanDraft(
     weeks.push({ week: weekNo, content, venue, timing });
   }
   weeks.sort((a, b) => a.week - b.week);
-  return { ok: true, value: { topic, studyGroup, advisor, weeks } };
+  return { ok: true, value: { topic, studyGroup, advisor, learningGoals, weeks } };
 }
 
 /* ——— 教職員審核 ——— */
 
 export type ReviewAction = "approve" | "return";
 
+/** 逐週審查意見正規化：白名單淨化、限制週次、同日重複以第一筆為準、依週次排序 */
+export function normalizeWeekNotes(raw: unknown): PlanWeekReview[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  const items: PlanWeekReview[] = [];
+  for (const item of raw) {
+    if (items.length >= MAX_PLAN_WEEKS) break;
+    if (!item || typeof item !== "object") continue;
+    const source = item as Record<string, unknown>;
+    const week = typeof source.week === "number" ? source.week : NaN;
+    if (!Number.isInteger(week) || week < 1 || week > MAX_PLAN_WEEKS) continue;
+    if (seen.has(week)) continue;
+    const note = normalizeRichHtmlField(source.note, 5000);
+    if (!stripHtmlToText(note).trim()) continue;
+    seen.add(week);
+    items.push({ week, note });
+  }
+  return items.sort((a, b) => a.week - b.week);
+}
+
 export type ReviewParseResult =
-  | { ok: true; value: { planId: string; action: ReviewAction; note: string } }
+  | {
+      ok: true;
+      value: {
+        planId: string;
+        action: ReviewAction;
+        note: string;
+        weekNotes: PlanWeekReview[];
+      };
+    }
   | { ok: false; message: string };
 
-/** 審核輸入驗證（退回必填審查意見） */
+/** 審核輸入驗證（退回必填審查意見；逐週意見可留空） */
 export function parseReviewInput(raw: unknown): ReviewParseResult {
   if (!raw || typeof raw !== "object") return { ok: false, message: "請求內容格式錯誤" };
   const body = raw as Record<string, unknown>;
@@ -973,9 +1103,21 @@ export function parseReviewInput(raw: unknown): ReviewParseResult {
   const isReturn = body.action === "return";
   if (!isApprove && !isReturn) return { ok: false, message: "審核動作不合法" };
   const action: ReviewAction = isApprove ? "approve" : "return";
-  const note = typeof body.note === "string" ? body.note.trim().slice(0, 1000) : "";
-  if (action === "return" && !note) {
+  // 審查意見改為富文本（所見即所得）；先淨化再檢查可見文字長度
+  const note = normalizeRichHtmlField(body.note, 20000);
+  const notePlain = stripHtmlToText(note).trim();
+  if (notePlain.length > 1000) {
+    return { ok: false, message: "審查意見超過 1000 字上限" };
+  }
+  if (action === "return" && !notePlain) {
     return { ok: false, message: "退回時必須填寫審查意見" };
   }
-  return { ok: true, value: { planId, action, note } };
+  const weekNotes = normalizeWeekNotes(body.weekNotes);
+  const tooLongWeek = weekNotes.find(
+    (item) => stripHtmlToText(item.note).trim().length > 1000
+  );
+  if (tooLongWeek) {
+    return { ok: false, message: `第 ${tooLongWeek.week} 週審查意見超過 1000 字上限` };
+  }
+  return { ok: true, value: { planId, action, note, weekNotes } };
 }

@@ -12,6 +12,7 @@ import {
   countWeeksBetween,
   normalizeSettings,
   type ClassOption,
+  type FlexibleSlot,
   type PeriodOption,
   type SchoolActivityOccurrence,
   type SelfDirectedLearningSettings,
@@ -265,15 +266,19 @@ export async function getWeekSchedule(
     grade,
     classCode,
   };
-  if (settings.slots.length === 0) {
-    return buildWeekSchedule({ ...base, slots: [], events: [] });
-  }
+  const occurrences =
+    settings.slots.length === 0
+      ? []
+      : await loadSchoolActivityOccurrences(classCode, localDateMs(window.start));
+  return buildWeekSchedule({ ...base, slots: settings.slots, events: occurrences });
+}
 
-  const events = await listCalendarEvents({
-    role: "student",
-    classCode,
-    from: localDateMs(window.start),
-  });
+/** 讀取行事曆中「有學校活動層級」的行程，轉成衝堂比對用資料 */
+async function loadSchoolActivityOccurrences(
+  classCode: string,
+  from: number
+): Promise<SchoolActivityOccurrence[]> {
+  const events = await listCalendarEvents({ role: "student", classCode, from });
   const occurrences: SchoolActivityOccurrence[] = [];
   for (const event of events) {
     const activity = event.schoolActivity;
@@ -290,8 +295,36 @@ export async function getWeekSchedule(
       })),
     });
   }
+  return occurrences;
+}
 
-  return buildWeekSchedule({ ...base, slots: settings.slots, events: occurrences });
+/**
+ * 管理端／學生端共用的可寫週數：以學校層級活動（全校）計算，
+ * 供管理端驗證「下限週數」不可超過實際可寫週數。
+ */
+export async function getAvailableWeeks(
+  slots: FlexibleSlot[]
+): Promise<{ total: number; available: number } | null> {
+  const window = await getSemesterWindow();
+  if (!window) return null;
+  const weeks = countWeeksBetween(window.start, window.end);
+  if (!weeks) return null;
+  const schedule = await getSchoolScheduleOptions();
+  const occurrences =
+    slots.length === 0
+      ? []
+      : await loadSchoolActivityOccurrences("", localDateMs(window.start));
+  const rows = buildWeekSchedule({
+    semesterStart: window.start,
+    semesterEnd: window.end,
+    weeks,
+    slots,
+    periods: schedule.periods,
+    events: occurrences,
+    grade: "",
+    classCode: "",
+  });
+  return { total: weeks, available: rows.filter((row) => row.writable).length };
 }
 
 /** 場域候選清單：主程式「學校基本設定 → 樓層空間設定」的葉子空間（無下層者） */

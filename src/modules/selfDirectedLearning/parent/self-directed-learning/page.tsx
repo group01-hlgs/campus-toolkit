@@ -9,6 +9,7 @@ import {
   MAINTENANCE_TITLE,
   PLAN_STATUS_LABELS,
   PLAN_TIMING_LABELS,
+  stripHtmlToText,
   type PlanReview,
   type SelfDirectedLearningPlan,
 } from "../../types/self-directed-learning";
@@ -69,7 +70,7 @@ export default function ParentSelfDirectedLearningPage() {
         <header className="space-y-1">
           <h1 className="text-xl text-t1">自主學習計畫</h1>
         </header>
-        <div className="border-themed bg-card space-y-2 rounded-lg p-6 text-center">
+        <div className="border border-themed bg-card space-y-2 rounded-lg p-6 text-center">
           <p className="text-t1 text-lg font-medium">{MAINTENANCE_TITLE}</p>
           <p className="text-t2 text-sm">{MAINTENANCE_HINT}</p>
         </div>
@@ -90,25 +91,28 @@ export default function ParentSelfDirectedLearningPage() {
         )}
       </header>
 
-      {instructions.trim() && (
-        <details className="border-themed bg-card rounded-lg">
+      {stripHtmlToText(instructions).trim() && (
+        <details className="border border-themed bg-card rounded-lg">
           <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
             <DisclosureArrow />
             自主學習實施說明
           </summary>
-          <p className="text-t2 px-4 pb-4 whitespace-pre-wrap text-sm">{instructions}</p>
+          <RichTextContent
+            html={instructions}
+            className="text-t2 px-4 pb-4 text-sm"
+          />
         </details>
       )}
 
       {loading ? (
         <div className="border-themed bg-card text-t2 rounded-lg p-4 text-sm">載入中…</div>
       ) : !plan ? (
-        <div className="border-themed bg-card text-t2 rounded-lg p-4 text-sm">
+        <div className="border border-themed bg-card text-t2 rounded-lg p-4 text-sm">
           子女尚未建立自主學習計畫。
         </div>
       ) : (
         <>
-          <section className="border-themed bg-card rounded-lg p-4">
+          <section className="border border-themed bg-card rounded-lg p-4">
             <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h2 className="text-t1 font-medium">
@@ -136,31 +140,55 @@ export default function ParentSelfDirectedLearningPage() {
             </div>
           </section>
 
+          <section className="border border-themed bg-card rounded-lg p-4" aria-label="學習目標">
+            <h2 className="text-t1 mb-1 text-sm font-medium">學習目標</h2>
+            <RichTextContent
+              html={plan.learningGoals}
+              emptyText="（未填寫）"
+              className="text-t2 text-sm"
+            />
+          </section>
+
           {latestReview && (
-            <section className="border-themed bg-card rounded-lg p-4" aria-label="審查意見">
+            <section className="border border-themed bg-card rounded-lg p-4" aria-label="審查意見">
               <h2 className="text-t1 mb-1 text-sm font-medium">
                 審查意見（{latestReview.reviewerName || "審核人員"}）
               </h2>
-              <p className="text-t2 whitespace-pre-wrap text-sm">{latestReview.note || "（無文字意見）"}</p>
+              <RichTextContent
+                html={latestReview.note}
+                emptyText="（無文字意見）"
+                className="text-t2 text-sm"
+              />
             </section>
           )}
 
-          <details className="border-themed bg-card rounded-lg" open>
+          <details className="border border-themed bg-card rounded-lg" open>
             <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
               <DisclosureArrow />
               逐週課程安排（{plan.weeks.length} 週）
             </summary>
             <ul className="space-y-2 px-4 pb-4">
-              {plan.weeks.map((week) => (
-                <li key={week.week} className="border-themed bg-surface rounded-md p-3">
-                  <div className="text-t1 mb-1 flex flex-wrap gap-3 text-xs font-medium">
-                    <span>第 {week.week} 週</span>
-                    <span>{PLAN_TIMING_LABELS[week.timing]}</span>
-                    <span className="text-t3">{week.venue}</span>
-                  </div>
-                  <RichTextContent html={week.content} />
-                </li>
-              ))}
+              {plan.weeks.map((week) => {
+                const weekReview = latestReview?.weekNotes?.find(
+                  (item) => item.week === week.week
+                );
+                return (
+                  <li key={week.week} className="border border-themed bg-surface rounded-md p-3">
+                    <div className="text-t1 mb-1 flex flex-wrap gap-3 text-xs font-medium">
+                      <span>第 {week.week} 週</span>
+                      <span>{PLAN_TIMING_LABELS[week.timing]}</span>
+                      <span className="text-t3">{week.venue}</span>
+                    </div>
+                    <RichTextContent html={week.content} />
+                    {weekReview && (
+                      <div className="border-l-primary border-themed bg-card mt-2 rounded-md border border-l-4 p-2">
+                        <p className="text-t1 text-xs font-medium">審查意見</p>
+                        <RichTextContent html={weekReview.note} className="text-t2 text-xs" />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </details>
         </>

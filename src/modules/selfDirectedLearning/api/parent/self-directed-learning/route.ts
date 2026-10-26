@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 同一學生可能有多筆計畫：優先顯示本學期正式計畫，其次最新通過，最後最新一筆
-    const plans = await getStudentPlans(child.uid);
+    const plans = (await getStudentPlans(child.uid)).filter((item) => !item.deletedAt);
     const currentPeriod = periodLabelOf(await getCurrentPeriod());
     const plan =
       plans.find((item) => item.period === currentPeriod && item.status === "approved") ??
