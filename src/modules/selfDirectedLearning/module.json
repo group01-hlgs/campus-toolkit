@@ -13,7 +13,7 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.86",
+    "version": "0.0.91",
     "releasedAt": "2026-10-28"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -50,6 +50,8 @@
     "self_directed_learning_plan_archived",
     "self_directed_learning_plan_trashed",
     "self_directed_learning_plan_restored",
+    "self_directed_learning_plan_self_approved",
+    "self_directed_learning_plan_purged",
     "self_directed_learning_plan_records_saved"
   ],
   "dataCollections": [
@@ -60,6 +62,50 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.91",
+      "releasedAt": "2026-10-28",
+      "notes": [
+        "管理規則新增「高中三年最低審核份數」：可設定 0–6 份（0＝不設定），作為後續三年累計送審進度與檢核的依據",
+        "此版本先保存設定欄位與伺服器驗證；學生端進度顯示與未達門檻提示依先前共識暫不實作"
+      ]
+    },
+    {
+      "version": "0.0.90",
+      "releasedAt": "2026-10-28",
+      "notes": [
+        "新增「提升為正式」：草稿、審核中或退回修改的計畫，學生可自行提升為正式；提升後可依既有每週時間開始填寫執行成果，不必等待學校審核通過",
+        "學校審核仍會保留；之後被退回不影響已提升的正式狀態與成果；同一學期可有多份自行提升的正式計畫，但送審仍限一份、學校審核通過的正式計畫仍以一份為原則",
+        "學生端顯示「正式（自主提升）」標記，教職員審核頁標示「已由學生提升為正式」，列印頁尾區分自主提升與學校通過",
+        "送審、提升與審核通過時的衝突檢核同步調整；審核中或學校已通過的計畫仍不可移至垃圾桶"
+      ]
+    },
+    {
+      "version": "0.0.89",
+      "releasedAt": "2026-10-28",
+      "notes": [
+        "垃圾桶新增「永久刪除」：可將垃圾桶中的草稿／退回修改計畫連同相關審查紀錄永久刪除，操作前顯示二次確認，刪除後無法復原；按鈕使用 CSS 主題危險色",
+        "永久刪除僅限本人且已移至垃圾桶的計畫；伺服器同步檢核狀態與 deletedAt，並新增稽核動作 self_directed_learning_plan_purged"
+      ]
+    },
+    {
+      "version": "0.0.88",
+      "releasedAt": "2026-10-28",
+      "notes": [
+        "管理規則新增「草稿匣件數上限」：可設定每位學生最多保留的草稿件數（1–100 件，預設 20 件，含退回修改）",
+        "達到上限後仍可編輯既有草稿，但學生端「發想新計畫」按鈕會停用並顯示提示；刪除不需要的草稿或由管理員調高上限後即可再新增",
+        "伺服器同步檢核新增草稿與從垃圾桶還原草稿，避免繞過上限"
+      ]
+    },
+    {
+      "version": "0.0.87",
+      "releasedAt": "2026-10-28",
+      "notes": [
+        "新增「發想新計畫」：學生可隨時在草稿匣建立、編輯與儲存草稿，不受開放撰寫期間或本學期已有正式計畫限制",
+        "送出審核仍須在開放撰寫期間內，且每學期僅能有一件正式計畫、同時僅能有一件審核中；已有正式計畫或審核中計畫時，仍可繼續發想草稿",
+        "相關按鈕與提示文字改為「發想新計畫」，並說明草稿可自由發想、送出才受期限與件數限制"
+      ]
+    },
     {
       "version": "0.0.86",
       "releasedAt": "2026-10-28",

@@ -88,6 +88,12 @@ export interface FlexibleSlot {
  *  僅以防濫用為由保留伺服器硬上限 */
 export const MAX_PLAN_WEEKS = 104;
 
+/** 草稿匣件數上限的硬上限（管理端可設定 1–100 件） */
+export const MAX_DRAFT_PLANS = 100;
+
+/** 高中三年最低審核份數的上限（管理端可設定 0–6 份；0＝不設定） */
+export const MAX_MIN_REVIEW_PLANS = 6;
+
 /** 週數填寫形式：full＝全學期（空白週數都須填寫，週數自動判斷）；flexible＝彈性（至少下限週數） */
 export type WeekMode = "full" | "flexible";
 
@@ -131,6 +137,10 @@ export interface SelfDirectedLearningSettings {
   weekMode: WeekMode;
   /** 彈性形式的下限週數（建議至少 6 週；全學期形式不使用） */
   minWeeks: number;
+  /** 每位學生草稿匣可保留的件數上限（含退回修改；僅限制新增，既有草稿仍可編輯） */
+  maxDrafts: number;
+  /** 高中三年最低審核份數（0＝不設定；1–6 份） */
+  minReviewPlans: number;
   /** 校內彈性學習節次行程 */
   slots: FlexibleSlot[];
   /** 開放場域 */
@@ -141,7 +151,7 @@ export interface SelfDirectedLearningSettings {
   reviewers: ReviewerEntry[];
   /** 自主學習實施說明（給學生、家長的總說明） */
   instructions: string;
-  /** 自主學習計畫撰寫說明（學生發起新計畫或編輯草稿時的撰寫說明） */
+  /** 自主學習計畫撰寫說明（學生發想新計畫或編輯草稿時的撰寫說明） */
   writingInstructions: string;
   /** 儲存設定時是否同步發布（或更新）系統公告（由管理人員勾選，預設不自動發送） */
   publishAnnouncement: boolean;
@@ -159,6 +169,8 @@ export const DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS: SelfDirectedLearningSettin
   resultDeadlineAt: null,
   weekMode: "full",
   minWeeks: 6,
+  maxDrafts: 20,
+  minReviewPlans: 0,
   slots: [],
   venues: [],
   venueEditable: true,
@@ -261,6 +273,14 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
     typeof source.minWeeks === "number" && Number.isInteger(source.minWeeks)
       ? source.minWeeks
       : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.minWeeks;
+  const maxDraftsRaw =
+    typeof source.maxDrafts === "number" && Number.isInteger(source.maxDrafts)
+      ? source.maxDrafts
+      : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.maxDrafts;
+  const minReviewPlansRaw =
+    typeof source.minReviewPlans === "number" && Number.isInteger(source.minReviewPlans)
+      ? source.minReviewPlans
+      : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.minReviewPlans;
   return {
     enabled:
       typeof source.enabled === "boolean"
@@ -273,6 +293,8 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
     resultDeadlineAt: asEpoch(source.resultDeadlineAt),
     weekMode: source.weekMode === "flexible" ? "flexible" : "full",
     minWeeks: Math.min(Math.max(minWeeksRaw, 1), MAX_PLAN_WEEKS),
+    maxDrafts: Math.min(Math.max(maxDraftsRaw, 1), MAX_DRAFT_PLANS),
+    minReviewPlans: Math.min(Math.max(minReviewPlansRaw, 0), MAX_MIN_REVIEW_PLANS),
     slots,
     venues: asStringArray(source.venues, 60, 80),
     venueEditable:
@@ -344,6 +366,31 @@ export function parseSettingsInput(raw: unknown): ParseResult {
   }
   if ("minWeeks" in body && typeof body.minWeeks === "number" && !Number.isInteger(body.minWeeks)) {
     return { ok: false, message: "下限週數必須是整數" };
+  }
+  if ("maxDrafts" in body) {
+    const value = body.maxDrafts;
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < 1 ||
+      value > MAX_DRAFT_PLANS
+    ) {
+      return { ok: false, message: `草稿匣件數上限必須是 1–${MAX_DRAFT_PLANS} 的整數` };
+    }
+  }
+  if ("minReviewPlans" in body) {
+    const value = body.minReviewPlans;
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < 0 ||
+      value > MAX_MIN_REVIEW_PLANS
+    ) {
+      return {
+        ok: false,
+        message: `高中三年最低審核份數必須是 0–${MAX_MIN_REVIEW_PLANS} 的整數`,
+      };
+    }
   }
   if ("publishAnnouncement" in body && typeof body.publishAnnouncement !== "boolean") {
     return { ok: false, message: "系統公告同步設定格式錯誤" };
@@ -502,6 +549,8 @@ export interface PrintPreviewPayload {
   reflection: string;
   /** 來源：draft＝撰寫中的草稿、approved＝已通過的計畫與執行成果紀錄 */
   source: "draft" | "approved";
+  /** 是否由學生自行提升為正式（頁尾文案用） */
+  formalByStudent?: boolean;
   /** 執行成果紀錄呈現方式（分開式／融入式） */
   layout: PrintLayout;
   generatedAt: number;
@@ -535,7 +584,19 @@ export interface SelfDirectedLearningPlan {
   /** 移至垃圾桶的時間（epoch ms）；null＝不在垃圾桶 */
   deletedAt: number | null;
   submittedAt: number | null;
+  /** 學生自行提升為正式計畫的時間（epoch ms）；null＝尚未自行提升 */
+  selfApprovedAt: number | null;
   updatedAt: number;
+}
+
+/** 正式計畫：學校審核通過，或學生自行提升為正式 */
+export function isFormalPlan(
+  plan: Pick<SelfDirectedLearningPlan, "status" | "selfApprovedAt">
+): boolean {
+  return (
+    plan.status === "approved" ||
+    (typeof plan.selfApprovedAt === "number" && plan.selfApprovedAt > 0)
+  );
 }
 
 /** 單週審查意見（富文本；只存有填寫的週次） */
@@ -982,7 +1043,7 @@ export function stripHtmlToText(input: string): string {
 }
 
 export type PlanParseResult =
-  | { ok: true; value: Omit<SelfDirectedLearningPlan, "id" | "period" | "studentUid" | "studentName" | "grade" | "classCode" | "className" | "status" | "deletedAt" | "submittedAt" | "updatedAt"> }
+  | { ok: true; value: Omit<SelfDirectedLearningPlan, "id" | "period" | "studentUid" | "studentName" | "grade" | "classCode" | "className" | "status" | "deletedAt" | "submittedAt" | "selfApprovedAt" | "updatedAt"> }
   | { ok: false; message: string };
 
 /** 學生計畫草稿輸入驗證（送審與草稿共用；草稿寬鬆、送審才套週數形式與每週必填） */

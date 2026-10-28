@@ -10,6 +10,7 @@ import {
   SELF_DIRECTED_LEARNING_PLANS_COLLECTION,
   SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION,
   capRichHtmlLength,
+  isFormalPlan,
   normalizeWeekNotes,
   periodLabelOf,
   planDocIdOf,
@@ -106,6 +107,10 @@ function readPlan(id: string, raw: Record<string, unknown>): SelfDirectedLearnin
     status,
     deletedAt: typeof raw.deletedAt === "number" ? raw.deletedAt : null,
     submittedAt: typeof raw.submittedAt === "number" ? raw.submittedAt : null,
+    selfApprovedAt:
+      typeof raw.selfApprovedAt === "number" && raw.selfApprovedAt > 0
+        ? raw.selfApprovedAt
+        : null,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -193,7 +198,7 @@ function newPlanDocId(period: string, studentUid: string, now: number): string {
 
 /**
  * 儲存草稿／送出審核。
- * - 未帶 planId＝新增計畫（僅限開放撰寫期間，且同一學期已有正式計畫時不可新增）。
+ * - 未帶 planId＝新增草稿（不限開放期間；送出審核時才檢查期限與每學期件數）。
  * - 帶 planId＝編輯既有草稿（草稿／退回修改可編輯；審核中／已通過不可編輯）。
  * - 同一學期可有多筆草稿，但同時僅能有一件在審核中（送審時檢查）。
  * - 正式計畫（approved）每學期僅一份；送出審核與審核通過時都會檢查。
@@ -241,10 +246,14 @@ export async function saveStudentPlan(input: {
     input.action === "submit" ? currentPeriod : target?.period || currentPeriod;
   const studentPlans = await getStudentPlans(input.student.uid);
   const approvedElsewhere = studentPlans.find(
-    (plan) => plan.period === period && plan.status === "approved" && plan.id !== requestedId
+    (plan) =>
+      plan.period === period &&
+      !plan.deletedAt &&
+      plan.status === "approved" &&
+      plan.id !== requestedId
   );
-  if (approvedElsewhere && (!target || input.action === "submit")) {
-    return { ok: false, status: 409, message: "本學期已有正式計畫，無法再新增或送出計畫" };
+  if (approvedElsewhere && input.action === "submit") {
+    return { ok: false, status: 409, message: "本學期已有通過審核的正式計畫，無法再送出計畫" };
   }
 
   // 同一學期同時僅能有一件計畫在審核中（可保留多筆草稿）
@@ -263,8 +272,19 @@ export async function saveStudentPlan(input: {
     };
   }
 
-  if (!target && openStateOf(input.settings, now) !== "open") {
-    return { ok: false, status: 400, message: "目前非開放撰寫期間，無法新增計畫" };
+  // 草稿匣件數上限（含退回修改）：只限制新增，既有草稿仍可編輯／送審
+  if (!target && input.action === "save") {
+    const draftBoxCount = studentPlans.filter(
+      (plan) =>
+        !plan.deletedAt && (plan.status === "draft" || plan.status === "returned")
+    ).length;
+    if (draftBoxCount >= input.settings.maxDrafts) {
+      return {
+        ok: false,
+        status: 409,
+        message: `草稿匣已達上限（${input.settings.maxDrafts} 件），請先刪除不需要的草稿，或請管理員調整上限`,
+      };
+    }
   }
 
   if (input.action === "submit") {
@@ -296,6 +316,7 @@ export async function saveStudentPlan(input: {
     status: input.action === "submit" ? "submitted" : "draft",
     deletedAt: null,
     submittedAt: input.action === "submit" ? now : target?.submittedAt ?? null,
+    selfApprovedAt: target?.selfApprovedAt ?? null,
     updatedAt: now,
   };
 
@@ -407,8 +428,12 @@ export async function savePlanRecords(input: {
   if (plan.deletedAt) {
     return { ok: false, status: 409, message: "此計畫在垃圾桶，無法填寫執行成果" };
   }
-  if (plan.status !== "approved") {
-    return { ok: false, status: 409, message: "計畫通過審核後才能填寫執行成果紀錄" };
+  if (!isFormalPlan(plan)) {
+    return {
+      ok: false,
+      status: 409,
+      message: "計畫提升為正式或通過審核後才能填寫執行成果紀錄",
+    };
   }
   if (plan.period !== periodLabelOf(await getCurrentPeriod())) {
     return { ok: false, status: 409, message: "只能填寫本學期計畫的執行成果紀錄" };
@@ -494,6 +519,8 @@ export async function setStudentPlanDeleted(input: {
   planId: string;
   studentUid: string;
   deleted: boolean;
+  /** 草稿匣件數上限（還原草稿時檢查；未提供＝不檢查） */
+  maxDrafts?: number;
   now?: number;
 }): Promise<PlanTrashResult> {
   const snap = await plansRef().doc(input.planId).get();
@@ -514,6 +541,20 @@ export async function setStudentPlanDeleted(input: {
   } else if (!plan.deletedAt) {
     return { ok: true, plan };
   }
+  if (!input.deleted && typeof input.maxDrafts === "number") {
+    const activePlans = await getStudentPlans(plan.studentUid);
+    const draftBoxCount = activePlans.filter(
+      (item) =>
+        !item.deletedAt && (item.status === "draft" || item.status === "returned")
+    ).length;
+    if (draftBoxCount >= input.maxDrafts) {
+      return {
+        ok: false,
+        status: 409,
+        message: `草稿匣已達上限（${input.maxDrafts} 件），請先刪除不需要的草稿，或請管理員調整上限`,
+      };
+    }
+  }
   const now = input.now ?? Date.now();
   const next: SelfDirectedLearningPlan = {
     ...plan,
@@ -524,6 +565,89 @@ export async function setStudentPlanDeleted(input: {
     .doc(plan.id)
     .set({ deletedAt: next.deletedAt, updatedAt: now }, { merge: true });
   return { ok: true, plan: next };
+}
+
+export type PromotePlanResult =
+  | { ok: true; plan: SelfDirectedLearningPlan }
+  | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/**
+ * 學生自行把本學期計畫提升為正式（不必等學校審核通過，即可開始按時寫成果）。
+ * - 草稿、審核中、退回修改皆可提升。
+ * - 同一學期可有多份自行提升的正式計畫；送審仍限一份，學校審核通過的正式計畫仍以一份為原則。
+ * - 學校審核保留；之後被退回不影響已提升的正式狀態。
+ */
+export async function promoteStudentPlan(input: {
+  planId: string;
+  studentUid: string;
+}): Promise<PromotePlanResult> {
+  const planRef = plansRef().doc(input.planId);
+  const snap = await planRef.get();
+  if (!snap.exists) return { ok: false, status: 404, message: "查無此計畫" };
+  const plan = readPlan(input.planId, (snap.data() || {}) as Record<string, unknown>);
+  if (plan.studentUid !== input.studentUid) {
+    return { ok: false, status: 403, message: "無權修改此計畫" };
+  }
+  if (plan.deletedAt) {
+    return { ok: false, status: 409, message: "此計畫在垃圾桶，請先還原後再提升" };
+  }
+  if (isFormalPlan(plan)) return { ok: true, plan };
+
+  const currentPeriod = periodLabelOf(await getCurrentPeriod());
+  if (plan.period !== currentPeriod) {
+    return { ok: false, status: 409, message: "只能提升本學期的計畫" };
+  }
+
+  const now = Date.now();
+  await planRef.set({ selfApprovedAt: now, updatedAt: now }, { merge: true });
+  return { ok: true, plan: { ...plan, selfApprovedAt: now, updatedAt: now } };
+}
+
+export type PurgePlanResult =
+  | { ok: true; plan: SelfDirectedLearningPlan }
+  | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/**
+ * 永久刪除垃圾桶中的計畫（不可復原）：
+ * - 僅限本人、且已移至垃圾桶的草稿／退回修改。
+ * - 一併刪除該計畫的審查紀錄與仍指向它的送審鎖定文件。
+ */
+export async function purgeStudentPlan(input: {
+  planId: string;
+  studentUid: string;
+}): Promise<PurgePlanResult> {
+  const planRef = plansRef().doc(input.planId);
+  const snap = await planRef.get();
+  if (!snap.exists) return { ok: false, status: 404, message: "查無此計畫" };
+  const plan = readPlan(input.planId, (snap.data() || {}) as Record<string, unknown>);
+  if (plan.studentUid !== input.studentUid) {
+    return { ok: false, status: 403, message: "無權刪除此計畫" };
+  }
+  if (!plan.deletedAt) {
+    return { ok: false, status: 409, message: "只能永久刪除垃圾桶中的計畫" };
+  }
+  if (plan.status === "submitted" || plan.status === "approved") {
+    return { ok: false, status: 409, message: "審核中或已通過的計畫不可刪除" };
+  }
+
+  const db = getAdminDb();
+  // 單次 batch 上限 500；審查紀錄通常很少，保留 400 筆的餘裕
+  const reviews = await db
+    .collection(SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION)
+    .where("planId", "==", plan.id)
+    .limit(400)
+    .get();
+  const batch = db.batch();
+  for (const review of reviews.docs) batch.delete(review.ref);
+
+  const lockRef = submissionLockRef(plan.period, plan.studentUid);
+  const lockSnap = await lockRef.get();
+  const lock = (lockSnap.exists ? lockSnap.data() : null) as Record<string, unknown> | null;
+  if (lock && lock.submittedPlanId === plan.id) batch.delete(lockRef);
+
+  batch.delete(planRef);
+  await batch.commit();
+  return { ok: true, plan };
 }
 
 export type WithdrawPlanResult =
@@ -804,7 +928,7 @@ export async function applyReview(input: {
       const conflict = approvedSnap.docs.some((doc) => {
         if (doc.id === current.id) return false;
         const data = (doc.data() || {}) as Record<string, unknown>;
-        return data.period === current.period && data.status === "approved";
+        return data.period === current.period && !data.deletedAt && data.status === "approved";
       });
       if (conflict) return { kind: "conflict" as const };
     }

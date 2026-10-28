@@ -9,6 +9,7 @@ import {
   MAINTENANCE_TITLE,
   PLAN_STATUS_LABELS,
   PLAN_TIMING_LABELS,
+  isFormalPlan,
   stripHtmlToText,
   type PlanReview,
   type SelfDirectedLearningPlan,
@@ -135,6 +136,9 @@ export default function ParentSelfDirectedLearningPage() {
                 >
                   {PLAN_STATUS_LABELS[plan.status]}
                 </span>
+                {isFormalPlan(plan) && plan.status !== "approved" && (
+                  <span className="text-success mt-0.5 block text-xs">正式（自主提升）</span>
+                )}
                 <div className="text-t3">送出：{formatDateTime(plan.submittedAt)}</div>
               </div>
             </div>

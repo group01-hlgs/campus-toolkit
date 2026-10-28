@@ -388,7 +388,9 @@ export function PrintPreviewSheet({ payload }: { payload: PrintPreviewPayload })
 
       <p className="sdl-print-footer">
         {payload.source === "approved"
-          ? "已通過的計畫內容與執行成果紀錄"
+          ? payload.formalByStudent
+            ? "已提升為正式計畫的內容與執行成果紀錄"
+            : "已通過的計畫內容與執行成果紀錄"
           : "本預覽為目前編輯內容（含尚未儲存的變更）"}
         ｜產生時間：{formatGeneratedAt(payload.generatedAt)}
       </p>

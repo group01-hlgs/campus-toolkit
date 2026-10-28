@@ -21,6 +21,7 @@ function isPreviewPayload(value: unknown): value is PrintPreviewPayload {
     typeof payload.generatedAt !== "number" ||
     (payload.reflection !== undefined && typeof payload.reflection !== "string") ||
     (payload.source !== undefined && payload.source !== "draft" && payload.source !== "approved") ||
+    (payload.formalByStudent !== undefined && typeof payload.formalByStudent !== "boolean") ||
     (payload.layout !== "separate" && payload.layout !== "integrated") ||
     !Array.isArray(payload.weeks)
   ) {

@@ -32,6 +32,7 @@ import {
   type SelfDirectedLearningPlan,
   type SelfDirectedLearningSettings,
   type WeekSchedule,
+  isFormalPlan,
 } from "../../types/self-directed-learning";
 
 interface StudentInfo {
@@ -286,7 +287,7 @@ export default function StudentSelfDirectedLearningPage() {
   const [openDetailPlans, setOpenDetailPlans] = useState<Record<string, boolean>>({});
   /** 學生姓名／班級（列印預覽表頭用） */
   const [studentInfo, setStudentInfo] = useState<StudentInfo | null>(null);
-  /** 撰寫計畫區塊是否展開（預設隱藏；發起新計畫或編輯草稿才顯示） */
+  /** 撰寫計畫區塊是否展開（預設隱藏；發想新計畫或編輯草稿才顯示） */
   const [formOpen, setFormOpen] = useState(false);
   /** 正在編輯的草稿 id；null＝新計畫 */
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
@@ -305,6 +306,10 @@ export default function StudentSelfDirectedLearningPage() {
   const [planBusy, setPlanBusy] = useState<string | null>(null);
   /** 準備抽回（取消送審）的計畫 */
   const [withdrawTarget, setWithdrawTarget] = useState<SelfDirectedLearningPlan | null>(null);
+  /** 準備永久刪除的垃圾桶計畫 */
+  const [purgeTarget, setPurgeTarget] = useState<SelfDirectedLearningPlan | null>(null);
+  /** 準備提升為正式計畫的草稿／審核中計畫 */
+  const [promoteTarget, setPromoteTarget] = useState<SelfDirectedLearningPlan | null>(null);
   const formSectionRef = useRef<HTMLElement | null>(null);
 
   const editingPlan = editingPlanId
@@ -321,15 +326,21 @@ export default function StudentSelfDirectedLearningPage() {
   const returnedPlans = activePlans.filter((plan) => plan.status === "returned");
   const documentCount = approvedPlans.length + submittedPlans.length;
   const draftCount = draftPlans.length + returnedPlans.length;
-  const currentApproved = activePlans.some(
-    (plan) => plan.status === "approved" && plan.period === currentPeriod
-  );
+  const formalPlans = activePlans.filter(isFormalPlan);
+  const currentFormal = formalPlans.find((plan) => plan.period === currentPeriod) ?? null;
+  /** 學校審核通過的正式計畫（每學期僅一份；自行提升的正式不在此限） */
+  const otherApprovedPlan =
+    activePlans.find(
+      (plan) =>
+        plan.status === "approved" &&
+        plan.period === currentPeriod &&
+        plan.id !== editingPlanId
+    ) ?? null;
   /** 送出審核一律歸為本學期的計畫，因此以目前學期檢核「僅一件審核中」 */
   const otherSubmittedPlan =
     submittedPlans.find((plan) => plan.period === currentPeriod) ?? null;
-  /** 目前學期已通過的計畫（執行成果紀錄的對象；每學期僅一件） */
-  const recordPlan =
-    plans.find((plan) => plan.status === "approved" && plan.period === currentPeriod) ?? null;
+  /** 目前學期已正式（學校通過或學生自行提升）的計畫（執行成果紀錄的對象） */
+  const recordPlan = currentFormal;
   /** 可寫週次（有設定節次時：該週至少一個時段未衝堂；未設定節次時：全部視為可寫） */
   const availableWeekNumbers = useMemo(() => {
     if (weekSchedule.length > 0) {
@@ -660,6 +671,7 @@ export default function StudentSelfDirectedLearningPage() {
       learningGoals: plan ? plan.learningGoals : draft.learningGoals,
       reflection: plan?.reflection ?? "",
       source: plan ? "approved" : "draft",
+      formalByStudent: Boolean(plan?.selfApprovedAt && plan.status !== "approved"),
       layout: printLayout,
       generatedAt: Date.now(),
       weeks: weeks.map((week) => {
@@ -756,6 +768,59 @@ export default function StudentSelfDirectedLearningPage() {
     }
   };
 
+  /** 永久刪除垃圾桶中的計畫（不可復原；連同審查紀錄） */
+  const purgePlan = async (plan: SelfDirectedLearningPlan) => {
+    if (planBusy) return;
+    setPlanBusy(plan.id);
+    try {
+      const response = await fetch("/api/student/self-directed-learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "purge", planId: plan.id }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setToast({ kind: "error", text: data.message || "永久刪除失敗" });
+        return;
+      }
+      setPurgeTarget(null);
+      setToast({ kind: "success", text: data.message || "已永久刪除" });
+      await load();
+    } catch {
+      setToast({ kind: "error", text: "永久刪除失敗" });
+    } finally {
+      setPlanBusy(null);
+    }
+  };
+
+  /** 學生自行提升為正式計畫（保留學校審核；退回不影響正式） */
+  const promotePlan = async (plan: SelfDirectedLearningPlan) => {
+    if (planBusy) return;
+    setPlanBusy(plan.id);
+    try {
+      const response = await fetch("/api/student/self-directed-learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "promote", planId: plan.id }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setToast({ kind: "error", text: data.message || "提升失敗" });
+        return;
+      }
+      setPromoteTarget(null);
+      setToast({
+        kind: "success",
+        text: data.message || "已提升為正式計畫，可開始按時填寫成果",
+      });
+      await load();
+    } catch {
+      setToast({ kind: "error", text: "提升失敗" });
+    } finally {
+      setPlanBusy(null);
+    }
+  };
+
   /** 抽回審核中的計畫：回到草稿匣，開放撰寫期間內可修改後重新送出 */
   const withdrawPlan = async (plan: SelfDirectedLearningPlan) => {
     if (planBusy) return;
@@ -799,8 +864,10 @@ export default function StudentSelfDirectedLearningPage() {
     saving === null &&
     rangeValid &&
     !otherSubmittedPlan &&
-    !currentApproved;
-  const canStartNew = withinWindow && !currentApproved && !formOpen && !loading;
+    !otherApprovedPlan;
+  const canStartNew = !formOpen && !loading;
+  /** 草稿匣（含退回修改）是否已達管理端設定上限 */
+  const draftLimitReached = draftCount >= settings.maxDrafts;
 
   const formActionButtons = (
     <>
@@ -818,7 +885,7 @@ export default function StudentSelfDirectedLearningPage() {
         disabled={!canSubmit || loading}
         onClick={() => void submit("submit")}
         title={
-          currentApproved
+          otherApprovedPlan
             ? "本學期已有通過審核的正式計畫，無法再送出其他計畫"
             : otherSubmittedPlan
               ? "本學期已有計畫在審核中，請等待審查結果或先抽回後再送出"
@@ -1001,12 +1068,13 @@ export default function StudentSelfDirectedLearningPage() {
       trashable?: boolean;
       restorable?: boolean;
       withdrawable?: boolean;
+      promotable?: boolean;
     } = {}
   ) => {
     const review = reviews[plan.id];
     const busy = planBusy === plan.id;
     /** 已通過且為本學期的計畫：在「查看計畫與撰寫成果」上下提供成果操作按鈕 */
-    const showRecordActions = plan.status === "approved" && plan.period === currentPeriod;
+    const showRecordActions = isFormalPlan(plan) && plan.period === currentPeriod;
     const recordActionButtons = (target: SelfDirectedLearningPlan) => (
       <div className="mt-2 flex flex-wrap justify-end gap-2">
         <button
@@ -1079,6 +1147,14 @@ export default function StudentSelfDirectedLearningPage() {
               >
                 {PLAN_STATUS_LABELS[plan.status]}
               </span>
+              {isFormalPlan(plan) && plan.status !== "approved" && (
+                <span
+                  className="border-themed bg-card text-success rounded-full border px-2 py-0.5 text-xs"
+                  title="學生自行提升為正式；學校審核仍會保留，退回不影響正式狀態"
+                >
+                  正式（自主提升）
+                </span>
+              )}
             </div>
             <p className="text-t3 text-xs">
               {periodText(plan.period)}・{plan.studyGroup || "未填學群"}・指導老師：
@@ -1104,6 +1180,23 @@ export default function StudentSelfDirectedLearningPage() {
                   {busy ? "處理中…" : "抽回修改"}
                 </button>
               )}
+            {options.promotable &&
+              plan.period === currentPeriod &&
+              !isFormalPlan(plan) &&
+              (plan.status === "draft" ||
+                plan.status === "submitted" ||
+                plan.status === "returned") && (
+                <button
+                  type="button"
+                  className="btn-theme rounded px-3 py-1.5 text-xs"
+                  style={{ color: "var(--primary)", borderColor: "var(--primary)" }}
+                  disabled={busy}
+                  title="提升後可立即按時填寫成果；學校審核仍會保留"
+                  onClick={() => setPromoteTarget(plan)}
+                >
+                  提升為正式
+                </button>
+              )}
             {options.editable && (plan.status === "draft" || plan.status === "returned") && (
               <button
                 type="button"
@@ -1125,14 +1218,24 @@ export default function StudentSelfDirectedLearningPage() {
               </button>
             )}
             {options.restorable && (
-              <button
-                type="button"
-                className="btn-theme text-primary rounded px-3 py-1.5 text-xs"
-                disabled={busy}
-                onClick={() => void changePlanDeleted(plan, false)}
-              >
-                {busy ? "處理中…" : "還原"}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn-theme text-primary rounded px-3 py-1.5 text-xs"
+                  disabled={busy}
+                  onClick={() => void changePlanDeleted(plan, false)}
+                >
+                  {busy ? "處理中…" : "還原"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger rounded px-3 py-1.5 text-xs"
+                  disabled={busy}
+                  onClick={() => setPurgeTarget(plan)}
+                >
+                  永久刪除
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1211,7 +1314,7 @@ export default function StudentSelfDirectedLearningPage() {
                 const info = recordInfoOf(plan);
                 const weekOpen = info.weekOpen(week.week);
                 const canEditRecord =
-                  plan.status === "approved" &&
+                  isFormalPlan(plan) &&
                   plan.period === currentPeriod &&
                   weekOpen &&
                   info.withinDeadline;
@@ -1241,7 +1344,7 @@ export default function StudentSelfDirectedLearningPage() {
                         {week.venue || "—"}
                       </td>
                     </tr>
-                    {plan.status === "approved" && plan.period === currentPeriod && (
+                    {isFormalPlan(plan) && plan.period === currentPeriod && (
                       <tr>
                         <td colSpan={3} className="border border-themed bg-surface px-2 py-2">
                           <details open={recordsExpanded}>
@@ -1339,7 +1442,7 @@ export default function StudentSelfDirectedLearningPage() {
             </table>
           </div>
 
-          {plan.status === "approved" && plan.period === currentPeriod && (
+          {isFormalPlan(plan) && plan.period === currentPeriod && (
             <p className="text-t3 mt-2 text-xs">
               {recordInfoOf(plan).deadlineAt !== null
                 ? `執行成果紀錄撰寫截止：${formatDateTime(recordInfoOf(plan).deadlineAt as number)}；每一週需等該週規劃時間過了才能填寫。`
@@ -1347,7 +1450,7 @@ export default function StudentSelfDirectedLearningPage() {
             </p>
           )}
 
-          {plan.status === "approved" && plan.period === currentPeriod && plan.weeks.length > 0 && (
+          {isFormalPlan(plan) && plan.period === currentPeriod && plan.weeks.length > 0 && (
             <div className="mt-2 space-y-1">
               <p className="text-t1 text-xs font-medium">學習反思心得</p>
               <div className="border border-themed bg-card rounded-md p-3">
@@ -1397,6 +1500,7 @@ export default function StudentSelfDirectedLearningPage() {
       trashable?: boolean;
       restorable?: boolean;
       withdrawable?: boolean;
+      promotable?: boolean;
     },
     emptyText: string
   ) => (
@@ -1465,10 +1569,16 @@ export default function StudentSelfDirectedLearningPage() {
               {canStartNew && (
                 <button
                   type="button"
-                  className="btn-primary btn-theme px-4 py-2 text-sm"
+                  className="btn-primary btn-theme px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={startNewPlan}
+                  disabled={draftLimitReached}
+                  title={
+                    draftLimitReached
+                      ? `草稿匣已達上限（${settings.maxDrafts} 件，含退回修改）`
+                      : ""
+                  }
                 >
-                  發起新計畫
+                  發想新計畫
                 </button>
               )}
             </div>
@@ -1513,9 +1623,15 @@ export default function StudentSelfDirectedLearningPage() {
                 </span>
               )}
             </div>
-            {currentApproved && (
-              <span className="text-t3 text-xs">本學期已有正式計畫；如需修改請聯絡審核人員。</span>
-            )}
+            {draftLimitReached || otherApprovedPlan || windowState !== "open" ? (
+              <span className="text-t3 text-xs">
+                {draftLimitReached
+                  ? `草稿匣已達上限（${settings.maxDrafts} 件，含退回修改），請先刪除不需要的草稿或請管理員調整上限。`
+                  : otherApprovedPlan
+                    ? "本學期已有通過審核的正式計畫，無法再送出其他計畫；仍可發想草稿或提升為正式。"
+                    : "仍可發想與儲存草稿；送出審核需在開放期間內。"}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -1567,22 +1683,22 @@ export default function StudentSelfDirectedLearningPage() {
                 {approvedPlans.length > 0 &&
                   renderPlanGroup("正式計畫", approvedPlans, {}, "")}
                 {submittedPlans.length > 0 &&
-                  renderPlanGroup("審核中", submittedPlans, { withdrawable: withinWindow }, "")}
+                  renderPlanGroup("審核中", submittedPlans, { withdrawable: withinWindow, promotable: !formOpen }, "")}
               </div>
             ))}
 
           {planTab === "drafts" &&
             (draftCount === 0 ? (
-              renderEmptyState("草稿匣目前是空的。", "按「發起新計畫」開始撰寫。")
+              renderEmptyState("草稿匣目前是空的。", "按「發想新計畫」開始撰寫。")
             ) : (
               <div className="space-y-5">
                 {draftPlans.length > 0 &&
-                  renderPlanGroup("草稿", draftPlans, { editable: !formOpen, trashable: !formOpen }, "")}
+                  renderPlanGroup("草稿", draftPlans, { editable: !formOpen, trashable: !formOpen, promotable: !formOpen }, "")}
                 {returnedPlans.length > 0 &&
                   renderPlanGroup(
                     "退回修改",
                     returnedPlans,
-                    { editable: !formOpen, trashable: !formOpen },
+                    { editable: !formOpen, trashable: !formOpen, promotable: !formOpen },
                     ""
                   )}
               </div>
@@ -1633,13 +1749,13 @@ export default function StudentSelfDirectedLearningPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p
                 className={
-                  currentApproved || otherSubmittedPlan ? "text-danger text-xs" : "text-t3 text-xs"
+                  otherApprovedPlan || otherSubmittedPlan ? "text-danger text-xs" : "text-t3 text-xs"
                 }
               >
-                {currentApproved
-                  ? "本學期已有通過審核的正式計畫，無法再送出其他計畫。"
+                {otherApprovedPlan
+                  ? "本學期已有通過審核的正式計畫，無法再送出其他計畫（仍可儲存草稿）。"
                   : otherSubmittedPlan
-                    ? "本學期已有計畫在審核中：請等待審查結果，或先抽回該計畫後再送出。"
+                    ? "本學期已有計畫在審核中：請等待審查結果，或先抽回該計畫後再送出（仍可儲存草稿）。"
                     : "表單較長，可隨時儲存草稿或送出審核。"}
               </p>
               <div className="flex w-full flex-wrap justify-end gap-3 sm:w-auto">
@@ -2157,6 +2273,86 @@ export default function StudentSelfDirectedLearningPage() {
                 onClick={() => void withdrawPlan(withdrawTarget)}
               >
                 {planBusy === withdrawTarget.id ? "抽回中…" : "抽回修改"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {promoteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ backgroundColor: "color-mix(in srgb, var(--bg) 75%, transparent)" }}
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="sdl-promote-title"
+        >
+          <div className="border-themed bg-card w-full max-w-md rounded-lg border p-5 shadow-lg">
+            <p id="sdl-promote-title" className="text-t1 text-base font-semibold">
+              提升為正式計畫？
+            </p>
+            <p className="text-t2 mt-2 text-sm">
+              《{promoteTarget.topic || "（未命名計畫）"}》提升後會立即成為正式計畫，
+              可以開始按時填寫執行成果紀錄，不必等待學校審核通過。
+            </p>
+            <p className="text-t3 mt-1 text-xs">
+              學校審核仍會保留；之後被退回也不影響已提升的正式狀態。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn-theme px-4 py-2 text-sm"
+                disabled={planBusy !== null}
+                onClick={() => setPromoteTarget(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-primary btn-theme px-4 py-2 text-sm"
+                disabled={planBusy !== null}
+                onClick={() => void promotePlan(promoteTarget)}
+              >
+                {planBusy === promoteTarget.id ? "提升中…" : "提升為正式"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {purgeTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ backgroundColor: "color-mix(in srgb, var(--bg) 75%, transparent)" }}
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="sdl-purge-title"
+        >
+          <div className="border-themed bg-card w-full max-w-md rounded-lg border p-5 shadow-lg">
+            <p id="sdl-purge-title" className="text-t1 text-base font-semibold">
+              永久刪除這份計畫？
+            </p>
+            <p className="text-t2 mt-2 text-sm">
+              《{purgeTarget.topic || "（未命名計畫）"}》將從垃圾桶永久刪除，
+              包含計畫內容與相關審查紀錄，<strong>無法復原</strong>。
+            </p>
+            <p className="text-danger mt-1 text-xs">確定要永久刪除嗎？</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn-theme px-4 py-2 text-sm"
+                disabled={planBusy !== null}
+                onClick={() => setPurgeTarget(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-danger rounded px-4 py-2 text-sm"
+                disabled={planBusy !== null}
+                onClick={() => void purgePlan(purgeTarget)}
+              >
+                {planBusy === purgeTarget.id ? "刪除中…" : "永久刪除"}
               </button>
             </div>
           </div>

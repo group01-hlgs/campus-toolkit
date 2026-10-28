@@ -8,6 +8,8 @@ import { getFullWeeks, getRecordWindow, getSettings, getWeekSchedule } from "../
 import {
   getLatestReviews,
   getStudentPlans,
+  promoteStudentPlan,
+  purgeStudentPlan,
   savePlanRecords,
   saveStudentPlan,
   setStudentPlanDeleted,
@@ -231,6 +233,7 @@ export async function POST(request: NextRequest) {
         planId,
         studentUid: student.uid,
         deleted,
+        maxDrafts: settings.maxDrafts,
       });
       if (!trashResult.ok) {
         return NextResponse.json(
@@ -252,6 +255,69 @@ export async function POST(request: NextRequest) {
           success: true,
           plan: trashResult.plan,
           message: deleted ? "已移至垃圾桶" : "已還原",
+        },
+        { headers: noStore }
+      );
+    }
+
+    // 永久刪除垃圾桶中的計畫（不可復原）：連同審查紀錄一併刪除
+    if (requestedAction === "purge") {
+      if (!planId) {
+        return NextResponse.json(
+          { success: false, message: "缺少計畫識別" },
+          { status: 400, headers: noStore }
+        );
+      }
+      const purgeResult = await purgeStudentPlan({ planId, studentUid: student.uid });
+      if (!purgeResult.ok) {
+        return NextResponse.json(
+          { success: false, message: purgeResult.message },
+          { status: purgeResult.status, headers: noStore }
+        );
+      }
+      await logActivity({
+        userId: student.uid,
+        role: session.role,
+        action: "self_directed_learning_plan_purged",
+        ip: getClientIp(request),
+        details: `永久刪除自主學習計畫：${purgeResult.plan.topic}`,
+      });
+      return NextResponse.json(
+        { success: true, message: "已永久刪除" },
+        { headers: noStore }
+      );
+    }
+
+    // 學生自行提升為正式計畫（保留學校審核；退回不影響正式狀態）
+    if (requestedAction === "promote") {
+      if (!planId) {
+        return NextResponse.json(
+          { success: false, message: "缺少計畫識別" },
+          { status: 400, headers: noStore }
+        );
+      }
+      const promoteResult = await promoteStudentPlan({
+        planId,
+        studentUid: student.uid,
+      });
+      if (!promoteResult.ok) {
+        return NextResponse.json(
+          { success: false, message: promoteResult.message },
+          { status: promoteResult.status, headers: noStore }
+        );
+      }
+      await logActivity({
+        userId: student.uid,
+        role: session.role,
+        action: "self_directed_learning_plan_self_approved",
+        ip: getClientIp(request),
+        details: `學生提升為正式計畫：${promoteResult.plan.topic}`,
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          plan: promoteResult.plan,
+          message: "已提升為正式計畫，可開始按時填寫成果",
         },
         { headers: noStore }
       );

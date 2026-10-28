@@ -577,6 +577,9 @@ export default function StaffSelfDirectedLearningPage() {
                     <span className={`block ${STATUS_CLASS[plan.status] || "text-t2"}`}>
                       {PLAN_STATUS_LABELS[plan.status]}
                     </span>
+                    {plan.selfApprovedAt !== null && plan.status !== "approved" && (
+                      <span className="text-success block text-xs">已由學生提升為正式</span>
+                    )}
                     <span
                       className={`block ${
                         reviewState === "ended" && plan.status === "submitted"
