@@ -4,13 +4,15 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { requireFeatureModuleEnabled } from "@/lib/module-gate";
-import { getFullWeeks, getSettings, getWeekSchedule } from "../../../lib/self-directed-learning";
+import { getFullWeeks, getRecordWindow, getSettings, getWeekSchedule } from "../../../lib/self-directed-learning";
 import {
   getLatestReviews,
   getStudentPlans,
+  savePlanRecords,
   saveStudentPlan,
   setStudentPlanDeleted,
   withdrawStudentPlan,
+  type ExecutionRecordInput,
   type StudentIdentityLite,
 } from "../../../lib/self-directed-learning-plans";
 import { getCurrentPeriod } from "@/lib/settings-server";
@@ -73,6 +75,8 @@ export async function GET(request: NextRequest) {
       getFullWeeks(),
       getWeekSchedule(student.grade, student.classCode),
     ]);
+    // 執行成果紀錄／學習反思心得的開放時間（逐週，依節次結束時間推算）
+    const recordWindow = await getRecordWindow(student.grade, student.classCode, weekSchedule);
     const currentPeriod = periodLabelOf(await getCurrentPeriod());
     // 總開關關閉：非管理端只回維護旗標（計畫與審查意見不回傳）
     if (!settings.enabled) {
@@ -82,6 +86,7 @@ export async function GET(request: NextRequest) {
           settings,
           fullWeeks,
           weekSchedule: [],
+          recordWindow: { deadlineAt: null, weeks: [] },
           student: { name: student.name, className: student.className },
           maintenance: true,
           plans: [],
@@ -103,6 +108,7 @@ export async function GET(request: NextRequest) {
         settings,
         fullWeeks,
         weekSchedule,
+        recordWindow,
         student: { name: student.name, className: student.className },
         plans,
         reviews,
@@ -151,6 +157,8 @@ export async function POST(request: NextRequest) {
       action?: string;
       draft?: unknown;
       planId?: unknown;
+      records?: unknown;
+      reflection?: unknown;
     } | null;
     const action = body?.action === "submit" ? "submit" : "save";
     const requestedAction = body?.action;
@@ -161,6 +169,52 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, message: MAINTENANCE_TITLE },
         { status: 403, headers: noStore }
+      );
+    }
+
+    // 執行成果紀錄／學習反思心得：只更新成果欄位，不動計畫內容與狀態
+    if (requestedAction === "records") {
+      if (!planId) {
+        return NextResponse.json(
+          { success: false, message: "缺少計畫識別" },
+          { status: 400, headers: noStore }
+        );
+      }
+      const records: ExecutionRecordInput[] = Array.isArray(body?.records)
+        ? body.records
+            .map((item): ExecutionRecordInput | null => {
+              if (!item || typeof item !== "object") return null;
+              const value = item as Record<string, unknown>;
+              const week = typeof value.week === "number" ? value.week : NaN;
+              if (!Number.isInteger(week) || week < 1) return null;
+              return { week, note: typeof value.note === "string" ? value.note : "" };
+            })
+            .filter((item): item is ExecutionRecordInput => item !== null)
+        : [];
+      const reflection = typeof body?.reflection === "string" ? body.reflection : undefined;
+      const result = await savePlanRecords({
+        planId,
+        studentUid: student.uid,
+        records,
+        reflection,
+        settings,
+      });
+      if (!result.ok) {
+        return NextResponse.json(
+          { success: false, message: result.message },
+          { status: result.status, headers: noStore }
+        );
+      }
+      await logActivity({
+        userId: student.uid,
+        role: session.role,
+        action: "self_directed_learning_plan_records_saved",
+        ip: getClientIp(request),
+        details: `填寫執行成果紀錄：${result.plan.topic}`,
+      });
+      return NextResponse.json(
+        { success: true, plan: result.plan, message: "已儲存執行成果紀錄" },
+        { headers: noStore }
       );
     }
 

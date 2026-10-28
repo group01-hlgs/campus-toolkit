@@ -2,10 +2,18 @@
 
 import {
   WEEKDAY_LABELS,
+  type PlanTiming,
   type PrintPreviewPayload,
   type PrintPreviewWeek,
 } from "../types/self-directed-learning";
+import { Fragment } from "react";
 import { RichTextContent } from "./rich-text-editor";
+
+/** 表格內的時段短標籤（與計畫表週次欄一致） */
+const TIMING_SHORT_LABELS: Record<PlanTiming, string> = {
+  flexible: "彈性學習",
+  afterSchool: "課餘",
+};
 
 /** 學期識別（如 115-1）轉為易讀文字 */
 function periodText(period: string): string {
@@ -36,6 +44,33 @@ function blockedNamesOf(week: PrintPreviewWeek): string {
         .filter((name): name is string => Boolean(name))
     ),
   ].join("、");
+}
+
+/** 週次欄內容：週次、時段、日期與節次（主表與成果紀錄表共用） */
+function WeekInfo({ week }: { week: PrintPreviewWeek }) {
+  return (
+    <>
+      <div className="sdl-print-week">第 {week.week} 週</div>
+      <div className="sdl-print-timing">
+        {TIMING_SHORT_LABELS[week.timing] ?? week.timing}
+      </div>
+      {week.slots.length === 0 ? (
+        <div className="sdl-print-slots">—</div>
+      ) : (
+        week.slots.map((slot) => (
+          <div key={`${slot.date}-${slot.day}`} className="sdl-print-slots">
+            <div>
+              {monthDayText(slot.date)} {WEEKDAY_LABELS[slot.day - 1]}
+            </div>
+            <div>
+              {slot.periods.length > 0 ? slot.periods.join("、") : "—"}
+              {slot.blockedBy && <span>（{slot.blockedBy}）</span>}
+            </div>
+          </div>
+        ))
+      )}
+    </>
+  );
 }
 
 /**
@@ -87,12 +122,18 @@ const PRINT_SHEET_STYLES = `
 }
 .sdl-print-meta th,
 .sdl-print-weeks th {
-  background: #f3f4f6;
+  background: #e5e7eb;
   font-weight: 600;
+}
+.sdl-print-weeks th {
+  text-align: center;
+  vertical-align: middle;
 }
 .sdl-print-meta th {
   width: 14%;
   white-space: nowrap;
+  text-align: center;
+  vertical-align: middle;
 }
 .sdl-print-weeks thead {
   display: table-header-group;
@@ -104,6 +145,20 @@ const PRINT_SHEET_STYLES = `
 .sdl-print-week {
   font-weight: 600;
   white-space: nowrap;
+}
+.sdl-print-weeks td.sdl-print-week-cell {
+  vertical-align: middle;
+}
+.sdl-print-timing {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #374151;
+}
+.sdl-print-weeks th.sdl-print-record-title-cell {
+  background: #f3f4f6;
+}
+.sdl-print-record-body {
+  font-size: 12px;
 }
 .sdl-print-slots {
   margin-top: 2px;
@@ -142,6 +197,16 @@ const PRINT_SHEET_STYLES = `
   font-size: 10px;
   color: #6b7280;
   text-align: right;
+}
+.sdl-print-section {
+  margin: 14px 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.sdl-print-reflection {
+  border: 1px solid #9ca3af;
+  padding: 6px 8px;
+  font-size: 12px;
 }
 @media print {
   @page {
@@ -188,6 +253,7 @@ const PRINT_SHEET_STYLES = `
 `;
 
 export function PrintPreviewSheet({ payload }: { payload: PrintPreviewPayload }) {
+  const layout = payload.layout;
   return (
     <div className="sdl-print-sheet">
       <style>{PRINT_SHEET_STYLES}</style>
@@ -237,51 +303,94 @@ export function PrintPreviewSheet({ payload }: { payload: PrintPreviewPayload })
         <tbody>
           {payload.weeks.map((week) => {
             const blockedNames = blockedNamesOf(week);
+            const showRecord = layout === "integrated" && Boolean(week.record);
             return (
-              <tr key={week.week}>
-                <td>
-                  <div className="sdl-print-week">第 {week.week} 週</div>
-                  {week.slots.length === 0 ? (
-                    <div className="sdl-print-slots">—</div>
-                  ) : (
-                    week.slots.map((slot) => (
-                      <div key={`${slot.date}-${slot.day}`} className="sdl-print-slots">
-                        <div>
-                          {monthDayText(slot.date)} {WEEKDAY_LABELS[slot.day - 1]}
-                        </div>
-                        <div>
-                          {slot.periods.length > 0 ? slot.periods.join("、") : "—"}
-                          {slot.blockedBy && <span>（{slot.blockedBy}）</span>}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </td>
-                <td>
-                  {week.blocked ? (
-                    <>
-                      <p className="sdl-print-blocked">{blockedNames || "學校活動"}</p>
-                      <p className="sdl-print-note">
-                        本週彈性學習時間為學校活動，不提供撰寫。
-                      </p>
-                      {week.content && (
-                        <RichTextContent html={week.content} className="text-sm" />
-                      )}
-                    </>
-                  ) : (
-                    <RichTextContent html={week.content} className="text-sm" />
-                  )}
-                </td>
-                <td>{week.venue || "—"}</td>
-              </tr>
+              <Fragment key={week.week}>
+                <tr>
+                  <td className="sdl-print-week-cell" rowSpan={showRecord ? 3 : 1}>
+                    <WeekInfo week={week} />
+                  </td>
+                  <td>
+                    {week.blocked ? (
+                      <>
+                        <p className="sdl-print-blocked">{blockedNames || "學校活動"}</p>
+                        <p className="sdl-print-note">
+                          本週彈性學習時間為學校活動，不提供撰寫。
+                        </p>
+                        {week.content && (
+                          <RichTextContent html={week.content} className="text-sm" />
+                        )}
+                      </>
+                    ) : (
+                      <RichTextContent html={week.content} className="text-sm" />
+                    )}
+                  </td>
+                  <td>{week.venue || "—"}</td>
+                </tr>
+                {showRecord && (
+                  <>
+                    <tr>
+                      <th colSpan={2} className="sdl-print-record-title-cell">
+                        執行成果紀錄
+                      </th>
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className="sdl-print-record-body">
+                        <RichTextContent html={week.record} className="text-sm" />
+                      </td>
+                    </tr>
+                  </>
+                )}
+              </Fragment>
             );
           })}
         </tbody>
       </table>
 
+      {layout === "separate" && payload.weeks.some((week) => week.record) && (
+        <>
+          <h2 className="sdl-print-section">執行成果紀錄</h2>
+          <table className="sdl-print-weeks">
+            <thead>
+              <tr>
+                <th scope="col" style={{ width: "22%" }}>
+                  週次／日期／節次
+                </th>
+                <th scope="col">執行成果</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payload.weeks
+                .filter((week) => week.record)
+                .map((week) => (
+                  <tr key={`record-${week.week}`}>
+                    <td className="sdl-print-week-cell">
+                      <WeekInfo week={week} />
+                    </td>
+                    <td>
+                      <RichTextContent html={week.record} className="text-sm" />
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {payload.reflection && (
+        <>
+          <h2 className="sdl-print-section">學習反思心得</h2>
+          <div className="sdl-print-reflection">
+            <RichTextContent html={payload.reflection} className="text-sm" />
+          </div>
+        </>
+      )}
+
       <p className="sdl-print-footer">
-        本預覽為目前編輯內容（含尚未儲存的變更）｜產生時間：
-        {formatGeneratedAt(payload.generatedAt)}
+        {payload.source === "approved"
+          ? "已通過的計畫內容與執行成果紀錄"
+          : "本預覽為目前編輯內容（含尚未儲存的變更）"}
+        ｜產生時間：{formatGeneratedAt(payload.generatedAt)}
       </p>
     </div>
   );

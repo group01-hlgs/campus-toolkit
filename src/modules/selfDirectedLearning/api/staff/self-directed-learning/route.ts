@@ -5,7 +5,7 @@ import { getClientIp, logActivity } from "@/lib/audit";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
 import { managedModulesOf } from "@/lib/roster";
 import { requireFeatureModuleEnabled } from "@/lib/module-gate";
-import { getSettings } from "../../../lib/self-directed-learning";
+import { getSettings, getWeekSlotSchedule } from "../../../lib/self-directed-learning";
 import {
   applyReview,
   countSubmittedPlansForScope,
@@ -114,8 +114,9 @@ export async function GET(request: NextRequest) {
         );
       }
       const plans = await listClassPlans(period, roles.classCode);
+      const weekSchedule = await getWeekSlotSchedule();
       return NextResponse.json(
-        { success: true, mode, roles, period, reviewWindow, plans },
+        { success: true, mode, roles, period, reviewWindow, plans, weekSchedule },
         { headers: noStore }
       );
     }
@@ -146,8 +147,9 @@ export async function GET(request: NextRequest) {
     }
 
     const plans = await listSubmittedPlansForScope(period, roles.scope);
+    const weekSchedule = await getWeekSlotSchedule();
     return NextResponse.json(
-      { success: true, mode, roles, period, reviewWindow, plans },
+      { success: true, mode, roles, period, reviewWindow, plans, weekSchedule },
       { headers: noStore }
     );
   } catch (error) {

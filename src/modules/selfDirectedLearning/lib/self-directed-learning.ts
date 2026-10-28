@@ -14,6 +14,7 @@ import {
   type ClassOption,
   type FlexibleSlot,
   type PeriodOption,
+  type RecordWindow,
   type SchoolActivityOccurrence,
   type SelfDirectedLearningSettings,
   type SpaceOption,
@@ -271,6 +272,80 @@ export async function getWeekSchedule(
       ? []
       : await loadSchoolActivityOccurrences(classCode, localDateMs(window.start));
   return buildWeekSchedule({ ...base, slots: settings.slots, events: occurrences });
+}
+
+/**
+ * 逐週日期／節次（不做衝堂比對）：審核端逐週表格顯示用。
+ * 只取決於學期起訖、節次行程與課表作息，與班級無關，整頁共用一份。
+ */
+export async function getWeekSlotSchedule(): Promise<WeekSchedule[]> {
+  const window = await getSemesterWindow();
+  if (!window) return [];
+  const weeks = countWeeksBetween(window.start, window.end);
+  if (!weeks) return [];
+  const [settings, schedule] = await Promise.all([getSettings(), getSchoolScheduleOptions()]);
+  return buildWeekSchedule({
+    semesterStart: window.start,
+    semesterEnd: window.end,
+    weeks,
+    periods: schedule.periods,
+    grade: "",
+    classCode: "",
+    slots: settings.slots,
+    events: [],
+  });
+}
+
+/** 日期 + `HH:MM` → epoch ms；格式錯誤回 null */
+function clockEndMs(date: string, clock: string): number | null {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(clock)) return null;
+  const base = localDateMs(date);
+  if (!base) return null;
+  const [hour, minute] = clock.split(":").map(Number);
+  const value = new Date(base);
+  value.setHours(hour, minute, 0, 0);
+  return value.getTime();
+}
+
+/** 該日 23:59:59.999（epoch ms）；格式錯誤回 0 */
+function endOfDayMs(date: string): number {
+  const base = localDateMs(date);
+  if (!base) return 0;
+  const value = new Date(base);
+  value.setHours(23, 59, 59, 999);
+  return value.getTime();
+}
+
+/**
+ * 逐週「執行成果紀錄」開放時間：該週最後一個規劃時段（日期＋節次結束時間）之後才開放。
+ * - 未設定節次行程（或課表作息缺該節次）時，以該週最後一天結束（週六 23:59）為準。
+ * - 學期起訖未設定時回空陣列，學生端即顯示為無法填寫。
+ */
+export async function getRecordWindow(
+  grade: string,
+  classCode: string,
+  weekSchedule?: WeekSchedule[]
+): Promise<RecordWindow> {
+  const [settings, schedule, weeks] = await Promise.all([
+    getSettings(),
+    getSchoolScheduleOptions(),
+    weekSchedule ? Promise.resolve(weekSchedule) : getWeekSchedule(grade, classCode),
+  ]);
+  const endOfPeriod = new Map(schedule.periods.map((period) => [period.name, period.end]));
+  const rows = weeks.map((week) => {
+    let openAt = 0;
+    for (const slot of week.slots) {
+      for (const name of slot.periods) {
+        const clock = endOfPeriod.get(name);
+        if (!clock) continue;
+        const ms = clockEndMs(slot.date, clock);
+        if (ms !== null && ms > openAt) openAt = ms;
+      }
+    }
+    if (openAt === 0) openAt = endOfDayMs(week.endDate);
+    return { week: week.week, openAt, endAt: endOfDayMs(week.endDate) };
+  });
+  return { deadlineAt: settings.resultDeadlineAt, weeks: rows };
 }
 
 /** 讀取行事曆中「有學校活動層級」的行程，轉成衝堂比對用資料 */

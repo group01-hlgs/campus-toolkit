@@ -3,13 +3,19 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { isActiveEntry } from "@/lib/roster";
 import { rosterCollection } from "@/types/roster";
+import { getRecordWindow } from "./self-directed-learning";
 import {
+  MAX_PLAN_WEEKS,
+  SELF_DIRECTED_LEARNING_LOCKS_COLLECTION,
   SELF_DIRECTED_LEARNING_PLANS_COLLECTION,
   SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION,
+  capRichHtmlLength,
   normalizeWeekNotes,
   periodLabelOf,
   planDocIdOf,
   openStateOf,
+  sanitizeRichHtml,
+  stripHtmlToText,
   type PlanReview,
   type PlanWeekReview,
   type ReviewScope,
@@ -19,6 +25,17 @@ import {
 
 function plansRef() {
   return getAdminDb().collection(SELF_DIRECTED_LEARNING_PLANS_COLLECTION);
+}
+
+/**
+ * 「學生＋學期」送審鎖定文件的參照（doc id＝`<學期>_<uid>`，單一文件、免複合索引）。
+ * 用途：送出審核與審核結果都在同一份文件上讀寫，讓同一學生同一學期的狀態轉換序列化，
+ * 杜絕兩分頁同時送審、兩個審核者同時通過的競態。
+ */
+function submissionLockRef(period: string, studentUid: string) {
+  return getAdminDb()
+    .collection(SELF_DIRECTED_LEARNING_LOCKS_COLLECTION)
+    .doc(planDocIdOf(period, studentUid));
 }
 
 /** 學生視角儀表資料 */
@@ -57,6 +74,20 @@ function readPlan(id: string, raw: Record<string, unknown>): SelfDirectedLearnin
     raw.status === "submitted" || raw.status === "approved" || raw.status === "returned"
       ? raw.status
       : "draft";
+  const executionRecords = Array.isArray(raw.executionRecords)
+    ? raw.executionRecords
+        .map((item): SelfDirectedLearningPlan["executionRecords"][number] | null => {
+          if (!item || typeof item !== "object") return null;
+          const record = item as Record<string, unknown>;
+          const weekNo = typeof record.week === "number" ? record.week : NaN;
+          if (!Number.isInteger(weekNo) || weekNo < 1 || weekNo > MAX_PLAN_WEEKS) return null;
+          const note = typeof record.note === "string" ? record.note : "";
+          if (!note) return null;
+          return { week: weekNo, note };
+        })
+        .filter((record): record is NonNullable<typeof record> => record !== null)
+        .sort((a, b) => a.week - b.week)
+    : [];
   return {
     id,
     period: str(raw.period),
@@ -70,6 +101,8 @@ function readPlan(id: string, raw: Record<string, unknown>): SelfDirectedLearnin
     advisor: str(raw.advisor),
     learningGoals: str(raw.learningGoals),
     weeks,
+    executionRecords,
+    reflection: str(raw.reflection),
     status,
     deletedAt: typeof raw.deletedAt === "number" ? raw.deletedAt : null,
     submittedAt: typeof raw.submittedAt === "number" ? raw.submittedAt : null,
@@ -162,6 +195,7 @@ function newPlanDocId(period: string, studentUid: string, now: number): string {
  * 儲存草稿／送出審核。
  * - 未帶 planId＝新增計畫（僅限開放撰寫期間，且同一學期已有正式計畫時不可新增）。
  * - 帶 planId＝編輯既有草稿（草稿／退回修改可編輯；審核中／已通過不可編輯）。
+ * - 同一學期可有多筆草稿，但同時僅能有一件在審核中（送審時檢查）。
  * - 正式計畫（approved）每學期僅一份；送出審核與審核通過時都會檢查。
  */
 export async function saveStudentPlan(input: {
@@ -202,13 +236,31 @@ export async function saveStudentPlan(input: {
     }
   }
 
-  const period = target?.period || currentPeriod;
+  // 送出審核一律視為「本學期」的計畫（草稿可跨學期保留，送出時歸到目前學期）
+  const period =
+    input.action === "submit" ? currentPeriod : target?.period || currentPeriod;
   const studentPlans = await getStudentPlans(input.student.uid);
   const approvedElsewhere = studentPlans.find(
     (plan) => plan.period === period && plan.status === "approved" && plan.id !== requestedId
   );
   if (approvedElsewhere && (!target || input.action === "submit")) {
     return { ok: false, status: 409, message: "本學期已有正式計畫，無法再新增或送出計畫" };
+  }
+
+  // 同一學期同時僅能有一件計畫在審核中（可保留多筆草稿）
+  const submittedElsewhere = studentPlans.find(
+    (plan) =>
+      plan.period === period &&
+      plan.status === "submitted" &&
+      !plan.deletedAt &&
+      plan.id !== requestedId
+  );
+  if (input.action === "submit" && submittedElsewhere) {
+    return {
+      ok: false,
+      status: 409,
+      message: "本學期已有計畫在審核中，請等待審查結果或先抽回該計畫後再送出",
+    };
   }
 
   if (!target && openStateOf(input.settings, now) !== "open") {
@@ -238,18 +290,201 @@ export async function saveStudentPlan(input: {
     advisor: input.draft.advisor,
     learningGoals: input.draft.learningGoals,
     weeks: input.draft.weeks,
+    // 成果紀錄與反思不隨草稿／送審變動（保留既有內容）
+    executionRecords: target?.executionRecords ?? [],
+    reflection: target?.reflection ?? "",
     status: input.action === "submit" ? "submitted" : "draft",
     deletedAt: null,
     submittedAt: input.action === "submit" ? now : target?.submittedAt ?? null,
     updatedAt: now,
   };
-  await plansRef().doc(id).set(next, { merge: true });
+
+  if (input.action !== "submit") {
+    await plansRef().doc(id).set(next, { merge: true });
+    return { ok: true, plan: next };
+  }
+
+  // 送審：以「學生＋學期」鎖定文件序列化，杜絕兩分頁同時送審的競態
+  // （上面的檢查是快速回饋；真正把關在交易內重讀鎖定文件與被鎖定的計畫）
+  const lockRef = submissionLockRef(period, input.student.uid);
+  const outcome = await getAdminDb().runTransaction(async (tx) => {
+    const lockSnap = await tx.get(lockRef);
+    const lock = (lockSnap.exists ? lockSnap.data() : null) as Record<string, unknown> | null;
+    const lockedSubmittedId =
+      typeof lock?.submittedPlanId === "string" ? lock.submittedPlanId : "";
+    if (lockedSubmittedId && lockedSubmittedId !== id) {
+      const lockedSnap = await tx.get(plansRef().doc(lockedSubmittedId));
+      if (lockedSnap.exists) {
+        const lockedPlan = readPlan(
+          lockedSnap.id,
+          (lockedSnap.data() || {}) as Record<string, unknown>
+        );
+        if (
+          lockedPlan.period === period &&
+          lockedPlan.status === "submitted" &&
+          !lockedPlan.deletedAt
+        ) {
+          return { kind: "submitted" as const };
+        }
+      }
+    }
+    const lockedApprovedId =
+      typeof lock?.approvedPlanId === "string" ? lock.approvedPlanId : "";
+    if (lockedApprovedId && lockedApprovedId !== id) {
+      const approvedSnap = await tx.get(plansRef().doc(lockedApprovedId));
+      if (approvedSnap.exists) {
+        const approvedPlan = readPlan(
+          approvedSnap.id,
+          (approvedSnap.data() || {}) as Record<string, unknown>
+        );
+        if (approvedPlan.period === period && approvedPlan.status === "approved") {
+          return { kind: "approved" as const };
+        }
+      }
+    }
+    tx.set(plansRef().doc(id), next, { merge: true });
+    tx.set(
+      lockRef,
+      { period, studentUid: input.student.uid, submittedPlanId: id, updatedAt: now },
+      { merge: true }
+    );
+    return { kind: "ok" as const };
+  });
+
+  if (outcome.kind === "submitted") {
+    return {
+      ok: false,
+      status: 409,
+      message: "本學期已有計畫在審核中，請等待審查結果或先抽回該計畫後再送出",
+    };
+  }
+  if (outcome.kind === "approved") {
+    return { ok: false, status: 409, message: "本學期已有正式計畫，無法再送出計畫" };
+  }
   return { ok: true, plan: next };
 }
 
 export type PlanTrashResult =
   | { ok: true; plan: SelfDirectedLearningPlan }
   | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/** 執行成果紀錄單一週的輸入（富文本；空字串＝清除該週） */
+export interface ExecutionRecordInput {
+  week: number;
+  note: string;
+}
+
+export type SaveRecordsResult =
+  | { ok: true; plan: SelfDirectedLearningPlan }
+  | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/** 執行成果紀錄的可見文字上限（富文本 HTML 上限 20000 字元） */
+const RECORD_PLAIN_LIMIT = 2000;
+
+/**
+ * 儲存執行成果紀錄與學習反思心得。
+ * - 僅限已通過審核（approved）的計畫：計畫執行後才有成果可寫。
+ * - 逐週開放：該週規劃時間（最後一個節次結束）過了才能寫。
+ * - 學習反思心得：最後一週時間過了才能寫。
+ * - 管理端設定的「計畫成果撰寫截止日」之後一律不可寫。
+ */
+export async function savePlanRecords(input: {
+  planId: string;
+  studentUid: string;
+  records: ExecutionRecordInput[];
+  /** undefined＝不動（例如反思尚未開放時不送） */
+  reflection?: string;
+  settings: SelfDirectedLearningSettings;
+  now?: number;
+}): Promise<SaveRecordsResult> {
+  const now = input.now ?? Date.now();
+  const snap = await plansRef().doc(input.planId).get();
+  if (!snap.exists) return { ok: false, status: 404, message: "查無此計畫" };
+  const plan = readPlan(input.planId, (snap.data() || {}) as Record<string, unknown>);
+  if (plan.studentUid !== input.studentUid) {
+    return { ok: false, status: 403, message: "無權修改此計畫" };
+  }
+  if (plan.deletedAt) {
+    return { ok: false, status: 409, message: "此計畫在垃圾桶，無法填寫執行成果" };
+  }
+  if (plan.status !== "approved") {
+    return { ok: false, status: 409, message: "計畫通過審核後才能填寫執行成果紀錄" };
+  }
+  if (plan.period !== periodLabelOf(await getCurrentPeriod())) {
+    return { ok: false, status: 409, message: "只能填寫本學期計畫的執行成果紀錄" };
+  }
+  if (input.settings.resultDeadlineAt !== null && now > input.settings.resultDeadlineAt) {
+    return { ok: false, status: 409, message: "已超過計畫成果撰寫截止時間" };
+  }
+
+  const window = await getRecordWindow(plan.grade, plan.classCode);
+  const openByWeek = new Map(window.weeks.map((row) => [row.week, row.openAt]));
+  const endByWeek = new Map(window.weeks.map((row) => [row.week, row.endAt]));
+  const planWeeks = new Set(plan.weeks.map((week) => week.week));
+  const records = new Map(plan.executionRecords.map((record) => [record.week, record.note]));
+
+  for (const item of input.records.slice(0, MAX_PLAN_WEEKS)) {
+    if (!planWeeks.has(item.week)) {
+      return { ok: false, status: 400, message: "週次不在計畫內容內" };
+    }
+    const openAt = openByWeek.get(item.week) ?? 0;
+    if (openAt <= 0 || now < openAt) {
+      return {
+        ok: false,
+        status: 400,
+        message: `第 ${item.week} 週時間還沒到，尚不能填寫執行成果紀錄`,
+      };
+    }
+    const sanitized = sanitizeRichHtml(typeof item.note === "string" ? item.note : "");
+    const plain = stripHtmlToText(sanitized).trim();
+    if (plain.length > RECORD_PLAIN_LIMIT) {
+      return {
+        ok: false,
+        status: 400,
+        message: `第 ${item.week} 週執行成果紀錄超過 ${RECORD_PLAIN_LIMIT} 字上限`,
+      };
+    }
+    if (plain) records.set(item.week, capRichHtmlLength(sanitized, 20000));
+    else records.delete(item.week);
+  }
+
+  let reflection = plan.reflection;
+  if (typeof input.reflection === "string") {
+    // 學習反思心得：最後一週整週結束（下一週開始）才開放
+    const reflectionOpenAt = plan.weeks.reduce(
+      (max, week) => Math.max(max, endByWeek.get(week.week) ?? 0),
+      0
+    );
+    if (reflectionOpenAt <= 0 || now < reflectionOpenAt) {
+      return {
+        ok: false,
+        status: 400,
+        message: "最後一週時間還沒到，尚不能填寫學習反思心得",
+      };
+    }
+    const sanitized = sanitizeRichHtml(input.reflection);
+    const plain = stripHtmlToText(sanitized).trim();
+    if (plain.length > RECORD_PLAIN_LIMIT) {
+      return {
+        ok: false,
+        status: 400,
+        message: `學習反思心得超過 ${RECORD_PLAIN_LIMIT} 字上限`,
+      };
+    }
+    reflection = plain ? capRichHtmlLength(sanitized, 20000) : "";
+  }
+
+  const executionRecords = [...records.entries()]
+    .map(([week, note]) => ({ week, note }))
+    .sort((a, b) => a.week - b.week);
+  await plansRef()
+    .doc(plan.id)
+    .set({ executionRecords, reflection, updatedAt: now }, { merge: true });
+  return {
+    ok: true,
+    plan: { ...plan, executionRecords, reflection, updatedAt: now },
+  };
+}
 
 /**
  * 假性刪除／還原：只允許本人操作，且只針對草稿或退回修改的計畫。
@@ -328,7 +563,14 @@ export async function withdrawStudentPlan(input: {
       submittedAt: null,
       updatedAt: now,
     };
+    // 送審鎖定文件同步清除，讓同一學期可以再送另一件
+    const lockRef = submissionLockRef(plan.period, plan.studentUid);
+    const lockSnap = await tx.get(lockRef);
+    const lock = (lockSnap.exists ? lockSnap.data() : null) as Record<string, unknown> | null;
     tx.set(planRef, { status: "draft", submittedAt: null, updatedAt: now }, { merge: true });
+    if (lock && lock.submittedPlanId === plan.id) {
+      tx.set(lockRef, { submittedPlanId: null, updatedAt: now }, { merge: true });
+    }
     return { kind: "ok" as const, plan: next };
   });
 
@@ -497,6 +739,11 @@ export type ApplyReviewResult =
   | { ok: true; plan: SelfDirectedLearningPlan }
   | { ok: false; status: 403 | 404 | 409; message: string };
 
+/** 產生審核紀錄文件 id（避免依賴 `.doc()` 無參數自動 id；主程式計讀 Proxy 不支援） */
+function newReviewDocId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /**
  * 套用審核結果（transaction：僅 submitted 可審，寫 review＋更新狀態）。
  * 審核不受開放期間限制。
@@ -514,7 +761,11 @@ export async function applyReview(input: {
 }): Promise<ApplyReviewResult> {
   const db = getAdminDb();
   const planRef = plansRef().doc(input.planId);
-  const reviewRef = db.collection(SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION).doc();
+  // 主程式 Firestore 計讀／計寫 Proxy 會把 `doc()` 的無參數呼叫轉成 `doc(undefined)`，
+  // 造成 documentPath 驗證失敗；這裡自行產生合法 id，確保審核可送出。
+  const reviewRef = db
+    .collection(SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION)
+    .doc(newReviewDocId());
 
   const outcome = await db.runTransaction(async (tx) => {
     const snap = await tx.get(planRef);
@@ -525,8 +776,28 @@ export async function applyReview(input: {
     }
     if (current.deletedAt) return { kind: "badStatus" as const };
     if (current.status !== "submitted") return { kind: "badStatus" as const };
+
+    // 「學生＋學期」鎖定文件：與送審共用同一份文件，讓狀態轉換序列化
+    const lockRef = submissionLockRef(current.period, current.studentUid);
+    const lockSnap = await tx.get(lockRef);
+    const lock = (lockSnap.exists ? lockSnap.data() : null) as Record<string, unknown> | null;
+
     if (input.action === "approve") {
-      // 同一學生同一學期僅能有一份正式計畫：審核當下再檢查一次，避免兩筆待審先後通過
+      // 同一學生同一學期僅能有一份正式計畫：先查鎖定文件，再掃描既有計畫（相容沒有鎖定文件的舊資料）
+      const lockedApprovedId =
+        typeof lock?.approvedPlanId === "string" ? lock.approvedPlanId : "";
+      if (lockedApprovedId && lockedApprovedId !== current.id) {
+        const lockedSnap = await tx.get(plansRef().doc(lockedApprovedId));
+        if (lockedSnap.exists) {
+          const lockedPlan = readPlan(
+            lockedSnap.id,
+            (lockedSnap.data() || {}) as Record<string, unknown>
+          );
+          if (lockedPlan.period === current.period && lockedPlan.status === "approved") {
+            return { kind: "conflict" as const };
+          }
+        }
+      }
       const approvedSnap = await tx.get(
         plansRef().where("studentUid", "==", current.studentUid).limit(50)
       );
@@ -550,6 +821,22 @@ export async function applyReview(input: {
       weekNotes: input.weekNotes ?? [],
       reviewedAt: now,
     });
+    // 鎖定文件同步：通過＝記下正式計畫並清掉審核中；退回＝清掉審核中
+    if (input.action === "approve") {
+      tx.set(
+        lockRef,
+        {
+          period: current.period,
+          studentUid: current.studentUid,
+          approvedPlanId: current.id,
+          submittedPlanId: null,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    } else if (lock && lock.submittedPlanId === current.id) {
+      tx.set(lockRef, { submittedPlanId: null, updatedAt: now }, { merge: true });
+    }
     return {
       kind: "ok" as const,
       plan: { ...current, status, updatedAt: now },

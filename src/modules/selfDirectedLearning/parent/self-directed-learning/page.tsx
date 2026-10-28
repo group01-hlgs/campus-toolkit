@@ -151,9 +151,7 @@ export default function ParentSelfDirectedLearningPage() {
 
           {latestReview && (
             <section className="border border-themed bg-card rounded-lg p-4" aria-label="審查意見">
-              <h2 className="text-t1 mb-1 text-sm font-medium">
-                審查意見（{latestReview.reviewerName || "審核人員"}）
-              </h2>
+              <h2 className="text-t1 mb-1 text-sm font-medium">學校審查意見回饋</h2>
               <RichTextContent
                 html={latestReview.note}
                 emptyText="（無文字意見）"

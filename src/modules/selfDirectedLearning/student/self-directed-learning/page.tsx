@@ -26,7 +26,9 @@ import {
   type PlanTiming,
   type PlanWeek,
   type PlanReview,
+  type PrintLayout,
   type PrintPreviewPayload,
+  type RecordWindow,
   type SelfDirectedLearningPlan,
   type SelfDirectedLearningSettings,
   type WeekSchedule,
@@ -71,6 +73,12 @@ const WINDOW_LABEL: Record<string, string> = {
   ended: "已超過開放撰寫期限",
 };
 
+/** 表格內的時段短標籤（與教職員審核頁一致，避免窄欄位逐字換行） */
+const TIMING_SHORT_LABELS: Record<string, string> = {
+  flexible: "彈性學習",
+  afterSchool: "課餘",
+};
+
 function formatDateTime(epoch: number | null): string {
   if (!epoch) return "—";
   const d = new Date(epoch);
@@ -83,6 +91,20 @@ function monthDayText(date: string): string {
   const [, month, day] = date.split("-");
   if (!month || !day) return date;
   return `${Number(month)}/${Number(day)}`;
+}
+
+/** 短日期時間（`M/D HH:mm`；成果紀錄開放時間顯示用） */
+function formatShortDateTime(epoch: number): string {
+  if (!epoch) return "—";
+  const d = new Date(epoch);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 短日期（`YYYY/M/D`；成果撰寫截止日顯示用） */
+function formatShortDate(epoch: number): string {
+  const d = new Date(epoch);
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 /** 學期識別（如 115-1）轉為易讀文字 */
@@ -245,6 +267,23 @@ export default function StudentSelfDirectedLearningPage() {
   const [fullWeeks, setFullWeeks] = useState<number | null>(null);
   /** 逐週彈性學習時間（日期／節次）與學校活動衝堂 */
   const [weekSchedule, setWeekSchedule] = useState<WeekSchedule[]>([]);
+  /** 執行成果紀錄／學習反思心得開放資訊（逐週開放時間與截止日） */
+  const [recordWindow, setRecordWindow] = useState<RecordWindow>({
+    deadlineAt: null,
+    weeks: [],
+  });
+  /** 執行成果紀錄草稿（key＝plan id → 週次 → 富文本） */
+  const [recordDrafts, setRecordDrafts] = useState<Record<string, Record<number, string>>>({});
+  /** 學習反思心得草稿（key＝plan id） */
+  const [reflectionDrafts, setReflectionDrafts] = useState<Record<string, string>>({});
+  /** 正在儲存成果紀錄的計畫 id */
+  const [recordsBusy, setRecordsBusy] = useState<string | null>(null);
+  /** 是否展開所有「執行成果紀錄」編輯區（預設收合，避免版面過長） */
+  const [recordsExpanded, setRecordsExpanded] = useState(false);
+  /** 列印預覽成果紀錄呈現方式（分開式／融入式） */
+  const [printLayout, setPrintLayout] = useState<PrintLayout>("separate");
+  /** 已展開「查看計畫與撰寫成果」的計畫（浮動按鈕只在展開時出現） */
+  const [openDetailPlans, setOpenDetailPlans] = useState<Record<string, boolean>>({});
   /** 學生姓名／班級（列印預覽表頭用） */
   const [studentInfo, setStudentInfo] = useState<StudentInfo | null>(null);
   /** 撰寫計畫區塊是否展開（預設隱藏；發起新計畫或編輯草稿才顯示） */
@@ -285,6 +324,12 @@ export default function StudentSelfDirectedLearningPage() {
   const currentApproved = activePlans.some(
     (plan) => plan.status === "approved" && plan.period === currentPeriod
   );
+  /** 送出審核一律歸為本學期的計畫，因此以目前學期檢核「僅一件審核中」 */
+  const otherSubmittedPlan =
+    submittedPlans.find((plan) => plan.period === currentPeriod) ?? null;
+  /** 目前學期已通過的計畫（執行成果紀錄的對象；每學期僅一件） */
+  const recordPlan =
+    plans.find((plan) => plan.status === "approved" && plan.period === currentPeriod) ?? null;
   /** 可寫週次（有設定節次時：該週至少一個時段未衝堂；未設定節次時：全部視為可寫） */
   const availableWeekNumbers = useMemo(() => {
     if (weekSchedule.length > 0) {
@@ -376,6 +421,19 @@ export default function StudentSelfDirectedLearningPage() {
       setSettings(nextSettings);
       setFullWeeks(nextFullWeeks);
       setWeekSchedule(Array.isArray(data.weekSchedule) ? (data.weekSchedule as WeekSchedule[]) : []);
+      setRecordWindow(
+        data.recordWindow && typeof data.recordWindow === "object"
+          ? {
+              deadlineAt:
+                typeof (data.recordWindow as RecordWindow).deadlineAt === "number"
+                  ? (data.recordWindow as RecordWindow).deadlineAt
+                  : null,
+              weeks: Array.isArray((data.recordWindow as RecordWindow).weeks)
+                ? (data.recordWindow as RecordWindow).weeks
+                : [],
+            }
+          : { deadlineAt: null, weeks: [] }
+      );
       setStudentInfo(
         data.student && typeof data.student === "object"
           ? {
@@ -585,22 +643,31 @@ export default function StudentSelfDirectedLearningPage() {
     setEditingPlanId(null);
   };
 
-  /** 開新分頁列印預覽：把目前草稿（含尚未儲存的變更）交給預覽頁 */
-  const openPrintPreview = () => {
+  /**
+   * 開新分頁列印預覽：
+   * - 不帶參數＝目前撰寫中的草稿（含尚未儲存的變更）
+   * - 帶入計畫＝已通過的計畫內容＋執行成果紀錄＋學習反思心得
+   */
+  const openPrintPreview = (plan?: SelfDirectedLearningPlan) => {
+    const weeks = plan ? plan.weeks : draft.weeks;
     const payload: PrintPreviewPayload = {
-      period: currentPeriod,
-      studentName: studentInfo?.name || editingPlan?.studentName || "",
-      className: studentInfo?.className || editingPlan?.className || "",
-      topic: draft.topic,
-      studyGroup: draft.studyGroup,
-      advisor: draft.advisor,
-      learningGoals: draft.learningGoals,
+      period: plan?.period || currentPeriod,
+      studentName: plan?.studentName || studentInfo?.name || editingPlan?.studentName || "",
+      className: plan?.className || studentInfo?.className || editingPlan?.className || "",
+      topic: plan ? plan.topic : draft.topic,
+      studyGroup: plan ? plan.studyGroup : draft.studyGroup,
+      advisor: plan ? plan.advisor : draft.advisor,
+      learningGoals: plan ? plan.learningGoals : draft.learningGoals,
+      reflection: plan?.reflection ?? "",
+      source: plan ? "approved" : "draft",
+      layout: printLayout,
       generatedAt: Date.now(),
-      weeks: draft.weeks.map((week) => {
+      weeks: weeks.map((week) => {
         const scheduleRow = weekScheduleByNo.get(week.week);
         const slots = scheduleRow?.slots ?? [];
         return {
           week: week.week,
+          timing: week.timing,
           content: week.content,
           venue: week.venue,
           slots: slots.map((slot) => ({
@@ -610,6 +677,8 @@ export default function StudentSelfDirectedLearningPage() {
             blockedBy: slot.blockedBy,
           })),
           blocked: scheduleRow?.blocked ?? false,
+          record:
+            plan?.executionRecords.find((item) => item.week === week.week)?.note ?? "",
         };
       }),
     };
@@ -724,7 +793,13 @@ export default function StudentSelfDirectedLearningPage() {
       : windowState === "ended"
         ? "var(--warning)"
         : "var(--t3)";
-  const canSubmit = withinWindow && !locked && saving === null && rangeValid;
+  const canSubmit =
+    withinWindow &&
+    !locked &&
+    saving === null &&
+    rangeValid &&
+    !otherSubmittedPlan &&
+    !currentApproved;
   const canStartNew = withinWindow && !currentApproved && !formOpen && !loading;
 
   const formActionButtons = (
@@ -742,7 +817,15 @@ export default function StudentSelfDirectedLearningPage() {
         className="btn-primary btn-theme px-6 py-3 text-base"
         disabled={!canSubmit || loading}
         onClick={() => void submit("submit")}
-        title={withinWindow ? "" : WINDOW_LABEL[windowState]}
+        title={
+          currentApproved
+            ? "本學期已有通過審核的正式計畫，無法再送出其他計畫"
+            : otherSubmittedPlan
+              ? "本學期已有計畫在審核中，請等待審查結果或先抽回後再送出"
+              : withinWindow
+                ? ""
+                : WINDOW_LABEL[windowState]
+        }
       >
         {saving === "submit" ? "送出中…" : "送出審核"}
       </button>
@@ -810,6 +893,107 @@ export default function StudentSelfDirectedLearningPage() {
     </div>
   );
 
+  /**
+   * 該計畫的「執行成果紀錄」開放狀態：
+   * 逐週需等該週規劃時間（最後一個節次結束）過了才開放；學習反思心得等最後一週過了才開放；
+   * 兩者都受管理端設定的成果撰寫截止日限制（含當日）。
+   */
+  const recordInfoOf = (plan: SelfDirectedLearningPlan) => {
+    const openByWeek = new Map(recordWindow.weeks.map((row) => [row.week, row.openAt]));
+    const endByWeek = new Map(recordWindow.weeks.map((row) => [row.week, row.endAt]));
+    const openAtOf = (week: number) => openByWeek.get(week) ?? 0;
+    const reflectionOpenAt = plan.weeks.reduce(
+      (max, week) => Math.max(max, endByWeek.get(week.week) ?? 0),
+      0
+    );
+    const deadlineAt = recordWindow.deadlineAt;
+    const now = Date.now();
+    return {
+      openAtOf,
+      reflectionOpenAt,
+      deadlineAt,
+      weekOpen: (week: number) => openAtOf(week) > 0 && now >= openAtOf(week),
+      reflectionOpen: reflectionOpenAt > 0 && now >= reflectionOpenAt,
+      /** 未設定截止時間＝不限制（只要該週時間到即可填寫） */
+      withinDeadline: deadlineAt === null || now <= deadlineAt,
+    };
+  };
+
+  /** 已通過計畫的成果編輯狀態（左側浮動按鈕用） */
+  const canSaveRecordsOf = (plan: SelfDirectedLearningPlan) => {
+    const info = recordInfoOf(plan);
+    return (
+      info.withinDeadline &&
+      (plan.weeks.some((week) => info.weekOpen(week.week)) || info.reflectionOpen)
+    );
+  };
+  const recordCanSave = recordPlan ? canSaveRecordsOf(recordPlan) : false;
+
+  /** 已填寫或草稿中的某一週執行成果 */
+  const recordValueOf = (plan: SelfDirectedLearningPlan, week: number): string =>
+    recordDrafts[plan.id]?.[week] ??
+    plan.executionRecords.find((record) => record.week === week)?.note ??
+    "";
+
+  const setRecordValue = (plan: SelfDirectedLearningPlan, week: number, value: string) => {
+    setRecordDrafts((prev) => {
+      const base =
+        prev[plan.id] ??
+        Object.fromEntries(plan.executionRecords.map((record) => [record.week, record.note]));
+      return { ...prev, [plan.id]: { ...base, [week]: value } };
+    });
+  };
+
+  const reflectionValueOf = (plan: SelfDirectedLearningPlan): string =>
+    reflectionDrafts[plan.id] ?? plan.reflection ?? "";
+
+  const setReflectionValue = (plan: SelfDirectedLearningPlan, value: string) => {
+    setReflectionDrafts((prev) => ({ ...prev, [plan.id]: value }));
+  };
+
+  /** 儲存執行成果紀錄與學習反思心得（只送已開放的週次與反思） */
+  const saveRecords = async (plan: SelfDirectedLearningPlan) => {
+    if (recordsBusy) return;
+    const info = recordInfoOf(plan);
+    const records = plan.weeks
+      .filter((week) => info.weekOpen(week.week))
+      .map((week) => ({ week: week.week, note: recordValueOf(plan, week.week) }));
+    setRecordsBusy(plan.id);
+    try {
+      const response = await fetch("/api/student/self-directed-learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "records",
+          planId: plan.id,
+          records,
+          ...(info.reflectionOpen ? { reflection: reflectionValueOf(plan) } : {}),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setToast({ kind: "error", text: data.message || "儲存失敗" });
+        return;
+      }
+      setToast({ kind: "success", text: data.message || "已儲存執行成果紀錄" });
+      setRecordDrafts((prev) => {
+        const next = { ...prev };
+        delete next[plan.id];
+        return next;
+      });
+      setReflectionDrafts((prev) => {
+        const next = { ...prev };
+        delete next[plan.id];
+        return next;
+      });
+      await load();
+    } catch {
+      setToast({ kind: "error", text: "儲存失敗" });
+    } finally {
+      setRecordsBusy(null);
+    }
+  };
+
   const renderPlanCard = (
     plan: SelfDirectedLearningPlan,
     options: {
@@ -821,6 +1005,65 @@ export default function StudentSelfDirectedLearningPage() {
   ) => {
     const review = reviews[plan.id];
     const busy = planBusy === plan.id;
+    /** 已通過且為本學期的計畫：在「查看計畫與撰寫成果」上下提供成果操作按鈕 */
+    const showRecordActions = plan.status === "approved" && plan.period === currentPeriod;
+    const recordActionButtons = (target: SelfDirectedLearningPlan) => (
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          className="btn-theme rounded px-4 py-2 text-xs"
+          onClick={() => openPrintPreview(target)}
+        >
+          預覽列印（計畫與成果）
+        </button>
+        <div
+          role="group"
+          aria-label="列印成果紀錄呈現方式"
+          className="border border-themed bg-card text-t1 flex flex-wrap items-center gap-3 rounded px-3 py-2 text-xs"
+        >
+          <span className="text-t3">列印方式</span>
+          <label
+            className="flex cursor-pointer items-center gap-1"
+            title="執行成果紀錄另列於表格下方"
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5"
+              checked={printLayout === "separate"}
+              onChange={() => setPrintLayout("separate")}
+            />
+            分開式
+          </label>
+          <label
+            className="flex cursor-pointer items-center gap-1"
+            title="執行成果紀錄融入當週學習安排"
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5"
+              checked={printLayout === "integrated"}
+              onChange={() => setPrintLayout("integrated")}
+            />
+            融入式
+          </label>
+        </div>
+        <button
+          type="button"
+          className="btn-theme rounded px-4 py-2 text-xs"
+          onClick={() => setRecordsExpanded((prev) => !prev)}
+        >
+          {recordsExpanded ? "收合全部成果編輯區" : "展開全部成果編輯區"}
+        </button>
+        <button
+          type="button"
+          className="btn-primary btn-theme rounded px-4 py-2 text-xs disabled:opacity-50"
+          disabled={recordsBusy === target.id || !canSaveRecordsOf(target)}
+          onClick={() => void saveRecords(target)}
+        >
+          {recordsBusy === target.id ? "儲存中…" : "儲存執行成果紀錄"}
+        </button>
+      </div>
+    );
     return (
       <article key={plan.id} className="border border-themed bg-surface space-y-3 rounded-lg p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -896,9 +1139,7 @@ export default function StudentSelfDirectedLearningPage() {
 
         {review && (
           <div className="border-l-4 border-l-primary border-themed bg-card rounded-md border p-3">
-            <p className="text-t1 text-xs font-medium">
-              審查意見（{review.reviewerName || "審核人員"}）
-            </p>
+            <p className="text-t1 text-xs font-medium">學校審查意見回饋</p>
             <RichTextContent
               html={review.note}
               emptyText="（無文字意見）"
@@ -907,41 +1148,235 @@ export default function StudentSelfDirectedLearningPage() {
           </div>
         )}
 
-        <details className="border-themed border-t pt-2">
+        <details
+          className="border-themed border-t pt-2"
+          onToggle={(event) => {
+            const open = event.currentTarget.open;
+            setOpenDetailPlans((prev) =>
+              prev[plan.id] === open ? prev : { ...prev, [plan.id]: open }
+            );
+          }}
+        >
           <summary className="text-t2 flex cursor-pointer items-center gap-1 text-xs">
             <DisclosureArrow />
-            查看內容（{plan.weeks.length} 週）
+            查看計畫與撰寫成果（{plan.weeks.length} 週）
           </summary>
+          {showRecordActions && recordActionButtons(plan)}
           {plan.learningGoals && (
-            <div className="border border-themed bg-card mt-2 rounded-md p-3">
+            <div className="mt-2 space-y-1">
               <p className="text-t1 text-xs font-medium">學習目標</p>
-              <RichTextContent html={plan.learningGoals} className="text-t2 text-xs" />
+              <div className="border border-themed bg-card rounded-md p-3">
+                <RichTextContent html={plan.learningGoals} className="text-t2 text-xs" />
+              </div>
             </div>
           )}
-          <ul className="mt-2 space-y-2">
-            {plan.weeks.map((week) => {
-              const weekReview = review?.weekNotes?.find((item) => item.week === week.week);
-              return (
-                <li key={week.week} className="border border-themed bg-card rounded-md p-3">
-                  <div className="text-t3 mb-1 flex flex-wrap gap-2 text-xs">
-                    <span className="text-t2 font-medium">第 {week.week} 週</span>
-                    <span>{PLAN_TIMING_LABELS[week.timing]}</span>
-                    <span>{week.venue || "—"}</span>
-                  </div>
-                  <RichTextContent html={week.content} className="text-t2 text-xs" />
-                  {weekReview && (
-                    <div className="border-l-primary border-themed bg-surface mt-2 rounded-md border border-l-4 p-2">
-                      <p className="text-t1 text-xs font-medium">審查意見</p>
-                      <RichTextContent
-                        html={weekReview.note}
-                        className="text-t2 text-xs"
-                      />
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          {/* 逐週內容以表格呈現（與教職員審核頁一致：週次／學習安排／場地） */}
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th
+                    scope="col"
+                    className="border border-themed bg-surface text-t1 px-2 py-2 text-xs"
+                    style={{ width: "14%", textAlign: "center" }}
+                  >
+                    週次
+                  </th>
+                  <th
+                    scope="col"
+                    className="border border-themed bg-surface text-t1 px-2 py-2 text-xs"
+                    style={{ textAlign: "center" }}
+                  >
+                    學習安排
+                  </th>
+                  <th
+                    scope="col"
+                    className="border border-themed bg-surface text-t1 px-2 py-2 text-xs"
+                    style={{ width: "16%", textAlign: "center" }}
+                  >
+                    場地
+                  </th>
+                </tr>
+              </thead>
+              {plan.weeks.map((week) => {
+                const weekReview = review?.weekNotes?.find((item) => item.week === week.week);
+                // 日期／節次由目前學期的節次行程推算，僅適用於本學期的計畫
+                const showSchedule = plan.period === currentPeriod;
+                const slots = showSchedule ? weekScheduleByNo.get(week.week)?.slots ?? [] : [];
+                const dateText = slots
+                  .map((slot) => `${monthDayText(slot.date)} ${WEEKDAY_LABELS[slot.day - 1]}`)
+                  .join("、");
+                const periodText = slots.flatMap((slot) => slot.periods).join("、");
+                // 執行成果紀錄：計畫通過後，該週規劃時間過了才開放，並受成果撰寫截止時間限制
+                const info = recordInfoOf(plan);
+                const weekOpen = info.weekOpen(week.week);
+                const canEditRecord =
+                  plan.status === "approved" &&
+                  plan.period === currentPeriod &&
+                  weekOpen &&
+                  info.withinDeadline;
+                const savedRecord =
+                  plan.executionRecords.find((item) => item.week === week.week)?.note ?? "";
+                return (
+                  <tbody key={week.week}>
+                    <tr>
+                      <td className="border border-themed px-2 py-2 align-middle text-xs">
+                        <div className="text-t1 font-medium whitespace-nowrap">
+                          第 {week.week} 週
+                        </div>
+                        <div className="text-t3 whitespace-nowrap">
+                          {TIMING_SHORT_LABELS[week.timing] ?? PLAN_TIMING_LABELS[week.timing]}
+                        </div>
+                        {showSchedule && (
+                          <>
+                            <div className="text-t2 whitespace-nowrap">{dateText || "—"}</div>
+                            <div className="text-t2 whitespace-nowrap">{periodText || "—"}</div>
+                          </>
+                        )}
+                      </td>
+                      <td className="border border-themed px-2 py-2 align-top">
+                        <RichTextContent html={week.content} />
+                      </td>
+                      <td className="border border-themed text-t2 px-2 py-2 align-top text-xs">
+                        {week.venue || "—"}
+                      </td>
+                    </tr>
+                    {plan.status === "approved" && plan.period === currentPeriod && (
+                      <tr>
+                        <td colSpan={3} className="border border-themed bg-surface px-2 py-2">
+                          <details open={recordsExpanded}>
+                            <summary className="border-themed bg-card text-t1 flex cursor-pointer flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold">
+                              {/* 狀態圖示：未開放＝時鐘、已截止＝驚嘆號、已填寫＝勾選圈、未填寫＝鉛筆 */}
+                              {!weekOpen ? (
+                                <svg className="text-t3 h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="8.25" />
+                                  <path d="M12 7.5V12l2.75 1.75" />
+                                </svg>
+                              ) : !info.withinDeadline ? (
+                                <svg className="text-danger h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="8.25" />
+                                  <path d="M12 7.75v4.5" />
+                                  <path d="M12 15.75h.01" />
+                                </svg>
+                              ) : savedRecord ? (
+                                <svg className="text-success h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                              ) : (
+                                <svg className="text-warning h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="m16.86 4.49 2.65 2.65a1.5 1.5 0 0 1 0 2.12L9.4 19.37a2.25 2.25 0 0 1-1.06.58l-3.2.69a.75.75 0 0 1-.9-.9l.69-3.2c.08-.4.28-.77.58-1.06L15.68 4.49a1.5 1.5 0 0 1 2.12 0Z" />
+                                  <path d="m14.25 6.75 3 3" />
+                                </svg>
+                              )}
+                              <span>第 {week.week} 週執行成果紀錄</span>
+                              {!weekOpen && (
+                                <span className="text-t3 text-xs font-normal">
+                                  {info.openAtOf(week.week) > 0
+                                    ? `${formatShortDateTime(info.openAtOf(week.week))} 後開放`
+                                    : "尚未開放"}
+                                </span>
+                              )}
+                              {weekOpen && !info.withinDeadline && (
+                                <span className="text-danger text-xs font-normal">
+                                  已超過撰寫截止時間
+                                </span>
+                              )}
+                              {weekOpen && info.withinDeadline && (
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-xs font-normal ${
+                                    savedRecord ? "border-success text-success" : "border-warning text-warning"
+                                  }`}
+                                >
+                                  {savedRecord ? "已填寫" : "未填寫"}
+                                </span>
+                              )}
+                              <span className="text-t3 ml-auto flex items-center gap-1 text-xs font-normal">
+                                {canEditRecord && !savedRecord ? "點此填寫" : ""}
+                                <DisclosureArrow />
+                              </span>
+                            </summary>
+                            <div className="mt-2">
+                              {canEditRecord ? (
+                                <RichTextEditor
+                                  value={recordValueOf(plan, week.week)}
+                                  onChange={(value) => setRecordValue(plan, week.week, value)}
+                                  maxLength={2000}
+                                  placeholder="寫下這一週實際執行的成果（學習內容、遇到的狀況、收穫…）"
+                                  ariaLabel={`第 ${week.week} 週執行成果紀錄`}
+                                />
+                              ) : weekOpen ? (
+                                <RichTextContent
+                                  html={savedRecord}
+                                  emptyText="（未填寫）"
+                                  className="text-t2 text-xs"
+                                />
+                              ) : (
+                                <p className="text-t3 text-xs">
+                                  這一週的規劃時間還沒到，時間過了之後才能填寫執行成果紀錄。
+                                </p>
+                              )}
+                            </div>
+                          </details>
+                        </td>
+                      </tr>
+                    )}
+                    {weekReview && (
+                      <tr>
+                        <td colSpan={3} className="border border-themed bg-surface px-2 py-2">
+                          <p className="text-t1 text-xs font-medium">
+                            第 {week.week} 週審查意見
+                          </p>
+                          <RichTextContent
+                            html={weekReview.note}
+                            className="text-t2 mt-1 text-xs"
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                );
+              })}
+            </table>
+          </div>
+
+          {plan.status === "approved" && plan.period === currentPeriod && (
+            <p className="text-t3 mt-2 text-xs">
+              {recordInfoOf(plan).deadlineAt !== null
+                ? `執行成果紀錄撰寫截止：${formatDateTime(recordInfoOf(plan).deadlineAt as number)}；每一週需等該週規劃時間過了才能填寫。`
+                : "學校尚未設定成果撰寫截止時間：目前不限制填寫期限（每一週仍需等該週規劃時間過了才能填寫）。"}
+            </p>
+          )}
+
+          {plan.status === "approved" && plan.period === currentPeriod && plan.weeks.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <p className="text-t1 text-xs font-medium">學習反思心得</p>
+              <div className="border border-themed bg-card rounded-md p-3">
+                {recordInfoOf(plan).reflectionOpen && recordInfoOf(plan).withinDeadline ? (
+                  <RichTextEditor
+                    value={reflectionValueOf(plan)}
+                    onChange={(value) => setReflectionValue(plan, value)}
+                    maxLength={2000}
+                    placeholder="寫下這學期自主學習的收穫與反思…"
+                    ariaLabel="學習反思心得"
+                  />
+                ) : recordInfoOf(plan).reflectionOpen ? (
+                  <RichTextContent
+                    html={plan.reflection}
+                    emptyText="（未填寫）"
+                    className="text-t2 text-xs"
+                  />
+                ) : (
+                  <p className="text-t3 text-xs">
+                    {recordInfoOf(plan).reflectionOpenAt > 0
+                      ? `${formatShortDate(recordInfoOf(plan).reflectionOpenAt + 1)} 起開放（最後一週結束後）`
+                      : "尚未開放"}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showRecordActions && recordActionButtons(plan)}
         </details>
       </article>
     );
@@ -1196,8 +1631,16 @@ export default function StudentSelfDirectedLearningPage() {
 
           <div className="border-themed bg-card border-b px-5 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-t3 text-xs">
-                表單較長，可隨時儲存草稿或送出審核。
+              <p
+                className={
+                  currentApproved || otherSubmittedPlan ? "text-danger text-xs" : "text-t3 text-xs"
+                }
+              >
+                {currentApproved
+                  ? "本學期已有通過審核的正式計畫，無法再送出其他計畫。"
+                  : otherSubmittedPlan
+                    ? "本學期已有計畫在審核中：請等待審查結果，或先抽回該計畫後再送出。"
+                    : "表單較長，可隨時儲存草稿或送出審核。"}
               </p>
               <div className="flex w-full flex-wrap justify-end gap-3 sm:w-auto">
                 {formActionButtons}
@@ -1720,6 +2163,67 @@ export default function StudentSelfDirectedLearningPage() {
         </div>
       )}
 
+      {recordPlan && !maintenance && openDetailPlans[recordPlan.id] && (
+        <div
+          className="flex flex-col gap-2 print:hidden"
+          style={{
+            position: "fixed",
+            left: 0,
+            top: formOpen ? "calc(50% + 6.5rem)" : "50%",
+            transform: "translateY(-50%)",
+            zIndex: 40,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => void saveRecords(recordPlan)}
+            title="儲存執行成果紀錄"
+            aria-label="儲存執行成果紀錄"
+            disabled={!recordCanSave || recordsBusy === recordPlan.id}
+            className="border-themed bg-surface text-t1 hover:bg-card flex items-center justify-center border shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ width: "2.125rem", height: "2.125rem", borderLeftWidth: 0 }}
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setRecordsExpanded((prev) => !prev)}
+            title={recordsExpanded ? "收合執行成果編輯區" : "展開執行成果編輯區"}
+            aria-label={recordsExpanded ? "收合執行成果編輯區" : "展開執行成果編輯區"}
+            aria-pressed={recordsExpanded}
+            className="border-themed bg-surface text-t1 hover:bg-card flex items-center justify-center border shadow-md"
+            style={{ width: "2.125rem", height: "2.125rem", borderLeftWidth: 0 }}
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m7 15 5 5 5-5" />
+              <path d="m7 9 5-5 5 5" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {formOpen && (
         <div
           className="flex flex-col gap-2"
@@ -1738,15 +2242,15 @@ export default function StudentSelfDirectedLearningPage() {
             aria-label="儲存草稿"
             disabled={locked || saving !== null || loading}
             className="border-themed bg-surface text-t1 hover:bg-card flex items-center justify-center border shadow-md disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ width: "2.75rem", height: "2.75rem", borderLeftWidth: 0 }}
+            style={{ width: "2.125rem", height: "2.125rem", borderLeftWidth: 0 }}
           >
             <svg
-              width="20"
-              height="20"
+              width="22"
+              height="22"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.8"
+              strokeWidth="1.7"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"
@@ -1757,19 +2261,19 @@ export default function StudentSelfDirectedLearningPage() {
           </button>
           <button
             type="button"
-            onClick={openPrintPreview}
+            onClick={() => openPrintPreview()}
             title="列印預覽（新分頁）"
             aria-label="在新分頁預覽列印"
             className="border-themed bg-surface text-t1 hover:bg-card flex items-center justify-center border shadow-md"
-            style={{ width: "2.75rem", height: "2.75rem", borderLeftWidth: 0 }}
+            style={{ width: "2.125rem", height: "2.125rem", borderLeftWidth: 0 }}
           >
             <svg
-              width="20"
-              height="20"
+              width="22"
+              height="22"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.8"
+              strokeWidth="1.7"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"

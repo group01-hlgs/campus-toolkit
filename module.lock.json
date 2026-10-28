@@ -12,12 +12,12 @@
     },
     {
       "value": "selfDirectedLearning",
-      "version": "0.0.58",
+      "version": "0.0.86",
       "contractVersion": 1,
       "minHostVersion": "0.580",
-      "sha256": "8b4a315022c4cb71d076d0b6b94010c433cff34e94abd6e99b116ab27017520d",
-      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/selfDirectedLearning-0.0.58.zip",
-      "installedAt": "2026-10-26"
+      "sha256": "fd8b306bc8827949d01e7d04e52439d8c03c64579a14066c8da87dad3abb392e",
+      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/selfDirectedLearning-0.0.86.zip",
+      "installedAt": "2026-10-28"
     }
   ]
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import AdSense from "@/components/AdSense";
 import Copyright from "@/components/Copyright";
@@ -17,9 +17,11 @@ import {
   MAINTENANCE_TITLE,
   PLAN_STATUS_LABELS,
   PLAN_TIMING_LABELS,
+  WEEKDAY_LABELS,
   reviewStateOf,
   stripHtmlToText,
   type SelfDirectedLearningPlan,
+  type WeekSchedule,
 } from "../../types/self-directed-learning";
 import SelfDirectedLearningManagerPanel from "../../components/manager-panel";
 
@@ -43,6 +45,13 @@ function formatDateTime(epoch: number | null): string {
   const d = new Date(epoch);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 逐週表格的短日期（`YYYY-MM-DD` → `M/D`） */
+function monthDayText(date: string): string {
+  const [, month, day] = date.split("-");
+  if (!month || !day) return date;
+  return `${Number(month)}/${Number(day)}`;
 }
 
 const STATUS_CLASS: Record<string, string> = {
@@ -138,6 +147,8 @@ export default function StaffSelfDirectedLearningPage() {
   const [systemSettings, setSystemSettings] = useState<Settings>(defaultSettings);
   const [roles, setRoles] = useState<StaffRoles | null>(null);
   const [plans, setPlans] = useState<SelfDirectedLearningPlan[]>([]);
+  /** 逐週日期／節次（依學期起訖與節次行程推算；審核表格第一欄顯示用） */
+  const [weekSchedule, setWeekSchedule] = useState<WeekSchedule[]>([]);
   const [tab, setTab] = useState<Tab>("review");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -162,6 +173,12 @@ export default function StaffSelfDirectedLearningPage() {
   /** 清單分頁（純前端切片，不增加讀取） */
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  /** 週次 → 該週日期／節次（審核表格第一欄顯示用） */
+  const weekScheduleByNo = useMemo(
+    () => new Map(weekSchedule.map((row) => [row.week, row])),
+    [weekSchedule]
+  );
 
   /** 兩種模式共用的頁面資訊（角色、維護旗標、審核期限） */
   const applySharedMeta = useCallback((data: Record<string, unknown>) => {
@@ -198,6 +215,7 @@ export default function StaffSelfDirectedLearningPage() {
         }
         applySharedMeta(data as Record<string, unknown>);
         setPlans((data.plans as SelfDirectedLearningPlan[]) || []);
+        setWeekSchedule(Array.isArray(data.weekSchedule) ? (data.weekSchedule as WeekSchedule[]) : []);
       } catch {
         setToast({ kind: "error", text: "讀取資料失敗" });
       } finally {
@@ -586,95 +604,109 @@ export default function StaffSelfDirectedLearningPage() {
                 </summary>
 
                 <div className="border-themed space-y-3 border-t p-4">
-                  <div className="border border-themed bg-surface rounded-md p-3">
+                  <div className="space-y-1">
                     <p className="text-t1 text-xs font-medium">學習目標</p>
-                    <RichTextContent
-                      html={plan.learningGoals}
-                      emptyText="（未填寫）"
-                      className="text-t2 text-sm"
-                    />
+                    <div className="border border-themed bg-surface rounded-md p-3">
+                      <RichTextContent
+                        html={plan.learningGoals}
+                        emptyText="（未填寫）"
+                        className="text-t2 text-sm"
+                      />
+                    </div>
                   </div>
 
+                  {/* 主程式 globals.css 的 th 規則未包 @layer，會蓋過 Tailwind 的 text-center，故標題以行內樣式水平置中 */}
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse text-sm">
                       <thead>
                         <tr>
                           <th
                             scope="col"
-                            className="border border-themed bg-surface text-t1 px-2 py-2 text-left text-xs"
-                            style={{ width: "14%" }}
+                            className="border border-themed bg-surface text-t1 px-2 py-2 text-xs"
+                            style={{ width: "14%", textAlign: "center" }}
                           >
                             週次
                           </th>
                           <th
                             scope="col"
-                            className="border border-themed bg-surface text-t1 px-2 py-2 text-left text-xs"
+                            className="border border-themed bg-surface text-t1 px-2 py-2 text-xs"
+                            style={{ textAlign: "center" }}
                           >
                             學習安排
                           </th>
                           <th
                             scope="col"
-                            className="border border-themed bg-surface text-t1 px-2 py-2 text-left text-xs"
-                            style={{ width: "16%" }}
+                            className="border border-themed bg-surface text-t1 px-2 py-2 text-xs"
+                            style={{ width: "16%", textAlign: "center" }}
                           >
                             場地
                           </th>
                         </tr>
                       </thead>
-                      {plan.weeks.map((week) => (
-                        <tbody key={week.week}>
-                          <tr>
-                            <td className="border border-themed px-2 py-2 align-top text-xs">
-                              <div className="text-t1 font-medium whitespace-nowrap">
-                                第 {week.week} 週
-                              </div>
-                              <div className="text-t3">
-                                {TIMING_SHORT_LABELS[week.timing] ??
-                                  PLAN_TIMING_LABELS[week.timing]}
-                              </div>
-                            </td>
-                            <td className="border border-themed px-2 py-2 align-top">
-                              <RichTextContent html={week.content} />
-                            </td>
-                            <td className="border border-themed text-t2 px-2 py-2 align-top text-xs">
-                              {week.venue || "—"}
-                            </td>
-                          </tr>
-                          {roles?.isReviewer && plan.status === "submitted" && (
+                      {plan.weeks.map((week) => {
+                        const scheduleRow = weekScheduleByNo.get(week.week);
+                        const slots = scheduleRow?.slots ?? [];
+                        const dateText = slots
+                          .map((slot) => `${monthDayText(slot.date)} ${WEEKDAY_LABELS[slot.day - 1]}`)
+                          .join("、");
+                        const periodText = slots.flatMap((slot) => slot.periods).join("、");
+                        return (
+                          <tbody key={week.week}>
                             <tr>
-                              <td
-                                colSpan={3}
-                                className="border border-themed bg-surface px-2 py-2"
-                              >
-                                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                                  <span className="text-t2 text-xs font-medium">
-                                    第 {week.week} 週審查意見
-                                  </span>
-                                  <CannedPhraseSelect
-                                    phrases={WEEK_NOTE_PHRASES}
-                                    label={`第 ${week.week} 週常用語`}
-                                    onPick={(phrase) =>
-                                      setWeekNote(
-                                        plan.id,
-                                        week.week,
-                                        appendPhrase(weekNoteOf(plan.id, week.week), phrase)
-                                      )
-                                    }
-                                  />
+                              <td className="border border-themed px-2 py-2 align-middle text-xs">
+                                <div className="text-t1 font-medium whitespace-nowrap">
+                                  第 {week.week} 週
                                 </div>
-                                <RichTextEditor
-                                  compact
-                                  value={weekNoteOf(plan.id, week.week)}
-                                  onChange={(value) => setWeekNote(plan.id, week.week, value)}
-                                  maxLength={1000}
-                                  placeholder="本週審查意見…"
-                                  ariaLabel={`第 ${week.week} 週審查意見`}
-                                />
+                                <div className="text-t3 whitespace-nowrap">
+                                  {TIMING_SHORT_LABELS[week.timing] ??
+                                    PLAN_TIMING_LABELS[week.timing]}
+                                </div>
+                                <div className="text-t2 whitespace-nowrap">{dateText || "—"}</div>
+                                <div className="text-t2 whitespace-nowrap">{periodText || "—"}</div>
+                              </td>
+                              <td className="border border-themed px-2 py-2 align-top">
+                                <RichTextContent html={week.content} />
+                              </td>
+                              <td className="border border-themed text-t2 px-2 py-2 align-top text-xs">
+                                {week.venue || "—"}
                               </td>
                             </tr>
-                          )}
-                        </tbody>
-                      ))}
+                            {roles?.isReviewer && plan.status === "submitted" && (
+                              <tr>
+                                <td
+                                  colSpan={3}
+                                  className="border border-themed bg-surface px-2 py-2"
+                                >
+                                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-t2 text-xs font-medium">
+                                      第 {week.week} 週審查意見
+                                    </span>
+                                    <CannedPhraseSelect
+                                      phrases={WEEK_NOTE_PHRASES}
+                                      label={`第 ${week.week} 週常用語`}
+                                      onPick={(phrase) =>
+                                        setWeekNote(
+                                          plan.id,
+                                          week.week,
+                                          appendPhrase(weekNoteOf(plan.id, week.week), phrase)
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <RichTextEditor
+                                    compact
+                                    value={weekNoteOf(plan.id, week.week)}
+                                    onChange={(value) => setWeekNote(plan.id, week.week, value)}
+                                    maxLength={1000}
+                                    placeholder="本週審查意見…"
+                                    ariaLabel={`第 ${week.week} 週審查意見`}
+                                  />
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        );
+                      })}
                     </table>
                   </div>
 

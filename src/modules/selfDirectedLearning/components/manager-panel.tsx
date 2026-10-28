@@ -65,7 +65,7 @@ export default function SelfDirectedLearningManagerPanel() {
             。下方為此身分的基本功能。
           </p>
           <Suspense fallback={<p className="text-sm text-t3">管理功能載入中...</p>}>
-            <AdminSelfDirectedLearningPage fill />
+            <AdminSelfDirectedLearningPage fill delegated />
           </Suspense>
         </div>
       </details>

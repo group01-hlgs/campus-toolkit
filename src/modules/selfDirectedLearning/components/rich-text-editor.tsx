@@ -254,6 +254,9 @@ export function RichTextEditor({
 
   const plainText = useMemo(() => stripHtmlToText(value).trim(), [value]);
   const empty = plainText.length === 0;
+  /** 清單、引用等結構即使尚無文字也算有內容，避免提示語蓋住項目符號 */
+  const hasVisibleStructure = /<(?:ul|ol|li|blockquote|img|table|hr)\b/i.test(value);
+  const showPlaceholder = empty && !hasVisibleStructure;
   const count = plainText.length;
 
   useEffect(() => {
@@ -387,7 +390,7 @@ export function RichTextEditor({
           onMouseUp={saveSelection}
           onBlur={saveSelection}
         />
-        {empty && (
+        {showPlaceholder && (
           <span
             className="text-t3 pointer-events-none select-none text-sm"
             style={{ position: "absolute", top: "0.5rem", left: "0.75rem" }}

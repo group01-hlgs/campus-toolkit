@@ -19,6 +19,9 @@ function isPreviewPayload(value: unknown): value is PrintPreviewPayload {
     typeof payload.studyGroup !== "string" ||
     typeof payload.advisor !== "string" ||
     typeof payload.generatedAt !== "number" ||
+    (payload.reflection !== undefined && typeof payload.reflection !== "string") ||
+    (payload.source !== undefined && payload.source !== "draft" && payload.source !== "approved") ||
+    (payload.layout !== "separate" && payload.layout !== "integrated") ||
     !Array.isArray(payload.weeks)
   ) {
     return false;
@@ -28,9 +31,11 @@ function isPreviewPayload(value: unknown): value is PrintPreviewPayload {
     const week = item as Record<string, unknown>;
     if (
       typeof week.week !== "number" ||
+      (week.timing !== "flexible" && week.timing !== "afterSchool") ||
       typeof week.content !== "string" ||
       typeof week.venue !== "string" ||
       typeof week.blocked !== "boolean" ||
+      (week.record !== undefined && typeof week.record !== "string") ||
       !Array.isArray(week.slots)
     ) {
       return false;
@@ -89,7 +94,7 @@ export default function SelfDirectedLearningPrintPage() {
         <div>
           <p className="text-t1 text-sm font-medium">列印預覽</p>
           <p className="text-t3 text-xs">
-            此頁顯示目前編輯中的內容（含尚未儲存的變更）；按「列印」可預覽或輸出。
+            此頁顯示要列印的計畫內容與執行成果紀錄；按「列印」可預覽或輸出。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -125,13 +130,14 @@ export default function SelfDirectedLearningPrintPage() {
                 : "正在取得編輯內容…")}
           </p>
           <p className="text-t3 mt-2 text-xs">
-            請回到學生端「自主學習計畫 → 撰寫計畫」，使用畫面左側的列印預覽圖示重新開啟。
+            請回到學生端「自主學習計畫」，用「預覽列印（計畫與成果）」重新開啟；
+            撰寫計畫時也可從左側列印圖示開啟。
           </p>
           <a
             href="/student/self-directed-learning"
             className="btn-theme mt-4 inline-block px-4 py-2 text-sm"
           >
-            回到撰寫計畫
+            回到自主學習計畫
           </a>
         </div>
       )}
