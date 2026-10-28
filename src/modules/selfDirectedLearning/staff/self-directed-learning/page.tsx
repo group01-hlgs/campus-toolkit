@@ -289,12 +289,6 @@ export default function StaffSelfDirectedLearningPage() {
     };
   }, []);
 
-  const switchTab = (next: Tab) => {
-    setTab(next);
-    setLoading(true);
-    setPage(1);
-  };
-
   const confirmReview = async () => {
     if (!pending) return;
     const reviewedPlanId = pending.planId;
@@ -477,33 +471,6 @@ export default function StaffSelfDirectedLearningPage() {
 
   return renderShell(
     <>
-      {roles?.isReviewer && roles?.isTutor && (
-        <div className="border-themed bg-card flex gap-2 rounded-lg p-2" role="tablist" aria-label="檢視模式">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "review"}
-            className={`h-9 flex-1 rounded-md px-3 text-sm font-medium ${
-              tab === "review" ? "bg-primary-soft text-primary" : "text-t2"
-            }`}
-            onClick={() => switchTab("review")}
-          >
-            審核佇列
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "class"}
-            className={`h-9 flex-1 rounded-md px-3 text-sm font-medium ${
-              tab === "class" ? "bg-primary-soft text-primary" : "text-t2"
-            }`}
-            onClick={() => switchTab("class")}
-          >
-            我的班級
-          </button>
-        </div>
-      )}
-
       {tab === "review" && !loading && (
         <div
           className="border-themed bg-card space-y-1 rounded-lg border p-4 text-sm"

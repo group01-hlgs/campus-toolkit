@@ -107,6 +107,12 @@ function readPlan(id: string, raw: Record<string, unknown>): SelfDirectedLearnin
     status,
     deletedAt: typeof raw.deletedAt === "number" ? raw.deletedAt : null,
     submittedAt: typeof raw.submittedAt === "number" ? raw.submittedAt : null,
+    firstSubmittedAt:
+      typeof raw.firstSubmittedAt === "number"
+        ? raw.firstSubmittedAt
+        : typeof raw.submittedAt === "number"
+          ? raw.submittedAt
+          : null,
     selfApprovedAt:
       typeof raw.selfApprovedAt === "number" && raw.selfApprovedAt > 0
         ? raw.selfApprovedAt
@@ -200,7 +206,7 @@ function newPlanDocId(period: string, studentUid: string, now: number): string {
  * 儲存草稿／送出審核。
  * - 未帶 planId＝新增草稿（不限開放期間；送出審核時才檢查期限與每學期件數）。
  * - 帶 planId＝編輯既有草稿（草稿／退回修改可編輯；審核中／已通過不可編輯）。
- * - 同一學期可有多筆草稿，但同時僅能有一件在審核中（送審時檢查）。
+ * - 同一學期可有多筆草稿，但每學期僅能送審 1 份（第一次送出後只能重送同一份；退回、抽回都算已送審）。
  * - 正式計畫（approved）每學期僅一份；送出審核與審核通過時都會檢查。
  */
 export async function saveStudentPlan(input: {
@@ -272,6 +278,23 @@ export async function saveStudentPlan(input: {
     };
   }
 
+  // 每學期僅能送審 1 份：本學期已送審過其他計畫（含已退回、已抽回）時，只能重送同一份
+  const everSubmittedElsewhere = studentPlans.find(
+    (plan) =>
+      plan.period === period &&
+      plan.id !== requestedId &&
+      (plan.firstSubmittedAt ?? plan.submittedAt) !== null
+  );
+  if (input.action === "submit" && everSubmittedElsewhere) {
+    return {
+      ok: false,
+      status: 409,
+      message: `本學期只能送審 1 份計畫；你已送審過《${
+        everSubmittedElsewhere.topic || "未命名計畫"
+      }》，請直接修改該計畫後重新送出`,
+    };
+  }
+
   // 草稿匣件數上限（含退回修改）：只限制新增，既有草稿仍可編輯／送審
   if (!target && input.action === "save") {
     const draftBoxCount = studentPlans.filter(
@@ -316,6 +339,9 @@ export async function saveStudentPlan(input: {
     status: input.action === "submit" ? "submitted" : "draft",
     deletedAt: null,
     submittedAt: input.action === "submit" ? now : target?.submittedAt ?? null,
+    // 第一次送審時間不再清除：抽回後仍算「本學期已送審過」
+    firstSubmittedAt:
+      input.action === "submit" ? target?.firstSubmittedAt ?? now : target?.firstSubmittedAt ?? null,
     selfApprovedAt: target?.selfApprovedAt ?? null,
     updatedAt: now,
   };

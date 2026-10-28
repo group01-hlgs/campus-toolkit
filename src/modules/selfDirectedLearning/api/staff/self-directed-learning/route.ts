@@ -107,6 +107,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (mode === "class") {
+      if (roles.isReviewer) {
+        return NextResponse.json(
+          { success: false, message: "審核人員僅顯示送審中的計畫，不提供全班清單" },
+          { status: 403, headers: noStore }
+        );
+      }
       if (!roles.isTutor) {
         return NextResponse.json(
           { success: false, message: "此功能僅提供給有班級代碼的兼導師。" },
