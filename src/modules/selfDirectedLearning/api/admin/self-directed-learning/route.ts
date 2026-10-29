@@ -30,7 +30,7 @@ function formatDateTime(epoch: number): string {
 }
 
 /**
- * 掛勾同步（§6 總則）：開放時間 → 公告（update→publish，固定 sourceRef 不重複發文）
+ * 掛勾同步（§6 總則）：送審時間 → 公告（update→publish，固定 sourceRef 不重複發文）
  * ＋行事曆（publishScheduleFromModule 同 sourceRef 覆寫更新）。
  * 兩者由管理人員分別勾選；未勾選的項目完全不做動。
  * 掛勾失敗不阻擋設定儲存——回 hookWarning 供頁面提示。
@@ -52,8 +52,8 @@ async function syncWindowHooks(
     };
 
     if (openAt !== null && closeAt !== null) {
-      const title = "自主學習計畫開放撰寫";
-      const window = `開放撰寫時間：${formatDateTime(openAt)} ～ ${formatDateTime(closeAt)}。`;
+      const title = "自主學習計畫送審期間";
+      const window = `送審時間：${formatDateTime(openAt)} ～ ${formatDateTime(closeAt)}。`;
       // 說明可能含富文本格式：公告／行事曆內容一律轉為純文字
       const instructionsText = stripHtmlToText(settings.instructions).trim();
       const body = instructionsText ? `${window}\n${instructionsText}` : window;
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
       role: session.role,
       action: "self_directed_learning_settings_updated",
       ip: getClientIp(request),
-      details: `更新管理規則（總開關、開放時間、週數形式與審核設定；同步公告：${
+      details: `更新管理規則（總開關、送審時間、週數形式與審核設定；同步公告：${
         settings.publishAnnouncement ? "是" : "否"
       }、同步行事曆：${settings.publishCalendar ? "是" : "否"}）`,
     });

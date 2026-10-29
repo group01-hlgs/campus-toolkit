@@ -88,8 +88,11 @@ export interface FlexibleSlot {
  *  僅以防濫用為由保留伺服器硬上限 */
 export const MAX_PLAN_WEEKS = 104;
 
-/** 草稿匣件數上限的硬上限（管理端可設定 1–100 件） */
-export const MAX_DRAFT_PLANS = 100;
+/** 文件匣件數上限的預設值（管理端可自行調整；無硬上限） */
+export const DEFAULT_MAX_DOCUMENT_PLANS = 20;
+
+/** 草稿匣件數上限的預設值（管理端可自行調整；無硬上限） */
+export const DEFAULT_MAX_DRAFT_PLANS = 20;
 
 /** 就學期間（高中三年）學校審查通過最低份數的上限（管理端可設定 0–6 份；0＝不設定） */
 export const MAX_MIN_APPROVED_PLANS = 6;
@@ -123,9 +126,9 @@ export const MAINTENANCE_HINT =
 export interface SelfDirectedLearningSettings {
   /** 功能總開關（false＝關閉維護中：學生／教職員／家長只見維護說明，寫入 API 一律擋下） */
   enabled: boolean;
-  /** 開放撰寫開始（epoch ms；null＝尚未設定） */
+  /** 送審期間開始（epoch ms；null＝尚未設定；僅限制送出審核，草稿與正式建立不受限） */
   openAt: number | null;
-  /** 開放撰寫截止（epoch ms；null＝尚未設定） */
+  /** 送審期間截止（epoch ms；null＝尚未設定；僅限制送出審核） */
   closeAt: number | null;
   /** 審核期限開始（epoch ms；null＝未設定，僅供提示與督促，不阻止審核） */
   reviewStartAt: number | null;
@@ -139,6 +142,8 @@ export interface SelfDirectedLearningSettings {
   minWeeks: number;
   /** 每位學生草稿匣可保留的件數上限（含退回修改；僅限制新增，既有草稿仍可編輯） */
   maxDrafts: number;
+  /** 每位學生文件匣可保留的件數上限（審核中＋已通過；僅限制送出審核） */
+  maxDocumentPlans: number;
   /** 就學期間（高中三年）學校審查通過的最低份數（0＝不設定；0–6 份） */
   minApprovedPlans: number;
   /** 校內彈性學習節次行程 */
@@ -169,7 +174,8 @@ export const DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS: SelfDirectedLearningSettin
   resultDeadlineAt: null,
   weekMode: "full",
   minWeeks: 6,
-  maxDrafts: 20,
+  maxDrafts: DEFAULT_MAX_DRAFT_PLANS,
+  maxDocumentPlans: DEFAULT_MAX_DOCUMENT_PLANS,
   minApprovedPlans: 0,
   slots: [],
   venues: [],
@@ -277,6 +283,10 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
     typeof source.maxDrafts === "number" && Number.isInteger(source.maxDrafts)
       ? source.maxDrafts
       : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.maxDrafts;
+  const maxDocumentPlansRaw =
+    typeof source.maxDocumentPlans === "number" && Number.isInteger(source.maxDocumentPlans)
+      ? source.maxDocumentPlans
+      : DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS.maxDocumentPlans;
   const minApprovedPlansRaw =
     typeof source.minApprovedPlans === "number" && Number.isInteger(source.minApprovedPlans)
       ? source.minApprovedPlans
@@ -293,7 +303,8 @@ export function normalizeSettings(raw: unknown): SelfDirectedLearningSettings {
     resultDeadlineAt: asEpoch(source.resultDeadlineAt),
     weekMode: source.weekMode === "flexible" ? "flexible" : "full",
     minWeeks: Math.min(Math.max(minWeeksRaw, 1), MAX_PLAN_WEEKS),
-    maxDrafts: Math.min(Math.max(maxDraftsRaw, 1), MAX_DRAFT_PLANS),
+    maxDrafts: Math.max(maxDraftsRaw, 1),
+    maxDocumentPlans: Math.max(maxDocumentPlansRaw, 1),
     minApprovedPlans: Math.min(
       Math.max(minApprovedPlansRaw, 0),
       MAX_MIN_APPROVED_PLANS
@@ -334,8 +345,8 @@ export function parseSettingsInput(raw: unknown): ParseResult {
   const closeAt = asEpoch(body.closeAt);
   const reviewStartAt = asEpoch(body.reviewStartAt);
   const reviewEndAt = asEpoch(body.reviewEndAt);
-  if (body.openAt !== null && openAt === null) return { ok: false, message: "開放開始時間格式錯誤" };
-  if (body.closeAt !== null && closeAt === null) return { ok: false, message: "開放截止時間格式錯誤" };
+  if (body.openAt !== null && openAt === null) return { ok: false, message: "送審開始時間格式錯誤" };
+  if (body.closeAt !== null && closeAt === null) return { ok: false, message: "送審截止時間格式錯誤" };
   if (body.reviewStartAt !== null && reviewStartAt === null) {
     return { ok: false, message: "審核開始時間格式錯誤" };
   }
@@ -347,7 +358,7 @@ export function parseSettingsInput(raw: unknown): ParseResult {
     return { ok: false, message: "計畫成果撰寫截止日格式錯誤" };
   }
   if (openAt !== null && closeAt !== null && closeAt <= openAt) {
-    return { ok: false, message: "截止時間必須晚於開始時間" };
+    return { ok: false, message: "送審截止時間必須晚於開始時間" };
   }
   if (reviewStartAt !== null && reviewEndAt !== null && reviewEndAt <= reviewStartAt) {
     return { ok: false, message: "審核截止時間必須晚於審核開始時間" };
@@ -372,13 +383,14 @@ export function parseSettingsInput(raw: unknown): ParseResult {
   }
   if ("maxDrafts" in body) {
     const value = body.maxDrafts;
-    if (
-      typeof value !== "number" ||
-      !Number.isInteger(value) ||
-      value < 1 ||
-      value > MAX_DRAFT_PLANS
-    ) {
-      return { ok: false, message: `草稿匣件數上限必須是 1–${MAX_DRAFT_PLANS} 的整數` };
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+      return { ok: false, message: "草稿匣件數上限必須是正整數" };
+    }
+  }
+  if ("maxDocumentPlans" in body) {
+    const value = body.maxDocumentPlans;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+      return { ok: false, message: "文件匣件數上限必須是正整數" };
     }
   }
   if ("minApprovedPlans" in body) {

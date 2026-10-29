@@ -9,6 +9,7 @@ import {
   getLatestReviews,
   getStudentPlans,
   promoteStudentPlan,
+  purgeExpiredStudentTrash,
   purgeStudentPlan,
   savePlanRecords,
   saveStudentPlan,
@@ -98,6 +99,17 @@ export async function GET(request: NextRequest) {
         },
         { headers: noStore }
       );
+    }
+    // 學生進入頁面時，自動永久刪除垃圾桶中超過 30 天的計畫
+    const purgedTrashCount = await purgeExpiredStudentTrash({ studentUid: student.uid });
+    if (purgedTrashCount > 0) {
+      await logActivity({
+        userId: student.uid,
+        role: session.role,
+        action: "self_directed_learning_plan_purged",
+        ip: getClientIp(request),
+        details: `自動清除垃圾桶中超過 30 天的計畫 ${purgedTrashCount} 件`,
+      });
     }
     const plans = await getStudentPlans(student.uid);
     // 只取需要顯示審查意見的計畫（草稿不需查）
@@ -234,6 +246,7 @@ export async function POST(request: NextRequest) {
         studentUid: student.uid,
         deleted,
         maxDrafts: settings.maxDrafts,
+        maxDocumentPlans: settings.maxDocumentPlans,
       });
       if (!trashResult.ok) {
         return NextResponse.json(
@@ -299,6 +312,7 @@ export async function POST(request: NextRequest) {
       const promoteResult = await promoteStudentPlan({
         planId,
         studentUid: student.uid,
+        maxDocumentPlans: settings.maxDocumentPlans,
       });
       if (!promoteResult.ok) {
         return NextResponse.json(
@@ -323,7 +337,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 抽回審核中的計畫（限開放撰寫期間）：回到草稿後可修改再送出
+    // 抽回審核中的計畫（限送審期間）：回到草稿後可修改再送出
     if (requestedAction === "withdraw") {
       if (!planId) {
         return NextResponse.json(

@@ -68,10 +68,10 @@ function emptyWeeks(count: number): PlanWeek[] {
 }
 
 const WINDOW_LABEL: Record<string, string> = {
-  unset: "學校尚未設定開放撰寫時間",
-  closed: "尚未開放撰寫",
-  open: "開放撰寫中",
-  ended: "已超過開放撰寫期限",
+  unset: "學校尚未設定送審期間",
+  closed: "尚未到送審期間",
+  open: "送審期間內",
+  ended: "已超過送審期間",
 };
 
 /** 表格內的時段短標籤（與教職員審核頁一致，避免窄欄位逐字換行） */
@@ -322,12 +322,20 @@ export default function StudentSelfDirectedLearningPage() {
   const trashedPlans = plans.filter((plan) => Boolean(plan.deletedAt));
   const approvedPlans = activePlans.filter((plan) => plan.status === "approved");
   const submittedPlans = activePlans.filter((plan) => plan.status === "submitted");
-  const draftPlans = activePlans.filter((plan) => plan.status === "draft");
-  const returnedPlans = activePlans.filter((plan) => plan.status === "returned");
-  const documentCount = approvedPlans.length + submittedPlans.length;
+  const selfPromotedPlans = activePlans.filter(
+    (plan) =>
+      isFormalPlan(plan) && plan.status !== "approved" && plan.status !== "submitted"
+  );
+  const draftPlans = activePlans.filter(
+    (plan) => plan.status === "draft" && !isFormalPlan(plan)
+  );
+  const returnedPlans = activePlans.filter(
+    (plan) => plan.status === "returned" && !isFormalPlan(plan)
+  );
+  const documentCount =
+    approvedPlans.length + submittedPlans.length + selfPromotedPlans.length;
   const draftCount = draftPlans.length + returnedPlans.length;
   const formalPlans = activePlans.filter(isFormalPlan);
-  const currentFormal = formalPlans.find((plan) => plan.period === currentPeriod) ?? null;
   /** 學校審核通過的正式計畫（每學期僅一份；自行提升的正式不在此限） */
   const otherApprovedPlan =
     activePlans.find(
@@ -348,7 +356,9 @@ export default function StudentSelfDirectedLearningPage() {
         (plan.firstSubmittedAt ?? plan.submittedAt) !== null
     ) ?? null;
   /** 目前學期已正式（學校通過或學生自行提升）的計畫（執行成果紀錄的對象） */
-  const recordPlan = currentFormal;
+  /** 目前展開「查看計畫與撰寫成果」的正式計畫（浮動按鈕只作用在這一份） */
+  const recordPlan =
+    formalPlans.find((plan) => plan.period === currentPeriod && openDetailPlans[plan.id]) ?? null;
   /** 可寫週次（有設定節次時：該週至少一個時段未衝堂；未設定節次時：全部視為可寫） */
   const availableWeekNumbers = useMemo(() => {
     if (weekSchedule.length > 0) {
@@ -829,7 +839,7 @@ export default function StudentSelfDirectedLearningPage() {
     }
   };
 
-  /** 抽回審核中的計畫：回到草稿匣，開放撰寫期間內可修改後重新送出 */
+  /** 抽回審核中的計畫：回到草稿匣，送審期間內可修改後重新送出 */
   const withdrawPlan = async (plan: SelfDirectedLearningPlan) => {
     if (planBusy) return;
     setPlanBusy(plan.id);
@@ -859,13 +869,20 @@ export default function StudentSelfDirectedLearningPage() {
   };
 
   const windowState = openStateOf(settings);
-  /** 開放狀態的提示色（主題變數） */
+  /** 送審狀態的提示色（主題變數） */
   const windowTone =
     windowState === "open"
       ? "var(--success)"
       : windowState === "ended"
         ? "var(--warning)"
         : "var(--t3)";
+  /** 草稿匣（含退回修改）是否已達管理端設定上限 */
+  const draftLimitReached = draftCount >= settings.maxDrafts;
+  /** 文件匣（審核中＋已通過＋自主提升）是否已達管理端設定上限；編輯中的計畫已占位時不重複計算 */
+  const editingDocumentCount =
+    editingPlan && (isFormalPlan(editingPlan) || editingPlan.status === "submitted") ? 1 : 0;
+  const documentLimitReached =
+    documentCount - editingDocumentCount >= settings.maxDocumentPlans;
   const canSubmit =
     withinWindow &&
     !locked &&
@@ -873,10 +890,9 @@ export default function StudentSelfDirectedLearningPage() {
     rangeValid &&
     !otherSubmittedPlan &&
     !otherEverSubmittedPlan &&
-    !otherApprovedPlan;
+    !otherApprovedPlan &&
+    !documentLimitReached;
   const canStartNew = !formOpen && !loading;
-  /** 草稿匣（含退回修改）是否已達管理端設定上限 */
-  const draftLimitReached = draftCount >= settings.maxDrafts;
 
   const formActionButtons = (
     <>
@@ -900,9 +916,11 @@ export default function StudentSelfDirectedLearningPage() {
               ? "本學期已有計畫在審核中，請等待審查結果或先抽回後再送出"
               : otherEverSubmittedPlan
                 ? "本學期只能送審 1 份計畫，請改為編輯已送審的計畫"
-                : withinWindow
-                  ? ""
-                  : WINDOW_LABEL[windowState]
+                : documentLimitReached
+                  ? `文件匣已達上限（${settings.maxDocumentPlans} 件，含審核中與已通過）`
+                  : withinWindow
+                    ? ""
+                    : WINDOW_LABEL[windowState]
         }
       >
         {saving === "submit" ? "送出中…" : "送出審核"}
@@ -984,7 +1002,8 @@ export default function StudentSelfDirectedLearningPage() {
       (max, week) => Math.max(max, endByWeek.get(week.week) ?? 0),
       0
     );
-    const deadlineAt = recordWindow.deadlineAt;
+    // 成果撰寫截止時間只適用「學校審核通過」的計畫；自行提升的正式計畫不受限制
+    const deadlineAt = plan.status === "approved" ? recordWindow.deadlineAt : null;
     const now = Date.now();
     return {
       openAtOf,
@@ -1194,9 +1213,9 @@ export default function StudentSelfDirectedLearningPage() {
             {options.promotable &&
               plan.period === currentPeriod &&
               !isFormalPlan(plan) &&
-              (plan.status === "draft" ||
-                plan.status === "submitted" ||
-                plan.status === "returned") && (
+              (plan.status === "submitted" ||
+                ((plan.status === "draft" || plan.status === "returned") &&
+                  !documentLimitReached)) && (
                 <button
                   type="button"
                   className="btn-theme rounded px-3 py-1.5 text-xs"
@@ -1455,9 +1474,11 @@ export default function StudentSelfDirectedLearningPage() {
 
           {isFormalPlan(plan) && plan.period === currentPeriod && (
             <p className="text-t3 mt-2 text-xs">
-              {recordInfoOf(plan).deadlineAt !== null
-                ? `執行成果紀錄撰寫截止：${formatDateTime(recordInfoOf(plan).deadlineAt as number)}；每一週需等該週規劃時間過了才能填寫。`
-                : "學校尚未設定成果撰寫截止時間：目前不限制填寫期限（每一週仍需等該週規劃時間過了才能填寫）。"}
+              {plan.status !== "approved"
+                ? "自行提升的正式計畫不受成果撰寫截止時間限制；每一週仍需等該週規劃時間過了才能填寫。"
+                : recordInfoOf(plan).deadlineAt !== null
+                  ? `執行成果紀錄撰寫截止：${formatDateTime(recordInfoOf(plan).deadlineAt as number)}；每一週需等該週規劃時間過了才能填寫。`
+                  : "學校尚未設定成果撰寫截止時間：目前不限制填寫期限（每一週仍需等該週規劃時間過了才能填寫）。"}
             </p>
           )}
 
@@ -1624,8 +1645,8 @@ export default function StudentSelfDirectedLearningPage() {
               </span>
               <span className="text-t3 text-xs">
                 {settings.openAt !== null || settings.closeAt !== null
-                  ? `開放期間：${formatDateTime(settings.openAt)} ～ ${formatDateTime(settings.closeAt)}`
-                  : "開放時間尚未設定"}
+                  ? `送審期間：${formatDateTime(settings.openAt)} ～ ${formatDateTime(settings.closeAt)}`
+                  : "送審期間尚未設定"}
               </span>
               {(settings.reviewStartAt !== null || settings.reviewEndAt !== null) && (
                 <span className="text-t3 text-xs">
@@ -1635,16 +1656,21 @@ export default function StudentSelfDirectedLearningPage() {
               )}
             </div>
             <ul className="text-t3 list-disc space-y-0.5 pl-4 text-xs">
-              <li>計畫可先存在「草稿匣」慢慢寫，完成後提升為「正式計畫」（可同時有多份）。</li>
               <li>
-                正式計畫的規劃時間過了，就能寫「執行成果紀錄」；最後一週結束後，還能寫「學習反思心得」。
+                計畫可先存在「草稿匣」慢慢寫（不受送審期間限制）；完成後可提升為「正式計畫」，
+                自行提升的正式計畫可同時有多份；學校審核通過的正式計畫每學期僅 1 份。
               </li>
               <li>
-                每學期只能送審 1 份
+                正式計畫（學校審核通過或自行提升）且屬本學期，該週規劃時間過了才能寫「執行成果紀錄」；
+                最後一週結束後可寫「學習反思心得」；學校審核通過的計畫須在成果撰寫截止時間前完成，
+                自行提升者不受截止時間限制。
+              </li>
+              <li>
+                每學期只能送審 1 份計畫；第一次送出後只能重送同一份（退回或抽回都算已送審）
                 {settings.minApprovedPlans > 0
                   ? `；就學期間至少要有 ${settings.minApprovedPlans} 份經學校審查通過`
                   : ""}
-                ；送審依學校公告的審核期間。
+                ；送出須在學校公告的送審期間內。
               </li>
               {draftLimitReached && (
                 <li className="text-danger">
@@ -1697,11 +1723,18 @@ export default function StudentSelfDirectedLearningPage() {
 
           {planTab === "documents" &&
             (documentCount === 0 ? (
-              renderEmptyState("文件匣目前是空的。", "送出審核後，計畫會出現在這裡。")
+              renderEmptyState("文件匣目前是空的。", "送出審核或提升為正式後，計畫會出現在這裡。")
             ) : (
               <div className="space-y-5">
                 {approvedPlans.length > 0 &&
-                  renderPlanGroup("正式計畫", approvedPlans, {}, "")}
+                  renderPlanGroup("正式計畫（學校通過）", approvedPlans, {}, "")}
+                {selfPromotedPlans.length > 0 &&
+                  renderPlanGroup(
+                    "正式計畫（自主提升）",
+                    selfPromotedPlans,
+                    { editable: !formOpen, trashable: !formOpen },
+                    ""
+                  )}
                 {submittedPlans.length > 0 &&
                   renderPlanGroup("審核中", submittedPlans, { withdrawable: withinWindow, promotable: !formOpen }, "")}
               </div>
@@ -2271,7 +2304,7 @@ export default function StudentSelfDirectedLearningPage() {
             </p>
             <p className="text-t2 mt-2 text-sm">
               《{withdrawTarget.topic || "（未命名計畫）"}》會從審核佇列抽回並回到草稿匣；
-              你可以在開放撰寫期間內修改後重新送出。
+              你可以在送審期間內修改後重新送出。
             </p>
             <p className="text-t3 mt-1 text-xs">
               抽回後審核人員將看不到這份計畫，直到你重新送出審核。

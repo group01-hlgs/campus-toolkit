@@ -6,7 +6,6 @@ import DisclosureArrow from "@/components/DisclosureArrow";
 import { RichTextEditor } from "../../components/rich-text-editor";
 import {
   DEFAULT_SELF_DIRECTED_LEARNING_SETTINGS,
-  MAX_DRAFT_PLANS,
   MAX_MIN_APPROVED_PLANS,
   WEEKDAY_LABELS,
   openStateOf,
@@ -42,10 +41,10 @@ function formatDateTime(epoch: number | null): string {
 }
 
 const STATE_LABEL: Record<string, string> = {
-  unset: "尚未設定開放時間",
-  closed: "尚未開放",
-  open: "開放撰寫中",
-  ended: "已截止",
+  unset: "尚未設定送審期間",
+  closed: "尚未到送審期間",
+  open: "送審期間內",
+  ended: "已超過送審期間",
 };
 
 const REVIEW_STATE_LABEL: Record<string, string> = {
@@ -57,11 +56,11 @@ const REVIEW_STATE_LABEL: Record<string, string> = {
 
 /** 撰寫說明範例（富文本；以編號清單呈現，插入後可再修改） */
 const INSTRUCTIONS_TEMPLATE =
-  "<ol><li>請於開放期間內完成填報並送出審核。</li><li>逐週學習安排與場地皆須填寫完整。</li><li>送出後請等待審核；退回時可依意見修改後再送。</li></ol>";
+  "<ol><li>請於送審期間內送出審核；草稿與正式計畫可隨時建立、編輯。</li><li>逐週學習安排與場地皆須填寫完整。</li><li>送出後請等待審核；退回時可依意見修改後再送。</li></ol>";
 
 /** 實施說明範例（給學生、家長的總說明；富文本） */
 const IMPLEMENTATION_TEMPLATE =
-  "<ol><li>自主學習計畫請於學校開放的期間內填報並送出審核。</li><li>學習活動請於學校規定的時間與場地實施。</li><li>計畫經審核通過後，始得依計畫內容實施。</li></ol>";
+  "<ol><li>自主學習計畫請於學校設定的送審期間內送出審核。</li><li>學習活動請於學校規定的時間與場地實施。</li><li>計畫經審核通過後，始得依計畫內容實施。</li></ol>";
 
 /** 依行自動標號的功能已移除：說明改為富文本編輯器，編號清單由工具列處理 */
 
@@ -131,6 +130,7 @@ export default function SelfDirectedLearningSettingsPage({
   /** 下限週數輸入框的暫存字串：允許清空後重打，失焦時回復現值 */
   const [minWeeksInput, setMinWeeksInput] = useState<string | null>(null);
   const [maxDraftsInput, setMaxDraftsInput] = useState<string | null>(null);
+  const [maxDocumentPlansInput, setMaxDocumentPlansInput] = useState<string | null>(null);
   const [minApprovedPlansInput, setMinApprovedPlansInput] = useState<string | null>(null);
 
   /** 班級候選（主程式年段班級設定） */
@@ -425,7 +425,7 @@ export default function SelfDirectedLearningSettingsPage({
       reviewEndAt,
     };
     if (payload.openAt !== null && payload.closeAt !== null && payload.closeAt <= payload.openAt) {
-      setToast({ kind: "error", text: "截止時間必須晚於開始時間" });
+      setToast({ kind: "error", text: "送審截止時間必須晚於開始時間" });
       return;
     }
     if (
@@ -498,13 +498,18 @@ export default function SelfDirectedLearningSettingsPage({
     settings.weekMode === "flexible" &&
     availableWeeks !== null &&
     settings.minWeeks > availableWeeks.available;
-  /** 草稿匣上限輸入是否不合法（1–100 的整數） */
+  /** 草稿匣上限輸入是否不合法（正整數） */
   const maxDraftsInvalid =
     maxDraftsInput !== null &&
     (maxDraftsInput.trim() === "" ||
       !Number.isInteger(Number(maxDraftsInput)) ||
-      Number(maxDraftsInput) < 1 ||
-      Number(maxDraftsInput) > MAX_DRAFT_PLANS);
+      Number(maxDraftsInput) < 1);
+  /** 文件匣上限輸入是否不合法（正整數） */
+  const maxDocumentPlansInvalid =
+    maxDocumentPlansInput !== null &&
+    (maxDocumentPlansInput.trim() === "" ||
+      !Number.isInteger(Number(maxDocumentPlansInput)) ||
+      Number(maxDocumentPlansInput) < 1);
   /** 就學期間學校審查通過最低份數是否不合法（0–6 的整數） */
   const minApprovedPlansInvalid =
     minApprovedPlansInput !== null &&
@@ -529,16 +534,23 @@ export default function SelfDirectedLearningSettingsPage({
         className="btn-primary btn-theme h-10 px-6 text-sm cursor-pointer disabled:opacity-50"
         onClick={() => void save()}
         disabled={
-          loading || saving || minWeeksInvalid || maxDraftsInvalid || minApprovedPlansInvalid
+          loading ||
+          saving ||
+          minWeeksInvalid ||
+          maxDraftsInvalid ||
+          maxDocumentPlansInvalid ||
+          minApprovedPlansInvalid
         }
         title={
           minWeeksInvalid
             ? "下限週數超過可寫週數，請先調整"
             : maxDraftsInvalid
-              ? `草稿匣件數上限必須是 1–${MAX_DRAFT_PLANS} 的整數`
-              : minApprovedPlansInvalid
-                ? `就學期間學校審查通過最低份數必須是 0–${MAX_MIN_APPROVED_PLANS} 的整數`
-                : ""
+              ? "草稿匣件數上限必須是正整數"
+              : maxDocumentPlansInvalid
+                ? "文件匣件數上限必須是正整數"
+                : minApprovedPlansInvalid
+                  ? `就學期間學校審查通過最低份數必須是 0–${MAX_MIN_APPROVED_PLANS} 的整數`
+                  : ""
         }
       >
         {saving ? "儲存中…" : "儲存設定"}
@@ -592,7 +604,7 @@ export default function SelfDirectedLearningSettingsPage({
       <details className="border-themed bg-card rounded-lg" open>
         <summary className="text-t1 flex cursor-pointer items-center gap-2 p-4 font-medium">
           <DisclosureArrow />
-          開放撰寫時間
+          送審時間與計畫容量
         </summary>
         <div className="space-y-4 px-4 pb-4">
           {/* 功能總開關：關閉即全站維護中（管理端不受影響） */}
@@ -660,7 +672,7 @@ export default function SelfDirectedLearningSettingsPage({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-t2 block space-y-1 text-sm">
-              <span>開始時間</span>
+              <span>送審開始時間</span>
               <input
                 type="datetime-local"
                 className="input-theme w-full rounded px-3 py-2 text-sm"
@@ -669,7 +681,7 @@ export default function SelfDirectedLearningSettingsPage({
               />
             </label>
             <label className="text-t2 block space-y-1 text-sm">
-              <span>截止時間</span>
+              <span>送審截止時間</span>
               <input
                 type="datetime-local"
                 className="input-theme w-full rounded px-3 py-2 text-sm"
@@ -680,6 +692,9 @@ export default function SelfDirectedLearningSettingsPage({
           </div>
           <p className="text-t3 text-sm">
             目前設定：{formatDateTime(settings.openAt)} ～ {formatDateTime(settings.closeAt)}
+          </p>
+          <p className="text-t3 text-xs">
+            送審期間只用來限制「送出審核」；草稿與正式計畫在學期中可隨時建立、編輯。
           </p>
 
           {/* 計畫成果撰寫截止時間：執行成果紀錄與學習反思心得開放到此時間為止 */}
@@ -694,8 +709,8 @@ export default function SelfDirectedLearningSettingsPage({
               }
             />
             <span className="text-t3 block text-xs">
-              學生填寫「執行成果紀錄」與「學習反思心得」的截止時間（可設定到時與分）；
-              未設定＝不限制填寫期限。每一週的成果紀錄需等該週規劃時間過了才會開放。
+              只適用「學校審核通過」的計畫；自行提升的正式計畫不受此截止時間限制。
+              每一週的成果紀錄仍需等該週規劃時間過了才會開放；未設定＝不限制審核通過計畫的填寫期限。
             </span>
           </label>
           {settings.resultDeadlineAt !== null && (
@@ -777,36 +792,57 @@ export default function SelfDirectedLearningSettingsPage({
             )}
           </div>
 
-          {/* 草稿匣件數上限 */}
-          <div className="space-y-2">
-            <span className="text-t1 block text-sm font-medium">草稿匣件數上限</span>
-            <label className="text-t2 block space-y-1 text-sm">
-              <span>每位學生最多可保留的草稿（含退回修改；1–{MAX_DRAFT_PLANS} 件）</span>
-              <input
-                type="number"
-                min={1}
-                max={MAX_DRAFT_PLANS}
-                className="input-theme w-32 rounded px-3 py-2 text-sm"
-                value={maxDraftsInput ?? String(settings.maxDrafts)}
-                onChange={(event) => {
-                  const text = event.target.value;
-                  setMaxDraftsInput(text);
-                  const parsed = Number(text);
-                  if (
-                    text.trim() !== "" &&
-                    Number.isInteger(parsed) &&
-                    parsed >= 1 &&
-                    parsed <= MAX_DRAFT_PLANS
-                  ) {
-                    patch({ maxDrafts: parsed });
-                  }
-                }}
-                onBlur={() => setMaxDraftsInput(null)}
-              />
-            </label>
-            <p className="text-t3 text-xs">
-              僅限制新增草稿；已達上限時仍可編輯既有草稿或刪除後再新增。退回修改的計畫也計入件數。
-            </p>
+          {/* 文件匣與草稿匣件數上限 */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <span className="text-t1 block text-sm font-medium">文件匣件數上限</span>
+              <label className="text-t2 block space-y-1 text-sm">
+                <span>每位學生最多可保留的審核中＋已通過計畫（正整數）</span>
+                <input
+                  type="number"
+                  min={1}
+                  className="input-theme w-32 rounded px-3 py-2 text-sm"
+                  value={maxDocumentPlansInput ?? String(settings.maxDocumentPlans)}
+                  onChange={(event) => {
+                    const text = event.target.value;
+                    setMaxDocumentPlansInput(text);
+                    const parsed = Number(text);
+                    if (text.trim() !== "" && Number.isInteger(parsed) && parsed >= 1) {
+                      patch({ maxDocumentPlans: parsed });
+                    }
+                  }}
+                  onBlur={() => setMaxDocumentPlansInput(null)}
+                />
+              </label>
+              <p className="text-t3 text-xs">
+                僅限制送出審核；自行提升的正式計畫不占文件匣。已達上限時請調整上限，或等既有計畫審查結束。
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-t1 block text-sm font-medium">草稿匣件數上限</span>
+              <label className="text-t2 block space-y-1 text-sm">
+                <span>每位學生最多可保留的草稿（含退回修改；正整數）</span>
+                <input
+                  type="number"
+                  min={1}
+                  className="input-theme w-32 rounded px-3 py-2 text-sm"
+                  value={maxDraftsInput ?? String(settings.maxDrafts)}
+                  onChange={(event) => {
+                    const text = event.target.value;
+                    setMaxDraftsInput(text);
+                    const parsed = Number(text);
+                    if (text.trim() !== "" && Number.isInteger(parsed) && parsed >= 1) {
+                      patch({ maxDrafts: parsed });
+                    }
+                  }}
+                  onBlur={() => setMaxDraftsInput(null)}
+                />
+              </label>
+              <p className="text-t3 text-xs">
+                僅限制新增草稿；已達上限時仍可編輯既有草稿或刪除後再新增。退回修改的計畫也計入件數。
+              </p>
+            </div>
           </div>
         </div>
       </details>
@@ -852,7 +888,7 @@ export default function SelfDirectedLearningSettingsPage({
             </span>
           </label>
           <p className="text-t3 text-sm">
-            公告標題「自主學習計畫開放撰寫」，時間為上方設定的開始～截止時間；
+            公告標題「自主學習計畫送審期間」，時間為上方設定的開始～截止時間；
             若時間清空，有勾選的項目會撤回公告或取消行程。
           </p>
         </div>
@@ -1064,7 +1100,7 @@ export default function SelfDirectedLearningSettingsPage({
             settings.closeAt !== null &&
             settings.reviewStartAt < settings.closeAt && (
               <p className="text-warning text-xs">
-                審核開始時間早於開放撰寫截止時間：審核人員可能在學生仍可送出或抽回時就開始審核。
+                審核開始時間早於送審截止時間：審核人員可能在學生仍可送出或抽回時就開始審核。
               </p>
             )}
         </div>

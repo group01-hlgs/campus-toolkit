@@ -46,7 +46,7 @@ export interface StudentDashboard {
   plans: SelfDirectedLearningPlan[];
   /** 各計畫的最新審查意見（key＝plan id） */
   latestReviews: Record<string, PlanReview>;
-  /** 現在是否在開放撰寫期間 */
+  /** 現在是否在送審期間 */
   withinWindow: boolean;
 }
 
@@ -204,7 +204,7 @@ function newPlanDocId(period: string, studentUid: string, now: number): string {
 
 /**
  * 儲存草稿／送出審核。
- * - 未帶 planId＝新增草稿（不限開放期間；送出審核時才檢查期限與每學期件數）。
+ * - 未帶 planId＝新增草稿（不受送審期間限制；送出審核時才檢查期限與件數）。
  * - 帶 planId＝編輯既有草稿（草稿／退回修改可編輯；審核中／已通過不可編輯）。
  * - 同一學期可有多筆草稿，但每學期僅能送審 1 份（第一次送出後只能重送同一份；退回、抽回都算已送審）。
  * - 正式計畫（approved）每學期僅一份；送出審核與審核通過時都會檢查。
@@ -299,7 +299,9 @@ export async function saveStudentPlan(input: {
   if (!target && input.action === "save") {
     const draftBoxCount = studentPlans.filter(
       (plan) =>
-        !plan.deletedAt && (plan.status === "draft" || plan.status === "returned")
+        !plan.deletedAt &&
+        (plan.status === "draft" || plan.status === "returned") &&
+        !isFormalPlan(plan)
     ).length;
     if (draftBoxCount >= input.settings.maxDrafts) {
       return {
@@ -310,13 +312,30 @@ export async function saveStudentPlan(input: {
     }
   }
 
+  // 文件匣件數上限（審核中＋已通過）：只限制送出審核，草稿與自行提升的正式不受影響
+  if (input.action === "submit") {
+    const documentBoxCount = studentPlans.filter(
+      (plan) =>
+        !plan.deletedAt &&
+        plan.id !== requestedId &&
+        (isFormalPlan(plan) || plan.status === "submitted")
+    ).length;
+    if (documentBoxCount >= input.settings.maxDocumentPlans) {
+      return {
+        ok: false,
+        status: 409,
+        message: `文件匣已達上限（${input.settings.maxDocumentPlans} 件，含審核中與已通過），請洽管理員調整上限`,
+      };
+    }
+  }
+
   if (input.action === "submit") {
     const { openAt, closeAt } = input.settings;
     if (openAt === null || closeAt === null) {
-      return { ok: false, status: 400, message: "學校尚未開放撰寫時間" };
+      return { ok: false, status: 400, message: "學校尚未設定送審期間" };
     }
-    if (now < openAt) return { ok: false, status: 400, message: "尚未到開放撰寫時間" };
-    if (now > closeAt) return { ok: false, status: 400, message: "已超過開放撰寫期限" };
+    if (now < openAt) return { ok: false, status: 400, message: "尚未到送審期間" };
+    if (now > closeAt) return { ok: false, status: 400, message: "已超過送審期間" };
   }
 
   const id = target?.id ?? newPlanDocId(period, input.student.uid, now);
@@ -350,7 +369,6 @@ export async function saveStudentPlan(input: {
     await plansRef().doc(id).set(next, { merge: true });
     return { ok: true, plan: next };
   }
-
   // 送審：以「學生＋學期」鎖定文件序列化，杜絕兩分頁同時送審的競態
   // （上面的檢查是快速回饋；真正把關在交易內重讀鎖定文件與被鎖定的計畫）
   const lockRef = submissionLockRef(period, input.student.uid);
@@ -464,7 +482,7 @@ export async function savePlanRecords(input: {
   if (plan.period !== periodLabelOf(await getCurrentPeriod())) {
     return { ok: false, status: 409, message: "只能填寫本學期計畫的執行成果紀錄" };
   }
-  if (input.settings.resultDeadlineAt !== null && now > input.settings.resultDeadlineAt) {
+  if (plan.status === "approved" && input.settings.resultDeadlineAt !== null && now > input.settings.resultDeadlineAt) {
     return { ok: false, status: 409, message: "已超過計畫成果撰寫截止時間" };
   }
 
@@ -547,6 +565,8 @@ export async function setStudentPlanDeleted(input: {
   deleted: boolean;
   /** 草稿匣件數上限（還原草稿時檢查；未提供＝不檢查） */
   maxDrafts?: number;
+  /** 文件匣件數上限（還原自行提升的正式計畫時檢查；未提供＝不檢查） */
+  maxDocumentPlans?: number;
   now?: number;
 }): Promise<PlanTrashResult> {
   const snap = await plansRef().doc(input.planId).get();
@@ -567,18 +587,33 @@ export async function setStudentPlanDeleted(input: {
   } else if (!plan.deletedAt) {
     return { ok: true, plan };
   }
-  if (!input.deleted && typeof input.maxDrafts === "number") {
+  if (!input.deleted) {
     const activePlans = await getStudentPlans(plan.studentUid);
-    const draftBoxCount = activePlans.filter(
-      (item) =>
-        !item.deletedAt && (item.status === "draft" || item.status === "returned")
-    ).length;
-    if (draftBoxCount >= input.maxDrafts) {
-      return {
-        ok: false,
-        status: 409,
-        message: `草稿匣已達上限（${input.maxDrafts} 件），請先刪除不需要的草稿，或請管理員調整上限`,
-      };
+    if (isFormalPlan(plan)) {
+      if (typeof input.maxDocumentPlans === "number") {
+        const documentBoxCount = activePlans.filter(
+          (item) => !item.deletedAt && (isFormalPlan(item) || item.status === "submitted")
+        ).length;
+        if (documentBoxCount >= input.maxDocumentPlans) {
+          return {
+            ok: false,
+            status: 409,
+            message: `文件匣已達上限（${input.maxDocumentPlans} 件，含審核中與已通過），請先調整上限或等既有計畫審查結束`,
+          };
+        }
+      }
+    } else if (typeof input.maxDrafts === "number") {
+      const draftBoxCount = activePlans.filter(
+        (item) =>
+          !item.deletedAt && (item.status === "draft" || item.status === "returned")
+      ).length;
+      if (draftBoxCount >= input.maxDrafts) {
+        return {
+          ok: false,
+          status: 409,
+          message: `草稿匣已達上限（${input.maxDrafts} 件），請先刪除不需要的草稿，或請管理員調整上限`,
+        };
+      }
     }
   }
   const now = input.now ?? Date.now();
@@ -606,6 +641,8 @@ export type PromotePlanResult =
 export async function promoteStudentPlan(input: {
   planId: string;
   studentUid: string;
+  /** 文件匣件數上限（草稿／退回提升會新增一件；審核中已在文件匣內，不重複占位） */
+  maxDocumentPlans?: number;
 }): Promise<PromotePlanResult> {
   const planRef = plansRef().doc(input.planId);
   const snap = await planRef.get();
@@ -622,6 +659,24 @@ export async function promoteStudentPlan(input: {
   const currentPeriod = periodLabelOf(await getCurrentPeriod());
   if (plan.period !== currentPeriod) {
     return { ok: false, status: 409, message: "只能提升本學期的計畫" };
+  }
+
+  // 草稿／退回提升會新增一件文件匣；審核中本來就占文件匣，不重複檢查
+  if (plan.status !== "submitted" && typeof input.maxDocumentPlans === "number") {
+    const plans = await getStudentPlans(plan.studentUid);
+    const documentBoxCount = plans.filter(
+      (item) =>
+        !item.deletedAt &&
+        item.id !== plan.id &&
+        (isFormalPlan(item) || item.status === "submitted")
+    ).length;
+    if (documentBoxCount >= input.maxDocumentPlans) {
+      return {
+        ok: false,
+        status: 409,
+        message: `文件匣已達上限（${input.maxDocumentPlans} 件，含審核中與已通過），請先調整上限或等既有計畫審查結束`,
+      };
+    }
   }
 
   const now = Date.now();
@@ -676,12 +731,72 @@ export async function purgeStudentPlan(input: {
   return { ok: true, plan };
 }
 
+/** 垃圾桶保留天數：學生進入頁面時，超過此天數的廢棄計畫會永久刪除 */
+export const TRASH_RETENTION_DAYS = 30;
+
+/**
+ * 自動清除學生垃圾桶中超過保留天數的計畫（含審查紀錄）。
+ * 只處理草稿／退回修改；審核中與已通過的計畫不可在垃圾桶，遇到也跳過。
+ * 回傳實際清除的計畫數。
+ */
+export async function purgeExpiredStudentTrash(input: {
+  studentUid: string;
+  now?: number;
+}): Promise<number> {
+  const now = input.now ?? Date.now();
+  const cutoff = now - TRASH_RETENTION_DAYS * 86_400_000;
+  const plans = await getStudentPlans(input.studentUid, 1000);
+  const expired = plans.filter(
+    (plan) =>
+      plan.deletedAt !== null &&
+      plan.deletedAt <= cutoff &&
+      plan.status !== "submitted" &&
+      plan.status !== "approved"
+  );
+  if (expired.length === 0) return 0;
+
+  const db = getAdminDb();
+  const ids = expired.map((plan) => plan.id);
+  let batch = db.batch();
+  let operations = 0;
+  const commitIfNeeded = async () => {
+    if (operations >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      operations = 0;
+    }
+  };
+
+  // 審查紀錄以 planId in [...] 分批查（Firestore in 上限 30），避免逐筆查詢
+  for (let index = 0; index < ids.length; index += 30) {
+    const chunk = ids.slice(index, index + 30);
+    const reviews = await db
+      .collection(SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION)
+      .where("planId", "in", chunk)
+      .limit(400)
+      .get();
+    for (const review of reviews.docs) {
+      batch.delete(review.ref);
+      operations += 1;
+      await commitIfNeeded();
+    }
+  }
+
+  for (const plan of expired) {
+    batch.delete(plansRef().doc(plan.id));
+    operations += 1;
+    await commitIfNeeded();
+  }
+  if (operations > 0) await batch.commit();
+  return expired.length;
+}
+
 export type WithdrawPlanResult =
   | { ok: true; plan: SelfDirectedLearningPlan }
   | { ok: false; status: 400 | 403 | 404 | 409; message: string };
 
 /**
- * 學生抽回審核中的計畫（限開放撰寫期間、限本學期）：
+ * 學生抽回審核中的計畫（限送審期間、限本學期）：
  * 抽回後回到草稿狀態，可修改後重新送出。
  * 以 transaction 重讀確認仍是 submitted，避免與審核人員同時處理。
  */
@@ -695,7 +810,7 @@ export async function withdrawStudentPlan(input: {
 }): Promise<WithdrawPlanResult> {
   const now = input.now ?? Date.now();
   if (openStateOf(input.settings, now) !== "open") {
-    return { ok: false, status: 400, message: "目前非開放撰寫期間，無法抽回計畫" };
+    return { ok: false, status: 400, message: "目前非送審期間，無法抽回計畫" };
   }
   const db = getAdminDb();
   const planRef = plansRef().doc(input.planId);
@@ -896,7 +1011,7 @@ function newReviewDocId(): string {
 
 /**
  * 套用審核結果（transaction：僅 submitted 可審，寫 review＋更新狀態）。
- * 審核不受開放期間限制。
+ * 審核不受送審期間限制。
  */
 export async function applyReview(input: {
   planId: string;

@@ -13,12 +13,12 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.106",
+    "version": "0.0.107",
     "releasedAt": "2026-10-29"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "managerPermissions": [
-    { "value": "configure", "label": "管理規則（開放時間、週數、節次行程、場域、審核名單、說明）" },
+    { "value": "configure", "label": "管理規則（送審時間、週數、節次行程、場域、審核名單、說明）" },
     { "value": "review", "label": "審核計畫（通過／退回）" },
     { "value": "viewPlans", "label": "查看、管理計畫清單" }
   ],
@@ -62,6 +62,15 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.107",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "開放撰寫改為送審期間：草稿與正式計畫在學期中可隨時建立、編輯，只有送出審核受送審期間限制",
+        "文件匣（審核中＋已通過＋自主提升）與草稿匣容量改由學校設定（預設 20／20，無硬上限）；仍維持每學期送審 1 份、學校審核通過 1 份，自主提升可多份",
+        "成果／反思截止時間只適用學校審核通過的計畫；學生進入頁面時自動永久刪除 30 天前垃圾桶計畫"
+      ]
+    },
     {
       "version": "0.0.106",
       "releasedAt": "2026-10-29",
