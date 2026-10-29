@@ -58,9 +58,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 2. 將 C「選用功能模組」 push 至遠端
 
 **「打包C」指令**，實施流程：
-1. 請將 C「選用功能模組」打包，並上架到 B「模組市集」，完成後分別 push；
-   B 的 `releases/notes.txt` 只保留最新一版，以 3 點以內的條列簡要說明該版變更
-   （直接覆蓋，不要把舊版往後疊）
+1. 請將 C「選用功能模組」打包，並上架到 B「模組市集」：在 B 執行
+   `npm run publish:push -- <C 專案路徑>`，腳本會自動把 C 的 `changelog[0].notes` 寫入 B 的
+   `releaseNotes`（A 市集卡片以條列顯示）、產生只保留最新一版的 `releases/notes.txt`，
+   並 commit＋push B；C 的 `changelog[0].notes` 維持 3 點以內，完成後 push C
 2. **絕不更動或 push 到 A「主程式」**
 
 **「修改A」指令**，實施流程：
