@@ -3,7 +3,7 @@
   "label": "升學考試與模擬考校內報名",
   "kind": "optional",
   "status": "live",
-  "description": "校內升學考試與模擬考的選考科目登錄：承辦建立場次與科目、指定對象年級班級，學生線上登錄與修改，家長可唯讀查看名冊綁定子女的報名資料。",
+  "description": "校內升學考試與模擬考的報名、名單與造冊工具。\n\n【學生端】\n• 開放期間勾選選考科目，可修改、取消；截止後唯讀，可下載 PDF 留存。\n• 支援必／選報與不報名原因、繳費身分與費用試算、考試地點選擇、應考服務填寫與自行封存。\n• 場次依報名起訖自動顯示未開放／開放／已截止，未開放前不可送出。\n\n【教職員】\n• 兼導師可唯讀檢視本班各場次的班級完成狀態與報名名單。\n\n【管理端】\n• 建立場次與科目、指定年級班級、設定考試日期（可多日）與報名起訖、必／選報與費用。\n• 名單統計、班級區間匯出（全部／完成／未完成）、官方報名資料檔（學測、分科測驗、英聽、術科與通用格式）。\n• 可同步系統公告與行事曆；依權限解除封存、刪除登錄、硬刪除場次（連動名單）。\n\n【家長端】\n• 家長可唯讀查看名冊綁定子女的報名資料。",
   "href": "/admin/exam-registration",
   "contractVersion": 1,
   "minHostVersion": "0.558",
@@ -17,8 +17,8 @@
   "author": {
     "author": "張家誠",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.1.54",
-    "releasedAt": "2026-10-22"
+    "version": "0.1.55",
+    "releasedAt": "2026-10-29"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "defaultRoleEnabled": { "parent": false },
@@ -64,6 +64,14 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.1.55",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "模組介紹改為分類條列（學生端、教職員、管理端、家長端）並精簡文字，市集卡片一眼可讀完整功能範圍",
+        "市集更新說明改為條列呈現，與自主學習計畫模組一致"
+      ]
+    },
     {
       "version": "0.1.54",
       "releasedAt": "2026-10-22",
