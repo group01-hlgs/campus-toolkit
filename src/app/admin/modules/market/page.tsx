@@ -625,7 +625,9 @@ export default function ModuleMarketPage() {
                                 <DisclosureArrow />
                                 模組介紹
                               </summary>
-                              <p className="mt-2 text-sm text-t2">{module.description}</p>
+                              <p className="mt-2 text-sm text-t2 whitespace-pre-line leading-relaxed">
+                                {module.description}
+                              </p>
                             </details>
                           )}
                         </div>
@@ -650,16 +652,6 @@ export default function ModuleMarketPage() {
                           </span>
                         )}
                       </div>
-
-                      {module.tags && module.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {module.tags.map((tag) => (
-                            <span key={`${module.id}-${tag}`} className="text-xs text-t3 border border-themed rounded px-2 py-1">
-                              #{tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
 
                       <div className="flex items-center justify-between gap-3 pt-2 border-t border-themed">
                         <div className="text-xs text-t3">
