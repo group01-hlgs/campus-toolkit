@@ -625,7 +625,9 @@ export default function ModuleMarketPage() {
                                 <DisclosureArrow />
                                 模組介紹
                               </summary>
-                              <p className="mt-2 text-sm text-t2">{module.description}</p>
+                              <p className="mt-2 text-sm text-t2 whitespace-pre-line leading-relaxed">
+                                {module.description}
+                              </p>
                             </details>
                           )}
                         </div>
