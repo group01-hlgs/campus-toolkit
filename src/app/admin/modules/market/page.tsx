@@ -653,16 +653,6 @@ export default function ModuleMarketPage() {
                         )}
                       </div>
 
-                      {module.tags && module.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {module.tags.map((tag) => (
-                            <span key={`${module.id}-${tag}`} className="text-xs text-t3 border border-themed rounded px-2 py-1">
-                              #{tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
                       <div className="flex items-center justify-between gap-3 pt-2 border-t border-themed">
                         <div className="text-xs text-t3">
                           {module.latestVersion && module.latestVersion !== module.version
