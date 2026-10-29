@@ -10,6 +10,7 @@ export interface ModuleMarketEntry {
   checksumSha256?: string;
   category?: string;
   tags?: string[];
+  releaseNotes?: string[];
 }
 
 export interface ModuleMarketIndex {
@@ -65,6 +66,7 @@ export function parseModuleMarketEntry(value: unknown): ModuleMarketEntry | null
     checksumSha256,
     category: readString(entry.category) ?? undefined,
     tags: readStringArray(entry.tags),
+    releaseNotes: readStringArray(entry.releaseNotes),
   };
 }
 

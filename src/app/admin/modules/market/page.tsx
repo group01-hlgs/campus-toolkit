@@ -22,6 +22,7 @@ interface MarketModuleEntry {
   checksumSha256?: string;
   category?: string;
   tags?: string[];
+  releaseNotes?: string[];
 }
 
 interface MarketResponse {
@@ -610,7 +611,27 @@ export default function ModuleMarketPage() {
                     </summary>
 
                     <div className="mt-3 space-y-3">
-                      <p className="text-sm text-t2">{module.description || "沒有說明"}</p>
+                      {module.releaseNotes && module.releaseNotes.length > 0 ? (
+                        <div className="text-sm text-t2">
+                          <p className="font-medium text-t1">v{module.version} 更新</p>
+                          <ul className="mt-1 list-disc space-y-1 pl-5">
+                            {module.releaseNotes.map((note, index) => (
+                              <li key={`${module.id}-release-note-${index}`}>{note}</li>
+                            ))}
+                          </ul>
+                          {module.description && (
+                            <details className="mt-2 text-xs text-t3">
+                              <summary className="flex cursor-pointer list-none items-center gap-1">
+                                <DisclosureArrow />
+                                模組介紹
+                              </summary>
+                              <p className="mt-2 text-sm text-t2">{module.description}</p>
+                            </details>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-t2">{module.description || "沒有說明"}</p>
+                      )}
 
                       <div className="flex flex-wrap gap-2 text-xs text-t3">
                         {module.minHostVersion && (
