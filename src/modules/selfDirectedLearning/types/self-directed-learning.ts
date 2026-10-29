@@ -607,6 +607,8 @@ export interface SelfDirectedLearningPlan {
   firstSubmittedAt: number | null;
   /** 學生自行提升為正式計畫的時間（epoch ms）；null＝尚未自行提升 */
   selfApprovedAt: number | null;
+  /** 是否開放家長檢視（預設 true；舊資料沒有此欄位時視為開放） */
+  parentVisible: boolean;
   updatedAt: number;
 }
 
@@ -1188,7 +1190,16 @@ export function parsePlanDraft(
   // 成果紀錄與學習反思心得不在草稿表單內（由「查看內容」於計畫通過後、時間到才填寫）
   return {
     ok: true,
-    value: { topic, studyGroup, advisor, learningGoals, weeks, executionRecords: [], reflection: "" },
+    value: {
+      topic,
+      studyGroup,
+      advisor,
+      learningGoals,
+      weeks,
+      executionRecords: [],
+      reflection: "",
+      parentVisible: true,
+    },
   };
 }
 

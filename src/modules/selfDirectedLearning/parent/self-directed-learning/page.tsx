@@ -35,6 +35,8 @@ export default function ParentSelfDirectedLearningPage() {
   const [plan, setPlan] = useState<SelfDirectedLearningPlan | null>(null);
   const [latestReview, setLatestReview] = useState<PlanReview | null>(null);
   const [instructions, setInstructions] = useState("");
+  /** 子女尚未將任何計畫開放給家長檢視 */
+  const [hiddenByStudent, setHiddenByStudent] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   /** 總開關關閉：只顯示維護說明 */
@@ -53,6 +55,7 @@ export default function ParentSelfDirectedLearningPage() {
       setPlan((data.plan as SelfDirectedLearningPlan | null) ?? null);
       setLatestReview((data.latestReview as PlanReview | null) ?? null);
       setInstructions(typeof data.instructions === "string" ? data.instructions : "");
+      setHiddenByStudent(Boolean(data.hiddenByStudent));
     } catch {
       setToast({ kind: "error", text: "讀取資料失敗" });
     } finally {
@@ -109,7 +112,9 @@ export default function ParentSelfDirectedLearningPage() {
         <div className="border-themed bg-card text-t2 rounded-lg p-4 text-sm">載入中…</div>
       ) : !plan ? (
         <div className="border border-themed bg-card text-t2 rounded-lg p-4 text-sm">
-          子女尚未建立自主學習計畫。
+          {hiddenByStudent
+            ? "子女目前未將自主學習計畫開放給家長檢視；若要查看，請向子女確認。"
+            : "子女尚未建立自主學習計畫。"}
         </div>
       ) : (
         <>

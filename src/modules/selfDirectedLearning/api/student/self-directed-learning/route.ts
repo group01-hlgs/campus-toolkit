@@ -14,6 +14,7 @@ import {
   savePlanRecords,
   saveStudentPlan,
   setStudentPlanDeleted,
+  setStudentPlanParentVisibility,
   withdrawStudentPlan,
   type ExecutionRecordInput,
   type StudentIdentityLite,
@@ -173,6 +174,7 @@ export async function POST(request: NextRequest) {
       planId?: unknown;
       records?: unknown;
       reflection?: unknown;
+      visible?: unknown;
     } | null;
     const action = body?.action === "submit" ? "submit" : "save";
     const requestedAction = body?.action;
@@ -297,6 +299,48 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json(
         { success: true, message: "已永久刪除" },
+        { headers: noStore }
+      );
+    }
+
+    // 學生設定某一份正式計畫是否讓家長檢視
+    if (requestedAction === "parentVisibility") {
+      if (!planId) {
+        return NextResponse.json(
+          { success: false, message: "缺少計畫識別" },
+          { status: 400, headers: noStore }
+        );
+      }
+      if (typeof body?.visible !== "boolean") {
+        return NextResponse.json(
+          { success: false, message: "缺少家長檢視設定" },
+          { status: 400, headers: noStore }
+        );
+      }
+      const visibilityResult = await setStudentPlanParentVisibility({
+        planId,
+        studentUid: student.uid,
+        visible: body.visible,
+      });
+      if (!visibilityResult.ok) {
+        return NextResponse.json(
+          { success: false, message: visibilityResult.message },
+          { status: visibilityResult.status, headers: noStore }
+        );
+      }
+      await logActivity({
+        userId: student.uid,
+        role: session.role,
+        action: "self_directed_learning_plan_parent_visibility_changed",
+        ip: getClientIp(request),
+        details: `${body.visible ? "開放家長檢視" : "取消家長檢視"}：${visibilityResult.plan.topic}`,
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          plan: visibilityResult.plan,
+          message: body.visible ? "已開放家長檢視" : "已取消家長檢視",
+        },
         { headers: noStore }
       );
     }

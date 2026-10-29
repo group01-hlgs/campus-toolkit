@@ -707,7 +707,7 @@ export default function StaffSelfDirectedLearningPage() {
                       <div className="flex flex-wrap justify-end gap-2">
                         <button
                           type="button"
-                          className="btn-danger btn-theme h-9 px-4 text-sm"
+                          className="btn-danger h-9 px-4 text-sm"
                           onClick={() =>
                             setPending({ planId: plan.id, action: "return", topic: plan.topic })
                           }
@@ -716,7 +716,7 @@ export default function StaffSelfDirectedLearningPage() {
                         </button>
                         <button
                           type="button"
-                          className="btn-primary btn-theme h-9 px-4 text-sm"
+                          className="btn-primary h-9 px-4 text-sm"
                           onClick={() =>
                             setPending({ planId: plan.id, action: "approve", topic: plan.topic })
                           }

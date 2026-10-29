@@ -118,6 +118,8 @@ function readPlan(id: string, raw: Record<string, unknown>): SelfDirectedLearnin
       typeof raw.selfApprovedAt === "number" && raw.selfApprovedAt > 0
         ? raw.selfApprovedAt
         : null,
+    // 舊資料沒有此欄位：視為開放家長檢視（維持既有行為）
+    parentVisible: raw.parentVisible !== false,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -363,6 +365,8 @@ export async function saveStudentPlan(input: {
     firstSubmittedAt:
       input.action === "submit" ? target?.firstSubmittedAt ?? now : target?.firstSubmittedAt ?? null,
     selfApprovedAt: target?.selfApprovedAt ?? null,
+    // 家長檢視設定不隨草稿／送審變動
+    parentVisible: target?.parentVisible ?? true,
     updatedAt: now,
   };
 
@@ -683,6 +687,40 @@ export async function promoteStudentPlan(input: {
   const now = Date.now();
   await planRef.set({ selfApprovedAt: now, updatedAt: now }, { merge: true });
   return { ok: true, plan: { ...plan, selfApprovedAt: now, updatedAt: now } };
+}
+
+export type SetParentVisibilityResult =
+  | { ok: true; plan: SelfDirectedLearningPlan }
+  | { ok: false; status: 400 | 403 | 404 | 409; message: string };
+
+/**
+ * 學生設定某一份正式計畫是否開放家長檢視。
+ * - 僅限本人、且為正式計畫（學校通過或自行提升）。
+ * - 垃圾桶中的計畫不可設定（家長端本來就讀不到垃圾桶）。
+ */
+export async function setStudentPlanParentVisibility(input: {
+  planId: string;
+  studentUid: string;
+  visible: boolean;
+}): Promise<SetParentVisibilityResult> {
+  const planRef = plansRef().doc(input.planId);
+  const snap = await planRef.get();
+  if (!snap.exists) return { ok: false, status: 404, message: "查無此計畫" };
+  const plan = readPlan(input.planId, (snap.data() || {}) as Record<string, unknown>);
+  if (plan.studentUid !== input.studentUid) {
+    return { ok: false, status: 403, message: "無權修改此計畫" };
+  }
+  if (plan.deletedAt) {
+    return { ok: false, status: 409, message: "此計畫在垃圾桶，請先還原後再設定" };
+  }
+  if (!isFormalPlan(plan)) {
+    return { ok: false, status: 409, message: "只有正式計畫可以設定家長檢視" };
+  }
+  if (plan.parentVisible === input.visible) return { ok: true, plan };
+
+  const now = Date.now();
+  await planRef.set({ parentVisible: input.visible, updatedAt: now }, { merge: true });
+  return { ok: true, plan: { ...plan, parentVisible: input.visible, updatedAt: now } };
 }
 
 export type PurgePlanResult =

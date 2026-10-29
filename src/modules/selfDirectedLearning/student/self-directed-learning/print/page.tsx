@@ -101,7 +101,7 @@ export default function SelfDirectedLearningPrintPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="btn-primary btn-theme px-4 py-2 text-sm"
+            className="btn-primary px-4 py-2 text-sm"
             disabled={!payload}
             onClick={() => window.print()}
           >

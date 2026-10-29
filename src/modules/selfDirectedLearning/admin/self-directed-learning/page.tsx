@@ -531,7 +531,7 @@ export default function SelfDirectedLearningSettingsPage({
       </button>
       <button
         type="button"
-        className="btn-primary btn-theme h-10 px-6 text-sm cursor-pointer disabled:opacity-50"
+        className="btn-primary h-10 px-6 text-sm cursor-pointer disabled:opacity-50"
         onClick={() => void save()}
         disabled={
           loading ||
@@ -959,7 +959,7 @@ export default function SelfDirectedLearningSettingsPage({
                   </span>
                   <button
                     type="button"
-                    className="btn-danger btn-theme h-8 px-3 text-sm"
+                    className="btn-danger h-8 px-3 text-sm"
                     onClick={() => removeSlot(slot.day)}
                   >
                     清除該日

@@ -116,6 +116,7 @@
    身分欄（班級等）、`status`、
    `deletedAt`（移至垃圾桶的時間；null＝不在垃圾桶）、`submittedAt`、
    `selfApprovedAt`（學生自行提升為正式的時間；null＝未提升）、
+   `parentVisible`（是否開放家長檢視；預設 true，舊資料沒有此欄位時視為開放）、
    `firstSubmittedAt`（第一次送審時間，不再清除；用於「每學期僅能送審 1 份」）、`updatedAt`。同一學生同一學期
     可有多筆草稿；**每學期僅能送審 1 份**（第一次送出後只能重送同一份，退回或抽回都算已送審）；
     學校審核通過的正式計畫（`approved`）僅一份，

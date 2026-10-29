@@ -1,4 +1,4 @@
-{
+﻿{
   "value": "selfDirectedLearning",
   "label": "自主學習計畫",
   "kind": "optional",
@@ -13,7 +13,7 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.113",
+    "version": "0.0.118",
     "releasedAt": "2026-10-29"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -52,7 +52,8 @@
     "self_directed_learning_plan_restored",
     "self_directed_learning_plan_self_approved",
     "self_directed_learning_plan_purged",
-    "self_directed_learning_plan_records_saved"
+    "self_directed_learning_plan_records_saved",
+    "self_directed_learning_plan_parent_visibility_changed"
   ],
   "dataCollections": [
     "selfDirectedLearningSettings",
@@ -62,6 +63,45 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.118",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "新增「家長檢視」開關：學生的每一份正式計畫（學校通過或自行提升）都可自行決定是否讓家長看到，學生端計畫卡片提供「隱藏家長檢視／開放家長檢視」按鈕，並在隱藏時顯示「家長不可見」標記",
+        "家長端只會顯示學生開放的計畫；若子女有計畫但全部設為不開放，改為提示「子女目前未將自主學習計畫開放給家長檢視」",
+        "計畫新增 `parentVisible` 欄位（預設 true，舊資料視為開放），並新增稽核動作 `self_directed_learning_plan_parent_visibility_changed`"
+      ]
+    },
+    {
+      "version": "0.0.117",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "學生端「我的計畫」改為一次只能展開一份計畫：開啟某份「查看計畫與撰寫成果」時，其他已展開的計畫會自動收合，避免同時出現兩份展開內容"
+      ]
+    },
+    {
+      "version": "0.0.116",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "修正主要行動按鈕顏色不明顯：`btn-primary`／`btn-danger` 誤與 `btn-theme` 併用，被後定義的 btn-theme 樣式覆蓋成灰底，已移除衝突類別，主色與危險色按鈕恢復正常",
+        "「發想新計畫」按鈕改為主色實心、加上＋圖示與較大字距，於「我的計畫」標題列更醒目"
+      ]
+    },
+    {
+      "version": "0.0.115",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "開啟「撰寫計畫」表單（發想新計畫或編輯草稿）時，自動收合上方所有已展開區塊：自主學習實施說明、「查看計畫與撰寫成果」詳情與執行成果編輯區，並隱藏成果紀錄浮動按鈕，避免與表單搶版面",
+        "「查看計畫與撰寫成果」改為受控展開狀態，表單開啟期間保持收合；關閉表單後可再自行展開"
+      ]
+    },
+    {
+      "version": "0.0.114",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "修正自行提升為正式的計畫仍同時顯示「草稿」與「正式（自行提升）」兩種標籤的問題：自行提升後不再顯示草稿／退回修改標籤，只保留「正式（自行提升）」；審核中的計畫仍保留「審核中」標籤"
+      ]
+    },
     {
       "version": "0.0.113",
       "releasedAt": "2026-10-29",

@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     const settings = await getSettings();
     if (!settings.enabled) {
       return NextResponse.json(
-        { success: true, maintenance: true, child: null, plan: null, latestReview: null, instructions: "", withinWindow: false },
+        { success: true, maintenance: true, child: null, plan: null, latestReview: null, instructions: "", withinWindow: false, hiddenByStudent: false },
         { headers: noStore }
       );
     }
@@ -64,8 +64,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 同一學生可能有多筆計畫：優先顯示本學期正式計畫，其次最新通過，最後最新一筆
-    const plans = (await getStudentPlans(child.uid)).filter((item) => !item.deletedAt);
+    // 同一學生可能有多筆計畫：只取學生開放家長檢視的；優先本學期正式計畫，其次最新通過，最後最新一筆
+    const allPlans = (await getStudentPlans(child.uid)).filter((item) => !item.deletedAt);
+    const plans = allPlans.filter((item) => item.parentVisible !== false);
     const currentPeriod = periodLabelOf(await getCurrentPeriod());
     const plan =
       plans.find((item) => item.period === currentPeriod && item.status === "approved") ??
@@ -81,6 +82,8 @@ export async function GET(request: NextRequest) {
         latestReview,
         instructions: settings.instructions,
         withinWindow: openStateOf(settings) === "open",
+        /** 子女有計畫，但全部被學生設為不開放家長檢視 */
+        hiddenByStudent: allPlans.length > 0 && !plan,
       },
       { headers: noStore }
     );

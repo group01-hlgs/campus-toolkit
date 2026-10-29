@@ -284,8 +284,10 @@ export default function StudentSelfDirectedLearningPage() {
   const [recordsExpanded, setRecordsExpanded] = useState(false);
   /** 列印預覽成果紀錄呈現方式（分開式／融入式） */
   const [printLayout, setPrintLayout] = useState<PrintLayout>("separate");
-  /** 已展開「查看計畫與撰寫成果」的計畫（浮動按鈕只在展開時出現） */
+  /** 已展開「查看計畫與撰寫成果」的計畫（同一時間只會有一份；浮動按鈕只在展開時出現） */
   const [openDetailPlans, setOpenDetailPlans] = useState<Record<string, boolean>>({});
+  /** 自主學習實施說明是否展開（開啟撰寫表單時自動收合） */
+  const [instructionsOpen, setInstructionsOpen] = useState(true);
   /** 學生姓名／班級（列印預覽表頭用） */
   const [studentInfo, setStudentInfo] = useState<StudentInfo | null>(null);
   /** 撰寫計畫區塊是否展開（預設隱藏；發想新計畫或編輯草稿才顯示） */
@@ -616,7 +618,15 @@ export default function StudentSelfDirectedLearningPage() {
     });
   };
 
+  /** 開啟撰寫表單時，收合上方所有已展開的區塊（實施說明、計畫詳情與成果編輯區），讓表單成為唯一焦點 */
+  const collapseSectionsAboveForm = () => {
+    setInstructionsOpen(false);
+    setOpenDetailPlans({});
+    setRecordsExpanded(false);
+  };
+
   const startNewPlan = () => {
+    collapseSectionsAboveForm();
     setEditingPlanId(null);
     setCustomStudyGroup(false);
     setCustomVenueWeeks(new Set());
@@ -642,6 +652,7 @@ export default function StudentSelfDirectedLearningPage() {
 
   const startEditPlan = (plan: SelfDirectedLearningPlan) => {
     if (plan.status !== "draft" && plan.status !== "returned") return;
+    collapseSectionsAboveForm();
     setEditingPlanId(plan.id);
     setCustomStudyGroup(
       plan.studyGroup !== "" && !(STUDY_GROUPS as readonly string[]).includes(plan.studyGroup)
@@ -884,6 +895,33 @@ export default function StudentSelfDirectedLearningPage() {
     }
   };
 
+  /** 設定某一份正式計畫是否讓家長檢視 */
+  const setParentVisibility = async (plan: SelfDirectedLearningPlan, visible: boolean) => {
+    if (planBusy) return;
+    setPlanBusy(plan.id);
+    try {
+      const response = await fetch("/api/student/self-directed-learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "parentVisibility", planId: plan.id, visible }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setToast({ kind: "error", text: data.message || "設定失敗" });
+        return;
+      }
+      setToast({
+        kind: "success",
+        text: data.message || (visible ? "已開放家長檢視" : "已取消家長檢視"),
+      });
+      await load();
+    } catch {
+      setToast({ kind: "error", text: "設定失敗" });
+    } finally {
+      setPlanBusy(null);
+    }
+  };
+
   /** 永久刪除垃圾桶中的計畫（不可復原；連同審查紀錄） */
   const purgePlan = async (plan: SelfDirectedLearningPlan) => {
     if (planBusy) return;
@@ -1027,7 +1065,7 @@ export default function StudentSelfDirectedLearningPage() {
         )}
       <button
         type="button"
-        className="btn-primary btn-theme px-6 py-3 text-base"
+        className="btn-primary px-6 py-3 text-base"
         disabled={!canSubmit || loading}
         onClick={() => void submit("submit")}
         title={
@@ -1224,6 +1262,9 @@ export default function StudentSelfDirectedLearningPage() {
   ) => {
     const review = reviews[plan.id];
     const busy = planBusy === plan.id;
+    /** 學生自行提升為正式：流程狀態仍是草稿／退回，但畫面不再標示「草稿」，避免與正式標籤互相矛盾 */
+    const selfPromoted = isFormalPlan(plan) && plan.status !== "approved";
+    const showStatusBadge = !(selfPromoted && plan.status !== "submitted");
     /** 已通過且為本學期的計畫：在「查看計畫與撰寫成果」上下提供成果操作按鈕 */
     const showRecordActions = isFormalPlan(plan) && plan.period === currentPeriod;
     const recordActionButtons = (target: SelfDirectedLearningPlan) => (
@@ -1275,7 +1316,7 @@ export default function StudentSelfDirectedLearningPage() {
         </button>
         <button
           type="button"
-          className="btn-primary btn-theme rounded px-4 py-2 text-xs disabled:opacity-50"
+          className="btn-primary rounded px-4 py-2 text-xs disabled:opacity-50"
           disabled={recordsBusy === target.id || !canSaveRecordsOf(target)}
           onClick={() => void saveRecords(target)}
         >
@@ -1291,19 +1332,29 @@ export default function StudentSelfDirectedLearningPage() {
               <h4 className="text-t1 text-base font-semibold break-words">
                 {plan.topic || "（未命名草稿）"}
               </h4>
-              <span
-                className={`border-themed bg-card rounded-full border px-2 py-0.5 text-xs ${statusClass(
-                  plan.status
-                )}`}
-              >
-                {PLAN_STATUS_LABELS[plan.status]}
-              </span>
+              {showStatusBadge && (
+                <span
+                  className={`border-themed bg-card rounded-full border px-2 py-0.5 text-xs ${statusClass(
+                    plan.status
+                  )}`}
+                >
+                  {PLAN_STATUS_LABELS[plan.status]}
+                </span>
+              )}
               {isFormalPlan(plan) && plan.status !== "approved" && (
                 <span
                   className="border-themed bg-card text-success rounded-full border px-2 py-0.5 text-xs"
                   title="學生自行提升為正式；學校審核仍會保留，退回不影響正式狀態"
                 >
                   正式（自行提升）
+                </span>
+              )}
+              {isFormalPlan(plan) && plan.parentVisible === false && (
+                <span
+                  className="border-themed bg-card text-t3 rounded-full border px-2 py-0.5 text-xs"
+                  title="家長端不會顯示這份計畫"
+                >
+                  家長不可見
                 </span>
               )}
             </div>
@@ -1359,6 +1410,30 @@ export default function StudentSelfDirectedLearningPage() {
                   提升為正式
                 </button>
               )}
+            {isFormalPlan(plan) && (
+              <button
+                type="button"
+                className="btn-theme rounded px-3 py-1.5 text-xs"
+                style={
+                  plan.parentVisible === false
+                    ? { color: "var(--primary)", borderColor: "var(--primary)" }
+                    : undefined
+                }
+                disabled={busy}
+                title={
+                  plan.parentVisible === false
+                    ? "目前家長看不到這份計畫，點此開放檢視"
+                    : "目前家長看得到這份計畫，點此隱藏"
+                }
+                onClick={() => void setParentVisibility(plan, plan.parentVisible === false)}
+              >
+                {busy
+                  ? "處理中…"
+                  : plan.parentVisible === false
+                    ? "開放家長檢視"
+                    : "隱藏家長檢視"}
+              </button>
+            )}
             {options.editable && (plan.status === "draft" || plan.status === "returned") && (
               <button
                 type="button"
@@ -1415,11 +1490,15 @@ export default function StudentSelfDirectedLearningPage() {
 
         <details
           className="border-themed border-t pt-2"
+          open={!formOpen && Boolean(openDetailPlans[plan.id])}
           onToggle={(event) => {
             const open = event.currentTarget.open;
-            setOpenDetailPlans((prev) =>
-              prev[plan.id] === open ? prev : { ...prev, [plan.id]: open }
-            );
+            setOpenDetailPlans((prev) => {
+              // 同一時間只允許一份計畫展開：開啟時清掉其他計畫的展開狀態
+              if (open) return { [plan.id]: true };
+              if (!prev[plan.id]) return prev;
+              return { ...prev, [plan.id]: false };
+            });
           }}
         >
           <summary className="text-t2 flex cursor-pointer items-center gap-1 text-xs">
@@ -1693,7 +1772,13 @@ export default function StudentSelfDirectedLearningPage() {
       {stripHtmlToText(settings.instructions).trim() && (
         <div className="overflow-hidden rounded-lg border border-themed bg-card shadow-sm">
           <div className="bg-primary" style={{ height: "0.25rem" }} />
-          <details open>
+          <details
+            open={instructionsOpen && !formOpen}
+            onToggle={(event) => {
+              const open = event.currentTarget.open;
+              setInstructionsOpen(open);
+            }}
+          >
             <summary className="text-t1 border-themed bg-surface flex cursor-pointer items-start justify-between gap-3 border-b px-5 py-4">
               <span className="flex items-start gap-3">
                 <span className="text-primary mt-0.5">
@@ -1733,15 +1818,26 @@ export default function StudentSelfDirectedLearningPage() {
               {canStartNew && (
                 <button
                   type="button"
-                  className="btn-primary btn-theme px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  className="btn-primary inline-flex items-center gap-2 rounded px-4 py-2.5 text-sm font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={startNewPlan}
                   disabled={draftLimitReached}
                   title={
                     draftLimitReached
                       ? `草稿匣已達上限（${settings.maxDrafts} 件，含退回修改）`
-                      : ""
+                      : "建立新的自主學習計畫草稿"
                   }
                 >
+                  <svg
+                    className="h-4 w-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
                   發想新計畫
                 </button>
               )}
@@ -2417,7 +2513,7 @@ export default function StudentSelfDirectedLearningPage() {
               </button>
               <button
                 type="button"
-                className="btn-primary btn-theme px-4 py-2 text-sm"
+                className="btn-primary px-4 py-2 text-sm"
                 onClick={() => {
                   applyWeekRange(rangeSwap.start, rangeSwap.end);
                   setRangeSwap(null);
@@ -2506,7 +2602,7 @@ export default function StudentSelfDirectedLearningPage() {
               </button>
               <button
                 type="button"
-                className="btn-primary btn-theme px-4 py-2 text-sm"
+                className="btn-primary px-4 py-2 text-sm"
                 disabled={planBusy !== null}
                 onClick={() => void promotePlan(promoteTarget)}
               >
@@ -2549,7 +2645,7 @@ export default function StudentSelfDirectedLearningPage() {
               {promoteBlockedPlan && promoteBlockedPlan.id !== editingPlanId && (
                 <button
                   type="button"
-                  className="btn-primary btn-theme px-4 py-2 text-sm"
+                  className="btn-primary px-4 py-2 text-sm"
                   onClick={() => {
                     const plan = promoteBlockedPlan;
                     setPromoteBlocked(null);
