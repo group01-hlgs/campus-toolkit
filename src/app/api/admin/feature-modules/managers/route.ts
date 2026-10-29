@@ -113,6 +113,19 @@ export async function GET(request: NextRequest) {
 
       if (searchRole === "staff") {
         const attribute = (request.nextUrl.searchParams.get("attribute") || "").trim();
+        // 省流模式：只回候選人數（count 聚合，不載入名冊內容）
+        if (request.nextUrl.searchParams.get("summary") === "count") {
+          let countQuery = db
+            .collection(rosterCollection("staff"))
+            .where("academicYear", "==", period.academicYear)
+            .where("semester", "==", period.semester);
+          if (attribute) countQuery = countQuery.where("attribute", "==", attribute);
+          const counted = await countQuery.count().get();
+          return NextResponse.json(
+            { success: true, count: counted.data().count },
+            { headers: { "Cache-Control": "no-store" } }
+          );
+        }
         const entries = await loadPeriodEntries(period, "staff");
         const people: ManagerRow[] = [];
         const keyword = q.toLowerCase();
