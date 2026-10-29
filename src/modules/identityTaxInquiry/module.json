@@ -1,0 +1,71 @@
+{
+  "value": "identityTaxInquiry",
+  "label": "註冊身分與財稅查調",
+  "kind": "optional",
+  "status": "live",
+  "description": "每學期註冊身分確認與必要時的財稅查調作業。\n\n【學生端】\n• 於學校開放期間確認本學期註冊身分別（一般生、原住民、低收入戶、中低收入戶、身心障礙等）。\n• 需要財稅查調的身分別，可填寫父／母姓名與身分證字號，供承辦辦理查調。\n• 可先存草稿，確認後在截止前仍可修改；截止後唯讀。\n\n【教職員】\n• 兼導師查看本班註冊身分確認進度與名冊。\n• 具財稅查調權限者可更新查調狀態（待查調／已查調／免查調）與備註。\n\n【管理端】\n• 設定學期開放起訖、身分別選項、需查調身分別、是否必填父母身分證字號與實施說明。\n• 查看全校確認進度與統計，匯出查調名冊（含父母身分證字號）。\n\n【家長端】\n• 家長可唯讀查看子女本學期的註冊身分確認結果（身分證字號遮蔽顯示）。",
+  "href": "/admin/identity-tax-inquiry",
+  "contractVersion": 1,
+  "minHostVersion": "0.558",
+  "license": "MIT",
+  "repository": "https://github.com/takan003/identityTaxInquiry",
+  "keywords": ["註冊身分", "財稅查調", "低收入戶", "中低收入戶", "原住民", "身心障礙"],
+  "author": {
+    "author": "takan003",
+    "authorUrl": "https://github.com/takan003",
+    "version": "0.1.0",
+    "releasedAt": "2026-10-29"
+  },
+  "provides": { "student": true, "parent": true, "staff": true, "admin": true },
+  "managerPermissions": [
+    { "value": "configure", "label": "管理規則（開放期間、身分別選項、查調條件、實施說明）" },
+    { "value": "viewRecords", "label": "查看註冊身分確認名冊" },
+    { "value": "taxInquiry", "label": "財稅查調作業（更新查調狀態與備註）" },
+    { "value": "export", "label": "匯出查調名冊（含父母身分證字號）" }
+  ],
+  "routes": [
+    { "kind": "page", "path": "/admin/identity-tax-inquiry" },
+    { "kind": "api", "path": "/api/admin/identity-tax-inquiry" },
+    { "kind": "page", "path": "/student/identity-tax-inquiry" },
+    { "kind": "api", "path": "/api/student/identity-tax-inquiry" },
+    { "kind": "page", "path": "/staff/identity-tax-inquiry" },
+    { "kind": "api", "path": "/api/staff/identity-tax-inquiry" },
+    { "kind": "page", "path": "/parent/identity-tax-inquiry" },
+    { "kind": "api", "path": "/api/parent/identity-tax-inquiry" }
+  ],
+  "permission": { "mode": "new", "value": "identityTaxInquiry", "category": "校務資料" },
+  "icon": "identityTaxInquiry",
+  "firestoreIndexes": [
+    { "collection": "rosterStudents", "fields": ["academicYear", "semester", "classCode"] },
+    { "collection": "identityTaxInquiryRecords", "fields": ["period", "classCode"] }
+  ],
+  "rateLimits": [
+    { "key": "IDENTITY_TAX_INQUIRY_LIST", "limit": 120, "windowMs": 60000 },
+    { "key": "IDENTITY_TAX_INQUIRY_STUDENT", "limit": 30, "windowMs": 60000 },
+    { "key": "IDENTITY_TAX_INQUIRY_STAFF", "limit": 60, "windowMs": 60000 },
+    { "key": "IDENTITY_TAX_INQUIRY_ADMIN", "limit": 60, "windowMs": 60000 }
+  ],
+  "auditActions": [
+    "identity_tax_inquiry_settings_updated",
+    "identity_tax_inquiry_record_saved",
+    "identity_tax_inquiry_record_confirmed",
+    "identity_tax_inquiry_tax_updated"
+  ],
+  "dataCollections": [
+    "identityTaxInquirySettings",
+    "identityTaxInquiryRecords",
+    "rosterStudents"
+  ],
+  "hooks": [],
+  "changelog": [
+    {
+      "version": "0.1.0",
+      "releasedAt": "2026-10-29",
+      "notes": [
+        "新模組：每學期註冊身分確認（原住民、低收入戶、中低收入戶、身心障礙等）與必要時的財稅查調",
+        "學生可填寫父母姓名與身分證字號供查調；教職員可更新查調狀態，管理端可設定規則並匯出查調名冊",
+        "四種身分（學生、教職員、家長、管理員）皆有功能入口"
+      ]
+    }
+  ]
+}

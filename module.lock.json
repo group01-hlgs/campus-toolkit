@@ -18,6 +18,15 @@
       "sha256": "a1d2909096debbfabc3da4c38fdb6f76bdbfe0eae338623dcff6a00deeb9bceb",
       "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/selfDirectedLearning-0.0.118.zip",
       "installedAt": "2026-10-29"
+    },
+    {
+      "value": "identityTaxInquiry",
+      "version": "0.1.0",
+      "contractVersion": 1,
+      "minHostVersion": "0.558",
+      "sha256": "b67aa71f5d9564185e1c481214e69392795a4df77ed725ecef3eb3222f2d6374",
+      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/identityTaxInquiry-0.1.0.zip",
+      "installedAt": "2026-10-29"
     }
   ]
 }
