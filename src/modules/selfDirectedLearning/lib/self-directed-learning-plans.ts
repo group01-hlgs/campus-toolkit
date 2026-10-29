@@ -9,6 +9,7 @@ import {
   SELF_DIRECTED_LEARNING_LOCKS_COLLECTION,
   SELF_DIRECTED_LEARNING_PLANS_COLLECTION,
   SELF_DIRECTED_LEARNING_REVIEWS_COLLECTION,
+  TRASH_RETENTION_DAYS,
   capRichHtmlLength,
   isFormalPlan,
   normalizeWeekNotes,
@@ -731,8 +732,8 @@ export async function purgeStudentPlan(input: {
   return { ok: true, plan };
 }
 
-/** 垃圾桶保留天數：學生進入頁面時，超過此天數的廢棄計畫會永久刪除 */
-export const TRASH_RETENTION_DAYS = 30;
+/** 垃圾桶保留天數：學生進入頁面時，超過此天數的廢棄計畫會永久刪除（與前端共用同一常數） */
+export { TRASH_RETENTION_DAYS };
 
 /**
  * 自動清除學生垃圾桶中超過保留天數的計畫（含審查紀錄）。

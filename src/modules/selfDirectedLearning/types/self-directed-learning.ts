@@ -97,6 +97,9 @@ export const DEFAULT_MAX_DRAFT_PLANS = 20;
 /** 就學期間（高中三年）學校審查通過最低份數的上限（管理端可設定 0–6 份；0＝不設定） */
 export const MAX_MIN_APPROVED_PLANS = 6;
 
+/** 垃圾桶保留天數：學生進入頁面時，超過此天數的廢棄計畫會永久刪除 */
+export const TRASH_RETENTION_DAYS = 30;
+
 /** 週數填寫形式：full＝全學期（空白週數都須填寫，週數自動判斷）；flexible＝彈性（至少下限週數） */
 export type WeekMode = "full" | "flexible";
 

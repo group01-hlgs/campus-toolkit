@@ -19,6 +19,7 @@ import {
   PRINT_PREVIEW_DATA,
   PRINT_PREVIEW_READY,
   STUDY_GROUPS,
+  TRASH_RETENTION_DAYS,
   WEEKDAY_LABELS,
   openStateOf,
   stripHtmlToText,
@@ -310,6 +311,14 @@ export default function StudentSelfDirectedLearningPage() {
   const [purgeTarget, setPurgeTarget] = useState<SelfDirectedLearningPlan | null>(null);
   /** 準備提升為正式計畫的草稿／審核中計畫 */
   const [promoteTarget, setPromoteTarget] = useState<SelfDirectedLearningPlan | null>(null);
+  /** 提升前檢核未通過：列出未填寫欄位並阻止提升 */
+  const [promoteBlocked, setPromoteBlocked] = useState<{
+    planId: string | null;
+    planName: string;
+    issues: string[];
+  } | null>(null);
+  /** 表單內「提升為正式」進行中 */
+  const [formPromoting, setFormPromoting] = useState(false);
   const formSectionRef = useRef<HTMLElement | null>(null);
 
   const editingPlan = editingPlanId
@@ -396,6 +405,43 @@ export default function StudentSelfDirectedLearningPage() {
     () => new Map(weekSchedule.map((row) => [row.week, row])),
     [weekSchedule]
   );
+  /** 提升為正式前的必填檢核：列出尚未填寫的欄位（空陣列＝可提升） */
+  const promoteIssuesOf = (
+    plan: Pick<SelfDirectedLearningPlan, "topic" | "studyGroup" | "learningGoals" | "weeks">
+  ): string[] => {
+    const issues: string[] = [];
+    if (!plan.topic.trim()) issues.push("主題");
+    if (!plan.studyGroup.trim()) issues.push("學群");
+    if (!stripHtmlToText(plan.learningGoals).trim()) issues.push("學習目標");
+    if (plan.weeks.length === 0) {
+      issues.push("逐週課程安排");
+    } else {
+      if (settings.weekMode === "flexible" && plan.weeks.length < settings.minWeeks) {
+        issues.push(
+          `逐週課程安排（至少 ${settings.minWeeks} 週，目前 ${plan.weeks.length} 週）`
+        );
+      }
+      if (settings.weekMode === "full" && fullWeeks !== null && plan.weeks.length !== fullWeeks) {
+        issues.push(`逐週課程安排（須填滿 ${fullWeeks} 週，目前 ${plan.weeks.length} 週）`);
+      }
+      const writableWeeks = plan.weeks.filter(
+        (week) => weekScheduleByNo.get(week.week)?.writable !== false
+      );
+      const missingContent = writableWeeks
+        .filter((week) => !stripHtmlToText(week.content).trim())
+        .map((week) => week.week);
+      if (missingContent.length > 0) {
+        issues.push(`第 ${missingContent.join("、")} 週的學習內容`);
+      }
+      const missingVenue = writableWeeks
+        .filter((week) => !week.venue.trim())
+        .map((week) => week.week);
+      if (missingVenue.length > 0) {
+        issues.push(`第 ${missingVenue.join("、")} 週的場地`);
+      }
+    }
+    return issues;
+  };
   /** 列印預覽分頁與最近一次送出的預覽內容 */
   const previewWindowRef = useRef<Window | null>(null);
   const printPayloadRef = useRef<PrintPreviewPayload | null>(null);
@@ -751,6 +797,58 @@ export default function StudentSelfDirectedLearningPage() {
     }
   };
 
+  /** 表單內「提升為正式」：先檢核目前填寫內容，通過後儲存再提升 */
+  const promoteFromForm = async () => {
+    if (!editingPlan || saving !== null || formPromoting || planBusy !== null) return;
+    const issues = promoteIssuesOf(draft);
+    if (issues.length > 0) {
+      setPromoteBlocked({
+        planId: editingPlan.id,
+        planName: draft.topic.trim() || "（未命名計畫）",
+        issues,
+      });
+      return;
+    }
+    setFormPromoting(true);
+    setSaving("save");
+    try {
+      const saveResponse = await fetch("/api/student/self-directed-learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", draft, planId: editingPlanId ?? undefined }),
+      });
+      const saveData = await saveResponse.json();
+      const saved = saveData.plan as SelfDirectedLearningPlan | undefined;
+      if (!saveResponse.ok || !saveData.success || !saved) {
+        setToast({ kind: "error", text: saveData.message || "儲存失敗，無法提升" });
+        return;
+      }
+      const promoteResponse = await fetch("/api/student/self-directed-learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "promote", planId: saved.id }),
+      });
+      const promoteData = await promoteResponse.json();
+      if (!promoteResponse.ok || !promoteData.success) {
+        setToast({ kind: "error", text: promoteData.message || "提升失敗" });
+        return;
+      }
+      setFormOpen(false);
+      setEditingPlanId(null);
+      setPlanTab("documents");
+      setToast({
+        kind: "success",
+        text: promoteData.message || "已提升為正式計畫，可開始按時填寫成果",
+      });
+      await load();
+    } catch {
+      setToast({ kind: "error", text: "提升失敗" });
+    } finally {
+      setSaving(null);
+      setFormPromoting(false);
+    }
+  };
+
   /** 假性刪除／還原：只影響草稿與退回修改，正式與審核中的計畫由伺服器擋下 */
   const changePlanDeleted = async (plan: SelfDirectedLearningPlan, deleted: boolean) => {
     if (planBusy) return;
@@ -878,11 +976,15 @@ export default function StudentSelfDirectedLearningPage() {
         : "var(--t3)";
   /** 草稿匣（含退回修改）是否已達管理端設定上限 */
   const draftLimitReached = draftCount >= settings.maxDrafts;
-  /** 文件匣（審核中＋已通過＋自主提升）是否已達管理端設定上限；編輯中的計畫已占位時不重複計算 */
+  /** 文件匣（審核中＋已通過＋自行提升）是否已達管理端設定上限；編輯中的計畫已占位時不重複計算 */
   const editingDocumentCount =
     editingPlan && (isFormalPlan(editingPlan) || editingPlan.status === "submitted") ? 1 : 0;
   const documentLimitReached =
     documentCount - editingDocumentCount >= settings.maxDocumentPlans;
+  /** 提升檢核未通過時對應的計畫（供「前往編輯」使用） */
+  const promoteBlockedPlan = promoteBlocked?.planId
+    ? plans.find((plan) => plan.id === promoteBlocked.planId) ?? null
+    : null;
   const canSubmit =
     withinWindow &&
     !locked &&
@@ -904,6 +1006,25 @@ export default function StudentSelfDirectedLearningPage() {
       >
         {saving === "save" ? "儲存中…" : "儲存草稿"}
       </button>
+      {editingPlan &&
+        (editingPlan.status === "draft" || editingPlan.status === "returned") &&
+        !isFormalPlan(editingPlan) &&
+        editingPlan.period === currentPeriod && (
+          <button
+            type="button"
+            className="btn-theme px-6 py-3 text-base"
+            style={{ color: "var(--primary)", borderColor: "var(--primary)" }}
+            disabled={locked || saving !== null || loading || documentLimitReached}
+            onClick={() => void promoteFromForm()}
+            title={
+              documentLimitReached
+                ? `文件匣已達上限（${settings.maxDocumentPlans} 件，含審核中與已通過）`
+                : "檢核必填欄位後，儲存並提升為正式計畫"
+            }
+          >
+            {formPromoting ? "提升中…" : "提升為正式"}
+          </button>
+        )}
       <button
         type="button"
         className="btn-primary btn-theme px-6 py-3 text-base"
@@ -1182,7 +1303,7 @@ export default function StudentSelfDirectedLearningPage() {
                   className="border-themed bg-card text-success rounded-full border px-2 py-0.5 text-xs"
                   title="學生自行提升為正式；學校審核仍會保留，退回不影響正式狀態"
                 >
-                  正式（自主提升）
+                  正式（自行提升）
                 </span>
               )}
             </div>
@@ -1222,7 +1343,18 @@ export default function StudentSelfDirectedLearningPage() {
                   style={{ color: "var(--primary)", borderColor: "var(--primary)" }}
                   disabled={busy}
                   title="提升後可立即按時填寫成果；學校審核仍會保留"
-                  onClick={() => setPromoteTarget(plan)}
+                  onClick={() => {
+                    const issues = promoteIssuesOf(plan);
+                    if (issues.length > 0) {
+                      setPromoteBlocked({
+                        planId: plan.id,
+                        planName: plan.topic || "（未命名計畫）",
+                        issues,
+                      });
+                      return;
+                    }
+                    setPromoteTarget(plan);
+                  }}
                 >
                   提升為正式
                 </button>
@@ -1657,20 +1789,17 @@ export default function StudentSelfDirectedLearningPage() {
             </div>
             <ul className="text-t3 list-disc space-y-0.5 pl-4 text-xs">
               <li>
-                計畫可先存在「草稿匣」慢慢寫（不受送審期間限制）；完成後可提升為「正式計畫」，
-                自行提升的正式計畫可同時有多份；學校審核通過的正式計畫每學期僅 1 份。
+                草稿可慢慢寫，完成後再轉為「正式計畫」；學校審核通過的正式計畫，每學期僅 1 份。
               </li>
               <li>
-                正式計畫（學校審核通過或自行提升）且屬本學期，該週規劃時間過了才能寫「執行成果紀錄」；
-                最後一週結束後可寫「學習反思心得」；學校審核通過的計畫須在成果撰寫截止時間前完成，
-                自行提升者不受截止時間限制。
+                正式計畫須等該週結束後才能寫「執行成果紀錄」，全部週次結束後才能寫「學習反思心得」。
               </li>
               <li>
-                每學期只能送審 1 份計畫；第一次送出後只能重送同一份（退回或抽回都算已送審）
+                每學期僅能送審 1 份，送出後只能重送同一份
                 {settings.minApprovedPlans > 0
-                  ? `；就學期間至少要有 ${settings.minApprovedPlans} 份經學校審查通過`
+                  ? `；就學期間至少需 ${settings.minApprovedPlans} 份經學校審查通過`
                   : ""}
-                ；送出須在學校公告的送審期間內。
+                ；送審須在公告期間內。
               </li>
               {draftLimitReached && (
                 <li className="text-danger">
@@ -1699,6 +1828,12 @@ export default function StudentSelfDirectedLearningPage() {
                   : tab.key === "drafts"
                     ? draftCount
                     : trashedPlans.length;
+              const hint =
+                tab.key === "documents"
+                  ? `文件匣：正式與審核中的計畫，上限 ${settings.maxDocumentPlans} 份（學校設定）`
+                  : tab.key === "drafts"
+                    ? `草稿匣：草稿與退回修改，上限 ${settings.maxDrafts} 份（學校設定）`
+                    : `垃圾桶：最多保留 ${TRASH_RETENTION_DAYS} 天，逾期自動刪除`;
               return (
                 <button
                   key={tab.key}
@@ -1711,6 +1846,7 @@ export default function StudentSelfDirectedLearningPage() {
                       : "text-t2 border-transparent hover:text-t1"
                   }`}
                   style={active ? { borderBottomColor: "var(--primary)" } : undefined}
+                  title={hint}
                   onClick={() => setPlanTab(tab.key)}
                 >
                   <span className={active ? "text-primary" : "text-t3"}>{tab.icon}</span>
@@ -1720,6 +1856,10 @@ export default function StudentSelfDirectedLearningPage() {
               );
             })}
           </div>
+          <p className="text-t3 text-xs">
+            文件匣、草稿匣的可保存份數為 文件匣 {settings.maxDocumentPlans} 份、草稿匣{" "}
+            {settings.maxDrafts} 份；垃圾桶最多保留 {TRASH_RETENTION_DAYS} 天，逾期自動刪除。
+          </p>
 
           {planTab === "documents" &&
             (documentCount === 0 ? (
@@ -1730,7 +1870,7 @@ export default function StudentSelfDirectedLearningPage() {
                   renderPlanGroup("正式計畫（學校通過）", approvedPlans, {}, "")}
                 {selfPromotedPlans.length > 0 &&
                   renderPlanGroup(
-                    "正式計畫（自主提升）",
+                    "正式計畫（自行提升）",
                     selfPromotedPlans,
                     { editable: !formOpen, trashable: !formOpen },
                     ""
@@ -2372,6 +2512,53 @@ export default function StudentSelfDirectedLearningPage() {
               >
                 {planBusy === promoteTarget.id ? "提升中…" : "提升為正式"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {promoteBlocked && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ backgroundColor: "color-mix(in srgb, var(--bg) 75%, transparent)" }}
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="sdl-promote-blocked-title"
+        >
+          <div className="border-themed bg-card w-full max-w-md rounded-lg border p-5 shadow-lg">
+            <p id="sdl-promote-blocked-title" className="text-danger text-base font-semibold">
+              尚未填寫完成，無法提升為正式計畫
+            </p>
+            <p className="text-t2 mt-2 text-sm">
+              《{promoteBlocked.planName}》還有下列欄位未填寫：
+            </p>
+            <ul className="text-t2 mt-2 list-disc space-y-1 pl-5 text-sm">
+              {promoteBlocked.issues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+            <p className="text-t3 mt-2 text-xs">請先補齊並儲存後，再提升為正式計畫。</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn-theme px-4 py-2 text-sm"
+                onClick={() => setPromoteBlocked(null)}
+              >
+                知道了
+              </button>
+              {promoteBlockedPlan && promoteBlockedPlan.id !== editingPlanId && (
+                <button
+                  type="button"
+                  className="btn-primary btn-theme px-4 py-2 text-sm"
+                  onClick={() => {
+                    const plan = promoteBlockedPlan;
+                    setPromoteBlocked(null);
+                    startEditPlan(plan);
+                  }}
+                >
+                  前往編輯
+                </button>
+              )}
             </div>
           </div>
         </div>
