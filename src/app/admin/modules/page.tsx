@@ -16,6 +16,8 @@ import {
 import { ALL_ROLES, ROLE_LABELS, STAFF_ATTRIBUTES, type UserRole } from "@/types/users";
 import { ROSTER_ROLES, type RosterRole } from "@/types/roster";
 import Toast, { type ToastMessage } from "@/components/Toast";
+import RevealListCard from "@/components/RevealListCard";
+import { useDataSaver } from "@/lib/data-saver";
 
 /** 功能入口欄對應的身分（管理員欄已退役——管理員恆全權，見政策修改書 G1） */
 const ENTRY_ROLES: UserRole[] = ALL_ROLES.filter((role) => role !== "admin");
@@ -638,6 +640,11 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
   const [staffAttribute, setStaffAttribute] = useState("");
   const [candidates, setCandidates] = useState<ManagerRow[] | null>(null);
   const [draftPerms, setDraftPerms] = useState<Record<string, boolean>>({});
+  /** 省流閘門：教職員候選名單是否已由使用者按下「顯示列表」 */
+  const [staffRevealed, setStaffRevealed] = useState(false);
+  /** 省流模式下的候選人數（count 聚合，不載入名單） */
+  const [staffCandidateCount, setStaffCandidateCount] = useState<number | null>(null);
+  const { ready: saverReady, saverOn } = useDataSaver();
 
   function permsFromList(list: string[]): Record<string, boolean> {
     const map: Record<string, boolean> = {};
@@ -669,6 +676,8 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
   useEffect(() => {
     setManagers(null);
     setCandidates(null);
+    setStaffRevealed(false);
+    setStaffCandidateCount(null);
     setError("");
     void loadManagers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -727,12 +736,41 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
     }
   }
 
-  // 選擇「教職員」時自動載入候選名單（切換屬性即重新篩選）
+  // 省流模式：以 count 聚合取得候選人數，供「顯示候選人員列表」按鈕顯示總數
+  useEffect(() => {
+    if (!saverReady || !saverOn || searchRole !== "staff") return;
+    let cancelled = false;
+    const params = new URLSearchParams({
+      module: item.value,
+      role: "staff",
+      summary: "count",
+    });
+    if (staffAttribute) params.set("attribute", staffAttribute);
+    void fetch(`/api/admin/feature-modules/managers?${params.toString()}`, {
+      cache: "no-store",
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.success) return;
+        setStaffCandidateCount(typeof data.count === "number" ? data.count : null);
+      })
+      .catch(() => {
+        /* 人數僅為提示，失敗時不阻擋手動顯示 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [saverReady, saverOn, searchRole, staffAttribute, item.value]);
+
+  // 教職員候選名單：省流模式須等使用者按下「顯示列表」才載入；一般模式自動載入
   useEffect(() => {
     if (searchRole !== "staff") return;
+    // 設定尚未判定前不得載入，否則省流模式下會白打一發請求
+    if (!saverReady) return;
+    if (saverOn && !staffRevealed) return;
     void loadStaffCandidates(staffAttribute);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchRole, staffAttribute, item.value]);
+  }, [searchRole, staffAttribute, item.value, saverReady, saverOn, staffRevealed]);
 
   /** 指派／更新一個人的子權限：以呼叫端算好的 permissions 為準（候選區草稿已含 uid 前綴） */
   async function assign(person: ManagerRow) {
@@ -936,7 +974,22 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
               </>
             )}
           </div>
-          {candidates !== null &&
+          {searchRole === "staff" && saverOn && !staffRevealed ? (
+            <div className="border border-themed bg-card rounded-lg">
+              <RevealListCard
+                label="候選人員"
+                onReveal={() => setStaffRevealed(true)}
+                summary={
+                  staffCandidateCount === null
+                    ? undefined
+                    : `目前候選 ${staffCandidateCount} 人${
+                        staffAttribute ? `（${staffAttribute}）` : ""
+                      }`
+                }
+              />
+            </div>
+          ) : (
+            candidates !== null &&
             (candidates.length === 0 ? (
               <p className="text-xs text-t3">查無符合的當期名冊條目。</p>
             ) : (
@@ -1046,7 +1099,8 @@ function ManagerSection({ item }: { item: FeatureModuleMeta }) {
                   );
                 })}
               </ul>
-            ))}
+            ))
+          )}
         </div>
       </div>
     </div>
