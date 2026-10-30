@@ -18,26 +18,28 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | **B** | `\campus-toolkit-marketplace` | B「模組市集」 |
 | **C** | `\selfDirectedLearning` | C「選用功能模組」（自主學習計畫，開發中） |
 | **D** | `\examRegistration` | D「選用功能模組」（升學考試與模擬考校內報名，已上架維護） |
+| **E** | `\identityTaxInquiry` | E「選用功能模組」（註冊身分調查與財稅查調，開發中） |
 
 ### 名詞解釋
 
-三支程式**沒有下達指令時，請勿修改與 push**。
+五支程式**沒有下達指令時，請勿修改與 push**。
 
-- **A「主程式」**：本機測試用的主程式，用來掛載安裝 C「選用功能模組」。
-- **B「模組市集」**：C「選用功能模組」打包後上架的市集。
+- **A「主程式」**：本機測試用的主程式，用來掛載安裝 C、D、E「選用功能模組」。
+- **B「模組市集」**：選用功能模組打包後上架的市集。
 - **C「選用功能模組」**：正在開發的選用功能模組（`selfDirectedLearning` 自主學習計畫），又稱「外掛」、「外掛功能」。
 - **D「選用功能模組」**：已上架、維護中的選用功能模組（`examRegistration` 升學考試與模擬考校內報名）；維護時流程同「修改C」「打包C」，但對 D 專案操作。
+- **E「選用功能模組」**：開發中的選用功能模組（`identityTaxInquiry` 註冊身分調查與財稅查調）；流程同「修改C」「打包C」，但對 E 專案操作。
 
 ### 工作指令
 
 **「啟動」指令**，標準配置流程：
-1. 請將三個專案程式 pull 後強制覆蓋，並啟動 A「主程式」本機伺服器測試
-2. 將 C「選用功能模組」掛載安裝進入 A「主程式」
+1. 請將五支專案程式（A、B、C、D、E）pull 後強制覆蓋，並啟動 A「主程式」本機伺服器測試
+2. 將 C、D、E「選用功能模組」逐支掛載安裝進入 A「主程式」（三支皆為複製＋監聽模式）
 
 <details open>
 <summary>本機外掛掛載方法（E14 鐵律，掛不上去先看這裡）</summary>
 
-1. 掛載一律用複製＋監聽：`npm run module:link -- <C 專案路徑> --copy --watch`；
+1. 掛載一律用複製＋監聽：`npm run module:link -- <模組專案路徑> --copy --watch`；
    完成後確認 `module.lock.json` 的 `source` 為 `link-copy:`（若為 `link:` 即掛錯）。
    win32 預設 link 是 junction，會被 Turbopack 判為 project root 外的無效 symlink，
    全站 Build Error（`Module not found`＋`Symlink ... is invalid`）——此為 E14，不可用
@@ -46,7 +48,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
    掛完再啟動
 3. 已掛載時不可直接重掛（報 `src/modules/<value> 已存在`）：先
    `npm run module:uninstall -- <value>`，再以複製＋監聽模式重掛
-4. `--watch` 程序須常駐：改 C 後 300ms 內整棵同步到 `src/modules/<value>`，
+4. `--watch` 程序須常駐：改 C／D／E 後 300ms 內整棵同步到 `src/modules/<value>`，
    動到 module.json 自動重跑掃描器；程序消失（如重開機）就重跑掛載指令
 5. 驗證：模組 API 路由回 401（未登入）而非 Build Error，dev log 無
    `Module not found`／`is invalid` 即成功
