@@ -5,24 +5,237 @@ export const SETTINGS_COLLECTION = "identityTaxInquirySettings";
 export const RECORDS_COLLECTION = "identityTaxInquiryRecords";
 export const SETTINGS_DOC_ID = "default";
 
-/** 預設身分別選項（管理端可調整） */
-export const DEFAULT_IDENTITY_OPTIONS = [
-  "一般生",
-  "原住民",
-  "低收入戶",
-  "中低收入戶",
-  "身心障礙",
-  "特殊境遇家庭",
-  "其他",
-] as const;
+/** 進階選項型態：下拉單選／勾選（可多選）／文字 */
+export type IdentityFieldType = "select" | "checkbox" | "text";
 
-/** 預設需要財稅查調的身分別 */
-export const DEFAULT_TAX_INQUIRY_IDENTITIES = ["低收入戶", "中低收入戶"];
+/** 進階選項的單一可選值：項目代碼＋項目名稱 */
+export interface IdentityFieldOption {
+  /** 項目代碼（可空） */
+  code: string;
+  /** 項目名稱（顯示用） */
+  name: string;
+}
 
-export const IDENTITY_LABEL_MAX = 20;
-export const IDENTITY_OPTION_MAX = 20;
+/** 顯示文字：有代碼時為「代碼 名稱」 */
+export function fieldOptionLabel(option: IdentityFieldOption): string {
+  return [option.code.trim(), option.name.trim()].filter(Boolean).join(" ");
+}
+
+/** 學生端顯示文字：只顯示項目名稱（名稱空白時退回代碼） */
+export function fieldOptionName(option: IdentityFieldOption): string {
+  return option.name.trim() || option.code.trim();
+}
+
+export interface IdentityFieldDef {
+  /** 穩定 id（改名不影響已存資料） */
+  id: string;
+  type: IdentityFieldType;
+  /** 欄位標籤，例如「障礙程度」「住宿」「身障人士身分證字號」 */
+  label: string;
+  /** 送出確認時是否必填 */
+  required: boolean;
+  /** select＝選項清單；checkbox＝可勾選項目（僅 1 個即為單一勾選）；text＝不使用 */
+  options: IdentityFieldOption[];
+}
+
+export interface IdentityOptionDef {
+  /** 穩定 id（改名不影響已存資料） */
+  id: string;
+  label: string;
+  /** 是否提供學生勾選 */
+  enabled: boolean;
+  /** 勾選後是否需財稅查調 */
+  taxInquiry: boolean;
+  /** 互斥群組代號（同群組僅能擇一；空字串＝不互斥） */
+  exclusiveGroup: string;
+  /** 優待方式：減免／補助（空＝未設定） */
+  benefitType?: BenefitType | "";
+  /** 優待金額（正整數；null＝未設定） */
+  benefitAmount?: number | null;
+  /** 項目說明（單行） */
+  benefitNote?: string;
+  /** 進階選項（依陣列順序顯示） */
+  fields: IdentityFieldDef[];
+}
+
+/** 優待方式：減免或補助（二擇一） */
+export type BenefitType = "reduction" | "subsidy";
+
+export const BENEFIT_TYPE_LABELS: Record<BenefitType, string> = {
+  reduction: "減免",
+  subsidy: "補助",
+};
+
+/** 學生勾選結果（存 label 快照，改名後舊資料仍可讀） */
+export interface IdentitySelection {
+  optionId: string;
+  label: string;
+  /** fieldId → 選取值（text 為單一元素；checkbox 可多個） */
+  values: Record<string, string[]>;
+}
+
+export const IDENTITY_LABEL_MAX = 40;
+export const IDENTITY_OPTION_MAX = 40;
+export const IDENTITY_FIELD_LABEL_MAX = 40;
+export const IDENTITY_FIELD_OPTION_MAX = 30;
+export const IDENTITY_FIELD_VALUE_MAX = 100;
 export const PARENT_NAME_MAX = 40;
 export const NOTE_MAX = 500;
+
+/** 預設「身心障礙」程度選項 */
+const DEFAULT_DISABILITY_LEVELS: IdentityFieldOption[] = [
+  { code: "", name: "極重度" },
+  { code: "", name: "重度" },
+  { code: "", name: "中度" },
+  { code: "", name: "輕度" },
+  { code: "", name: "持鑑定證明" },
+];
+
+/** 預設身分別（管理端可增刪改、調順序、設互斥） */
+export const DEFAULT_IDENTITY_OPTIONS: IdentityOptionDef[] = [
+  {
+    id: "low-income",
+    label: "低收入戶子女",
+    enabled: true,
+    taxInquiry: true,
+    exclusiveGroup: "lowIncome",
+    fields: [],
+  },
+  {
+    id: "mid-low-income",
+    label: "中低收入戶子女",
+    enabled: true,
+    taxInquiry: true,
+    exclusiveGroup: "lowIncome",
+    fields: [],
+  },
+  {
+    id: "disabled-student",
+    label: "身心障礙學生",
+    enabled: true,
+    taxInquiry: false,
+    exclusiveGroup: "",
+    fields: [
+      {
+        id: "disability-level",
+        type: "select",
+        label: "障礙程度",
+        required: true,
+        options: [...DEFAULT_DISABILITY_LEVELS],
+      },
+    ],
+  },
+  {
+    id: "disabled-parent",
+    label: "身心障礙人士子女",
+    enabled: true,
+    taxInquiry: false,
+    exclusiveGroup: "",
+    fields: [
+      {
+        id: "parent-disability-level",
+        type: "select",
+        label: "障礙程度",
+        required: true,
+        options: [...DEFAULT_DISABILITY_LEVELS],
+      },
+      {
+        id: "parent-disability-id",
+        type: "text",
+        label: "身障人士身分證字號",
+        required: false,
+        options: [],
+      },
+    ],
+  },
+  {
+    id: "indigenous",
+    label: "原住民",
+    enabled: true,
+    taxInquiry: false,
+    exclusiveGroup: "",
+    fields: [
+      {
+        id: "indigenous-boarding",
+        type: "checkbox",
+        label: "住宿",
+        required: false,
+        options: [{ code: "", name: "住宿生" }],
+      },
+    ],
+  },
+  {
+    id: "special-family",
+    label: "特殊境遇家庭",
+    enabled: true,
+    taxInquiry: false,
+    exclusiveGroup: "",
+    fields: [],
+  },
+  {
+    id: "military-bereaved",
+    label: "軍公教遺族",
+    enabled: true,
+    taxInquiry: false,
+    exclusiveGroup: "",
+    fields: [
+      {
+        id: "grant-type",
+        type: "select",
+        label: "公費別",
+        required: false,
+        options: [
+          { code: "", name: "全公費" },
+          { code: "", name: "半公費" },
+        ],
+      },
+      {
+        id: "grant-item",
+        type: "select",
+        label: "補助項目",
+        required: false,
+        options: [
+          { code: "", name: "主食米-12公斤(公教)" },
+          { code: "", name: "主食米-12公斤(私教)" },
+          { code: "", name: "代金" },
+        ],
+      },
+      {
+        id: "grant-doc-no",
+        type: "text",
+        label: "發給公費核准文號",
+        required: false,
+        options: [],
+      },
+    ],
+  },
+  {
+    id: "economically-disadvantaged",
+    label: "經濟弱勢學生",
+    enabled: true,
+    taxInquiry: false,
+    exclusiveGroup: "",
+    fields: [],
+  },
+  {
+    id: "active-military-child",
+    label: "現役軍人子女",
+    enabled: true,
+    taxInquiry: false,
+    exclusiveGroup: "",
+    fields: [],
+  },
+];
+
+/** 財稅查調對象：父母雙方／父母離異（有撫養權一方）／本人（已婚） */
+export type TaxSubject = "both" | "one" | "self" | "guardian";
+
+export const TAX_SUBJECT_LABELS: Record<TaxSubject, string> = {
+  both: "父母（法定代理人）雙方",
+  one: "父或母一方（離異或亡故）",
+  self: "本人（已結婚）",
+  guardian: "監護人（法定代理人無法行使親權）",
+};
 
 export const MAINTENANCE_TITLE = "此功能目前未啟用";
 export const MAINTENANCE_HINT =
@@ -60,12 +273,8 @@ export interface IdentityTaxInquirySettings {
   closeAt: number | null;
   /** 實施說明（純文字） */
   instructions: string;
-  /** 身分別選項 */
-  identityOptions: string[];
-  /** 需要財稅查調的身分別 */
-  taxInquiryIdentities: string[];
-  /** 需要查調時，是否必填父或母的身分證字號 */
-  requireParentId: boolean;
+  /** 身分別選項（陣列順序＝顯示順序） */
+  identityOptions: IdentityOptionDef[];
   updatedAt: number;
 }
 
@@ -92,9 +301,18 @@ export interface IdentityTaxInquiryRecord {
   grade: string;
   classCode: string;
   className: string;
+  /** 身分別名稱快照（清單／CSV 顯示用） */
   identities: string[];
+  /** 身分別勾選與進階選項 */
+  identitySelections: IdentitySelection[];
+  /** 財稅查調對象 */
+  taxSubject: TaxSubject;
   father: ParentIdInfo;
   mother: ParentIdInfo;
+  /** 已婚學生的本人資料（查調對象＝本人時使用） */
+  self: ParentIdInfo;
+  /** 監護人資料（查調對象＝監護人時使用） */
+  guardian: ParentIdInfo;
   note: string;
   status: ConfirmationStatus;
   confirmedAt: number | null;
@@ -113,9 +331,13 @@ export interface InquiryRow {
   className: string;
   status: ConfirmationStatus | "missing";
   identities: string[];
+  identitySelections: IdentitySelection[];
+  taxSubject: TaxSubject;
   taxInquiry: TaxInquiryState;
   father: ParentIdInfo;
   mother: ParentIdInfo;
+  self: ParentIdInfo;
+  guardian: ParentIdInfo;
   note: string;
   confirmedAt: number | null;
   updatedAt: number;
@@ -126,9 +348,10 @@ export const DEFAULT_IDENTITY_TAX_INQUIRY_SETTINGS: IdentityTaxInquirySettings =
   openAt: null,
   closeAt: null,
   instructions: "",
-  identityOptions: [...DEFAULT_IDENTITY_OPTIONS],
-  taxInquiryIdentities: [...DEFAULT_TAX_INQUIRY_IDENTITIES],
-  requireParentId: true,
+  identityOptions: DEFAULT_IDENTITY_OPTIONS.map((option) => ({
+    ...option,
+    fields: option.fields.map((field) => ({ ...field, options: [...field.options] })),
+  })),
   updatedAt: 0,
 };
 
@@ -154,30 +377,150 @@ function cleanStringList(value: unknown, max: number, limit: number): string[] {
   return list;
 }
 
-/** 寬容讀取設定（缺欄位回預設） */
+/** 產生穩定 id（沿用既有、缺漏才新建） */
+export function makeId(prefix: string, existing?: string): string {
+  const text = cleanString(existing, 64).replace(/[^\w-]/g, "-");
+  if (text) return text;
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function normalizeFieldOptions(value: unknown): IdentityFieldOption[] {
+  if (!Array.isArray(value)) return [];
+  const list: IdentityFieldOption[] = [];
+  for (const item of value) {
+    if (typeof item === "string") {
+      const name = cleanString(item, IDENTITY_FIELD_VALUE_MAX);
+      if (name) list.push({ code: "", name });
+    } else if (item && typeof item === "object" && !Array.isArray(item)) {
+      const record = item as Record<string, unknown>;
+      const code = cleanString(record.code, 20);
+      const name = cleanString(record.name, IDENTITY_FIELD_VALUE_MAX) || code;
+      if (name || code) list.push({ code, name });
+    }
+    if (list.length >= IDENTITY_FIELD_OPTION_MAX) break;
+  }
+  return list;
+}
+
+function normalizeField(raw: unknown, index: number): IdentityFieldDef | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const data = raw as Record<string, unknown>;
+  const label = cleanString(data.label, IDENTITY_FIELD_LABEL_MAX);
+  if (!label) return null;
+  const type: IdentityFieldType =
+    data.type === "checkbox" ? "checkbox" : data.type === "text" ? "text" : "select";
+  return {
+    id: makeId("field", typeof data.id === "string" ? data.id : `field-${index + 1}`),
+    type,
+    label,
+    required: data.required === true,
+    options: type === "text" ? [] : normalizeFieldOptions(data.options),
+  };
+}
+
+/** 舊資料（字串陣列）→ 新結構 */
+function normalizeLegacyOptions(
+  labels: string[],
+  taxInquiryIdentities: string[]
+): IdentityOptionDef[] {
+  return labels.map((label, index) => {
+    const preset = DEFAULT_IDENTITY_OPTIONS.find((option) => option.label === label) ?? null;
+    const isTax = taxInquiryIdentities.includes(label) || Boolean(preset?.taxInquiry);
+    return {
+      id: preset?.id ?? `option-${index + 1}`,
+      label,
+      enabled: true,
+      taxInquiry: isTax,
+      exclusiveGroup: preset?.exclusiveGroup ?? "",
+      benefitType: "",
+      benefitAmount: null,
+      benefitNote: "",
+      fields: (preset?.fields ?? []).map((field) => ({ ...field, options: [...field.options] })),
+    };
+  });
+}
+
+function normalizeOption(raw: unknown, index: number): IdentityOptionDef | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const data = raw as Record<string, unknown>;
+  const label = cleanString(data.label, IDENTITY_LABEL_MAX);
+  if (!label) return null;
+  const fields = Array.isArray(data.fields)
+    ? data.fields
+        .map((field, fieldIndex) => normalizeField(field, fieldIndex))
+        .filter((field): field is IdentityFieldDef => field !== null)
+        .slice(0, 10)
+    : [];
+  const amountRaw = data.benefitAmount;
+  const benefitAmount =
+    typeof amountRaw === "number" && Number.isInteger(amountRaw) && amountRaw > 0
+      ? amountRaw
+      : null;
+  return {
+    id: makeId("option", typeof data.id === "string" ? data.id : `option-${index + 1}`),
+    label,
+    enabled: data.enabled !== false,
+    taxInquiry: data.taxInquiry === true,
+    exclusiveGroup: cleanString(data.exclusiveGroup, 40),
+    benefitType:
+      data.benefitType === "reduction" || data.benefitType === "subsidy"
+        ? data.benefitType
+        : "",
+    benefitAmount,
+    benefitNote: cleanString(data.benefitNote, 100),
+    fields,
+  };
+}
+
+/** 寬容讀取設定（缺欄位回預設，舊格式自動升級） */
 export function normalizeSettings(raw: unknown): IdentityTaxInquirySettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ...DEFAULT_IDENTITY_TAX_INQUIRY_SETTINGS };
   }
   const data = raw as Record<string, unknown>;
-  const identityOptions = cleanStringList(data.identityOptions, IDENTITY_LABEL_MAX, IDENTITY_OPTION_MAX);
-  const taxInquiryIdentities = cleanStringList(
-    data.taxInquiryIdentities,
-    IDENTITY_LABEL_MAX,
-    IDENTITY_OPTION_MAX
-  );
+  let identityOptions: IdentityOptionDef[] = [];
+  if (Array.isArray(data.identityOptions)) {
+    const legacyLabels = data.identityOptions.filter(
+      (item): item is string => typeof item === "string"
+    );
+    if (legacyLabels.length > 0) {
+      const legacyTax = Array.isArray(data.taxInquiryIdentities)
+        ? data.taxInquiryIdentities.filter((item): item is string => typeof item === "string")
+        : [];
+      identityOptions = normalizeLegacyOptions(
+        cleanStringList(legacyLabels, IDENTITY_LABEL_MAX, IDENTITY_OPTION_MAX),
+        legacyTax
+      );
+    } else {
+      identityOptions = data.identityOptions
+        .map((item, index) => normalizeOption(item, index))
+        .filter((option): option is IdentityOptionDef => option !== null)
+        .slice(0, IDENTITY_OPTION_MAX);
+    }
+  }
+  // id 去重（避免舊資料重複）
+  const seenIds = new Set<string>();
+  identityOptions = identityOptions.map((option) => {
+    let id = option.id;
+    let suffix = 2;
+    while (seenIds.has(id)) id = `${option.id}-${suffix++}`;
+    seenIds.add(id);
+    return { ...option, id };
+  });
   const openAt = isEpoch(data.openAt) ? data.openAt : null;
   const closeAt = isEpoch(data.closeAt) ? data.closeAt : null;
   return {
     enabled: data.enabled === true,
     openAt,
     closeAt,
-    instructions: typeof data.instructions === "string" ? data.instructions.slice(0, 5000) : "",
-    identityOptions: identityOptions.length ? identityOptions : [...DEFAULT_IDENTITY_OPTIONS],
-    taxInquiryIdentities: taxInquiryIdentities.length
-      ? taxInquiryIdentities
-      : [...DEFAULT_TAX_INQUIRY_IDENTITIES],
-    requireParentId: data.requireParentId !== false,
+    instructions: typeof data.instructions === "string" ? data.instructions.slice(0, 20000) : "",
+    identityOptions:
+      identityOptions.length > 0
+        ? identityOptions
+        : DEFAULT_IDENTITY_OPTIONS.map((option) => ({
+            ...option,
+            fields: option.fields.map((field) => ({ ...field, options: [...field.options] })),
+          })),
     updatedAt: isEpoch(data.updatedAt) ? data.updatedAt : 0,
   };
 }
@@ -193,12 +536,57 @@ export function windowStateOf(
   return "open";
 }
 
+/** 需要提供給學生勾選的身分別 */
+export function enabledIdentityOptions(
+  settings: Pick<IdentityTaxInquirySettings, "identityOptions">
+): IdentityOptionDef[] {
+  return settings.identityOptions.filter((option) => option.enabled);
+}
+
+/** 以 optionId／label 找設定中的身分別（相容改名前的舊資料） */
+export function findIdentityOption(
+  settings: Pick<IdentityTaxInquirySettings, "identityOptions">,
+  selection: Pick<IdentitySelection, "optionId" | "label">
+): IdentityOptionDef | null {
+  return (
+    settings.identityOptions.find((option) => option.id === selection.optionId) ??
+    settings.identityOptions.find((option) => option.label === selection.label) ??
+    null
+  );
+}
+
 /** 是否為需要財稅查調的身分別組合 */
 export function needsTaxInquiry(
-  identities: string[],
-  settings: Pick<IdentityTaxInquirySettings, "taxInquiryIdentities">
+  selections: Pick<IdentitySelection, "optionId" | "label">[],
+  settings: Pick<IdentityTaxInquirySettings, "identityOptions">
 ): boolean {
-  return identities.some((identity) => settings.taxInquiryIdentities.includes(identity));
+  return selections.some((selection) => findIdentityOption(settings, selection)?.taxInquiry ?? false);
+}
+
+/** 依 label 清單回推 selections（舊紀錄沒有 identitySelections 時使用） */
+export function selectionsFromLabels(
+  labels: string[],
+  settings: Pick<IdentityTaxInquirySettings, "identityOptions">
+): IdentitySelection[] {
+  return labels.map((label) => {
+    const def =
+      settings.identityOptions.find((option) => option.label === label) ??
+      settings.identityOptions.find((option) => option.id === label) ??
+      null;
+    return { optionId: def?.id ?? label, label: def?.label ?? label, values: {} };
+  });
+}
+
+/** 身分別摘要（含進階選項），供名冊／家長端顯示 */
+export function summarizeSelections(selections: IdentitySelection[]): string {
+  return selections
+    .map((selection) => {
+      const extras = Object.values(selection.values)
+        .flat()
+        .filter((value) => value.trim() !== "");
+      return extras.length > 0 ? `${selection.label}（${extras.join("／")}）` : selection.label;
+    })
+    .join("、");
 }
 
 /** 中華民國身分證字號格式（1 英文字母＋1 或 2＋8 碼數字） */
@@ -245,8 +633,12 @@ export function fromDateTimeLocal(value: string): number | null {
 
 export interface RecordInput {
   identities: string[];
+  identitySelections: IdentitySelection[];
+  taxSubject: TaxSubject;
   father: ParentIdInfo;
   mother: ParentIdInfo;
+  self: ParentIdInfo;
+  guardian: ParentIdInfo;
   note: string;
 }
 
@@ -254,57 +646,175 @@ export type ParseRecordResult =
   | { ok: true; value: RecordInput }
   | { ok: false; message: string };
 
+function readParentInfo(value: unknown): ParentIdInfo {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    name: cleanString(record.name, PARENT_NAME_MAX),
+    idNumber: cleanString(record.idNumber, 10).toUpperCase(),
+  };
+}
+
+function isCompleteParent(parent: ParentIdInfo): boolean {
+  return parent.name !== "" && isValidIdNumber(parent.idNumber);
+}
+
+/** 解析單一身分別的進階選項；confirm 時檢查必填與選項合法性 */
+function parseSelectionFields(
+  def: IdentityOptionDef,
+  rawValues: unknown,
+  mode: "draft" | "confirm"
+): { ok: true; values: Record<string, string[]> } | { ok: false; message: string } {
+  const source =
+    rawValues && typeof rawValues === "object" && !Array.isArray(rawValues)
+      ? (rawValues as Record<string, unknown>)
+      : {};
+  const values: Record<string, string[]> = {};
+  for (const field of def.fields) {
+    const raw = source[field.id];
+    const picked = cleanStringList(
+      raw,
+      IDENTITY_FIELD_VALUE_MAX,
+      field.type === "select" ? 1 : IDENTITY_FIELD_OPTION_MAX
+    );
+    if (field.type === "text") {
+      const text = picked[0] ?? "";
+      if (mode === "confirm" && field.required && !text) {
+        return { ok: false, message: `「${def.label}」請填寫${field.label}` };
+      }
+      if (field.label.includes("身分證") && text && !isValidIdNumber(text)) {
+        return { ok: false, message: `「${def.label}」${field.label}格式不正確（例：A123456789）` };
+      }
+      values[field.id] = text ? [text] : [];
+      continue;
+    }
+    if (field.options.length === 0) {
+      values[field.id] = [];
+      continue;
+    }
+    const allowed = field.options.map((option) => fieldOptionName(option));
+    const invalid = picked.find((value) => !allowed.includes(value));
+    if (invalid) {
+      return { ok: false, message: `「${def.label}」的${field.label}選項不正確，請重新選擇` };
+    }
+    if (mode === "confirm" && field.required && picked.length === 0) {
+      return { ok: false, message: `「${def.label}」請選擇${field.label}` };
+    }
+    values[field.id] = picked;
+  }
+  return { ok: true, values };
+}
+
 /**
  * 解析學生送出的確認內容。
- * - `mode: "confirm"`：至少一個身分別；需要查調且設定要求時，父或母至少一組完整身分證字號。
- * - `mode: "draft"`：允許不完整，但已填的證號仍須符合格式。
+ * - `mode: "confirm"`：至少一個身分別、互斥群組僅能擇一、必填進階選項須填寫；
+ *   需要查調時依查調對象檢查證號（雙方／一方／本人）。
+ * - `mode: "draft"`：允許不完整，但已填的內容仍須合法。
  */
 export function parseRecordInput(
   raw: unknown,
-  settings: Pick<IdentityTaxInquirySettings, "identityOptions" | "taxInquiryIdentities" | "requireParentId">,
+  settings: Pick<IdentityTaxInquirySettings, "identityOptions">,
   mode: "draft" | "confirm"
 ): ParseRecordResult {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, message: "缺少確認內容" };
   }
   const data = raw as Record<string, unknown>;
-  const supplied = cleanStringList(data.identities, IDENTITY_LABEL_MAX, IDENTITY_OPTION_MAX);
-  const identities = supplied.filter((identity) => settings.identityOptions.includes(identity));
-  if (identities.length !== supplied.length) {
-    return { ok: false, message: "包含未開放的身分別，請重新選擇" };
+  const rawSelections = Array.isArray(data.identitySelections) ? data.identitySelections : [];
+
+  const selections: IdentitySelection[] = [];
+  const seenOptions = new Set<string>();
+  for (const item of rawSelections) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const entry = item as Record<string, unknown>;
+    const optionId = cleanString(entry.optionId, 64);
+    const label = cleanString(entry.label, IDENTITY_LABEL_MAX);
+    const def =
+      settings.identityOptions.find((option) => option.id === optionId) ??
+      settings.identityOptions.find((option) => option.label === label) ??
+      null;
+    if (!def) return { ok: false, message: "包含未開放的身分別，請重新選擇" };
+    if (!def.enabled) return { ok: false, message: `「${def.label}」目前未開放勾選` };
+    if (seenOptions.has(def.id)) continue;
+    seenOptions.add(def.id);
+    const parsedFields = parseSelectionFields(def, entry.values, mode);
+    if (!parsedFields.ok) return { ok: false, message: parsedFields.message };
+    selections.push({ optionId: def.id, label: def.label, values: parsedFields.values });
+    if (selections.length >= IDENTITY_OPTION_MAX) break;
   }
-  const readParent = (value: unknown): ParentIdInfo => {
-    const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-    return {
-      name: cleanString(record.name, PARENT_NAME_MAX),
-      idNumber: cleanString(record.idNumber, 10).toUpperCase(),
-    };
-  };
-  const father = readParent(data.father);
-  const mother = readParent(data.mother);
-  for (const parent of [father, mother]) {
+
+  // 互斥群組：同一群組僅能勾選一個
+  const groups = new Map<string, string>();
+  for (const selection of selections) {
+    const def = settings.identityOptions.find((option) => option.id === selection.optionId);
+    const group = def?.exclusiveGroup ?? "";
+    if (!group) continue;
+    const existing = groups.get(group);
+    if (existing && existing !== selection.label) {
+      return {
+        ok: false,
+        message: `「${existing}」與「${selection.label}」只能擇一勾選`,
+      };
+    }
+    groups.set(group, selection.label);
+  }
+
+  const father = readParentInfo(data.father);
+  const mother = readParentInfo(data.mother);
+  const self = readParentInfo(data.self);
+  const guardian = readParentInfo(data.guardian);
+  for (const parent of [father, mother, self, guardian]) {
     if (parent.idNumber && !isValidIdNumber(parent.idNumber)) {
-      return { ok: false, message: "父母身分證字號格式不正確（例：A123456789）" };
+      return { ok: false, message: "身分證字號格式不正確（例：A123456789）" };
     }
   }
+
+  const taxSubject: TaxSubject =
+    data.taxSubject === "one"
+      ? "one"
+      : data.taxSubject === "self"
+        ? "self"
+        : data.taxSubject === "guardian"
+          ? "guardian"
+          : "both";
   const note = cleanString(data.note, NOTE_MAX);
 
   if (mode === "confirm") {
-    if (identities.length === 0) return { ok: false, message: "請至少選擇一個註冊身分別" };
-    if (needsTaxInquiry(identities, settings) && settings.requireParentId) {
-      const complete = [father, mother].some(
-        (parent) => parent.name !== "" && isValidIdNumber(parent.idNumber)
-      );
-      if (!complete) {
+    if (selections.length === 0) return { ok: false, message: "請至少選擇一個註冊身分別" };
+    if (needsTaxInquiry(selections, settings)) {
+      if (taxSubject === "both" && !(isCompleteParent(father) && isCompleteParent(mother))) {
         return {
           ok: false,
-          message: "此身分別需要財稅查調，請至少填寫父或母的姓名與身分證字號",
+          message: "此身分別需要財稅查調，請填寫父、母雙方的姓名與身分證字號",
         };
+      }
+      if (taxSubject === "one" && !(isCompleteParent(father) || isCompleteParent(mother))) {
+        return {
+          ok: false,
+          message: "父母離異或一方亡故時，請填寫具有撫養權或存續一方的姓名與身分證字號",
+        };
+      }
+      if (taxSubject === "self" && !isCompleteParent(self)) {
+        return { ok: false, message: "已結婚者請填寫本人的姓名與身分證字號" };
+      }
+      if (taxSubject === "guardian" && !isCompleteParent(guardian)) {
+        return { ok: false, message: "請填寫監護人的姓名與身分證字號" };
       }
     }
   }
 
-  return { ok: true, value: { identities, father, mother, note } };
+  return {
+    ok: true,
+    value: {
+      identities: selections.map((selection) => selection.label),
+      identitySelections: selections,
+      taxSubject,
+      father,
+      mother,
+      self,
+      guardian,
+      note,
+    },
+  };
 }
 
 export interface StudentPagePayload {

@@ -4,6 +4,7 @@ import { enforceRateLimit, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { getCurrentPeriod } from "@/lib/settings-server";
+import { normalizeRichHtmlField } from "../../../lib/rich-text";
 import {
   buildInquiryCsv,
   buildInquiryRows,
@@ -12,9 +13,6 @@ import {
   statsOf,
 } from "../../../lib/identity-tax-inquiry";
 import {
-  DEFAULT_IDENTITY_OPTIONS,
-  IDENTITY_LABEL_MAX,
-  IDENTITY_OPTION_MAX,
   IDENTITY_TAX_INQUIRY_VALUE,
   normalizeSettings,
   periodLabelOf,
@@ -162,42 +160,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const optionsInput = Array.isArray(body.identityOptions) ? body.identityOptions : [];
-    const identityOptions: string[] = [];
-    const seen = new Set<string>();
-    for (const item of optionsInput) {
-      const text = typeof item === "string" ? item.trim().slice(0, IDENTITY_LABEL_MAX) : "";
-      if (!text || seen.has(text)) continue;
-      seen.add(text);
-      identityOptions.push(text);
-      if (identityOptions.length >= IDENTITY_OPTION_MAX) break;
-    }
-    if (identityOptions.length === 0) {
+    const optionsRaw = Array.isArray(body.identityOptions) ? body.identityOptions : [];
+    if (optionsRaw.length === 0) {
       return NextResponse.json(
         { success: false, message: "請至少設定一個身分別選項" },
         { status: 400, headers: noStore }
       );
     }
-
-    const taxInput = Array.isArray(body.taxInquiryIdentities) ? body.taxInquiryIdentities : [];
-    const taxInquiryIdentities = taxInput.filter(
-      (item): item is string => typeof item === "string" && identityOptions.includes(item)
-    );
-
-    const next: IdentityTaxInquirySettings = normalizeSettings({
+    const draftSettings = normalizeSettings({
       enabled: body.enabled === true,
       openAt,
       closeAt,
-      instructions: typeof body.instructions === "string" ? body.instructions : "",
-      identityOptions,
-      taxInquiryIdentities,
-      requireParentId: body.requireParentId !== false,
+      instructions: normalizeRichHtmlField(body.instructions, 20000),
+      identityOptions: optionsRaw,
       updatedAt: Date.now(),
     });
-    // normalizeSettings 在清單為空時會回預設值；此處明確保留管理者選擇
-    next.identityOptions = identityOptions;
-    next.taxInquiryIdentities = [...new Set(taxInquiryIdentities)];
-    if (next.identityOptions.length === 0) next.identityOptions = [...DEFAULT_IDENTITY_OPTIONS];
+    if (draftSettings.identityOptions.length === 0) {
+      return NextResponse.json(
+        { success: false, message: "請至少設定一個有效的身分別名稱" },
+        { status: 400, headers: noStore }
+      );
+    }
+    const labelSet = new Set<string>();
+    const duplicate = draftSettings.identityOptions.find((option) => {
+      if (labelSet.has(option.label)) return true;
+      labelSet.add(option.label);
+      return false;
+    });
+    if (duplicate) {
+      return NextResponse.json(
+        { success: false, message: `身分別名稱重複：${duplicate.label}` },
+        { status: 400, headers: noStore }
+      );
+    }
+    const next: IdentityTaxInquirySettings = {
+      ...draftSettings,
+      enabled: body.enabled === true,
+      openAt,
+      closeAt,
+      instructions: normalizeRichHtmlField(body.instructions, 20000),
+      updatedAt: Date.now(),
+    };
 
     const saved = await saveSettings(next);
     await logActivity({

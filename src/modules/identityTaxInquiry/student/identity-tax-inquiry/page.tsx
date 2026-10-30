@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import AdSense from "@/components/AdSense";
 import Copyright from "@/components/Copyright";
 import Toast, { type ToastMessage } from "@/components/Toast";
+import { RichTextContent } from "../../components/rich-text-editor";
+import { stripHtmlToText } from "../../lib/rich-text";
 import { fetchSettings } from "@/lib/settings-client";
 import { logout } from "@/lib/session";
 import { defaultSettings, type Settings } from "@/types/settings";
@@ -14,12 +16,18 @@ import {
   MAINTENANCE_HINT,
   MAINTENANCE_TITLE,
   TAX_INQUIRY_STATUS_LABELS,
+  TAX_SUBJECT_LABELS,
+  enabledIdentityOptions,
+  fieldOptionName,
   formatDateTime,
   isValidIdNumber,
   needsTaxInquiry,
+  type IdentityOptionDef,
+  type IdentitySelection,
   type IdentityTaxInquiryRecord,
   type IdentityTaxInquirySettings,
   type IdentityWindowState,
+  type TaxSubject,
 } from "../../types/identity-tax-inquiry";
 
 interface StudentPayload {
@@ -39,9 +47,12 @@ export default function IdentityTaxInquiryStudentPage() {
   const [saving, setSaving] = useState<"draft" | "confirm" | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  const [identities, setIdentities] = useState<string[]>([]);
+  const [selections, setSelections] = useState<IdentitySelection[]>([]);
+  const [taxSubject, setTaxSubject] = useState<TaxSubject>("both");
   const [father, setFather] = useState({ name: "", idNumber: "" });
   const [mother, setMother] = useState({ name: "", idNumber: "" });
+  const [self, setSelf] = useState({ name: "", idNumber: "" });
+  const [guardian, setGuardian] = useState({ name: "", idNumber: "" });
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -76,9 +87,12 @@ export default function IdentityTaxInquiryStudentPage() {
       setStudent((data.student as StudentPayload["student"]) ?? null);
       const current = (data.record as IdentityTaxInquiryRecord | null) ?? null;
       setRecord(current);
-      setIdentities(current?.identities ?? []);
+      setSelections(current?.identitySelections ?? []);
+      setTaxSubject(current?.taxSubject ?? "both");
       setFather(current?.father ?? { name: "", idNumber: "" });
       setMother(current?.mother ?? { name: "", idNumber: "" });
+      setSelf(current?.self ?? { name: "", idNumber: "" });
+      setGuardian(current?.guardian ?? { name: "", idNumber: "" });
       setNote(current?.note ?? "");
     } catch {
       setToast({ kind: "error", text: "讀取資料失敗" });
@@ -94,13 +108,33 @@ export default function IdentityTaxInquiryStudentPage() {
   const submit = async (action: "draft" | "confirm") => {
     if (saving) return;
     if (action === "confirm") {
-      if (identities.length === 0) {
+      if (selections.length === 0) {
         setToast({ kind: "error", text: "請至少選擇一個註冊身分別" });
         return;
       }
-      for (const parent of [father, mother]) {
+      for (const parent of [father, mother, self, guardian]) {
         if (parent.idNumber && !isValidIdNumber(parent.idNumber)) {
-          setToast({ kind: "error", text: "父母身分證字號格式不正確（例：A123456789）" });
+          setToast({ kind: "error", text: "身分證字號格式不正確（例：A123456789）" });
+          return;
+        }
+      }
+      if (settings && needsTaxInquiry(selections, settings)) {
+        const complete = (info: { name: string; idNumber: string }) =>
+          info.name.trim() !== "" && isValidIdNumber(info.idNumber);
+        if (taxSubject === "both" && !(complete(father) && complete(mother))) {
+          setToast({ kind: "error", text: "請填寫父、母雙方的姓名與身分證字號" });
+          return;
+        }
+        if (taxSubject === "one" && !(complete(father) || complete(mother))) {
+          setToast({ kind: "error", text: "請填寫具有撫養權一方的姓名與身分證字號" });
+          return;
+        }
+        if (taxSubject === "self" && !complete(self)) {
+          setToast({ kind: "error", text: "請填寫本人的姓名與身分證字號" });
+          return;
+        }
+        if (taxSubject === "guardian" && !complete(guardian)) {
+          setToast({ kind: "error", text: "請填寫監護人的姓名與身分證字號" });
           return;
         }
       }
@@ -112,9 +146,12 @@ export default function IdentityTaxInquiryStudentPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: action === "confirm" ? "confirm" : "save",
-          identities,
+          identitySelections: selections,
+          taxSubject,
           father,
           mother,
+          self,
+          guardian,
           note,
         }),
       });
@@ -137,7 +174,37 @@ export default function IdentityTaxInquiryStudentPage() {
   };
 
   const canEdit = !maintenance && windowState === "open" && Boolean(settings);
-  const taxRequired = settings ? needsTaxInquiry(identities, settings) : false;
+  const taxRequired = settings ? needsTaxInquiry(selections, settings) : false;
+
+  /** 勾選／取消身分別（互斥群組自動取消同組其他選項） */
+  const toggleIdentity = (def: IdentityOptionDef) => {
+    if (!settings || !canEdit) return;
+    setSelections((prev) => {
+      if (prev.some((selection) => selection.optionId === def.id)) {
+        return prev.filter((selection) => selection.optionId !== def.id);
+      }
+      const kept = def.exclusiveGroup
+        ? prev.filter((selection) => {
+            const other = settings.identityOptions.find(
+              (option) => option.id === selection.optionId
+            );
+            return (other?.exclusiveGroup ?? "") !== def.exclusiveGroup;
+          })
+        : prev;
+      return [...kept, { optionId: def.id, label: def.label, values: {} }];
+    });
+  };
+
+  /** 更新身分別的進階選項 */
+  const setFieldValues = (optionId: string, fieldId: string, values: string[]) => {
+    setSelections((prev) =>
+      prev.map((selection) =>
+        selection.optionId === optionId
+          ? { ...selection, values: { ...selection.values, [fieldId]: values } }
+          : selection
+      )
+    );
+  };
 
   const actionButtons = (
     <>
@@ -244,10 +311,10 @@ export default function IdentityTaxInquiryStudentPage() {
             )}
           </div>
         </div>
-        {settings.instructions.trim() && (
+        {stripHtmlToText(settings.instructions).trim() && (
           <div className="border-themed bg-surface mt-3 rounded-md border p-3">
             <p className="text-t1 text-xs font-medium">實施說明</p>
-            <p className="text-t2 mt-1 whitespace-pre-line text-sm">{settings.instructions}</p>
+            <RichTextContent html={settings.instructions} className="text-t2 mt-1 text-sm" />
           </div>
         )}
       </section>
@@ -269,54 +336,167 @@ export default function IdentityTaxInquiryStudentPage() {
 
       <section className="border-themed bg-card rounded-lg p-4">
         <h3 className="text-t1 mb-3 font-medium">註冊身分別（可複選）</h3>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {settings.identityOptions.map((option) => (
-            <label key={option} className="text-t1 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                disabled={!canEdit}
-                checked={identities.includes(option)}
-                onChange={(event) =>
-                  setIdentities((prev) =>
-                    event.target.checked
-                      ? [...prev.filter((item) => item !== option), option]
-                      : prev.filter((item) => item !== option)
-                  )
-                }
-              />
-              {option}
-              {settings.taxInquiryIdentities.includes(option) && (
-                <span className="text-warning text-xs">（需查調）</span>
-              )}
-            </label>
-          ))}
+        <div className="space-y-2">
+          {enabledIdentityOptions(settings).map((option) => {
+            const selection = selections.find((item) => item.optionId === option.id);
+            const checked = Boolean(selection);
+            return (
+              <div
+                key={option.id}
+                className="border-themed flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border px-3 py-2"
+              >
+                <label className="text-t1 flex shrink-0 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    disabled={!canEdit}
+                    checked={checked}
+                    onChange={() => toggleIdentity(option)}
+                  />
+                  <span>{option.label}</span>
+                  {option.taxInquiry && (
+                    <span className="text-warning text-xs">（需查調財稅資料）</span>
+                  )}
+                </label>
+                {checked &&
+                  option.fields.map((field) => {
+                    const values = selection?.values[field.id] ?? [];
+                    if (field.type === "select") {
+                      return (
+                        <label key={field.id} className="flex items-center gap-2 text-xs">
+                          <span className="text-t3 shrink-0">
+                            {field.label}
+                            {field.required ? " *" : ""}
+                          </span>
+                          <select
+                            className="input-theme min-w-24 rounded px-2 py-1 text-sm"
+                            disabled={!canEdit}
+                            value={values[0] ?? ""}
+                            onChange={(event) =>
+                              setFieldValues(
+                                option.id,
+                                field.id,
+                                event.target.value ? [event.target.value] : []
+                              )
+                            }
+                          >
+                            <option value="">請選擇</option>
+                            {field.options.map((item) => (
+                              <option key={fieldOptionName(item)} value={fieldOptionName(item)}>
+                                {fieldOptionName(item)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      );
+                    }
+                    if (field.type === "checkbox") {
+                      return (
+                        <div key={field.id} className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-t3">
+                            {field.label}
+                            {field.required ? " *" : ""}
+                          </span>
+                          {field.options.map((item) => {
+                            const label = fieldOptionName(item);
+                            const active = values.includes(label);
+                            return (
+                              <label key={label} className="text-t1 flex items-center gap-1">
+                                <input
+                                  type="checkbox"
+                                  disabled={!canEdit}
+                                  checked={active}
+                                  onChange={() =>
+                                    setFieldValues(
+                                      option.id,
+                                      field.id,
+                                      active
+                                        ? values.filter((value) => value !== label)
+                                        : [...values, label]
+                                    )
+                                  }
+                                />
+                                {label}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return (
+                      <label
+                        key={field.id}
+                        className="flex w-full flex-wrap items-center gap-2 text-xs sm:w-auto sm:min-w-64"
+                      >
+                        <span className="text-t3 shrink-0">
+                          {field.label}
+                          {field.required ? " *" : ""}
+                        </span>
+                        <input
+                          className="input-theme min-w-40 flex-1 rounded px-2 py-1 text-sm"
+                          disabled={!canEdit}
+                          maxLength={100}
+                          value={values[0] ?? ""}
+                          placeholder={
+                            field.label.includes("身分證") ? "例：A123456789" : undefined
+                          }
+                          onChange={(event) =>
+                            setFieldValues(
+                              option.id,
+                              field.id,
+                              event.target.value ? [event.target.value] : []
+                            )
+                          }
+                        />
+                      </label>
+                    );
+                  })}
+              </div>
+            );
+          })}
         </div>
-        <p className="text-t3 mt-2 text-xs">
-          請依實際情形勾選；需要財稅查調的身分別，請續填下方父母資料。
-        </p>
+        <p className="text-t3 mt-2 text-xs">請依實際情形勾選。</p>
       </section>
 
-      <section className="border-themed bg-card rounded-lg p-4">
-        <h3 className="text-t1 mb-1 font-medium">父母資料（財稅查調用）</h3>
-        <p className="text-t3 mb-3 text-xs">
-          {taxRequired
-            ? settings.requireParentId
-              ? "你勾選的身分別需要財稅查調，請至少填寫父或母的姓名與身分證字號。"
-              : "你勾選的身分別需要財稅查調，建議填寫父或母的姓名與身分證字號。"
-            : "目前勾選的身分別不需要財稅查調，本區可留空。"}
-        </p>
+      {taxRequired && (
+        <section className="border-themed bg-card rounded-lg p-4">
+          <h3 className="text-t1 mb-1 font-medium">財稅查調資料</h3>
+          <p className="text-t3 mb-3 text-xs">
+            你勾選的身分別需要財稅查調，請依下方查調對象填寫姓名與身分證字號。
+          </p>
+          {taxRequired && (
+          <fieldset className="mb-3">
+            <legend className="text-t2 mb-1 text-xs">查調對象</legend>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {(["both", "one", "self", "guardian"] as const).map((value) => (
+                <label key={value} className="text-t1 flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="tax-subject"
+                    disabled={!canEdit}
+                    checked={taxSubject === value}
+                    onChange={() => setTaxSubject(value)}
+                  />
+                  {TAX_SUBJECT_LABELS[value]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
-          {(
-            [
-              ["父", father, setFather],
-              ["母", mother, setMother],
-            ] as const
+          {(taxSubject === "self"
+            ? ([["本人", self, setSelf]] as const)
+            : taxSubject === "guardian"
+              ? ([["監護人", guardian, setGuardian]] as const)
+              : ([
+                  ["父", father, setFather],
+                  ["母", mother, setMother],
+                ] as const)
           ).map(([label, value, setter]) => (
             <div key={label} className="space-y-2">
-              <p className="text-t2 text-sm font-medium">{label}親</p>
+              <p className="text-t2 text-sm font-medium">{label}</p>
               <input
                 className="input-theme w-full rounded px-3 py-2 text-sm"
-                placeholder={`${label}親姓名`}
+                placeholder={`${label}姓名`}
                 maxLength={40}
                 disabled={!canEdit}
                 value={value.name}
@@ -324,7 +504,7 @@ export default function IdentityTaxInquiryStudentPage() {
               />
               <input
                 className="input-theme w-full rounded px-3 py-2 text-sm"
-                placeholder={`${label}親身分證字號（例：A123456789）`}
+                placeholder={`${label}身分證字號（例：A123456789）`}
                 maxLength={10}
                 disabled={!canEdit}
                 value={value.idNumber}
@@ -335,6 +515,11 @@ export default function IdentityTaxInquiryStudentPage() {
             </div>
           ))}
         </div>
+        {taxRequired && taxSubject === "one" && (
+          <p className="text-t3 mt-2 text-xs">
+            父母離異或一方亡故時，請填寫具有撫養權或存續一方的資料即可。
+          </p>
+        )}
         <label className="mt-3 block text-sm">
           <span className="text-t2 mb-1 block">備註（選填）</span>
           <textarea
@@ -346,7 +531,8 @@ export default function IdentityTaxInquiryStudentPage() {
             onChange={(event) => setNote(event.target.value)}
           />
         </label>
-      </section>
+        </section>
+      )}
 
       <div className="flex flex-wrap justify-end gap-2">
         {canEdit ? (

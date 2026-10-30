@@ -18,6 +18,9 @@ import {
   needsTaxInquiry,
   normalizeSettings,
   periodLabelOf,
+  selectionsFromLabels,
+  summarizeSelections,
+  type IdentitySelection,
   type IdentityTaxInquiryRecord,
   type IdentityTaxInquirySettings,
   type InquiryRow,
@@ -25,6 +28,7 @@ import {
   type RecordInput,
   type TaxInquiryStatus,
   type TaxInquiryState,
+  type TaxSubject,
 } from "../types/identity-tax-inquiry";
 
 const CACHE_PREFIX = "identityTaxInquiry:";
@@ -107,11 +111,46 @@ function readParent(raw: unknown): { name: string; idNumber: string } {
   };
 }
 
+function readSelection(raw: unknown): IdentitySelection | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const data = raw as Record<string, unknown>;
+  const label = typeof data.label === "string" ? data.label.slice(0, 40) : "";
+  if (!label) return null;
+  const values: Record<string, string[]> = {};
+  if (data.values && typeof data.values === "object" && !Array.isArray(data.values)) {
+    for (const [key, value] of Object.entries(data.values as Record<string, unknown>)) {
+      const list = Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string").slice(0, 30)
+        : [];
+      if (list.length > 0) values[key] = list;
+    }
+  }
+  return {
+    optionId: typeof data.optionId === "string" ? data.optionId.slice(0, 64) : label,
+    label,
+    values,
+  };
+}
+
 function readRecord(id: string, raw: Record<string, unknown>): IdentityTaxInquiryRecord {
   const str = (value: unknown) => (typeof value === "string" ? value : "");
   const identities = Array.isArray(raw.identities)
     ? raw.identities.filter((item): item is string => typeof item === "string").slice(0, 20)
     : [];
+  const identitySelections = Array.isArray(raw.identitySelections)
+    ? raw.identitySelections
+        .map((item) => readSelection(item))
+        .filter((item): item is IdentitySelection => item !== null)
+        .slice(0, 40)
+    : identities.map((label) => ({ optionId: label, label, values: {} }));
+  const taxSubject: TaxSubject =
+    raw.taxSubject === "one"
+      ? "one"
+      : raw.taxSubject === "self"
+        ? "self"
+        : raw.taxSubject === "guardian"
+          ? "guardian"
+          : "both";
   const status = raw.status === "confirmed" ? "confirmed" : "draft";
   return {
     id,
@@ -122,8 +161,12 @@ function readRecord(id: string, raw: Record<string, unknown>): IdentityTaxInquir
     classCode: str(raw.classCode),
     className: str(raw.className),
     identities,
+    identitySelections,
+    taxSubject,
     father: readParent(raw.father),
     mother: readParent(raw.mother),
+    self: readParent(raw.self),
+    guardian: readParent(raw.guardian),
     note: typeof raw.note === "string" ? raw.note.slice(0, NOTE_MAX) : "",
     status,
     confirmedAt: typeof raw.confirmedAt === "number" && raw.confirmedAt > 0 ? raw.confirmedAt : null,
@@ -164,7 +207,7 @@ export async function saveStudentRecord(input: {
 
   const id = recordDocId(input.period, input.student.uid);
   const existing = await getRecord(input.period, input.student.uid);
-  const required = needsTaxInquiry(input.value.identities, input.settings);
+  const required = needsTaxInquiry(input.value.identitySelections, input.settings);
   const previousTax = existing?.taxInquiry;
 
   let taxInquiry: TaxInquiryState;
@@ -187,8 +230,12 @@ export async function saveStudentRecord(input: {
     classCode: input.student.classCode,
     className: input.student.className,
     identities: input.value.identities,
+    identitySelections: input.value.identitySelections,
+    taxSubject: input.value.taxSubject,
     father: input.value.father,
     mother: input.value.mother,
+    self: input.value.self,
+    guardian: input.value.guardian,
     note: input.value.note,
     status: input.confirm ? "confirmed" : "draft",
     confirmedAt: input.confirm ? now : existing?.confirmedAt ?? null,
@@ -335,9 +382,13 @@ export async function buildInquiryRows(input: {
       className: student.className,
       status: record?.status ?? "missing",
       identities: record?.identities ?? [],
+      identitySelections: record?.identitySelections ?? [],
+      taxSubject: record?.taxSubject ?? "both",
       taxInquiry: record?.taxInquiry ?? emptyTaxInquiry(false),
       father: record?.father ?? { name: "", idNumber: "" },
       mother: record?.mother ?? { name: "", idNumber: "" },
+      self: record?.self ?? { name: "", idNumber: "" },
+      guardian: record?.guardian ?? { name: "", idNumber: "" },
       note: record?.note ?? "",
       confirmedAt: record?.confirmedAt ?? null,
       updatedAt: record?.updatedAt ?? 0,
@@ -356,9 +407,13 @@ export async function buildInquiryRows(input: {
       className: record.className,
       status: record.status,
       identities: record.identities,
+      identitySelections: record.identitySelections,
+      taxSubject: record.taxSubject,
       taxInquiry: record.taxInquiry,
       father: record.father,
       mother: record.mother,
+      self: record.self,
+      guardian: record.guardian,
       note: record.note,
       confirmedAt: record.confirmedAt,
       updatedAt: record.updatedAt,
@@ -386,10 +441,13 @@ export function buildInquiryCsv(rows: InquiryRow[], includeIdNumbers: boolean): 
     "註冊身分",
     "確認狀態",
     "財稅查調",
+    "查調對象",
     "父姓名",
     "父身分證",
     "母姓名",
     "母身分證",
+    "監護人姓名",
+    "監護人身分證",
     "備註",
     "確認時間",
   ];
@@ -397,19 +455,35 @@ export function buildInquiryCsv(rows: InquiryRow[], includeIdNumbers: boolean): 
   for (const row of rows) {
     const statusLabel =
       row.status === "missing" ? "未填寫" : row.status === "draft" ? "草稿" : "已確認";
+    const identityText =
+      summarizeSelections(row.identitySelections) || row.identities.join("、");
+    const subjectText = row.self.name
+      ? `本人：${row.self.name}`
+      : row.guardian.name
+        ? `監護人：${row.guardian.name}`
+        : row.taxSubject === "one"
+          ? "父或母一方"
+          : row.taxSubject === "self"
+            ? "本人"
+            : row.taxSubject === "guardian"
+              ? "監護人"
+              : "父母（法定代理人）雙方";
     lines.push(
       [
         row.className || row.classCode,
         row.studentId,
         row.seatNo,
         row.studentName,
-        row.identities.join("、"),
+        identityText,
         statusLabel,
         TAX_INQUIRY_STATUS_LABELS[row.taxInquiry.status],
+        subjectText,
         row.father.name,
         includeIdNumbers ? row.father.idNumber : maskIdNumber(row.father.idNumber),
         row.mother.name,
         includeIdNumbers ? row.mother.idNumber : maskIdNumber(row.mother.idNumber),
+        row.guardian.name,
+        includeIdNumbers ? row.guardian.idNumber : maskIdNumber(row.guardian.idNumber),
         row.note,
         formatDateTime(row.confirmedAt),
       ]
@@ -428,6 +502,8 @@ export function maskRecordForParent(
     ...record,
     father: { ...record.father, idNumber: maskIdNumber(record.father.idNumber) },
     mother: { ...record.mother, idNumber: maskIdNumber(record.mother.idNumber) },
+    self: { ...record.self, idNumber: maskIdNumber(record.self.idNumber) },
+    guardian: { ...record.guardian, idNumber: maskIdNumber(record.guardian.idNumber) },
   };
 }
 

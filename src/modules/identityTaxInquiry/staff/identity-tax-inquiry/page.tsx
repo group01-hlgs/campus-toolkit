@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Toast, { type ToastMessage } from "@/components/Toast";
+import { RichTextContent } from "../../components/rich-text-editor";
+import { stripHtmlToText } from "../../lib/rich-text";
 import {
   CONFIRMATION_STATUS_LABELS,
   IDENTITY_WINDOW_LABELS,
   TAX_INQUIRY_STATUS_LABELS,
   formatDateTime,
+  summarizeSelections,
   type IdentityTaxInquirySettings,
   type IdentityWindowState,
   type InquiryRow,
@@ -171,8 +174,8 @@ export default function IdentityTaxInquiryStaffPage() {
 
           <section className="border-themed bg-card rounded-lg p-4">
             <h2 className="text-t1 mb-3 text-base font-semibold">確認名冊</h2>
-            {settings && settings.instructions.trim() && (
-              <p className="text-t3 mb-3 whitespace-pre-line text-xs">{settings.instructions}</p>
+            {settings && stripHtmlToText(settings.instructions).trim() && (
+              <RichTextContent html={settings.instructions} className="text-t3 mb-3 text-xs" />
             )}
             {rows.length === 0 ? (
               <p className="text-t3 text-sm">目前沒有資料。</p>
@@ -197,7 +200,9 @@ export default function IdentityTaxInquiryStaffPage() {
                         <td className="border border-themed px-2 py-2">{row.seatNo || "—"}</td>
                         <td className="border border-themed text-t1 px-2 py-2">{row.studentName || "—"}</td>
                         <td className="border border-themed px-2 py-2">
-                          {row.identities.length ? row.identities.join("、") : "—"}
+                          {summarizeSelections(row.identitySelections) ||
+                            row.identities.join("、") ||
+                            "—"}
                         </td>
                         <td className="border border-themed px-2 py-2">
                           {row.status === "missing" ? "未填寫" : CONFIRMATION_STATUS_LABELS[row.status]}
@@ -249,7 +254,13 @@ export default function IdentityTaxInquiryStaffPage() {
               更新財稅查調：{target.studentName}
             </h2>
             <p className="text-t3 mt-1 text-xs">
-              父母證號：{target.father.idNumber || target.mother.idNumber ? "已填寫" : "未填寫"}
+              查調證號：
+              {target.father.idNumber ||
+              target.mother.idNumber ||
+              target.self.idNumber ||
+              target.guardian.idNumber
+                ? "已填寫"
+                : "未填寫"}
             </p>
             <label className="mt-3 block text-sm">
               <span className="text-t2 mb-1 block">查調狀態</span>
