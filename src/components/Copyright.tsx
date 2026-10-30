@@ -28,7 +28,7 @@ function CopyrightFull() {
             >
               <img
                 width={45}
-                src="https://drive.google.com/thumbnail?id=1WxyryafzINOif8hx9zBSvsHM6579nLO3"
+                src="/images/copyright-hey.png"
                 title="Hey!"
                 alt="Hey!"
               />
@@ -131,7 +131,7 @@ function CopyrightFull() {
             >
               <img
                 width={45}
-                src="https://drive.google.com/thumbnail?id=1TQG38zYkLm7GSjuIfkqNej-DKCm5QfeD"
+                src="/images/copyright-hello.png"
                 title="Hello!"
                 alt="Hello!"
               />
