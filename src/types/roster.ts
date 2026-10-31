@@ -56,16 +56,32 @@ export type EntryFieldKey =
   | "studentId"
   | "grade"
   | "studentName"
+  | "parentName"
   | "classCode"
   | "className"
   | "seatNo"
   | "rollNo"
   | "studentEmail"
   | "relation"
+  | "appellation"
   | "attribute"
   | "unit"
   | "title"
   | "modules";
+
+/** 家長與學生的關係選項（名冊表單用下拉選單） */
+export const PARENT_RELATION_OPTIONS = ["法定代理人", "監護人", "其他"] as const;
+
+/** 稱謂的常用建議（表單提供 datalist，仍可自行輸入） */
+export const PARENT_APPELLATION_SUGGESTIONS = [
+  "爸爸",
+  "媽媽",
+  "祖父",
+  "祖母",
+  "外公",
+  "外婆",
+  "其他",
+] as const;
 
 /** 表單／匯入／清單共用的欄位鍵（帳號欄位屬使用者帳號層，名冊只存電子郵件與姓名的展示副本） */
 export type RosterFieldKey = AccountFieldKey | EntryFieldKey;
@@ -74,6 +90,7 @@ export type RosterFieldKey = AccountFieldKey | EntryFieldKey;
 export const ROSTER_ENTRY_FIELDS: Record<UserRole, EntryFieldKey[]> = {
   student: ["studentId", "grade", "classCode", "className", "seatNo", "rollNo"],
   parent: [
+    "parentName",
     "studentName",
     "studentEmail",
     "studentId",
@@ -83,6 +100,7 @@ export const ROSTER_ENTRY_FIELDS: Record<UserRole, EntryFieldKey[]> = {
     "seatNo",
     "rollNo",
     "relation",
+    "appellation",
   ],
   staff: ["attribute", "unit", "title", "classCode", "className"],
   // 管理員不再有「屬性／指定功能模組」欄位（管理員恆全權；屬性退役，見政策修改書）
@@ -133,6 +151,8 @@ export interface RosterEntry {
   semester: number;
   /** 學生姓名（家長表專屬：其子女姓名） */
   studentName?: string;
+  /** 家長姓名（家長表專屬：家長本人姓名，可與帳號姓名不同） */
+  parentName?: string;
   studentEmail?: string;
   studentId?: string;
   grade?: string;
@@ -141,6 +161,8 @@ export interface RosterEntry {
   seatNo?: string;
   rollNo?: string;
   relation?: string;
+  /** 稱謂（家長表專屬，例如爸爸、媽媽） */
+  appellation?: string;
   attribute?: string;
   unit?: string;
   title?: string;
@@ -187,6 +209,11 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "account", label: "帳號", aliases: ACCOUNT_ALIASES },
     { key: "name", label: "姓名", required: true, aliases: NAME_ALIASES },
     {
+      key: "parentName",
+      label: "家長姓名",
+      aliases: ["家長姓名", "parentname", "parent name"],
+    },
+    {
       key: "studentName",
       label: "學生姓名",
       aliases: ["學生姓名", "studentname", "student name"],
@@ -203,6 +230,7 @@ export const ROSTER_FIELDS: Record<RosterRole, RosterFieldDef[]> = {
     { key: "seatNo", label: "座號", aliases: ["座號", "seatno"] },
     { key: "rollNo", label: "班號", aliases: ["班號", "rollno", "number"] },
     { key: "relation", label: "關係", aliases: ["關係", "relation", "親屬關係"] },
+    { key: "appellation", label: "稱謂", aliases: ["稱謂", "appellation", "稱呼"] },
   ],
   staff: [
     { key: "email", label: "電子郵件地址", aliases: EMAIL_ALIASES },
@@ -242,6 +270,8 @@ export const ROLE_INFO_FIELDS: Record<UserRole, RoleInfoField[]> = {
   student: infoFields("student", ["studentId", "grade", "className", "rollNo"]),
   // 家長：不顯示班級代碼、座號；顯示學生姓名
   parent: infoFields("parent", [
+    "parentName",
+    "appellation",
     "studentName",
     "studentEmail",
     "studentId",
@@ -280,6 +310,8 @@ export const ROSTER_COLUMNS: Record<RosterRole, { key: RosterColumnKey; label: s
     { key: "rollNo", label: "班號" },
   ],
   parent: [
+    { key: "parentName", label: "家長姓名" },
+    { key: "appellation", label: "稱謂" },
     { key: "studentName", label: "學生姓名" },
     { key: "studentEmail", label: "學生電子郵件地址" },
     { key: "studentId", label: "學號" },

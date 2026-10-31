@@ -22,6 +22,8 @@ import {
   RosterInput,
   RosterMember,
   RosterRole,
+  PARENT_APPELLATION_SUGGESTIONS,
+  PARENT_RELATION_OPTIONS,
   isImportableRole,
   isRosterRole,
   rosterBatchFieldHints,
@@ -944,6 +946,55 @@ export default function RosterPage() {
   /** 單一表單欄位：屬性為特殊控制項，其餘為文字／電子郵件輸入 */
   function renderField(field: RosterFieldDef) {
     if (field.key === "attribute") return renderAttributeSelect(field);
+    if (field.key === "relation") {
+      const current = form.relation ?? "";
+      // 舊資料可能是「父／母」等自由文字：保留為額外選項，避免編輯時被清空
+      const options = current && !(PARENT_RELATION_OPTIONS as readonly string[]).includes(current)
+        ? [...PARENT_RELATION_OPTIONS, current]
+        : [...PARENT_RELATION_OPTIONS];
+      return (
+        <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
+            {field.label}
+          </label>
+          <select
+            value={current}
+            onChange={(e) => handleField(field.key, e.target.value)}
+            className="flex-1 input-theme rounded px-3 py-2"
+          >
+            <option value="">請選擇</option>
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    }
+    if (field.key === "appellation") {
+      return (
+        <div key={field.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <label className="text-t2 sm:w-40 shrink-0 flex items-center gap-1">
+            {field.label}
+          </label>
+          <input
+            type="text"
+            list="roster-appellation-options"
+            value={form[field.key] ?? ""}
+            onChange={(e) => handleField(field.key, e.target.value)}
+            autoComplete="off"
+            placeholder="例如：爸爸、媽媽"
+            className="flex-1 input-theme rounded px-3 py-2"
+          />
+          <datalist id="roster-appellation-options">
+            {PARENT_APPELLATION_SUGGESTIONS.map((item) => (
+              <option key={item} value={item} />
+            ))}
+          </datalist>
+        </div>
+      );
+    }
     // 編輯時帳號欄位唯讀：姓名／信箱／帳號屬帳號層
     const readOnly = Boolean(editingUid) && isAccountField(field.key);
     return (
