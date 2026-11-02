@@ -13,8 +13,8 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.118",
-    "releasedAt": "2026-10-29"
+    "version": "0.0.119",
+    "releasedAt": "2026-10-31"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "managerPermissions": [
@@ -63,6 +63,14 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.119",
+      "releasedAt": "2026-10-31",
+      "notes": [
+        "家長端自主學習頁面改與學生端相同版型：加入系統名稱／學校／學期抬頭、頁首頁尾的返回功能首頁與登出按鈕、實施說明卡片、廣告與版權區",
+        "計畫內容改用一致的卡片樣式，「查看計畫與撰寫成果」改為收合區並以週次／學習安排／場地表格呈現，審查意見與維護、未開放檢視等空狀態同步套用相同樣式"
+      ]
+    },
     {
       "version": "0.0.118",
       "releasedAt": "2026-10-29",
