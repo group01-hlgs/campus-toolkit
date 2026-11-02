@@ -209,6 +209,23 @@ function isAccountField(key: RosterFieldKey): boolean {
   return (ACCOUNT_FIELD_KEYS as readonly string[]).includes(key);
 }
 
+/** 單筆新增／編輯表單的輸入提示（依欄位鍵；四種身分共用的名冊欄位） */
+const FIELD_PLACEHOLDERS: Partial<Record<RosterFieldKey, string>> = {
+  studentId: "例如：11200123",
+  grade: "例如：1（一年級）",
+  classCode: "例如：301",
+  className: "例如：三年一班",
+  seatNo: "例如：15",
+  rollNo: "例如：15",
+  parentName: "例如：王大明（家長本人）",
+  studentName: "例如：王小明",
+  studentEmail: "例如：student@school.edu",
+  relation: "請選擇關係",
+  appellation: "例如：爸爸、媽媽",
+  unit: "例如：教務處",
+  title: "例如：導師、組長",
+};
+
 /** 狀態標籤配色：有效＝綠、停用＝黃 */
 const STATUS_STYLE: Record<AccountStatus, string> = {
   有效: "text-success",
@@ -962,7 +979,7 @@ export default function RosterPage() {
             onChange={(e) => handleField(field.key, e.target.value)}
             className="flex-1 input-theme rounded px-3 py-2"
           >
-            <option value="">請選擇</option>
+            <option value="">請選擇關係</option>
             {options.map((option) => (
               <option key={option} value={option}>
                 {option}
@@ -984,7 +1001,7 @@ export default function RosterPage() {
             value={form[field.key] ?? ""}
             onChange={(e) => handleField(field.key, e.target.value)}
             autoComplete="off"
-            placeholder="例如：爸爸、媽媽"
+            placeholder={FIELD_PLACEHOLDERS.appellation}
             className="flex-1 input-theme rounded px-3 py-2"
           />
           <datalist id="roster-appellation-options">
@@ -1009,6 +1026,7 @@ export default function RosterPage() {
           onChange={(e) => handleField(field.key, e.target.value)}
           readOnly={readOnly}
           autoComplete="off"
+          placeholder={FIELD_PLACEHOLDERS[field.key]}
           className={`flex-1 input-theme rounded px-3 py-2 ${readOnly ? "opacity-75" : ""}`}
         />
       </div>
