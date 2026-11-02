@@ -725,19 +725,6 @@ export default function SelfDirectedLearningSettingsPage({
               </li>
             </ol>
           </details>
-          <details className="border-themed bg-surface rounded-md border" open>
-            <summary className="text-t1 flex cursor-pointer items-center gap-2 p-3 font-medium">
-              <DisclosureArrow />
-              上線驗收與資料注意事項
-            </summary>
-            <ol className="list-decimal space-y-2 pb-3 pl-9 pr-3">
-              <li>先確認本模組已啟用，再以學生帳號驗證兩平台，包含取消授權、成功開啟副本及四種文件風格；不要只用管理員帳號測試。</li>
-              <li>每次匯出須同意傳送姓名、班級、計畫、成果與心得，包含畫面中尚未儲存的內容；請先確認學校的個資與外部服務政策。</li>
-              <li>外部文件是當下副本，不自動公開分享、不回寫校內，也不改變審核狀態；外部分享仍受各平台與學校政策約束。</li>
-              <li>網路中斷、逾時或未知結果時，先查看學生自己的 Drive／Canva 專案再重試，以免重複建立。Canva 授權等待最多 3 分鐘、匯入輪詢最多 2 分鐘，同一瀏覽器不要同時匯出多份。</li>
-              <li>Google token 僅供本次記憶體操作；Canva 授權資料暫存於短效加密 HttpOnly cookie，最多 10 分鐘，不保存 refresh token。不得將任何憑證寫進公開說明或診斷紀錄。</li>
-            </ol>
-          </details>
         </div>
       </details>
 

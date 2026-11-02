@@ -13,7 +13,7 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.128",
+    "version": "0.0.129",
     "releasedAt": "2026-11-02"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
@@ -67,6 +67,13 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.129",
+      "releasedAt": "2026-11-02",
+      "notes": [
+        "移除管理規則頁的「上線驗收與資料注意事項」說明區塊，保留 Google Docs／Canva 設定說明、服務開關與學生端資料傳送同意流程。"
+      ]
+    },
     {
       "version": "0.0.128",
       "releasedAt": "2026-11-02",

@@ -131,6 +131,7 @@ test("admin and delegated management render three distinct initially closed serv
   for (const delegated of [false, true]) {
     const markup = renderToStaticMarkup(react.createElement(adminPage, { delegated }));
     assert.match(markup, /文件下載／匯出服務/);
+    assert.doesNotMatch(markup, /上線驗收與資料注意事項/);
     for (const label of Object.values(types.DOCUMENT_EXPORT_LABELS)) {
       const input = markup.match(new RegExp(`<input[^>]*aria-label="提供 ${label} 匯出"[^>]*>`))?.[0];
       assert.ok(input, `${label} has its own switch`);
