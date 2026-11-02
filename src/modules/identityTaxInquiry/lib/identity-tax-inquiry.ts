@@ -8,10 +8,12 @@ import { rosterCollection } from "@/types/roster";
 import {
   DEFAULT_IDENTITY_TAX_INQUIRY_SETTINGS,
   NOTE_MAX,
+  PERSONAL_DATA_CONSENT_VERSION,
   RECORDS_COLLECTION,
   SETTINGS_COLLECTION,
   SETTINGS_DOC_ID,
   TAX_INQUIRY_STATUS_LABELS,
+  TAX_SUBJECT_LABELS,
   buildStats,
   formatDateTime,
   maskIdNumber,
@@ -103,10 +105,9 @@ function readTaxInquiry(raw: unknown, required: boolean): TaxInquiryState {
   };
 }
 
-function readParent(raw: unknown): { name: string; idNumber: string } {
+function readParent(raw: unknown): { idNumber: string } {
   const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   return {
-    name: typeof data.name === "string" ? data.name.slice(0, 40) : "",
     idNumber: typeof data.idNumber === "string" ? data.idNumber.slice(0, 10).toUpperCase() : "",
   };
 }
@@ -152,6 +153,14 @@ function readRecord(id: string, raw: Record<string, unknown>): IdentityTaxInquir
           ? "guardian"
           : "both";
   const status = raw.status === "confirmed" ? "confirmed" : "draft";
+  const consent = raw.personalDataConsent;
+  const personalDataConsent =
+    consent && typeof consent === "object" &&
+    "version" in consent && typeof consent.version === "string" &&
+    "agreedAt" in consent && typeof consent.agreedAt === "number" &&
+    Number.isFinite(consent.agreedAt) && consent.agreedAt > 0
+      ? { version: consent.version, agreedAt: consent.agreedAt }
+      : null;
   return {
     id,
     period: str(raw.period),
@@ -170,6 +179,7 @@ function readRecord(id: string, raw: Record<string, unknown>): IdentityTaxInquir
     note: typeof raw.note === "string" ? raw.note.slice(0, NOTE_MAX) : "",
     status,
     confirmedAt: typeof raw.confirmedAt === "number" && raw.confirmedAt > 0 ? raw.confirmedAt : null,
+    personalDataConsent,
     taxInquiry: readTaxInquiry(raw.taxInquiry, false),
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
   };
@@ -198,6 +208,9 @@ export async function saveStudentRecord(input: {
   now?: number;
 }): Promise<SaveRecordResult> {
   const now = input.now ?? Date.now();
+  if (input.confirm && input.value.personalDataConsentVersion !== PERSONAL_DATA_CONSENT_VERSION) {
+    return { ok: false, status: 400, message: "請閱讀並同意本次個人資料授權後再送出確認" };
+  }
   const { openAt, closeAt } = input.settings;
   if (openAt === null) return { ok: false, status: 409, message: "學校尚未設定確認期間" };
   if (now < openAt) return { ok: false, status: 409, message: "尚未到確認期間" };
@@ -239,11 +252,15 @@ export async function saveStudentRecord(input: {
     note: input.value.note,
     status: input.confirm ? "confirmed" : "draft",
     confirmedAt: input.confirm ? now : existing?.confirmedAt ?? null,
+    personalDataConsent: input.confirm
+      ? { version: PERSONAL_DATA_CONSENT_VERSION, agreedAt: now }
+      : null,
     taxInquiry,
     updatedAt: now,
   };
 
-  await recordsRef().doc(id).set(record, { merge: true });
+  // 替換完整紀錄，避免 merge 保留舊版查調對象的 name 欄位。
+  await recordsRef().doc(id).set(record);
   invalidateReadCache(CACHE_PREFIX);
   return { ok: true, record };
 }
@@ -385,10 +402,10 @@ export async function buildInquiryRows(input: {
       identitySelections: record?.identitySelections ?? [],
       taxSubject: record?.taxSubject ?? "both",
       taxInquiry: record?.taxInquiry ?? emptyTaxInquiry(false),
-      father: record?.father ?? { name: "", idNumber: "" },
-      mother: record?.mother ?? { name: "", idNumber: "" },
-      self: record?.self ?? { name: "", idNumber: "" },
-      guardian: record?.guardian ?? { name: "", idNumber: "" },
+      father: record?.father ?? { idNumber: "" },
+      mother: record?.mother ?? { idNumber: "" },
+      self: record?.self ?? { idNumber: "" },
+      guardian: record?.guardian ?? { idNumber: "" },
       note: record?.note ?? "",
       confirmedAt: record?.confirmedAt ?? null,
       updatedAt: record?.updatedAt ?? 0,
@@ -442,11 +459,9 @@ export function buildInquiryCsv(rows: InquiryRow[], includeIdNumbers: boolean): 
     "確認狀態",
     "財稅查調",
     "查調對象",
-    "父姓名",
     "父身分證",
-    "母姓名",
     "母身分證",
-    "監護人姓名",
+    "本人身分證",
     "監護人身分證",
     "備註",
     "確認時間",
@@ -457,17 +472,6 @@ export function buildInquiryCsv(rows: InquiryRow[], includeIdNumbers: boolean): 
       row.status === "missing" ? "未填寫" : row.status === "draft" ? "草稿" : "已確認";
     const identityText =
       summarizeSelections(row.identitySelections) || row.identities.join("、");
-    const subjectText = row.self.name
-      ? `本人：${row.self.name}`
-      : row.guardian.name
-        ? `監護人：${row.guardian.name}`
-        : row.taxSubject === "one"
-          ? "父或母一方"
-          : row.taxSubject === "self"
-            ? "本人"
-            : row.taxSubject === "guardian"
-              ? "監護人"
-              : "父母（法定代理人）雙方";
     lines.push(
       [
         row.className || row.classCode,
@@ -477,12 +481,10 @@ export function buildInquiryCsv(rows: InquiryRow[], includeIdNumbers: boolean): 
         identityText,
         statusLabel,
         TAX_INQUIRY_STATUS_LABELS[row.taxInquiry.status],
-        subjectText,
-        row.father.name,
+        TAX_SUBJECT_LABELS[row.taxSubject],
         includeIdNumbers ? row.father.idNumber : maskIdNumber(row.father.idNumber),
-        row.mother.name,
         includeIdNumbers ? row.mother.idNumber : maskIdNumber(row.mother.idNumber),
-        row.guardian.name,
+        includeIdNumbers ? row.self.idNumber : maskIdNumber(row.self.idNumber),
         includeIdNumbers ? row.guardian.idNumber : maskIdNumber(row.guardian.idNumber),
         row.note,
         formatDateTime(row.confirmedAt),

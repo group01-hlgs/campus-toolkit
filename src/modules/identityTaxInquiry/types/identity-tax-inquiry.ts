@@ -4,6 +4,7 @@ export const IDENTITY_TAX_INQUIRY_VALUE = "identityTaxInquiry";
 export const SETTINGS_COLLECTION = "identityTaxInquirySettings";
 export const RECORDS_COLLECTION = "identityTaxInquiryRecords";
 export const SETTINGS_DOC_ID = "default";
+export const PERSONAL_DATA_CONSENT_VERSION = "2026-11-02";
 
 /** 進階選項型態：下拉單選／勾選（可多選）／文字 */
 export type IdentityFieldType = "select" | "checkbox" | "text";
@@ -79,7 +80,6 @@ export const IDENTITY_OPTION_MAX = 40;
 export const IDENTITY_FIELD_LABEL_MAX = 40;
 export const IDENTITY_FIELD_OPTION_MAX = 30;
 export const IDENTITY_FIELD_VALUE_MAX = 100;
-export const PARENT_NAME_MAX = 40;
 export const NOTE_MAX = 500;
 
 /** 預設「身心障礙」程度選項 */
@@ -227,7 +227,7 @@ export const DEFAULT_IDENTITY_OPTIONS: IdentityOptionDef[] = [
   },
 ];
 
-/** 財稅查調對象：父母雙方／父母離異（有撫養權一方）／本人（已婚） */
+/** 財稅查調對象：父母雙方／父母一方／本人（已婚）／監護人 */
 export type TaxSubject = "both" | "one" | "self" | "guardian";
 
 export const TAX_SUBJECT_LABELS: Record<TaxSubject, string> = {
@@ -279,8 +279,12 @@ export interface IdentityTaxInquirySettings {
 }
 
 export interface ParentIdInfo {
-  name: string;
   idNumber: string;
+}
+
+export interface PersonalDataConsent {
+  version: string;
+  agreedAt: number;
 }
 
 export interface TaxInquiryState {
@@ -316,6 +320,7 @@ export interface IdentityTaxInquiryRecord {
   note: string;
   status: ConfirmationStatus;
   confirmedAt: number | null;
+  personalDataConsent: PersonalDataConsent | null;
   taxInquiry: TaxInquiryState;
   updatedAt: number;
 }
@@ -640,6 +645,7 @@ export interface RecordInput {
   self: ParentIdInfo;
   guardian: ParentIdInfo;
   note: string;
+  personalDataConsentVersion: string | null;
 }
 
 export type ParseRecordResult =
@@ -649,13 +655,12 @@ export type ParseRecordResult =
 function readParentInfo(value: unknown): ParentIdInfo {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
-    name: cleanString(record.name, PARENT_NAME_MAX),
     idNumber: cleanString(record.idNumber, 10).toUpperCase(),
   };
 }
 
 function isCompleteParent(parent: ParentIdInfo): boolean {
-  return parent.name !== "" && isValidIdNumber(parent.idNumber);
+  return isValidIdNumber(parent.idNumber);
 }
 
 /** 解析單一身分別的進階選項；confirm 時檢查必填與選項合法性 */
@@ -706,8 +711,8 @@ function parseSelectionFields(
 
 /**
  * 解析學生送出的確認內容。
- * - `mode: "confirm"`：至少一個身分別、互斥群組僅能擇一、必填進階選項須填寫；
- *   需要查調時依查調對象檢查證號（雙方／一方／本人）。
+ * - `mode: "confirm"`：須同意目前版本的個資授權、至少一個身分別、互斥群組僅能擇一、
+ *   必填進階選項須填寫；需要查調時依查調對象檢查證號。
  * - `mode: "draft"`：允許不完整，但已填的內容仍須合法。
  */
 export function parseRecordInput(
@@ -719,6 +724,13 @@ export function parseRecordInput(
     return { ok: false, message: "缺少確認內容" };
   }
   const data = raw as Record<string, unknown>;
+  if (
+    mode === "confirm" &&
+    (data.personalDataConsent !== true ||
+      data.personalDataConsentVersion !== PERSONAL_DATA_CONSENT_VERSION)
+  ) {
+    return { ok: false, message: "請閱讀並同意本次個人資料授權後再送出確認" };
+  }
   const rawSelections = Array.isArray(data.identitySelections) ? data.identitySelections : [];
 
   const selections: IdentitySelection[] = [];
@@ -784,20 +796,20 @@ export function parseRecordInput(
       if (taxSubject === "both" && !(isCompleteParent(father) && isCompleteParent(mother))) {
         return {
           ok: false,
-          message: "此身分別需要財稅查調，請填寫父、母雙方的姓名與身分證字號",
+          message: "此身分別需要財稅查調，請填寫父、母雙方的身分證字號",
         };
       }
       if (taxSubject === "one" && !(isCompleteParent(father) || isCompleteParent(mother))) {
         return {
           ok: false,
-          message: "父母離異或一方亡故時，請填寫具有撫養權或存續一方的姓名與身分證字號",
+          message: "父母離異或一方亡故時，請填寫具有撫養權或存續一方的身分證字號",
         };
       }
       if (taxSubject === "self" && !isCompleteParent(self)) {
-        return { ok: false, message: "已結婚者請填寫本人的姓名與身分證字號" };
+        return { ok: false, message: "已結婚者請填寫本人的身分證字號" };
       }
       if (taxSubject === "guardian" && !isCompleteParent(guardian)) {
-        return { ok: false, message: "請填寫監護人的姓名與身分證字號" };
+        return { ok: false, message: "請填寫監護人的身分證字號" };
       }
     }
   }
@@ -813,6 +825,7 @@ export function parseRecordInput(
       self,
       guardian,
       note,
+      personalDataConsentVersion: mode === "confirm" ? PERSONAL_DATA_CONSENT_VERSION : null,
     },
   };
 }

@@ -164,14 +164,14 @@ export default function IdentityTaxInquiryParentPage() {
                 <div>
                   <dt className="text-t3 text-xs">本人</dt>
                   <dd className="text-t1">
-                    {record.self.name || "—"}　{record.self.idNumber || ""}
+                    {record.self.idNumber || "—"}
                   </dd>
                 </div>
               ) : record.taxSubject === "guardian" ? (
                 <div>
                   <dt className="text-t3 text-xs">監護人</dt>
                   <dd className="text-t1">
-                    {record.guardian.name || "—"}　{record.guardian.idNumber || ""}
+                    {record.guardian.idNumber || "—"}
                   </dd>
                 </div>
               ) : (
@@ -179,13 +179,13 @@ export default function IdentityTaxInquiryParentPage() {
                   <div>
                     <dt className="text-t3 text-xs">父</dt>
                     <dd className="text-t1">
-                      {record.father.name || "—"}　{record.father.idNumber || ""}
+                      {record.father.idNumber || "—"}
                     </dd>
                   </div>
                   <div>
                     <dt className="text-t3 text-xs">母</dt>
                     <dd className="text-t1">
-                      {record.mother.name || "—"}　{record.mother.idNumber || ""}
+                      {record.mother.idNumber || "—"}
                     </dd>
                   </div>
                 </>

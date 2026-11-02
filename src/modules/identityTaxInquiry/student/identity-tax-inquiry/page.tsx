@@ -6,6 +6,7 @@ import AdSense from "@/components/AdSense";
 import Copyright from "@/components/Copyright";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import { RichTextContent } from "../../components/rich-text-editor";
+import PersonalDataConsentDialog from "../../components/personal-data-consent-dialog";
 import { stripHtmlToText } from "../../lib/rich-text";
 import { fetchSettings } from "@/lib/settings-client";
 import { logout } from "@/lib/session";
@@ -15,6 +16,7 @@ import {
   IDENTITY_WINDOW_LABELS,
   MAINTENANCE_HINT,
   MAINTENANCE_TITLE,
+  PERSONAL_DATA_CONSENT_VERSION,
   TAX_INQUIRY_STATUS_LABELS,
   TAX_SUBJECT_LABELS,
   enabledIdentityOptions,
@@ -46,13 +48,14 @@ export default function IdentityTaxInquiryStudentPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<"draft" | "confirm" | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [showConsent, setShowConsent] = useState(false);
 
   const [selections, setSelections] = useState<IdentitySelection[]>([]);
   const [taxSubject, setTaxSubject] = useState<TaxSubject>("both");
-  const [father, setFather] = useState({ name: "", idNumber: "" });
-  const [mother, setMother] = useState({ name: "", idNumber: "" });
-  const [self, setSelf] = useState({ name: "", idNumber: "" });
-  const [guardian, setGuardian] = useState({ name: "", idNumber: "" });
+  const [father, setFather] = useState({ idNumber: "" });
+  const [mother, setMother] = useState({ idNumber: "" });
+  const [self, setSelf] = useState({ idNumber: "" });
+  const [guardian, setGuardian] = useState({ idNumber: "" });
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -89,10 +92,10 @@ export default function IdentityTaxInquiryStudentPage() {
       setRecord(current);
       setSelections(current?.identitySelections ?? []);
       setTaxSubject(current?.taxSubject ?? "both");
-      setFather(current?.father ?? { name: "", idNumber: "" });
-      setMother(current?.mother ?? { name: "", idNumber: "" });
-      setSelf(current?.self ?? { name: "", idNumber: "" });
-      setGuardian(current?.guardian ?? { name: "", idNumber: "" });
+      setFather({ idNumber: current?.father.idNumber ?? "" });
+      setMother({ idNumber: current?.mother.idNumber ?? "" });
+      setSelf({ idNumber: current?.self.idNumber ?? "" });
+      setGuardian({ idNumber: current?.guardian.idNumber ?? "" });
       setNote(current?.note ?? "");
     } catch {
       setToast({ kind: "error", text: "讀取資料失敗" });
@@ -105,7 +108,7 @@ export default function IdentityTaxInquiryStudentPage() {
     void load();
   }, [load]);
 
-  const submit = async (action: "draft" | "confirm") => {
+  const submit = async (action: "draft" | "confirm", consentGiven = false) => {
     if (saving) return;
     if (action === "confirm") {
       if (selections.length === 0) {
@@ -119,24 +122,27 @@ export default function IdentityTaxInquiryStudentPage() {
         }
       }
       if (settings && needsTaxInquiry(selections, settings)) {
-        const complete = (info: { name: string; idNumber: string }) =>
-          info.name.trim() !== "" && isValidIdNumber(info.idNumber);
+        const complete = (info: { idNumber: string }) => isValidIdNumber(info.idNumber);
         if (taxSubject === "both" && !(complete(father) && complete(mother))) {
-          setToast({ kind: "error", text: "請填寫父、母雙方的姓名與身分證字號" });
+          setToast({ kind: "error", text: "請填寫父、母雙方的身分證字號" });
           return;
         }
         if (taxSubject === "one" && !(complete(father) || complete(mother))) {
-          setToast({ kind: "error", text: "請填寫具有撫養權一方的姓名與身分證字號" });
+          setToast({ kind: "error", text: "請填寫具有撫養權一方的身分證字號" });
           return;
         }
         if (taxSubject === "self" && !complete(self)) {
-          setToast({ kind: "error", text: "請填寫本人的姓名與身分證字號" });
+          setToast({ kind: "error", text: "請填寫本人的身分證字號" });
           return;
         }
         if (taxSubject === "guardian" && !complete(guardian)) {
-          setToast({ kind: "error", text: "請填寫監護人的姓名與身分證字號" });
+          setToast({ kind: "error", text: "請填寫監護人的身分證字號" });
           return;
         }
+      }
+      if (!consentGiven) {
+        setShowConsent(true);
+        return;
       }
     }
     setSaving(action);
@@ -153,6 +159,8 @@ export default function IdentityTaxInquiryStudentPage() {
           self,
           guardian,
           note,
+          personalDataConsent: action === "confirm" && consentGiven,
+          personalDataConsentVersion: action === "confirm" ? PERSONAL_DATA_CONSENT_VERSION : null,
         }),
       });
       const data = await response.json();
@@ -461,7 +469,7 @@ export default function IdentityTaxInquiryStudentPage() {
         <section className="border-themed bg-card rounded-lg p-4">
           <h3 className="text-t1 mb-1 font-medium">財稅查調資料</h3>
           <p className="text-t3 mb-3 text-xs">
-            你勾選的身分別需要財稅查調，請依下方查調對象填寫姓名與身分證字號。
+            你勾選的身分別需要財稅查調，請依下方查調對象填寫身分證字號，不需填寫姓名。
           </p>
           {taxRequired && (
           <fieldset className="mb-3">
@@ -496,14 +504,7 @@ export default function IdentityTaxInquiryStudentPage() {
               <p className="text-t2 text-sm font-medium">{label}</p>
               <input
                 className="input-theme w-full rounded px-3 py-2 text-sm"
-                placeholder={`${label}姓名`}
-                maxLength={40}
-                disabled={!canEdit}
-                value={value.name}
-                onChange={(event) => setter({ ...value, name: event.target.value })}
-              />
-              <input
-                className="input-theme w-full rounded px-3 py-2 text-sm"
+                aria-label={`${label}身分證字號`}
                 placeholder={`${label}身分證字號（例：A123456789）`}
                 maxLength={10}
                 disabled={!canEdit}
@@ -562,6 +563,16 @@ export default function IdentityTaxInquiryStudentPage() {
           </p>
         )}
       </div>
+      {showConsent && (
+        <PersonalDataConsentDialog
+          schoolName={systemSettings.schoolFullName}
+          onCancel={() => setShowConsent(false)}
+          onConfirm={() => {
+            setShowConsent(false);
+            void submit("confirm", true);
+          }}
+        />
+      )}
     </>
   );
 }

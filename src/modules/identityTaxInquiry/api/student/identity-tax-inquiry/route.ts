@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST：`{ action: "save" | "confirm", identities, father, mother, note }` */
+/** POST：儲存草稿；送出確認時須附本次個人資料授權與告知版本。 */
 export async function POST(request: NextRequest) {
   try {
     const limited = enforceRateLimit(

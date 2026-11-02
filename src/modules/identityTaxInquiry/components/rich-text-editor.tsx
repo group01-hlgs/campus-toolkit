@@ -251,6 +251,7 @@ export function RichTextEditor({
   const [customHighlightColor, setCustomHighlightColor] = useState("#fef08a");
   const [fontFamily, setFontFamily] = useState("sans-serif");
   const [fontSize, setFontSize] = useState("3");
+  const [focused, setFocused] = useState(false);
 
   const plainText = useMemo(() => stripHtmlToText(value).trim(), [value]);
   const empty = plainText.length === 0;
@@ -383,14 +384,25 @@ export function RichTextEditor({
           }}
           onInput={handleInput}
           onPaste={handlePaste}
+          onFocus={() => setFocused(true)}
           onKeyUp={saveSelection}
           onMouseUp={saveSelection}
-          onBlur={saveSelection}
+          onBlur={() => {
+            saveSelection();
+            setFocused(false);
+          }}
         />
-        {empty && (
+        {empty && !focused && (
           <span
+            aria-hidden="true"
             className="text-t3 pointer-events-none select-none text-sm"
-            style={{ position: "absolute", top: "0.5rem", left: "0.75rem" }}
+            style={{
+              position: "absolute",
+              top: "0.5rem",
+              left: "0.75rem",
+              pointerEvents: "none",
+              userSelect: "none",
+            }}
           >
             {placeholder}
           </span>
