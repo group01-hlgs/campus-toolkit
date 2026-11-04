@@ -13,8 +13,8 @@
   "author": {
     "author": "takan003",
     "authorUrl": "https://github.com/takan003",
-    "version": "0.0.129",
-    "releasedAt": "2026-11-02"
+    "version": "0.0.130",
+    "releasedAt": "2026-11-03"
   },
   "provides": { "student": true, "parent": true, "staff": true, "admin": true },
   "managerPermissions": [
@@ -67,6 +67,13 @@
   ],
   "hooks": ["announcements", "calendar"],
   "changelog": [
+    {
+      "version": "0.0.130",
+      "releasedAt": "2026-11-03",
+      "notes": [
+        "將學生端文件匯出確認視窗調整為 80vw，移除原本的寬度上限。"
+      ]
+    },
     {
       "version": "0.0.129",
       "releasedAt": "2026-11-02",

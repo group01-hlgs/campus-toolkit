@@ -167,8 +167,8 @@ export default function DocumentExportControls({
             event.preventDefault();
             close();
           }}
-          className="border-themed bg-card text-t1 max-w-xl overflow-y-auto rounded-lg border p-4 shadow-lg"
-          style={{ margin: "auto", width: "calc(100% - 2rem)", maxHeight: "85dvh" }}
+          className="border-themed bg-card text-t1 overflow-y-auto rounded-lg border p-4 shadow-lg"
+          style={{ margin: "auto", width: "80vw", maxHeight: "85dvh" }}
         >
           <h2 className="text-lg font-semibold">匯出至 {platformName}</h2>
           <p className="text-t2 mt-2 break-words text-sm">{payload.topic || "未命名計畫"}</p>
