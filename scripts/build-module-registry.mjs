@@ -50,6 +50,8 @@ const CATEGORIES = ["帳號與權限", "校務資料", "系統與紀錄"];
 const STATUSES = ["planned", "building", "live"];
 const KNOWN_HOOKS = ["announcements", "calendar"];
 const PAGE_PREFIXES = ["/admin", "/student", "/parent", "/staff"];
+/** 宿主保留集合：模組不得宣告（P0-2） */
+const HOST_RESERVED_COLLECTIONS = new Set(["users", "settings", "activityLog", "revokedJTIs"]);
 /** manifest status → 權限單位 status（types/modules.ts 的 ModuleStatus） */
 const PERMISSION_STATUS = { live: "built", building: "apiOnly", planned: "planned" };
 /** 內建代碼中不在 MODULES 權限表者（撞名即報錯） */
@@ -158,6 +160,24 @@ function isString(value) {
 function isNonEmptyString(value) {
   return isString(value) && value.trim() !== "";
 }
+/** 路由路徑安全檢查：禁止 .／..、反斜線、編碼、查詢字串、空片段（防 path traversal）【E13】 */
+const DYNAMIC_SEGMENT_RE = /^\[\[?\.\.\.[A-Za-z0-9_]+\]\]?$|^\[[A-Za-z0-9_]+\]$/;
+function isSafeRoutePath(value) {
+  if (!isString(value) || !value.startsWith("/") || value.length > 300) return false;
+  if (/[\\?#%]/.test(value)) return false;
+  for (const char of value) {
+    if (char.charCodeAt(0) < 0x20) return false;
+  }
+  if (value.includes("//")) return false;
+  const segments = value.slice(1).split("/");
+  for (const segment of segments) {
+    if (segment === "" || segment === "." || segment === "..") return false;
+    if ((segment.includes("[") || segment.includes("]")) && !DYNAMIC_SEGMENT_RE.test(segment)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** 單一 manifest 的結構驗證（對應文件 §3.2 規則 1–4 與 §3.3 擴充 5–9） */
 function validateManifest(relDir, dirName, m, reserved, ctx) {
@@ -257,6 +277,12 @@ function validateManifest(relDir, dirName, m, reserved, ctx) {
       }
       if (p.length > 1 && p.endsWith("/")) {
         at(`routes[${i}].path「${p}」不可有結尾斜線`);
+        return;
+      }
+      if (!isSafeRoutePath(p)) {
+        at(
+          `routes[${i}].path「${p}」含不安全路徑片段（禁止 .、..、反斜線、編碼、查詢字串與空片段）【E13】`
+        );
         return;
       }
       if (kind === "page") {
@@ -376,6 +402,8 @@ function validateManifest(relDir, dirName, m, reserved, ctx) {
       m.dataCollections.forEach((name, i) => {
         if (!isNonEmptyString(name) || !/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
           at(`dataCollections[${i}] 格式不符（英數字起頭）`);
+        } else if (HOST_RESERVED_COLLECTIONS.has(name)) {
+          at(`dataCollections 不可宣告宿主保留集合「${name}」【P0-2】`);
         } else if (seen.has(name)) {
           at(`dataCollections 重複：${name}`);
         } else {
@@ -619,7 +647,7 @@ function renderActionsFile(manifests) {
 
 const ADAPTER_HEADER = [
   `// ⚠️ ${ADAPTER_MARKER}：由 scripts/build-module-registry.mjs 依 manifest routes 自動產生，請勿手改。`,
-  "// 模組實體（src/modules/<value>/<路徑>/…）才是本體；本檔只是 re-export 掛載點。",
+  "// 模組實體（src/modules/<value>/<路徑>/…）才是本體；本檔是掛載點（API 會包上 runtime wrapper）。",
   "",
 ].join("\n");
 const PAGE_ENTITIES = ["page.tsx", "page.ts", "page.jsx", "page.js"];
@@ -636,6 +664,55 @@ function writeAdapter(file, body) {
   if (fs.existsSync(file) && fs.readFileSync(file, "utf-8") === content) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content, "utf-8");
+}
+
+const ROUTE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const ROUTE_CONFIG_EXPORTS = [
+  "dynamic",
+  "revalidate",
+  "runtime",
+  "fetchCache",
+  "preferredRegion",
+  "maxDuration",
+];
+
+function exportsName(source, name) {
+  return (
+    new RegExp(`\\bexport\\s+(?:async\\s+)?function\\s+${name}\\b`).test(source) ||
+    new RegExp(`\\bexport\\s+(?:const|let|var)\\s+${name}\\b`).test(source) ||
+    new RegExp(`\\bexport\\s*\\{[^}]*\\b${name}\\b[^}]*\\}`).test(source)
+  );
+}
+
+/**
+ * API 轉接檔（P0-8）：把模組 handler 包上宿主 runtime wrapper。
+ * 只包裹實際存在的 HTTP method；Next route config 以 re-export 保留。
+ * 找不到 method（罕見寫法）時退回 `export *`，避免掛不起來。
+ */
+function renderApiAdapter(moduleValue, targetRel, sourcePath) {
+  const source = fs.readFileSync(sourcePath, "utf-8");
+  const methods = ROUTE_METHODS.filter((name) => exportsName(source, name));
+  if (methods.length === 0) {
+    return `export * from "@/modules/${moduleValue}/${targetRel}/route";\n`;
+  }
+  const configs = ROUTE_CONFIG_EXPORTS.filter((name) => exportsName(source, name));
+  const lines = [
+    `import * as handlers from "@/modules/${moduleValue}/${targetRel}/route";`,
+    `import { withModuleRuntime } from "@/lib/module-runtime";`,
+    "",
+    ...methods.map(
+      (method) =>
+        `export const ${method} = withModuleRuntime(${JSON.stringify(moduleValue)}, handlers.${method});`
+    ),
+  ];
+  if (configs.length > 0) {
+    lines.push(
+      "",
+      `export { ${configs.join(", ")} } from "@/modules/${moduleValue}/${targetRel}/route";`
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 function pruneEmptyDirs(startDir) {
@@ -691,8 +768,12 @@ function syncAdapters(manifests) {
       if (!route || !isString(route.path) || (route.kind !== "page" && route.kind !== "api")) continue;
       const targetRel = route.path.replace(/^\//, "").replace(/\/$/, "");
       if (targetRel === "") continue;
-      const entityDir = path.join(ROOT, "src", "modules", m.value, targetRel);
-      const adapterDir = path.join(APP_DIR, targetRel);
+      // 防禦深度：即使 manifest 驗證漏掉，也絕不把檔案寫出模組／src/app 之外。
+      const moduleRoot = path.resolve(ROOT, "src", "modules", m.value);
+      const entityDir = path.resolve(moduleRoot, targetRel);
+      const adapterDir = path.resolve(APP_DIR, targetRel);
+      if (entityDir !== moduleRoot && !entityDir.startsWith(`${moduleRoot}${path.sep}`)) continue;
+      if (adapterDir !== APP_DIR && !adapterDir.startsWith(`${APP_DIR}${path.sep}`)) continue;
       if (route.kind === "page") {
         if (!findEntity(entityDir, PAGE_ENTITIES)) continue; // 尚未實作＝尚未掛載
         const pageRel = `${targetRel}/page.tsx`;
@@ -710,11 +791,12 @@ function syncAdapters(manifests) {
           wanted.add(layoutRel);
         }
       } else {
-        if (!findEntity(entityDir, ROUTE_ENTITIES)) continue;
+        const entity = findEntity(entityDir, ROUTE_ENTITIES);
+        if (!entity) continue;
         const routeRel = `${targetRel}/route.ts`;
         writeAdapter(
           path.join(adapterDir, "route.ts"),
-          `export * from "@/modules/${m.value}/${targetRel}/route";\n`
+          renderApiAdapter(m.value, targetRel, path.join(entityDir, entity))
         );
         wanted.add(routeRel);
       }

@@ -20,11 +20,30 @@
     "module:check": "node scripts/module-check.mjs",
     "module:contract-test": "node scripts/test-module-contract.mjs",
     "module:sign": "node scripts/module-sign.mjs",
+    "module:signature-test": "node scripts/test-module-signature.mjs",
+    "module:install-auth-test": "node scripts/test-module-install-auth.mjs",
+    "module:install-chain-test": "node scripts/test-module-install-chain.mjs",
+    "module:db-scope-test": "node scripts/test-module-db-scope.mjs",
+    "module:runtime-test": "node scripts/test-module-runtime-policy.mjs",
     "version:bump": "node scripts/version.js"
   },
-  "keywords": [],
+  "keywords": [
+    "campus",
+    "school",
+    "nextjs",
+    "firebase",
+    "education"
+  ],
   "author": "takan003",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/takan003/campus-toolkit.git"
+  },
+  "homepage": "https://github.com/takan003/campus-toolkit#readme",
+  "bugs": {
+    "url": "https://github.com/takan003/campus-toolkit/issues"
+  },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.3",
     "@types/adm-zip": "^0.5.8",
@@ -40,8 +59,8 @@
     "firebase-admin": "^14.4.0",
     "google-auth-library": "^11.1.0",
     "jose": "^6.2.12",
-    "next": "^16.3.5",
-    "nodemailer": "^10.0.10",
+    "next": "^16.4.5",
+    "nodemailer": "^10.3.1",
     "postcss": "^8.5.28",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
@@ -57,6 +76,14 @@
     },
     "gaxios": {
       "uuid": "^11.1.1"
+    },
+    "@grpc/grpc-js": "^1.14.7",
+    "rimraf": "^6.1.4",
+    "gcp-metadata@8.1.4": {
+      "gaxios": "^7.3.1"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.5"
     }
   },
   "devDependencies": {

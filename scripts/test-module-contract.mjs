@@ -123,6 +123,27 @@ const CASES = [
     expect: "reject",
     contains: "未提供身分不需預設",
   },
+  {
+    id: 19,
+    dir: "contractFixture",
+    manifest: baseManifest({ routes: [{ kind: "page", path: "/admin/../../../../scripts/evil" }] }),
+    expect: "reject",
+    contains: "不安全路徑",
+  },
+  {
+    id: 20,
+    dir: "contractFixture",
+    manifest: baseManifest({ routes: [{ kind: "page", path: "/admin/..\\..\\scripts\\evil" }] }),
+    expect: "reject",
+    contains: "不安全路徑",
+  },
+  {
+    id: 21,
+    dir: "contractFixture",
+    manifest: baseManifest({ dataCollections: ["users"] }),
+    expect: "reject",
+    contains: "宿主保留集合",
+  },
 ];
 
 function runScanner(fixtureDir) {

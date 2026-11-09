@@ -1,5 +1,7 @@
 # 數位校園工具箱
 
+[![CI](https://github.com/takan003/campus-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/takan003/campus-toolkit/actions/workflows/ci.yml)
+
 整合校園資訊、身分入口與管理功能的校園工具平台。以角色（學生／家長／教職員／管理員）分流首頁，支援帳號密碼與 Google 登入、CSS 主題切換、管理後台與排行榜等，並具備：
 
 - **兩步驟驗證**（TOTP 通行碼 + Email 驗證碼）
@@ -403,6 +405,7 @@ campus-toolkit/
 
 ## 安全注意事項
 
+- **漏洞回報請勿開公開 issue**；請依 [`SECURITY.md`](SECURITY.md) 使用 GitHub 私人安全回報。
 - **`.env`、`.env.local`、服務帳號 JSON 一律已被 `.gitignore` 排除，請勿強制加入版本庫。**
 - 機密只放本機環境變數與 Vercel 環境變數。
 - `FIREBASE_SERVICE_ACCOUNT_KEY`、`SESSION_SECRET` 洩漏時請立刻於 Firebase 重產生私鑰並更換 session secret（所有 session 會失效）。
@@ -418,18 +421,33 @@ campus-toolkit/
 
 ## 貢獻與開發流程
 
-歡迎送 Pull Request。本專案的 commit 規範如下（詳見 [`AGENTS.md`](AGENTS.md)）：
+**主程式採封閉維護**：只有 takan003 與信任團隊可以開 PR／merge；**不接受外部 PR**。
+其他人可以 fork 本 repo 自行維護，或把模組投稿到模組市集。詳見
+[`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+團隊成員的 commit 規範如下（詳見 [`AGENTS.md`](AGENTS.md)）：
 
 1. `npm run lint`（ESLint + tsc）確認通過。
 2. `npm run version:bump` — 依 commit 數將版本號 +1，寫入 `src/version.json`（`dev`/`build` 不重算，
    各環境一律讀這份已 commit 的檔案，本機與分支部署的版本號才會一致）。
 3. commit，訊息結尾附上版本號，例：`…（版本號更新至 0.232）`。
-4. `git push`。
+4. `git push` 並開 PR。
+
+CI（`.github/workflows/ci.yml`）會跑 `npm run lint` 與模組測試；維護者請在 GitHub
+**Settings → Branches** 把 `CI / verify` 設為 required status check。完整設定見
+[`docs/GitHub設定清單.md`](docs/GitHub設定清單.md)。
 
 ## 文件
 
 - [`docs/資料模型.md`](docs/資料模型.md) — 資料模型
 - [`docs/`](docs/) — 身分名冊／使用者帳號批次範例檔（xlsx）與版面截圖
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — 主程式封閉維護與模組開發入口
+- [`SECURITY.md`](SECURITY.md) — 漏洞回報方式與安全邊界
+- [`AGENTS.md`](AGENTS.md) — 模組信任模型（B+）、開發流程與 UI 規範
+- [`docs/GitHub設定清單.md`](docs/GitHub設定清單.md) — branch protection／required checks 等手動設定
+- [`docs/公開前檢查表.md`](docs/公開前檢查表.md) — 發布當天照著打勾的操作清單
+- [module-sdk](https://github.com/takan003/module-sdk) — 模組開發 SDK（`module:check`／影子 tsc）
+- [campus-toolkit-marketplace](https://github.com/takan003/campus-toolkit-marketplace) — 模組市集
 
 ## 授權
 

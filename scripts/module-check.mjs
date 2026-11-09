@@ -8,7 +8,8 @@
  *   1. import 白名單＝主程式公開面＋宿主既有 npm 依賴＋模組內相對路徑
  *   2. 禁止 import 主程式核心寫入面（@/types/modules 等）
  *   5. 禁止新依賴（package.json.dependencies 非空）
- *   6. Firestore 集合字面值須在 dataCollections 宣告（掛勾集合自動豁免）
+ *   6. Firestore 集合字面值須在 dataCollections 宣告；核心個資集合可讀不可寫；
+ *      設施集合（announcements／calendarEvents）一律走掛勾函式，不可直接存取
  *   8. 客戶端檔（"use client"）禁 localStorage/sessionStorage/document.cookie/eval/new Function
  *   9. 禁 import 其他模組資料夾
  * 規則 3/4/7/10 由 build-module-registry.mjs 掃描器負責，不重複。
@@ -36,6 +37,7 @@ const HOST_SURFACE_ALLOW = [
   "@/lib/calendar",
   "@/lib/module-gate",
   "@/lib/module-db",
+  "@/lib/module-host-data",
   "@/lib/settings-client",
   "@/lib/settings-server",
   "@/lib/session",
@@ -66,8 +68,41 @@ const HOST_FORBIDDEN = [
   "@/app/api/settings",
   "@/app/admin/modules",
 ];
-/** 掛豁免集合（掛勾設施；§6.3-3 由掃描器管寫入面，此處僅豁免集合宣告比對） */
-const HOOK_COLLECTIONS = new Set(["announcements", "calendarEvents", "settings"]);
+/** 掛鉤設施集合：不可直接讀寫，一律走 publishFromModule／publishScheduleFromModule */
+const HOST_FACILITY_COLLECTIONS = new Set(["announcements", "calendarEvents"]);
+/** 宿主保留集合：模組不得宣告或直接存取（P0-2） */
+const HOST_RESERVED_COLLECTIONS = new Set(["users", "settings", "activityLog", "revokedJTIs"]);
+/** 核心個資集合：可讀不可寫（P0-2 v2） */
+const HOST_CORE_READONLY_COLLECTIONS = new Set([
+  "rosterStudents",
+  "rosterParents",
+  "rosterStaff",
+  "rosterAdmins",
+  "studentPersonalInfo",
+  "studentPersonalIdentity",
+  "studentPersonalPhoto",
+]);
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 核心集合的直接寫入樣式（鏈式呼叫；變數型別仍靠 runtime scopedDb 擋） */
+function coreWritePatterns(name) {
+  const quoted = `["'\x60]${escapeRegExp(name)}["'\x60]`;
+  return [
+    new RegExp(
+      `\\.collection\\(\\s*${quoted}\\s*\\)\\s*(?:\\.doc\\([^)]*\\)\\s*)?\\.(?:add|set|update|delete|create)\\s*\\(`
+    ),
+    new RegExp(
+      `\\.doc\\(\\s*["'\x60]${escapeRegExp(name)}\\/[^"'\x60]*["'\x60]\\s*\\)\\s*\\.(?:set|update|delete|create)\\s*\\(`
+    ),
+  ];
+}
+
+function hasCoreWrite(source, name) {
+  return coreWritePatterns(name).some((re) => re.test(source));
+}
 /** 客戶端檔危險模式（§6.3-8） */
 const CLIENT_DANGER = [
   { re: /localStorage/, name: "localStorage" },
@@ -76,6 +111,71 @@ const CLIENT_DANGER = [
   { re: /(^|[^.\w])eval\s*\(/, name: "eval()" },
   { re: /new\s+Function\s*\(/, name: "new Function()" },
 ];
+const SCRIPT_TEST_RE = /^(?:scripts|tests?)\//;
+const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
+const DYNAMIC_IMPORT_DYNAMIC_RE = /\bimport\s*\(\s*[A-Za-z_$]/;
+const DOC_PATH_RE = /\.doc\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
+
+function isScriptOrTest(rel) {
+  return SCRIPT_TEST_RE.test(rel);
+}
+
+/** 找出真正的 "use client"（允許前面有註解／空白） */
+function isUseClient(source) {
+  const stripped = source
+    .replace(/^\uFEFF/, "")
+    .replace(/^(?:\s|\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)*/, "");
+  return /^["']use client["']/.test(stripped);
+}
+
+/** 相對 import：解析後必須在模組資料夾內；執行期檔案不可 import scripts/tests 內的東西 */
+function checkRelativeImport(spec, relFile, file, moduleDir, fail) {
+  const resolved = path.resolve(path.dirname(file), spec);
+  const targetRel = path.relative(moduleDir, resolved);
+  if (targetRel.startsWith("..") || path.isAbsolute(targetRel)) {
+    fail(`${relFile} import「${spec}」——相對路徑逃出模組資料夾【P0-3】`);
+    return;
+  }
+  const normalized = targetRel.split(path.sep).join("/");
+  if (!isScriptOrTest(relFile) && isScriptOrTest(normalized)) {
+    fail(`${relFile} import「${spec}」——執行期檔案不可 import scripts/tests 內容【P0-3】`);
+  }
+}
+
+/** 單一 import spec 的白名單檢查（靜態與動態 import 共用） */
+function checkImportSpec(spec, relFile, file, moduleDir, moduleValue, hostDeps, fail) {
+  if (spec.startsWith(".")) {
+    checkRelativeImport(spec, relFile, file, moduleDir, fail);
+    return;
+  }
+  if (spec.startsWith("node:")) {
+    if (!isScriptOrTest(relFile)) {
+      fail(`${relFile} import「${spec}」——執行期檔案禁用 node: 內建模組【P0-3】`);
+    }
+    return;
+  }
+  if (!spec.startsWith("@/")) {
+    const pkgName = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
+    if (!hostDeps.has(pkgName)) fail(`${relFile} import「${spec}」——非主程式既有依賴【E10】`);
+    return;
+  }
+  if (HOST_FORBIDDEN.some((prefix) => spec === prefix || spec.startsWith(`${prefix}/`))) {
+    fail(`${relFile} import「${spec}」——主程式核心寫入面禁止 import【§6.3-1】`);
+    return;
+  }
+  if (spec.startsWith("@/modules/")) {
+    const rest = spec.slice("@/modules/".length);
+    const other = rest.split("/")[0];
+    if (other && other !== moduleValue) {
+      fail(`${relFile} import「${spec}」——禁止 import 其他模組【§6.3-9】`);
+    }
+    return;
+  }
+  const allowed = HOST_SURFACE_ALLOW.some((prefix) => spec === prefix || spec.startsWith(`${prefix}/`));
+  if (!allowed) {
+    fail(`${relFile} import「${spec}」——不在主程式公開面白名單【§6.3-1】`);
+  }
+}
 
 const errors = [];
 function fail(msg) {
@@ -100,6 +200,52 @@ function* walkFiles(dir) {
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) stack.push(full);
       else if (/\.(ts|tsx|js|jsx)$/.test(entry.name)) yield full;
+    }
+  }
+}
+
+/** 管理頁是否有任一祖先 layout 使用 AdminSectionShell（client-side 權限殼） */
+function hasAdminShellAncestor(moduleDir, file) {
+  const adminRoot = path.join(moduleDir, "admin");
+  let dir = path.dirname(file);
+  while (dir.startsWith(adminRoot)) {
+    const layout = fs
+      .readdirSync(dir)
+      .find((name) => /^layout\.(tsx|ts|jsx|js)$/.test(name));
+    if (layout) {
+      const text = fs.readFileSync(path.join(dir, layout), "utf-8");
+      if (text.includes("AdminSectionShell")) return true;
+    }
+    if (dir === adminRoot) break;
+    dir = path.dirname(dir);
+  }
+  return false;
+}
+
+/** API route 守門三件套＋非管理端 module gate 的存在性檢查（P0-8 build-time gate） */
+function checkRouteGuards(moduleDir, file, source, relFile, fail) {
+  if (/^api\/.*\/route\.(ts|js)$/.test(relFile) || /^api\/route\.(ts|js)$/.test(relFile)) {
+    const routePath = `/${relFile.replace(/route\.(ts|js)$/, "").replace(/\/$/, "")}`;
+    if (!/enforceRateLimit\s*\(|checkRateLimit\s*\(/.test(source)) {
+      fail(`${relFile}：缺少限流（enforceRateLimit／checkRateLimit）【P0-8】`);
+    }
+    if (!/requireRole\s*\(|requireAdminModule\s*\(|requireModulePermission\s*\(/.test(source)) {
+      fail(`${relFile}：缺少鑑權（requireRole／requireAdminModule／requireModulePermission）【P0-8】`);
+    }
+    const mutating =
+      /export\s+(?:async\s+)?function\s+(POST|PUT|PATCH|DELETE)\b/.test(source) ||
+      /export\s+const\s+(POST|PUT|PATCH|DELETE)\s*=/.test(source);
+    if (mutating && !/assertSameOrigin\s*\(/.test(source)) {
+      fail(`${relFile}：寫入方法缺少 CSRF（assertSameOrigin）【P0-8】`);
+    }
+    if (/^\/api\/(student|parent|staff)\//.test(routePath) && !/requireFeatureModuleEnabled\s*\(/.test(source)) {
+      fail(`${relFile}：${routePath} 缺少模組啟用閘門（requireFeatureModuleEnabled）【P0-8】`);
+    }
+  }
+
+  if (relFile.startsWith("admin/") && /page\.(tsx|ts|jsx|js)$/.test(relFile)) {
+    if (!hasAdminShellAncestor(moduleDir, file)) {
+      fail(`${relFile}：管理頁缺少任一祖先 layout 的 AdminSectionShell 權限殼【P0-8】`);
     }
   }
 }
@@ -150,7 +296,7 @@ function main() {
 
   for (const file of walkFiles(moduleDir)) {
     const source = fs.readFileSync(file, "utf-8");
-    const isClient = /^["']use client["'];?/m.test(source);
+    const isClient = isUseClient(source);
     const relFile = rel(file);
 
     // 規則 8：客戶端危險模式
@@ -160,51 +306,73 @@ function main() {
       }
     }
 
-    // 規則 1/2/9：import 檢查
+    // 規則 1/2/9：import 檢查（靜態＋動態＋require）
     const importRe = /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[\w*{},\s]+\s+from\s+)?["']([^"']+)["']/g;
+    const requireRe = /require\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
     let match;
-    while ((match = importRe.exec(source)) !== null) {
-      const spec = match[1];
-
-      // 相對路徑（模組內）
-      if (spec.startsWith("./") || spec.startsWith("../")) continue;
-
-      if (!spec.startsWith("@/")) {
-        // bare import：宿主既有依賴才可
-        const pkgName = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
-        if (!hostDeps.has(pkgName)) fail(`${relFile} import「${spec}」——非主程式既有依賴【E10】`);
-        continue;
-      }
-
-      // 絕對 @/ 匯入
-      if (HOST_FORBIDDEN.some((prefix) => spec === prefix || spec.startsWith(`${prefix}/`))) {
-        fail(`${relFile} import「${spec}」——主程式核心寫入面禁止 import【§6.3-1】`);
-        continue;
-      }
-      if (spec.startsWith("@/modules/")) {
-        const rest = spec.slice("@/modules/".length);
-        const other = rest.split("/")[0];
-        if (other && other !== moduleValue) {
-          fail(`${relFile} import「${spec}」——禁止 import 其他模組【§6.3-9】`);
-        }
-        continue;
-      }
-      const allowed = HOST_SURFACE_ALLOW.some((prefix) => spec === prefix || spec.startsWith(`${prefix}/`));
-      if (!allowed) {
-        fail(`${relFile} import「${spec}」——不在主程式公開面白名單【§6.3-1】`);
-      }
+    const specs = new Set();
+    while ((match = importRe.exec(source)) !== null) specs.add(match[1]);
+    while ((match = requireRe.exec(source)) !== null) specs.add(match[1]);
+    while ((match = DYNAMIC_IMPORT_RE.exec(source)) !== null) specs.add(match[1]);
+    for (const spec of specs) {
+      checkImportSpec(spec, relFile, file, moduleDir, moduleValue, hostDeps, fail);
+    }
+    if (!isScriptOrTest(relFile) && DYNAMIC_IMPORT_DYNAMIC_RE.test(source)) {
+      fail(`${relFile}：動態 import 非字面值，無法驗證【P0-3】`);
     }
 
-    // 規則 6：Firestore 集合字面值 vs dataCollections 宣告
-    const collectionRe = /\.collection\(\s*["']([A-Za-z][A-Za-z0-9_]*)["']\s*\)/g;
+    // 規則 6：Firestore 集合字面值 vs dataCollections 宣告（collection＋doc 路徑）
+    const collectionRe = /\.collection\(\s*["'`]([A-Za-z][A-Za-z0-9_]*)["'`]\s*\)/g;
     while ((match = collectionRe.exec(source)) !== null) {
       const name = match[1];
-      if (!declaredCollections.has(name) && !HOOK_COLLECTIONS.has(name)) {
+      if (HOST_RESERVED_COLLECTIONS.has(name)) {
+        fail(`${relFile} 存取宿主保留集合「${name}」——模組不得直接讀寫【P0-2】`);
+        continue;
+      }
+      if (HOST_FACILITY_COLLECTIONS.has(name)) {
+        fail(
+          `${relFile} 存取設施集合「${name}」——請改用 publishFromModule／publishScheduleFromModule【P0-2】`
+        );
+        continue;
+      }
+      if (!declaredCollections.has(name)) {
         fail(
           `${relFile} 存取未宣告集合「${name}」——請在 module.json dataCollections 宣告【§6.3-6】`
         );
+        continue;
+      }
+      if (HOST_CORE_READONLY_COLLECTIONS.has(name) && hasCoreWrite(source, name)) {
+        fail(`${relFile} 對核心集合「${name}」進行寫入——核心個資集合僅供讀取【P0-2】`);
       }
     }
+    DOC_PATH_RE.lastIndex = 0;
+    while ((match = DOC_PATH_RE.exec(source)) !== null) {
+      if (!match[1].includes("/")) continue; // .doc("id") 是文件 ID，不是集合路徑
+      const name = match[1].split("/")[0]?.trim() ?? "";
+      if (!name) continue;
+      if (HOST_RESERVED_COLLECTIONS.has(name)) {
+        fail(`${relFile} 以 doc 路徑存取宿主保留集合「${name}」——模組不得直接讀寫【P0-2】`);
+        continue;
+      }
+      if (HOST_FACILITY_COLLECTIONS.has(name)) {
+        fail(
+          `${relFile} 以 doc 路徑存取設施集合「${name}」——請改用掛勾函式【P0-2】`
+        );
+        continue;
+      }
+      if (!declaredCollections.has(name)) {
+        fail(
+          `${relFile} 以 doc 路徑存取未宣告集合「${name}」——請在 module.json dataCollections 宣告【P0-3／§6.3-6】`
+        );
+        continue;
+      }
+      if (HOST_CORE_READONLY_COLLECTIONS.has(name) && hasCoreWrite(source, name)) {
+        fail(`${relFile} 對核心集合「${name}」進行寫入——核心個資集合僅供讀取【P0-2】`);
+      }
+    }
+
+    // P0-8：API 守門三件套與管理頁權限殼的存在性
+    checkRouteGuards(moduleDir, file, source, relFile, fail);
   }
 
   if (errors.length) {
