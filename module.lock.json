@@ -3,12 +3,15 @@
   "modules": [
     {
       "value": "examRegistration",
-      "version": "0.1.55",
+      "version": "0.1.58",
       "contractVersion": 1,
       "minHostVersion": "0.558",
-      "sha256": "584201c5f7919214e97207061cccbbf1d8939a3b9d3db3142e2835c66107a1ce",
-      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/examRegistration-0.1.55.zip",
-      "installedAt": "2026-10-29"
+      "sha256": "dc6f362bcb87be3e269431cad02666156565205d2edac3caa12cc2bae06cbe4f",
+      "treeSha256": "e37b740be6b6d2ea23a4fe77d1ba7a123e516a65c1973991cd3f8a05a4332d82",
+      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/examRegistration-0.1.58.zip",
+      "installedAt": "2026-11-11",
+      "signature": "5H0oyN/PzceNFhDUGbi2saB83HOMio3SPOwzXTJwSQ09x5gGrY8yB1SzwAgcbZW1rjMOm4Uj3bYcEbuCgtvVCg==",
+      "publicKey": "MCowBQYDK2VwAyEA/bIHYBb7hUie/fguMoXJ2vltikMkN+CPIyVZ5UbCwHE="
     },
     {
       "value": "selfDirectedLearning",
