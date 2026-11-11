@@ -15,12 +15,15 @@
     },
     {
       "value": "selfDirectedLearning",
-      "version": "0.0.147",
+      "version": "0.0.150",
       "contractVersion": 1,
-      "minHostVersion": "0.580",
-      "sha256": "90cccca051c57f9d1047a994f00f1a4e8431a8ee37f9527e423be403477e61ee",
-      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/selfDirectedLearning-0.0.147.zip",
-      "installedAt": "2026-11-05"
+      "minHostVersion": "0.632",
+      "sha256": "8c59683a80a6fdbcbdce4fd620a572b770892f21c30f0d6f3275897a1bd404cd",
+      "treeSha256": "a66001bca2c2017d6fba7727f27fdaaec8337d24996b8ad47f7334b3ebe7dcb2",
+      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/selfDirectedLearning-0.0.150.zip",
+      "installedAt": "2026-11-11",
+      "signature": "DWFUjnobtFdHw1E1G0mOvsVCWTCkV1LyV9CQGTFUAe62+oU45X0GUum9KMBPWLSitIQO08CGv3gfZy/GWbYVAQ==",
+      "publicKey": "MCowBQYDK2VwAyEA/bIHYBb7hUie/fguMoXJ2vltikMkN+CPIyVZ5UbCwHE="
     },
     {
       "value": "identityTaxInquiry",
