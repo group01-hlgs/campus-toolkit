@@ -7,16 +7,20 @@ import { spawnSync } from "node:child_process";
 import AdmZip from "adm-zip";
 import { requireModuleInstallAdmin, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { commitMarketplaceModuleInstall, resolveModuleMarketGithubConfig } from "@/lib/module-market-github";
 import { resolveModuleMarketIndexUrl } from "@/lib/module-market";
 import { verifyModuleArchiveSignature } from "@/lib/module-signature";
+import { assertBodySize, readJsonBody } from "@/lib/http-body";
 
 export const dynamic = "force-dynamic";
 
 /** 套件下載上限（bytes）：市集第一期上限 500KB＋緩衝＝1MB【附錄 A #11】 */
 const MAX_ARCHIVE_BYTES = 1024 * 1024;
+/** 解壓後上限：避免 zip bomb（壓縮 500KB 可能膨脹到數 GB） */
+const MAX_EXTRACTED_BYTES = 10 * 1024 * 1024;
+const MAX_EXTRACTED_FILES = 2000;
 /** 正式上架／安裝的套件上限（壓縮後 500KB） */
 const MARKET_PACKAGE_LIMIT = 500 * 1024;
 const MODULE_VALUE_RE = /^[a-z][A-Za-z0-9]*$/;
@@ -112,22 +116,7 @@ function resolveArchiveExtension(fileName: string): ".zip" | ".tar.gz" | null {
   return null;
 }
 
-function readLockModules(): Set<string> {
-  const lockPath = path.join(process.cwd(), "module.lock.json");
-  if (!fs.existsSync(lockPath)) return new Set();
-
-  try {
-    const lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as { modules?: Array<{ value?: string }> };
-    const modules = Array.isArray(lock?.modules) ? lock.modules : [];
-    return new Set(
-      modules
-        .filter((item: { value?: string }) => item && typeof item.value === "string")
-        .map((item: { value?: string }) => item.value as string)
-    );
-  } catch {
-    return new Set();
-  }
-}
+import { readInstalledModuleValues } from "@/lib/module-lock";
 
 function runModuleCli(
   command: "install" | "uninstall",
@@ -231,18 +220,93 @@ async function downloadToTemp(
   };
 }
 
+function assertSafeArchiveEntry(name: string): void {
+  const normalized = String(name)
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "");
+  if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) {
+    throw new Error(`壓縮檔含非法絕對路徑：${name}`);
+  }
+  const segments = normalized.split("/");
+  if (segments.some((segment) => segment === ".." || segment === "")) {
+    throw new Error(`壓縮檔含路徑穿越（zip slip）：${name}`);
+  }
+}
+
+function assertExtractedTree(root: string): void {
+  let fileCount = 0;
+  let totalBytes = 0;
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      const relative = path.relative(root, full);
+      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error("壓縮檔含路徑穿越（zip slip），拒絕安裝");
+      }
+      if (entry.isSymbolicLink()) {
+        throw new Error("壓縮檔含 symbolic link，拒絕安裝");
+      }
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        fileCount += 1;
+        if (fileCount > MAX_EXTRACTED_FILES) {
+          throw new Error(`解壓後檔案數過多（超過 ${MAX_EXTRACTED_FILES} 個），拒絕安裝`);
+        }
+        totalBytes += fs.statSync(full).size;
+        if (totalBytes > MAX_EXTRACTED_BYTES) {
+          throw new Error(
+            `解壓後過大（超過 ${MAX_EXTRACTED_BYTES / 1024 / 1024}MB），拒絕安裝`
+          );
+        }
+      }
+    }
+  };
+  walk(root);
+}
+
 function extractArchive(filePath: string, extension: string): string {
   const dir = path.dirname(filePath);
 
   if (extension === ".zip") {
     try {
       const zip = new AdmZip(filePath);
+      let declaredBytes = 0;
+      for (const entry of zip.getEntries()) {
+        assertSafeArchiveEntry(entry.entryName);
+        const size = Number((entry.header as { size?: unknown } | undefined)?.size ?? 0);
+        if (Number.isFinite(size) && size > 0) declaredBytes += size;
+        if (declaredBytes > MAX_EXTRACTED_BYTES) {
+          throw new Error(`解壓後過大（超過 ${MAX_EXTRACTED_BYTES / 1024 / 1024}MB），拒絕安裝`);
+        }
+      }
       zip.extractAllTo(dir, true);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`ZIP 解壓失敗（adm-zip）：${detail}`);
     }
   } else {
+    const listResult = spawnSync("tar", ["-tzf", filePath], { encoding: "utf-8" });
+    if (listResult.status !== 0) {
+      throw new Error("tar 無法列出壓縮檔內容，拒絕安裝");
+    }
+    for (const line of (listResult.stdout || "").split("\n")) {
+      const name = line.trim();
+      if (name) assertSafeArchiveEntry(name);
+    }
+    // tar 沒有像 zip 的 entry header 可直接讀，改用 -tvzf 的 size 欄位做解壓炸彈上限。
+    const verboseResult = spawnSync("tar", ["-tvzf", filePath], { encoding: "utf-8" });
+    if (verboseResult.status === 0) {
+      let declaredBytes = 0;
+      for (const line of (verboseResult.stdout || "").split("\n")) {
+        const size = Number(/^\S+\s+\S+\s+(\d+)\s/.exec(line.trim())?.[1] ?? NaN);
+        if (Number.isFinite(size)) declaredBytes += size;
+        if (declaredBytes > MAX_EXTRACTED_BYTES) {
+          throw new Error(`解壓後過大（超過 ${MAX_EXTRACTED_BYTES / 1024 / 1024}MB），拒絕安裝`);
+        }
+      }
+    }
     const result = spawnSync("tar", ["-xzf", filePath, "-C", dir], { encoding: "utf-8" });
     if (result.status !== 0) {
       const detail = result.error?.message || result.stderr?.toString() || result.stdout?.toString() || "";
@@ -250,6 +314,7 @@ function extractArchive(filePath: string, extension: string): string {
     }
   }
 
+  assertExtractedTree(dir);
   return dir;
 }
 
@@ -273,7 +338,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_MUTATE.limit,
@@ -297,6 +362,9 @@ export async function POST(request: NextRequest) {
     let uploadArchive: File | null = null;
 
     if (contentType.includes("multipart/form-data")) {
+      const bodyTooLarge = assertBodySize(request, 2 * 1024 * 1024);
+      if (bodyTooLarge) return bodyTooLarge;
+
       const form = await request.formData();
       const idEntry = form.get("id");
       const sourceEntry = form.get("sourcePath");
@@ -314,7 +382,9 @@ export async function POST(request: NextRequest) {
       expectedPublicKey = typeof publicKeyEntry === "string" ? publicKeyEntry.trim() : "";
       uploadArchive = archiveEntry instanceof File ? archiveEntry : null;
     } else {
-      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+      const parsed = await readJsonBody<Record<string, unknown>>(request);
+      if (!parsed.ok) return parsed.response;
+      const body = parsed.data;
       moduleId = typeof body.id === "string" ? body.id.trim() : "";
       sourcePath = typeof body.sourcePath === "string" ? body.sourcePath.trim() : "";
       downloadUrl = typeof body.downloadUrl === "string" ? body.downloadUrl.trim() : "";
@@ -558,6 +628,8 @@ export async function POST(request: NextRequest) {
         manifestVersion,
         contractVersion,
         minHostVersion,
+        signature: expectedSignature || undefined,
+        publicKey: expectedPublicKey || undefined,
       });
 
       await logActivity({
@@ -588,7 +660,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const installed = readLockModules();
+    const installed = readInstalledModuleValues();
     const updating = installed.has(effectiveModuleId);
     let backupDir = "";
     let backupModuleDir = "";

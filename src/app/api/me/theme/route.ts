@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifySession } from "@/lib/dal";
 import { unauthorized } from "@/lib/server-session";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { USER_COLLECTION } from "@/types/users";
 import { THEME_COLOR_KEYS } from "@/types/theme";
+import { readJsonBody } from "@/lib/http-body";
 
 export const dynamic = "force-dynamic";
 
@@ -92,7 +93,7 @@ function readUserThemeFields(user: Record<string, unknown> | null | undefined): 
 /** GET：讀取本人主題偏好（themeId＋已安裝清單，Step 11 帳號同步） */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "me-theme-get",
       RATE.ME_THEME_GET.limit,
@@ -127,7 +128,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "me-theme-put",
       RATE.ME_THEME_MUTATE.limit,
@@ -138,7 +139,9 @@ export async function PUT(request: NextRequest) {
     const session = await verifySession();
     if (!session) return unauthorized();
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const hasThemeId = "themeId" in body;
     const hasInstalled = "installedThemes" in body;
 

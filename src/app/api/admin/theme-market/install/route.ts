@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import {
   downloadThemeZip,
@@ -9,6 +9,7 @@ import {
   findThemeManifestRoot,
   loadThemePackage,
 } from "@/lib/theme-market";
+import { readJsonBody } from "@/lib/http-body";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "theme-market",
       RATE.THEME_MARKET_MUTATE.limit,
@@ -42,7 +43,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const themeId = typeof body.id === "string" ? body.id.trim() : "";
     const downloadUrl = typeof body.downloadUrl === "string" ? body.downloadUrl.trim() : "";
     const expectedSha256 =

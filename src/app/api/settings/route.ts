@@ -8,7 +8,7 @@ import {
   verifySession,
 } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import {
   Settings,
@@ -27,6 +27,7 @@ import {
   FEATURE_MODULES_FIELD,
   FEATURE_MODULE_ROLES_FIELD,
 } from "@/types/feature-modules";
+import { readJsonBody } from "@/lib/http-body";
 
 const SETTINGS_DOC = { collection: "settings", id: "system" };
 const MAX_SETTINGS = 200_000;
@@ -82,7 +83,7 @@ function pickSettings(raw: Record<string, unknown>): Settings {
 
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "settings-get",
       RATE.SETTINGS_GET.limit,
@@ -138,7 +139,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "settings-put",
       30,
@@ -150,7 +151,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireSettingsManage();
     if (denial) return toAuthResponse(denial);
 
-    const raw = await request.json().catch(() => null);
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const raw = parsed.data;
     if (!raw || typeof raw !== "object") {
       return NextResponse.json({ success: false, message: "無效的設定內容" }, { status: 400 });
     }

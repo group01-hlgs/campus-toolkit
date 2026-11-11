@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getAppHostingUsage } from "@/lib/usage-apphosting";
 import { getFirebaseUsage } from "@/lib/usage-firebase";
 import { getReadStatsSnapshot, resetReadStats } from "@/lib/read-stats";
 import type { ReadStatsDiag } from "@/lib/read-stats";
 import type { StatsResponse, UsageSection } from "@/types/usage";
+import { readJsonBody } from "@/lib/http-body";
 
 /**
  * 統計儀表板：App Hosting（Cloud Run／Cloud Build）與 Firebase（Firestore）用量，
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
     const { denial } = await requireAdminModule("stats");
     if (denial) return toAuthResponse(denial);
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "admin-stats-usage",
       RATE.ADMIN_USAGE_GET.limit,
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
     const { denial } = await requireAdminModule("stats");
     if (denial) return toAuthResponse(denial);
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "admin-stats-usage",
       RATE.ADMIN_USAGE_GET.limit,
@@ -94,7 +95,9 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    const body = await request.json().catch(() => null);
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     if (!body || typeof body !== "object" || (body as { action?: unknown }).action !== "reset-read-stats") {
       return NextResponse.json({ success: false, message: "無效的操作" }, { status: 400 });
     }

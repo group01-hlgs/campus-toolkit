@@ -7,8 +7,8 @@ import {
 } from "@/lib/server-session";
 import { logActivity, getClientIp } from "@/lib/audit";
 import {
-  enforceRateLimit,
-  enforceAccountRateLimit,
+  enforceRateLimitShared,
+  enforceAccountRateLimitShared,
   RATE,
 } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
@@ -31,6 +31,7 @@ import {
 } from "@/lib/login-candidate";
 import { getRosterEntry, resolveDisplayName } from "@/lib/roster";
 import { serverErrorMessage } from "@/lib/api-error";
+import { readJsonBody } from "@/lib/http-body";
 
 const LOCK_THRESHOLD = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "login",
       RATE.LOGIN.limit,
@@ -152,15 +153,11 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    let body: { account?: unknown; password?: unknown };
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "請求內容無效" },
-        { status: 400 }
-      );
-    }
+    const parsed = await readJsonBody<{ account?: unknown; password?: unknown }>(
+      request
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const { account, password } = body;
     const ip = getClientIp(request);
 
@@ -180,7 +177,7 @@ export async function POST(request: NextRequest) {
     const input = String(account).toLowerCase().trim();
 
     // 帳號維度限流：不依賴 IP，擋針對單一帳號的爆破
-    const accountLimited = enforceAccountRateLimit(
+    const accountLimited = await enforceAccountRateLimitShared(
       "login",
       "any",
       input,

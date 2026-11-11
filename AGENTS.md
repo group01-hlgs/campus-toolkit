@@ -108,6 +108,21 @@ E、F、G 又稱「外掛」、「外掛功能」；維護時流程相同，只�
 1. 請針對 A「主程式」進行修改。
 1. 修改完成後 push A「主程式」，請勿將本機掛載安裝的選用功能模組 push 上去。
 
+**「轉移陣地」指令**，實施流程（把目前進度與重要文件推到遠端，讓另一台電腦可接續）：
+
+此指令視為對 workspace 內「有未提交變更」專案的 commit／push 授權；但不得因此推送敏感檔案或掛載產物。
+
+<details open>
+<summary>轉移範圍與安全檢查</summary>
+
+1. 先盤點 workspace 內各專案（A／B／C／E／F／G）的 `git status` 與 remote；只處理有未提交變更的專案，沒有變更的跳過，並確認 push 目的地是本人的 fork／正確 repo。
+1. 逐專案檢視 diff，確認變更用途；無法判斷或涉及敏感資料時先詢問，不自行丟棄、覆蓋或硬推。
+1. 重要文件一律納入：`AGENTS.md`、`README.md`、`SECURITY.md`、`CONTRIBUTING.md`、`docs/**/*.md`（規劃書、待辦清單、設計文件、檢查表）。這些文件即使沒有程式碼變更，也要 commit＋push。
+1. 下列內容不得推送：`.env*`、服務帳號金鑰、token、密碼、個資、備份檔、`node_modules/`、`.next/`、`.module-sandbox/`、`src/modules/*/` 掛載產物、`module.lock.local.json`。含弱點細節或攻擊手法的文件（例如 `docs/模組架構公開前診斷.md`）預設不進公開 repo；改用私有 repo、加密壓縮或隨身碟，並在回報中標示「未推送」。
+1. commit 後逐專案 push；A 若含程式碼變更，依「修改完成後的流程」跑 lint／version bump，純文件變更不 bump。最後回報各專案的 branch、commit hash、push 結果與未推送清單，另一台電腦 pull 後以 `git status` 確認乾淨。
+
+</details>
+
 ### 貢獻者規範（必讀）
 
 1. 未經本人明確允許，**不得在「Contributors」自行新增任何貢獻者**——包含但不限於
@@ -118,19 +133,24 @@ E、F、G 又稱「外掛」、「外掛功能」；維護時流程相同，只�
 
 ### 線上市集安裝的鐵律（必讀）
 
-線上市集安裝／更新／移除外掛時，**系統會自動 commit + push 到該部署所連結的 GitHub repo**
-（production 的持久化機制，讓模組撐過重新部署）。因此：
+線上市集安裝／更新／移除外掛時，**系統只會 commit + push `module.lock.json` 到該部署所連結的
+GitHub repo**（P1-10 lock-only）。模組檔案由 build 前 `scripts/materialize-modules.mjs`
+依 lock 下載、驗 sha256／簽章後重建到 `src/modules/<value>`。因此：
 
-- **只有連著「各校自己的 fork」的線上站，才可以用線上市集安裝**——裝出來的 commit
-  進自己的 fork，正是設計意圖。
-- **絕不可對連著上游（takan003/campus-toolkit）的線上站按市集安裝**——模組會被
-  commit 進上游，所有 fork 都會被迫附帶（違反「上游＝乾淨模板」的架構）。
-- 本機開發一律用 `module:link`（產物已 gitignore，不會進 git），與線上安裝互不相干。
-- 誤裝進上游時的補救：`git revert <該 commit>` 後 push 即可，**不需要重建任何 fork 或部署**；
-  各校 fork 自行安裝的模組不受影響（同步後 git 會保留他們自己的安裝）。
-- production 自動安裝／卸載的 commit 會一併更新 `src/version.json`，commit 前檢查
-  lock ↔ 目錄一致性；全量 `npm run lint`（eslint＋tsc）由 CI 執行，部署平台應等待
-  required status checks。
+- **只有連著「各校自己的 fork」的線上站，才可以用線上市集安裝**——lock commit 進自己的
+  fork，正是設計意圖。
+- **絕不可對連著上游（takan003/campus-toolkit）的線上站按市集安裝**——lock 會被 commit
+  進上游，所有 fork 都會被迫附帶該模組（違反「上游＝乾淨模板」）。
+- 本機開發一律用 `module:link`；本機 lock 寫在 `module.lock.local.json`（已 gitignore），
+  與線上安裝互不相干。
+- 誤裝進上游時的補救：`git revert <該 commit>` 後 push 即可，**不需要重建任何 fork**。
+- `module.lock.json` 要 commit；`module.lock.local.json` 與 `src/modules/*/` 不 commit。
+- 舊版把模組檔案 commit 進 repo 的 fork，第一次 lock-only 更新會自動刪除該模組的舊檔案；
+  其他模組可依 `docs/模組市集與外掛開發.md` 的遷移步驟清理。
+- 上傳 zip／本機 `sourcePath` 的安裝沒有穩定下載 URL，仍走 legacy 檔案 commit，可能仍會
+  產生同步衝突；正式安裝請用市集的 `downloadUrl`。
+- build／lint／dev 前都會先 materialize；下載、sha256 或簽章驗證失敗會直接讓流程失敗
+  （fail-closed），不會帶著不完整模組繼續建置。
 
 ### 模組信任模型與上架政策（B+）
 
@@ -138,16 +158,16 @@ E、F、G 又稱「外掛」、「外掛功能」；維護時流程相同，只�
 1. **模組作者自己的 repo** 的 PR／審核由作者自行管理，不屬於本專案治理；正式上架走 C，或把模組放進自己 fork 的 `src/modules`。
 1. **E／F／G** 是官方範例模組，由信任團隊維護；仍須走 A／B 的 `module:check`、lint、版本與 changelog 流程。
 1. 第三方模組採**「開放投稿、審核上架」**：任何人都可以在自己的 repo 撰寫，但投稿到 C 後必須通過最低限度安全審核，才可標為「已審核社群」。C 採 PR 審核制：外部 PR 只能送 `experimental`，維護者審核後才改 `reviewed`／`official`。
-1. **兩層信任**：`module.lock.json.source` 以 `market:` 開頭者屬市集模組，受上述審核與安裝檢查約束；`link-copy:`／`copy:`／其他 local 來源屬 fork 主人自用模組，**不受市集規範**，主人自行承擔。手動把資料夾放進 `src/modules` 也屬於 local。
+1. **兩層信任**：`module.lock.json`（市集）的 `source` 以 `market:` 開頭者屬市集模組，受上述審核與安裝檢查約束；`module.lock.local.json`（本機）的 `link-copy:`／`copy:`／其他 local 來源屬 fork 主人自用模組，**不受市集規範**，主人自行承擔。手動把資料夾放進 `src/modules` 也屬於 local。
 1. 市集狀態固定三種：
    - **官方**：信任團隊維護，可直接使用。
    - **已審核社群**：外部作者，通過掃描＋人審＋簽章綁定，學校可安裝。
    - **實驗**：未審核，只供測試，不建議 production 安裝。
 1. **未審核模組不得進入 production（限市集模組）**；若未來要「不審查也能上架」，必須先做 v2 隔離執行，不能直接放寬。local 自用模組不適用此條。
 1. **安裝／卸載模組**需 `modules` 權限；屬性分級已退役，預設全體管理員皆可。高風險環境可用 `MODULE_MARKET_INSTALL_ADMINS`（逗號分隔 uid／email）限縮，未設定時不限制。
-1. **核心個資集合對模組唯讀**（名冊四表＋學生個人資料三表）；模組自有集合須在 `dataCollections` 宣告，設施集合（公告／行事曆）一律走掛勾函式。v2 以 `scopedDb` 在 runtime 執行；`getAdminDb` 仍為 v1 相容路徑。
-1. **模組 API 由宿主 runtime wrapper 強制**：薄轉接檔會自動包上 rate limit、CSRF、完整 session、路徑角色與非管理端 module gate；模組仍須自己寫三件套，但不再是唯一防線。
-1. 目前模組仍是 in-process、具伺服器權限；審查與簽章只降低風險，**不是沙箱**。文件與市集頁必須如實揭露。
+1. **核心個資集合對模組唯讀**（名冊四表＋學生個人資料三表）；模組自有集合須在 `dataCollections` 宣告，設施集合（公告／行事曆）一律走掛勾函式。v2 以 `scopedDb` 在 runtime 執行；模組 API context 內的 `getAdminDb()` 也會自動套用 `scopedDb`（宿主內部改用 `getAdminDbRaw()`）。
+1. **模組 API 由宿主 runtime wrapper 強制**：薄轉接檔會自動包上 body 大小上限、rate limit（可選 Upstash 跨實例）、CSRF、完整 session、路徑角色與非管理端 module gate；模組頁面另有 server-side session／角色／module gate，且 page／layout 在 module context 內執行，`getAdminDb()` 也會套用 `scopedDb`。模組仍須自己寫三件套，但不再是唯一防線。
+1. 目前模組仍是 in-process、具伺服器權限；審查與簽章只降低風險，**不是沙箱**。P1-9 已完成 Phase 1（禁 `node:` 內建、宿主秘密 env、`process.env` 枚舉、`eval`）與 Phase 2A～2C（`moduleSecret()`、子程序 permission POC、`module:sandbox-build`、`withModuleSandbox` runtime manager）。啟用方式：`MODULE_SANDBOX_MODULES=<value>`＋先跑 `npm run module:sandbox-build -- --module <value>`；細節見 `docs/模組沙箱設計.md`。文件與市集頁必須如實揭露。
 
 <details>
 <summary>最低限度審核清單</summary>
@@ -237,5 +257,5 @@ E、F、G 又稱「外掛」、「外掛功能」；維護時流程相同，只�
 1. `npm run lint`（eslint + tsc）確認通過
 2. `npm run version:bump`（即 `node scripts/version.js`：依 commit 數 +1 寫入 `src/version.json`；
    `dev`/`build` **不**重算，版本號一律以已 commit 的檔案為準，各部署環境顯示才會一致）
-3. commit（訊息結尾附「版本號更新至 0.xxx」）
-4. `git push`
+3. commit（訊息結尾附「版本號更新至 0.xxx」）；0.xxx 一律採用 `version:bump` 印出的版本，不要自行推算。
+4. `git push`；需要版本標記時，tag 名稱與 commit 訊息使用同一個版本號。

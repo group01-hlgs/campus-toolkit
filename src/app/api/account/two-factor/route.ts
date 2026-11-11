@@ -3,7 +3,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { verifySession } from "@/lib/dal";
 import { unauthorized } from "@/lib/server-session";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getTotpIssuer } from "@/lib/settings-server";
 import { invalidateAdminListCache } from "@/lib/list-cache";
@@ -16,6 +16,7 @@ import {
 } from "@/lib/two-factor";
 import { TWO_FACTOR_METHODS, isTwoFactorMethod, USER_COLLECTION } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
+import { readJsonBody } from "@/lib/http-body";
 
 function twoFactorInfo(secret: string, account: string, issuer: string) {
   return {
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "two-factor-set",
       RATE.TWO_FACTOR_SET.limit,
@@ -44,15 +45,11 @@ export async function POST(request: NextRequest) {
     const session = await verifySession();
     if (!session) return unauthorized();
 
-    let body: { method?: unknown; action?: unknown };
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "請求內容無效" },
-        { status: 400 }
-      );
-    }
+    const parsed = await readJsonBody<{ method?: unknown; action?: unknown }>(
+      request
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const userRef = getAdminDb()
       .collection(USER_COLLECTION)

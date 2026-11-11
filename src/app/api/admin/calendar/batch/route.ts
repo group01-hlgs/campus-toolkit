@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
@@ -10,6 +10,7 @@ import {
   getCalendarSettings,
   listAdminCalendarEvents,
 } from "@/lib/calendar";
+import { readJsonBody } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-admin",
       RATE.CALENDAR_ADMIN_MUTATE.limit,
@@ -48,7 +49,9 @@ export async function POST(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
     const session = context.session;
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const action = body.action === "cancel" ? "cancel" : body.action === "delete" ? "delete" : null;
     const ids = parseIds(body.ids);
     if (!action || ids.length === 0) {

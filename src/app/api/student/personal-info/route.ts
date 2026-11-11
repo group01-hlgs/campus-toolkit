@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireRole, toAuthResponse, type VerifiedSession } from "@/lib/dal";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getPostalCodeOptions } from "@/lib/postal-codes";
@@ -29,6 +29,7 @@ import {
   type StudentPersonalIdentityFields,
   type StudentPersonalInfoTermFields,
 } from "@/types/personal-info";
+import { readJsonBody } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -84,7 +85,7 @@ function validateStudentTermFields(raw: unknown): StudentPersonalInfoTermFields 
 /** 讀取學生本人本學期個人資料與填寫期間。 */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "student-personal-info-get",
       RATE.ACCOUNT_GET.limit,
@@ -178,7 +179,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "student-personal-info-save",
       RATE.ACCOUNT_UPDATE.limit,
@@ -189,7 +190,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireRole("student");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     if (!body || JSON.stringify(body).length > 10_000) {
       return NextResponse.json(
         { success: false, message: "個人資料內容無效或過大" },
@@ -251,7 +254,7 @@ export async function PATCH(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "student-personal-identity-save",
       RATE.ACCOUNT_UPDATE.limit,
@@ -262,7 +265,9 @@ export async function PATCH(request: NextRequest) {
     const { session, denial } = await requireRole("student");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     if (!body || JSON.stringify(body).length > 4_000) {
       return NextResponse.json(
         { success: false, message: "固定個人資料內容無效或過大" },

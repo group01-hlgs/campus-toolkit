@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { toAuthResponse, verifySession } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
@@ -9,6 +9,7 @@ import {
   listMyCalendarReminders,
   toggleCalendarReminder,
 } from "@/lib/calendar";
+import { readJsonBody } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -20,7 +21,7 @@ function entryClassCode(entry: Record<string, unknown> | null | undefined): stri
 /** GET：我的行程提醒（仍有效者）＋已設定 id（供按鈕狀態） */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-list",
       RATE.CALENDAR_LIST.limit,
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-list",
       RATE.CALENDAR_LIST.limit,
@@ -73,7 +74,9 @@ export async function POST(request: NextRequest) {
     const session = await verifySession();
     if (!session) return toAuthResponse({ status: 401, message: "未登入或登入已失效" });
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const eventId = typeof body.eventId === "string" ? body.eventId.trim() : "";
     if (!eventId) {
       return NextResponse.json({ success: false, message: "缺少行程識別" }, { status: 400 });

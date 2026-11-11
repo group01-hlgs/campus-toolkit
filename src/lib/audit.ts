@@ -1,5 +1,5 @@
 import "server-only";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDbRaw } from "@/lib/firebase-admin";
 import type { GeneratedActivityAction } from "@/lib/activity-actions.generated";
 
 export type ActivityAction =
@@ -86,7 +86,9 @@ export function getClientIp(request: {
   }
 
   const trustProxy =
-    process.env.VERCEL === "1" || process.env.TRUST_PROXY === "true";
+    process.env.VERCEL === "1" ||
+    Boolean(process.env.K_SERVICE) ||
+    process.env.TRUST_PROXY === "true";
   if (!trustProxy) return "";
 
   const real = request.headers.get("x-real-ip");
@@ -105,7 +107,7 @@ export function getClientIp(request: {
 
 export async function logActivity(entry: ActivityEntry): Promise<void> {
   try {
-    await getAdminDb().collection("activityLog").add({
+    await getAdminDbRaw().collection("activityLog").add({
       userId: entry.userId || "",
       role: entry.role || "",
       action: entry.action,

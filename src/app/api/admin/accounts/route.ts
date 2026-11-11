@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, FieldValue } from "@/lib/firebase-admin";
 import { hasAdminModule, isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
@@ -50,6 +50,7 @@ import {
   validateAccountInput,
   validateRosterInput,
 } from "@/lib/roster";
+import { readJsonBody } from "@/lib/http-body";
 
 /** 帳號狀態變更的守門：本人、以及「仍是有效管理員且只剩他一位」都要擋 */
 async function assertAccountStatusAllowed(
@@ -167,7 +168,7 @@ function isValidPreferredRole(value: unknown): boolean {
 /** GET：全帳號工作表（不分頁），含每人的具備身分與登入資訊 */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "accounts-list",
       RATE.ACCOUNTS_LIST.limit,
@@ -220,7 +221,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "accounts-mutate",
       RATE.ACCOUNTS_MUTATE.limit,
@@ -231,7 +232,9 @@ export async function POST(request: NextRequest) {
     const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const { input, preferredRole } = parseAccountBody(body);
     if (!isValidPreferredRole(preferredRole)) {
       return NextResponse.json({ success: false, message: "慣用身分無效" }, { status: 400 });
@@ -404,7 +407,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "accounts-mutate",
       RATE.ACCOUNTS_MUTATE.limit,
@@ -415,7 +418,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const { uid, input, preferredRole } = parseAccountBody(body);
     if (!uid) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
@@ -532,7 +537,7 @@ export async function PATCH(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "accounts-mutate",
       RATE.ACCOUNTS_MUTATE.limit,
@@ -543,7 +548,9 @@ export async function PATCH(request: NextRequest) {
     const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const uid = typeof body.uid === "string" ? body.uid : "";
     const status: AccountStatus | null = isAccountStatus(body.status) ? body.status : null;
     if (!uid || !status) {
@@ -596,7 +603,7 @@ export async function DELETE(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "accounts-mutate",
       RATE.ACCOUNTS_MUTATE.limit,
@@ -607,7 +614,9 @@ export async function DELETE(request: NextRequest) {
     const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const uid = typeof body.uid === "string" ? body.uid : "";
     if (!uid) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });

@@ -33,6 +33,7 @@ const VALIDATE_ONLY = process.env.MODULE_REGISTRY_VALIDATE_ONLY === "1";
 const HAND_REGISTRY = path.join(ROOT, "src", "types", "modules.ts");
 const VERSION_FILE = path.join(ROOT, "src", "version.json");
 const LOCK_FILE = path.join(ROOT, "module.lock.json");
+const LOCAL_LOCK_FILE = path.join(ROOT, "module.lock.local.json");
 const OUT_FEATURE = path.join(ROOT, "src", "types", "feature-modules.generated.ts");
 const OUT_MODULES = path.join(ROOT, "src", "types", "modules.generated.ts");
 const RATE_TABLE = path.join(ROOT, "src", "lib", "rate-limit.ts");
@@ -696,19 +697,61 @@ function renderApiAdapter(moduleValue, targetRel, sourcePath) {
     return `export * from "@/modules/${moduleValue}/${targetRel}/route";\n`;
   }
   const configs = ROUTE_CONFIG_EXPORTS.filter((name) => exportsName(source, name));
+  const routePath = targetRel.startsWith("api/") ? `/${targetRel}` : `/api/${targetRel}`;
   const lines = [
     `import * as handlers from "@/modules/${moduleValue}/${targetRel}/route";`,
     `import { withModuleRuntime } from "@/lib/module-runtime";`,
+    `import { withModuleSandbox } from "@/lib/module-sandbox/manager";`,
     "",
     ...methods.map(
       (method) =>
-        `export const ${method} = withModuleRuntime(${JSON.stringify(moduleValue)}, handlers.${method});`
+        `export const ${method} = withModuleRuntime(${JSON.stringify(
+          moduleValue
+        )}, withModuleSandbox(${JSON.stringify(moduleValue)}, ${JSON.stringify(
+          routePath
+        )}, handlers.${method}));`
     ),
   ];
   if (configs.length > 0) {
     lines.push(
       "",
       `export { ${configs.join(", ")} } from "@/modules/${moduleValue}/${targetRel}/route";`
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+const PAGE_CONFIG_EXPORTS = [
+  "metadata",
+  "generateMetadata",
+  "viewport",
+  "generateViewport",
+  "dynamic",
+  "revalidate",
+  "runtime",
+  "fetchCache",
+  "preferredRegion",
+  "maxDuration",
+];
+
+/** 頁面／layout 轉接檔（P0-8）：包上 server-side session／角色／模組閘門 */
+function renderPageAdapter(moduleValue, targetRel, sourcePath, entityName) {
+  const source = fs.readFileSync(sourcePath, "utf-8");
+  const configs = PAGE_CONFIG_EXPORTS.filter((name) => exportsName(source, name));
+  const baseName = entityName.replace(/\.[^.]+$/, "");
+  const lines = [
+    `import Page from "@/modules/${moduleValue}/${targetRel}/${baseName}";`,
+    `import { withModulePage } from "@/lib/module-page-runtime";`,
+    "",
+    `export default withModulePage(${JSON.stringify(moduleValue)}, ${JSON.stringify(
+      `/${targetRel}`
+    )}, Page);`,
+  ];
+  if (configs.length > 0) {
+    lines.push(
+      "",
+      `export { ${configs.join(", ")} } from "@/modules/${moduleValue}/${targetRel}/${baseName}";`
     );
   }
   lines.push("");
@@ -775,18 +818,20 @@ function syncAdapters(manifests) {
       if (entityDir !== moduleRoot && !entityDir.startsWith(`${moduleRoot}${path.sep}`)) continue;
       if (adapterDir !== APP_DIR && !adapterDir.startsWith(`${APP_DIR}${path.sep}`)) continue;
       if (route.kind === "page") {
-        if (!findEntity(entityDir, PAGE_ENTITIES)) continue; // 尚未實作＝尚未掛載
+        const pageEntity = findEntity(entityDir, PAGE_ENTITIES);
+        if (!pageEntity) continue; // 尚未實作＝尚未掛載
         const pageRel = `${targetRel}/page.tsx`;
         writeAdapter(
           path.join(adapterDir, "page.tsx"),
-          `export { default } from "@/modules/${m.value}/${targetRel}/page";\n`
+          renderPageAdapter(m.value, targetRel, path.join(entityDir, pageEntity), pageEntity)
         );
         wanted.add(pageRel);
-        if (findEntity(entityDir, LAYOUT_ENTITIES)) {
+        const layoutEntity = findEntity(entityDir, LAYOUT_ENTITIES);
+        if (layoutEntity) {
           const layoutRel = `${targetRel}/layout.tsx`;
           writeAdapter(
             path.join(adapterDir, "layout.tsx"),
-            `export { default } from "@/modules/${m.value}/${targetRel}/layout";\n`
+            renderPageAdapter(m.value, targetRel, path.join(entityDir, layoutEntity), layoutEntity)
           );
           wanted.add(layoutRel);
         }
@@ -877,19 +922,42 @@ for (const m of manifests) {
   }
 }
 
-// 【E13】module.lock.json ↔ 目錄一致性（lock 存在時雙向檢查；測試模式略過——fixtures 不入 lock）
-if (!VALIDATE_ONLY && fs.existsSync(LOCK_FILE)) {
-  const lock = readJson(LOCK_FILE);
-  if (lock.error || !Array.isArray(lock.data?.modules)) {
-    fail("module.lock.json", `無法解析或缺少 modules 陣列：${lock.error ?? "格式不符"}`);
-  } else {
-    const locked = new Set(lock.data.modules.map((item) => item && item.value));
+// 【E13】module.lock.json（市集）＋ module.lock.local.json（本機）↔ 目錄一致性
+// （lock 存在時雙向檢查；測試模式略過——fixtures 不入 lock）
+if (!VALIDATE_ONLY) {
+  const readLockValues = (filePath) => {
+    if (!fs.existsSync(filePath)) return [];
+    const lock = readJson(filePath);
+    if (lock.error || !Array.isArray(lock.data?.modules)) {
+      fail(
+        path.basename(filePath),
+        `無法解析或缺少 modules 陣列：${lock.error ?? "格式不符"}`
+      );
+      return [];
+    }
+    return lock.data.modules.map((item) => item && item.value).filter(isString);
+  };
+
+  const marketValues = readLockValues(LOCK_FILE);
+  const localValues = readLockValues(LOCAL_LOCK_FILE);
+  if (marketValues.length > 0 || localValues.length > 0) {
+    const locked = new Set([...marketValues, ...localValues]);
     const installed = new Set(manifests.map((m) => m.value).filter(isString));
     for (const value of locked) {
-      if (!installed.has(value)) fail("module.lock.json", `已登記「${value}」但 src/modules 無此資料夾（殘 lock）`);
+      if (!installed.has(value)) {
+        fail(
+          "module.lock.json／module.lock.local.json",
+          `已登記「${value}」但 src/modules 無此資料夾（殘 lock 或尚未 materialize）`
+        );
+      }
     }
     for (const value of installed) {
-      if (!locked.has(value)) fail("src/modules", `「${value}」不在 module.lock.json（手放未登記，請走安裝/lock 流程）`);
+      if (!locked.has(value)) {
+        fail(
+          "src/modules",
+          `「${value}」不在 module.lock.json／module.lock.local.json（手放未登記，請走安裝/lock 流程）`
+        );
+      }
     }
   }
 }

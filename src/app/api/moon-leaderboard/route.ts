@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { verifySession } from "@/lib/dal";
 import { unauthorized } from "@/lib/server-session";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { ROLE_LABELS, UserRole } from "@/types/users";
 import { serverErrorMessage } from "@/lib/api-error";
 import { cachedRead, invalidateReadCache } from "@/lib/read-cache";
+import { readJsonBody } from "@/lib/http-body";
 
 const COLLECTION = "moonLeaderboard";
 const TOP_N = 100;
@@ -35,7 +36,7 @@ function formatRecordDate(ms: number): string {
 
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "moon-leaderboard-get",
       RATE.LEADERBOARD_GET.limit,
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
   const session = await verifySession();
   if (!session) return unauthorized();
 
-  const limited = enforceRateLimit(
+  const limited = await enforceRateLimitShared(
     request,
     "moon-leaderboard-post",
     RATE.LEADERBOARD_POST.limit,
@@ -115,7 +116,9 @@ export async function POST(request: NextRequest) {
   );
   if (limited) return limited;
 
-  const body = await request.json().catch(() => null);
+  const parsed = await readJsonBody<Record<string, unknown>>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   const raw = body?.score;
   if (
     typeof raw !== "number" ||

@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { hasAdminModule, isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
@@ -64,6 +64,7 @@ import {
   validateAccountInput,
   validateRosterInput,
 } from "@/lib/roster";
+import { assertBodySize, DEFAULT_FORM_BODY_BYTES } from "@/lib/http-body";
 
 export const maxDuration = 300;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -873,7 +874,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "accounts-batch",
       RATE.ACCOUNTS_BATCH.limit,
@@ -883,6 +884,9 @@ export async function POST(request: NextRequest) {
 
     const { session, denial } = await requireAdminModule("users");
     if (denial) return toAuthResponse(denial);
+
+    const bodyTooLarge = assertBodySize(request, DEFAULT_FORM_BODY_BYTES);
+    if (bodyTooLarge) return bodyTooLarge;
 
     const formData = await request.formData().catch(() => null);
     if (!formData) {

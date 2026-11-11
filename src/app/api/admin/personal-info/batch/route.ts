@@ -10,7 +10,7 @@ import {
   deleteStudentPersonalPhotoObjects,
   personalPhotoObjectPathsForRecord,
 } from "@/lib/personal-info";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getCacheEpoch, getCurrentPeriod } from "@/lib/settings-server";
 import {
   PERSONAL_INFO_COLLECTION,
@@ -25,6 +25,7 @@ import {
 } from "@/types/personal-info";
 import { rosterCollection } from "@/types/roster";
 import type { SchoolPeriod } from "@/types/settings";
+import { assertBodySize, DEFAULT_FORM_BODY_BYTES } from "@/lib/http-body";
 
 export const maxDuration = 300;
 
@@ -724,7 +725,7 @@ async function getTemplateResponse() {
 export async function GET(request: NextRequest) {
   try {
     if (request.nextUrl.searchParams.get("template") === "1") return await getTemplateResponse();
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_GET.limit,
@@ -744,10 +745,13 @@ export async function POST(request: NextRequest) {
   try {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
-    const limited = enforceRateLimit(request, "feature-modules", RATE.FEATURE_MODULES_MUTATE.limit, RATE.FEATURE_MODULES_MUTATE.windowMs);
+    const limited = await enforceRateLimitShared(request, "feature-modules", RATE.FEATURE_MODULES_MUTATE.limit, RATE.FEATURE_MODULES_MUTATE.windowMs);
     if (limited) return limited;
     const { session, denial } = await requireRole("admin");
     if (denial) return toAuthResponse(denial);
+
+    const bodyTooLarge = assertBodySize(request, DEFAULT_FORM_BODY_BYTES);
+    if (bodyTooLarge) return bodyTooLarge;
 
     const formData = await request.formData().catch(() => null);
     if (!formData) return noStoreJson({ success: false, message: "請求內容無效" }, 400);

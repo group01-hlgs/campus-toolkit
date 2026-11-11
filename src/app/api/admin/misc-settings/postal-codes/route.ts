@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getPostalCodeOptions, savePostalCodeOptions } from "@/lib/postal-codes";
@@ -11,13 +11,14 @@ import {
   POSTAL_DISTRICT_MAX_LENGTH,
   type PostalCodeOption,
 } from "@/types/postal-codes";
+import { readJsonBody } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 const MAX_BODY_BYTES = 200_000;
 
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "school-codes",
       RATE.SCHOOL_CODES_GET.limit,
@@ -44,7 +45,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "school-codes",
       RATE.SCHOOL_CODES_MUTATE.limit,
@@ -55,7 +56,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireAdminModule("miscSettings");
     if (denial) return toAuthResponse(denial);
 
-    const body = await request.json().catch(() => null);
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return NextResponse.json({ success: false, message: "無效的郵遞區號設定" }, { status: 400 });
     }

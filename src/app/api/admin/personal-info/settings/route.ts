@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireRole, toAuthResponse } from "@/lib/dal";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
@@ -15,13 +15,14 @@ import {
   type StudentPersonalInfoTarget,
   type StudentPersonalInfoTargetMode,
 } from "@/types/personal-info";
+import { readJsonBody } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 
 /** 讀取目前學期學生個人資料填寫規則。 */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_GET.limit,
@@ -53,7 +54,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_MUTATE.limit,
@@ -64,7 +65,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireRole("admin");
     if (denial) return toAuthResponse(denial);
 
-    const raw = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const raw = parsed.data;
     if (!raw || typeof raw.enabled !== "boolean") {
       return NextResponse.json(
         { success: false, message: "請提供有效的開放填寫狀態" },

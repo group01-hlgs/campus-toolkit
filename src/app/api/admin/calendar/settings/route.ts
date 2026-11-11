@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
@@ -18,13 +18,14 @@ import {
   calendarAccessOf,
   normalizePublicPastMonths,
 } from "@/types/calendar";
+import { readJsonBody } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 
 /** GET：讀取行事曆模組設定（含單位層級、樓層空間選項，供「發佈單位」「地點」下拉） */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-admin",
       RATE.CALENDAR_ADMIN_GET.limit,
@@ -75,7 +76,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-admin",
       RATE.CALENDAR_ADMIN_MUTATE.limit,
@@ -87,7 +88,9 @@ export async function PUT(request: NextRequest) {
     if (denial) return toAuthResponse(denial);
     const session = context.session;
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const categories = Array.isArray(body.categories)
       ? (body.categories as unknown[]).map((item) => {

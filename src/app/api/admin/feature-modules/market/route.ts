@@ -1,42 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "node:fs";
-import path from "node:path";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { parseModuleMarketIndex } from "@/types/module-market";
 import { invalidateSettingsCache, SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
 import { MODULE_MARKET_INDEX_URL_FIELD, resolveModuleMarketIndexUrl } from "@/lib/module-market";
 import { resolveModuleMarketGithubConfig } from "@/lib/module-market-github";
+import { readJsonBody } from "@/lib/http-body";
+import { readInstalledModules } from "@/lib/module-lock";
 
 export const dynamic = "force-dynamic";
 
 const MAX_INDEX_BYTES = 512 * 1024;
 
-function readInstalledModules(): Record<string, string> {
-  const lockPath = path.join(process.cwd(), "module.lock.json");
-  if (!fs.existsSync(lockPath)) return {};
-  try {
-    const lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as {
-      modules?: Array<{ value?: unknown; version?: unknown }>;
-    };
-    const modules = Array.isArray(lock.modules) ? lock.modules : [];
-    const out: Record<string, string> = {};
-    for (const item of modules) {
-      if (!item || typeof item.value !== "string") continue;
-      out[item.value] = typeof item.version === "string" ? item.version : "";
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_GET.limit,
@@ -133,7 +114,7 @@ export async function PATCH(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_MUTATE.limit,
@@ -151,7 +132,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const marketUrl = typeof body.marketUrl === "string" ? body.marketUrl.trim() : "";
     if (marketUrl) {
       let parsed: URL;

@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
@@ -49,6 +49,7 @@ import {
   storedAdminModules,
   validateRosterInput,
 } from "@/lib/roster";
+import { assertBodySize, DEFAULT_FORM_BODY_BYTES } from "@/lib/http-body";
 
 /** 條目上的管理員屬性字串（無／非字串＝空） */
 function attributeOf(entry: Record<string, unknown> | null | undefined): string {
@@ -625,7 +626,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "roster-batch",
       RATE.ROSTER_BATCH.limit,
@@ -635,6 +636,9 @@ export async function POST(request: NextRequest) {
 
     const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
+
+    const bodyTooLarge = assertBodySize(request, DEFAULT_FORM_BODY_BYTES);
+    if (bodyTooLarge) return bodyTooLarge;
 
     const formData = await request.formData().catch(() => null);
     if (!formData) {

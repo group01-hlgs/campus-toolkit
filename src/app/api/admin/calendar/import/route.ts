@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { requireModulePermission, toAuthResponse } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
@@ -28,6 +28,7 @@ import {
   type CalendarSchoolActivity,
 } from "@/types/calendar";
 import type { SchoolPeriodRow } from "@/types/school-periods";
+import { assertBodySize, DEFAULT_FORM_BODY_BYTES } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 export const maxDuration = 300;
@@ -687,7 +688,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-batch",
       RATE.CALENDAR_BATCH.limit,
@@ -698,6 +699,9 @@ export async function POST(request: NextRequest) {
     const { context, denial } = await requireModulePermission("calendar", "import");
     if (denial) return toAuthResponse(denial);
     const session = context.session;
+
+    const bodyTooLarge = assertBodySize(request, DEFAULT_FORM_BODY_BYTES);
+    if (bodyTooLarge) return bodyTooLarge;
 
     const formData = await request.formData().catch(() => null);
     if (!formData) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { toAuthResponse, verifySession } from "@/lib/dal";
 import { serverErrorMessage } from "@/lib/api-error";
@@ -13,6 +13,7 @@ import {
 } from "@/lib/calendar";
 import { staffAudienceAllowed, type CalendarAudience } from "@/types/calendar";
 import { ALL_ROLES, type UserRole } from "@/types/users";
+import { readJsonBody } from "@/lib/http-body";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -34,7 +35,7 @@ function entryUnit(entry: Record<string, unknown> | null | undefined): string {
  */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-list",
       RATE.CALENDAR_LIST.limit,
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "calendar-staff-create",
       RATE.CALENDAR_STAFF_CREATE.limit,
@@ -119,7 +120,9 @@ export async function POST(request: NextRequest) {
       return toAuthResponse({ status: 403, message: "僅教職員與管理員可建立行程" });
     }
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const rawRoles = Array.isArray(body.roles) ? body.roles : [];
     const allowedRoles: UserRole[] =
       session.role === "admin"

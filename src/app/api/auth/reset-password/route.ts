@@ -4,8 +4,8 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { hashPassword } from "@/lib/auth";
 import { assertSameOrigin } from "@/lib/csrf";
 import {
-  enforceRateLimit,
-  checkRateLimit,
+  enforceRateLimitShared,
+  checkRateLimitAsync,
   clientKey,
   RATE,
 } from "@/lib/rate-limit";
@@ -23,6 +23,7 @@ import { getRosterEntry, resolveDisplayName } from "@/lib/roster";
 import { getCurrentPeriod } from "@/lib/settings-server";
 import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import { serverErrorMessage } from "@/lib/api-error";
+import { readJsonBody } from "@/lib/http-body";
 
 function maskEmail(email: string): string {
   const at = email.indexOf("@");
@@ -53,8 +54,11 @@ function tokenFingerprint(token: unknown): string {
     .slice(0, 16);
 }
 
-function countVerifyFailure(request: NextRequest, token: unknown): NextResponse | null {
-  const fail = checkRateLimit(
+async function countVerifyFailure(
+  request: NextRequest,
+  token: unknown
+): Promise<NextResponse | null> {
+  const fail = await checkRateLimitAsync(
     `reset-password-fail:${clientKey(request)}:${tokenFingerprint(token)}`,
     RATE.RESET_PASSWORD_FAIL.limit,
     RATE.RESET_PASSWORD_FAIL.windowMs
@@ -75,7 +79,7 @@ function countVerifyFailure(request: NextRequest, token: unknown): NextResponse 
  */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "reset-password-verify",
       RATE.RESET_PASSWORD.limit,
@@ -87,7 +91,7 @@ export async function GET(request: NextRequest) {
     const { status, record } = await inspectPasswordResetToken(token);
 
     if (status !== "ok") {
-      const tooMany = countVerifyFailure(request, token);
+      const tooMany = await countVerifyFailure(request, token);
       if (tooMany) return tooMany;
       return NextResponse.json(
         {
@@ -127,7 +131,7 @@ export async function POST(request: NextRequest) {
     if (originDenied) return originDenied;
 
     const ip = getClientIp(request);
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "reset-password",
       RATE.RESET_PASSWORD.limit,
@@ -135,15 +139,11 @@ export async function POST(request: NextRequest) {
     );
     if (limited) return limited;
 
-    let body: { token?: unknown; newPassword?: unknown };
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "請求內容無效" },
-        { status: 400 }
-      );
-    }
+    const parsed = await readJsonBody<{ token?: unknown; newPassword?: unknown }>(
+      request
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     if (!isStrongPassword(body.newPassword)) {
       return NextResponse.json(
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
 
     const { status, record } = await consumePasswordResetToken(body.token);
     if (status !== "ok" || !record) {
-      const tooMany = countVerifyFailure(request, body.token);
+      const tooMany = await countVerifyFailure(request, body.token);
       if (tooMany) return tooMany;
       await logActivity({
         action: "password_reset_failed",

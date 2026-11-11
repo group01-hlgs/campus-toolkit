@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { resolveThemeMarketIndexUrl, THEME_MARKET_INDEX_URL_FIELD } from "@/lib/theme-market";
 import { parseThemeMarketIndex } from "@/types/theme-market";
 import { invalidateSettingsCache, SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
+import { readJsonBody } from "@/lib/http-body";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ const MAX_INDEX_BYTES = 512 * 1024;
  */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "theme-market",
       RATE.THEME_MARKET_GET.limit,
@@ -109,7 +110,7 @@ export async function PATCH(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "theme-market",
       RATE.THEME_MARKET_MUTATE.limit,
@@ -127,7 +128,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const marketUrl = typeof body.marketUrl === "string" ? body.marketUrl.trim() : "";
     if (marketUrl) {
       let parsed: URL;

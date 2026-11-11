@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { requireAdminModule, requireModuleInstallAdmin, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import {
@@ -25,11 +25,12 @@ import {
   featureModuleMeta,
 } from "@/types/feature-modules";
 import { isUserRole, ROLE_LABELS } from "@/types/users";
+import { readJsonBody } from "@/lib/http-body";
 
 /** GET：讀取功能模組的總開關與「模組 × 身分」開關（全體管理員，頁面顯示用） */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_GET.limit,
@@ -65,7 +66,7 @@ export async function PATCH(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_MUTATE.limit,
@@ -76,7 +77,9 @@ export async function PATCH(request: NextRequest) {
     const { session, denial } = await requireAdminModule("modules");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const value = typeof body.value === "string" ? body.value : "";
     const enabled = typeof body.enabled === "boolean" ? body.enabled : null;
     const meta = value ? featureModuleMeta(value) : undefined;
@@ -178,7 +181,7 @@ export async function DELETE(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_MUTATE.limit,
@@ -189,7 +192,9 @@ export async function DELETE(request: NextRequest) {
     const { session, denial } = await requireModuleInstallAdmin();
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const value = typeof body.value === "string" ? body.value : "";
     const confirmedBackup = body.confirmedBackup === true;
     const isProduction = process.env.NODE_ENV === "production";

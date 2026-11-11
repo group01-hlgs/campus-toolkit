@@ -3,7 +3,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { hashPassword } from "@/lib/auth";
 import { requireSuperAdmin, toAuthResponse } from "@/lib/dal";
 import { logActivity, getClientIp } from "@/lib/audit";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import {
   normalizeEmail,
@@ -18,6 +18,7 @@ import { buildAccountRecord, buildRosterEntry, rosterEntryId } from "@/lib/roste
 import { ADMIN_MODULE_VALUES, USER_COLLECTION } from "@/types/users";
 import { rosterCollection } from "@/types/roster";
 import { serverErrorMessage } from "@/lib/api-error";
+import { readJsonBody } from "@/lib/http-body";
 
 /** 管理員名冊總筆數（不分學期）：>0 即代表已建立過管理員，不可再走初始建立 */
 async function adminCount(): Promise<number> {
@@ -28,7 +29,7 @@ async function adminCount(): Promise<number> {
 /** 供 /setup 判斷是否仍可建立首任管理員（不揭露環境變數名稱） */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "admin-create-status",
       RATE.ADMIN_CREATE_STATUS.limit,
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "admin-create",
       RATE.ADMIN_CREATE.limit,
@@ -83,7 +84,15 @@ export async function POST(request: NextRequest) {
       session = s;
     }
 
-    const { email, account, password, name, displayName } = await request.json();
+    const parsed = await readJsonBody<{
+      email?: unknown;
+      account?: unknown;
+      password?: unknown;
+      name?: unknown;
+      displayName?: unknown;
+    }>(request);
+    if (!parsed.ok) return parsed.response;
+    const { email, account, password, name, displayName } = parsed.data;
     // 統一用 name；相容舊欄位 displayName（舊介面仍可能傳）
     const normName =
       String(typeof name === "string" ? name : (displayName ?? "")).slice(0, 64);

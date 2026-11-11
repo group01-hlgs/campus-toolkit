@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { isSuperAdmin, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { invalidateAdminListCache } from "@/lib/list-cache";
@@ -10,6 +10,7 @@ import { getCacheEpoch } from "@/lib/settings-server";
 import { findAccountByKey, isSuperEntry, moveEntriesUid } from "@/lib/roster";
 import { USER_COLLECTION } from "@/types/users";
 import { rosterCollection } from "@/types/roster";
+import { readJsonBody } from "@/lib/http-body";
 
 /**
  * POST：手動銜接孤兒名冊條目（帳號已刪除、名冊條目保留）。
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "roster-mutate",
       RATE.ROSTER_MUTATE.limit,
@@ -32,7 +33,9 @@ export async function POST(request: NextRequest) {
     const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const fromUid = typeof body.uid === "string" ? body.uid : "";
     const key = typeof body.key === "string" ? body.key.trim() : "";
     if (!fromUid || !key) {

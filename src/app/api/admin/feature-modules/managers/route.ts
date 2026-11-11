@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { getClientIp, logActivity } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod } from "@/lib/settings-server";
@@ -10,6 +10,7 @@ import { isActiveEntry, loadPeriodEntries, managedModulesOf } from "@/lib/roster
 import { resolveStaffAttribute } from "@/types/users";
 import { featureModuleMeta } from "@/types/feature-modules";
 import { ROSTER_ROLES, isRosterRole, rosterCollection, RosterRole } from "@/types/roster";
+import { readJsonBody } from "@/lib/http-body";
 
 /** 可被指派管理的功能模組：有 managerPermissions 宣告（不分內建／選用；未宣告＝僅管理員） */
 function assignableModuleOrError(value: string) {
@@ -72,7 +73,7 @@ function personOf(data: Record<string, unknown>, role: RosterRole, uid: string):
  */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_GET.limit,
@@ -263,7 +264,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_MUTATE.limit,
@@ -274,7 +275,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireAdminModule("modules");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const moduleValue = typeof body.module === "string" ? body.module : "";
     const uid = typeof body.uid === "string" ? body.uid : "";
     const role = isRosterRole(body.role) ? body.role : null;
@@ -347,7 +350,7 @@ export async function DELETE(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "feature-modules",
       RATE.FEATURE_MODULES_MUTATE.limit,

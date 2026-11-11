@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { checkAdminAttribute, requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { getCurrentPeriod, getCacheEpoch } from "@/lib/settings-server";
@@ -39,6 +39,7 @@ import {
   toRosterMember,
   validateRosterInput,
 } from "@/lib/roster";
+import { readJsonBody } from "@/lib/http-body";
 
 /** 條目上的管理員屬性字串（無／非字串＝空） */
 function attributeOf(entry: Record<string, unknown> | null | undefined): string {
@@ -62,7 +63,7 @@ function parseRosterBody(body: Record<string, unknown>): {
 
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "roster-list",
       RATE.ROSTER_LIST.limit,
@@ -165,7 +166,7 @@ export async function POST(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "roster-mutate",
       RATE.ROSTER_MUTATE.limit,
@@ -176,7 +177,9 @@ export async function POST(request: NextRequest) {
     const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const { role, uid, input } = parseRosterBody(body);
     if (!role) {
       return NextResponse.json({ success: false, message: "帳號身分無效" }, { status: 400 });
@@ -267,7 +270,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "roster-mutate",
       RATE.ROSTER_MUTATE.limit,
@@ -278,7 +281,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const { role, uid, input } = parseRosterBody(body);
     if (!role || !uid) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });
@@ -392,7 +397,7 @@ export async function PATCH(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "roster-mutate",
       RATE.ROSTER_MUTATE.limit,
@@ -403,7 +408,9 @@ export async function PATCH(request: NextRequest) {
     const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const role = isRosterRole(body.role) ? body.role : null;
     const uid = typeof body.uid === "string" ? body.uid : "";
     const status: AccountStatus | null = isAccountStatus(body.status) ? body.status : null;
@@ -479,7 +486,7 @@ export async function DELETE(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "roster-mutate",
       RATE.ROSTER_MUTATE.limit,
@@ -490,7 +497,9 @@ export async function DELETE(request: NextRequest) {
     const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const { role, uid } = parseRosterBody(body);
     if (!role || !uid) {
       return NextResponse.json({ success: false, message: "請求內容無效" }, { status: 400 });

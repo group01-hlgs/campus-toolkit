@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION } from "@/lib/settings-server";
@@ -15,6 +15,7 @@ import {
   validateSchoolPeriods,
   type SchoolPeriodsSetting,
 } from "@/types/school-periods";
+import { readJsonBody } from "@/lib/http-body";
 
 const PERIODS_DOC = { collection: SETTINGS_COLLECTION, id: PERIODS_DOC_ID };
 const MAX_BODY = 400_000;
@@ -32,7 +33,7 @@ const noStore = { "Cache-Control": "no-store" };
 /** GET：讀回課表作息時間（結構性資料，不按學期） */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "school-periods",
       RATE.SCHOOL_PERIODS_GET.limit,
@@ -77,7 +78,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "school-periods",
       RATE.SCHOOL_PERIODS_MUTATE.limit,
@@ -88,7 +89,9 @@ export async function PUT(request: NextRequest) {
     const { session, denial } = await requireAdminModule("schoolSettings");
     if (denial) return toAuthResponse(denial);
 
-    const raw = await request.json().catch(() => null);
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const raw = parsed.data;
     if (!raw || typeof raw !== "object") {
       return NextResponse.json({ success: false, message: "無效的設定內容" }, { status: 400 });
     }

@@ -8,7 +8,7 @@ import {
 } from "@/lib/server-session";
 import { revokeJti } from "@/lib/revocation";
 import { getClientIp, logActivity } from "@/lib/audit";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getTotpIssuer, isEmailChangeAllowed, getCurrentPeriod } from "@/lib/settings-server";
 import { invalidateAdminListCache } from "@/lib/list-cache";
@@ -30,6 +30,7 @@ import {
 } from "@/types/users";
 import { ROLE_INFO_FIELDS, adminModuleLabels } from "@/types/roster";
 import { serverErrorMessage } from "@/lib/api-error";
+import { readJsonBody } from "@/lib/http-body";
 
 export interface AccountProfile {
   uid: string;
@@ -136,7 +137,7 @@ async function getActiveRoleOptions(
 /** GET：讀取自身帳號資料（帳號、身分與安全管理頁各卡共用） */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "account-get",
       RATE.ACCOUNT_GET.limit,
@@ -187,7 +188,7 @@ export async function PUT(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "account-put",
       RATE.ACCOUNT_UPDATE.limit,
@@ -198,15 +199,13 @@ export async function PUT(request: NextRequest) {
     const session = await verifySession();
     if (!session) return unauthorized();
 
-    let body: { email?: unknown; account?: unknown; preferredRole?: unknown };
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "請求內容無效" },
-        { status: 400 }
-      );
-    }
+    const parsed = await readJsonBody<{
+      email?: unknown;
+      account?: unknown;
+      preferredRole?: unknown;
+    }>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     if (
       body.email === undefined &&
       body.account === undefined &&

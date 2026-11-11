@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { requireAdminModule, toAuthResponse } from "@/lib/dal";
 import { assertSameOrigin } from "@/lib/csrf";
-import { enforceRateLimit, RATE } from "@/lib/rate-limit";
+import { enforceRateLimitShared, RATE } from "@/lib/rate-limit";
 import { logActivity, getClientIp } from "@/lib/audit";
 import { serverErrorMessage } from "@/lib/api-error";
 import { SETTINGS_COLLECTION, SETTINGS_DOC_ID } from "@/lib/settings-server";
@@ -10,11 +10,12 @@ import { invalidateReadCache, AUTHZ_CACHE_PREFIX } from "@/lib/read-cache";
 import { getRoleEnabled, invalidateRoleSettingsCache } from "@/lib/role-settings";
 import { ROLE_LABELS, isUserRole, UserRole } from "@/types/users";
 import { RoleEnabledMap, ROLE_ENABLED_FIELD } from "@/types/role-settings";
+import { readJsonBody } from "@/lib/http-body";
 
 /** GET：讀取四種身分的現行啟用狀態 */
 export async function GET(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "role-settings",
       RATE.ROLE_SETTINGS_GET.limit,
@@ -42,7 +43,7 @@ export async function PATCH(request: NextRequest) {
     const originDenied = assertSameOrigin(request);
     if (originDenied) return originDenied;
 
-    const limited = enforceRateLimit(
+    const limited = await enforceRateLimitShared(
       request,
       "role-settings",
       RATE.ROLE_SETTINGS_MUTATE.limit,
@@ -53,7 +54,9 @@ export async function PATCH(request: NextRequest) {
     const { session, denial } = await requireAdminModule("roster");
     if (denial) return toAuthResponse(denial);
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await readJsonBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const role: UserRole | null = isUserRole(body.role) ? body.role : null;
     const enabled = typeof body.enabled === "boolean" ? body.enabled : null;
     if (!role || enabled === null) {
