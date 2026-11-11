@@ -27,12 +27,15 @@
     },
     {
       "value": "identityTaxInquiry",
-      "version": "0.1.31",
+      "version": "0.1.33",
       "contractVersion": 1,
       "minHostVersion": "0.558",
-      "sha256": "f7a215da931e1a78778010cceb0f8dc5666fa3c19b14ebbfc3b6291174e68279",
-      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/identityTaxInquiry-0.1.31.zip",
-      "installedAt": "2026-11-02"
+      "sha256": "fa74b3dc69ffbdf9fb361dae0bf9f6d6531ef24f1e37ff36932cc8d1b1634703",
+      "treeSha256": "323851f40d43f9a7f64e394c479bd4037bacb7fcde9a9765d6252ab464d36561",
+      "source": "market:https://raw.githubusercontent.com/takan003/campus-toolkit-marketplace/main/releases/identityTaxInquiry-0.1.33.zip",
+      "installedAt": "2026-11-11",
+      "signature": "stuhPZLAaHxdfsFkS4h9YkN7kz78v2WwbNprOe65n1fqBQh802Wprcj26MxxjCwYyhSPMQB9P1NojWzWew0yDg==",
+      "publicKey": "MCowBQYDK2VwAyEA/bIHYBb7hUie/fguMoXJ2vltikMkN+CPIyVZ5UbCwHE="
     }
   ]
 }
